@@ -91,7 +91,7 @@ async def auth_google(
 ) -> AuthResponse:
     settings = get_settings()
     try:
-        info = verify_google_id_token(body.id_token, settings.google_client_ids)
+        info = verify_google_id_token(body.id_token, settings.google_client_id_list)
     except GoogleAuthError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
 
