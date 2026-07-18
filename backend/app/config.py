@@ -44,6 +44,17 @@ class Settings(BaseSettings):
     cors_origins: str = "*"
     cdsc_require_jwt: bool = True
 
+    # Admin dashboard (demo credentials — change in production)
+    admin_email: str = 'admin@nepseghar.com'
+    admin_password: str = 'admin123'
+
+    # Payment details shown in app subscription screen
+    payment_qr_text: str = 'NEPSE GHAR Premium|Kalash Financial Solution'
+    payment_bank_name: str = 'Kalash Financial Solution Pvt. Ltd.'
+    payment_account_name: str = 'Kalash Financial Solution'
+    payment_account_number: str = '0123456789'
+    payment_whatsapp: str = '9779709133067'
+
     @property
     def google_client_id_list(self) -> list[str]:
         return [x.strip() for x in self.google_client_ids.split(",") if x.strip()]

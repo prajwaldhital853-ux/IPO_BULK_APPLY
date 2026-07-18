@@ -37,6 +37,8 @@ export type RootStackParamList = {
   MeroshareWeb: undefined;
   AccountExpiry: undefined;
   Subscription: undefined;
+  AdminLogin: undefined;
+  AdminDashboard: undefined;
   InvestmentSummary: undefined;
   AggressiveHolders: undefined;
   LiveMarketPulse: undefined;

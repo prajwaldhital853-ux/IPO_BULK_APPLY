@@ -107,7 +107,7 @@ export function ProfileScreen() {
   const openDrawer = useOpenDrawer();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { isPremium, daysLeft } = useSubscription();
+  const { isPremium, daysLeft, isPending } = useSubscription();
   const auth = useAuth();
   const { colors, isDark, toggle } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -137,7 +137,14 @@ export function ProfileScreen() {
           {auth.isAuthenticated && auth.user?.email ? (
             <Text style={styles.premiumDays}>{auth.user.email}</Text>
           ) : null}
-          <Text style={styles.free}>{isPremium ? 'PREMIUM' : 'FREE'}</Text>
+          <Text style={styles.free}>
+            {isPremium ? 'PREMIUM' : isPending ? 'PENDING VERIFICATION' : 'FREE'}
+          </Text>
+          {isPending ? (
+            <Text style={styles.premiumDays}>
+              Payment submitted — waiting for admin approval
+            </Text>
+          ) : null}
           {isPremium && daysLeft != null ? (
             <Text style={styles.premiumDays}>{daysLeft} days left</Text>
           ) : null}
@@ -213,6 +220,20 @@ export function ProfileScreen() {
                 ]}
               />
             </View>
+          </Pressable>
+        </View>
+
+        <Text style={styles.sectionOutside}>Admin</Text>
+        <View style={styles.card}>
+          <Pressable
+            style={styles.row}
+            onPress={() => navigation.navigate('AdminLogin')}
+          >
+            <View style={[styles.rowIcon, { backgroundColor: '#D1C4E9' }]}>
+              <Ionicons name="shield-outline" size={rs(18)} color="#4527A0" />
+            </View>
+            <Text style={styles.rowLabel}>Admin Login</Text>
+            <Ionicons name="chevron-forward" size={rs(16)} color={colors.textDim} />
           </Pressable>
         </View>
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from pydantic import BaseModel, Field
 
 
@@ -23,10 +21,27 @@ class LogoutRequest(BaseModel):
     model_config = {'populate_by_name': True}
 
 
+class PendingRequestOut(BaseModel):
+    id: str
+    plan_id: str = Field(alias='planId')
+    plan_title: str = Field(alias='planTitle')
+    amount_npr: int = Field(alias='amountNpr')
+    status: str
+    payment_note: str | None = Field(default=None, alias='paymentNote')
+    created_at: str = Field(alias='createdAt')
+
+    model_config = {'populate_by_name': True}
+
+
 class PremiumOut(BaseModel):
     active: bool
     plan: str | None = None
     expires_at: str | None = Field(default=None, alias='expiresAt')
+    status: str = 'free'
+    pending_request: PendingRequestOut | None = Field(
+        default=None,
+        alias='pendingRequest',
+    )
 
     model_config = {'populate_by_name': True}
 
@@ -55,7 +70,26 @@ class MeResponse(BaseModel):
     premium: PremiumOut
 
 
-def premium_from_row(plan: str | None, expires_at: datetime | None) -> PremiumOut:
+class SubscriptionRequestIn(BaseModel):
+    plan_id: str = Field(alias='planId')
+    payment_note: str | None = Field(default=None, alias='paymentNote')
+
+    model_config = {'populate_by_name': True}
+
+
+class PaymentInfoOut(BaseModel):
+    qr_text: str = Field(alias='qrText')
+    bank_name: str = Field(alias='bankName')
+    account_name: str = Field(alias='accountName')
+    account_number: str = Field(alias='accountNumber')
+    whatsapp_url: str = Field(alias='whatsappUrl')
+
+    model_config = {'populate_by_name': True}
+
+
+def premium_from_row(plan: str | None, expires_at) -> PremiumOut:
+    from datetime import UTC, datetime
+
     active = False
     if plan and expires_at:
         exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=UTC)
@@ -64,4 +98,6 @@ def premium_from_row(plan: str | None, expires_at: datetime | None) -> PremiumOu
         active=active,
         plan=plan if active else None,
         expiresAt=expires_at.isoformat() if expires_at and active else None,
+        status='active' if active else 'free',
+        pendingRequest=None,
     )

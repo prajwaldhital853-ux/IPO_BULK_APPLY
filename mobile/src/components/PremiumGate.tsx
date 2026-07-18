@@ -19,13 +19,23 @@ export function PremiumGate({
   subtitle?: string;
   children: React.ReactNode;
 }) {
-  const { isPremium, loading } = useSubscription();
+  const { isPremium, isPending, loading } = useSubscription();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
 
   if (loading) return null;
   if (isPremium) return <>{children}</>;
+
+  if (isPending) {
+    return (
+      <PendingWall
+        colors={colors}
+        title={title}
+        onOpenSubscription={() => navigation.navigate('Subscription')}
+      />
+    );
+  }
 
   return (
     <Paywall
@@ -34,6 +44,40 @@ export function PremiumGate({
       subtitle={subtitle}
       onSubscribe={() => navigation.navigate('Subscription')}
     />
+  );
+}
+
+function PendingWall({
+  colors,
+  title,
+  onOpenSubscription,
+}: {
+  colors: ThemeColors;
+  title: string;
+  onOpenSubscription: () => void;
+}) {
+  return (
+    <View style={[styles.wrap, { backgroundColor: colors.bg }]}>
+      <View
+        style={[
+          styles.card,
+          { backgroundColor: colors.surface, borderColor: '#F9A825' },
+        ]}
+      >
+        <Ionicons name="time-outline" size={rs(44)} color="#F9A825" />
+        <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+        <Text style={[styles.sub, { color: colors.textSecondary }]}>
+          Your premium payment is pending verification. Admin will activate your account
+          after checking your WhatsApp payment screenshot.
+        </Text>
+        <Pressable
+          style={[styles.btn, { backgroundColor: colors.fab }]}
+          onPress={onOpenSubscription}
+        >
+          <Text style={styles.btnText}>View subscription status</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -51,7 +95,12 @@ function Paywall({
   const plan = PREMIUM_PLANS[0];
   return (
     <View style={[styles.wrap, { backgroundColor: colors.bg }]}>
-      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderMuted }]}>
+      <View
+        style={[
+          styles.card,
+          { backgroundColor: colors.surface, borderColor: colors.borderMuted },
+        ]}
+      >
         <Ionicons name="diamond-outline" size={rs(44)} color={colors.tealHeader} />
         <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
         <Text style={[styles.sub, { color: colors.textSecondary }]}>
@@ -59,7 +108,7 @@ function Paywall({
             'Premium unlocks institutional-grade NEPSE analytics built for serious investors.'}
         </Text>
         <View style={styles.perks}>
-          {plan.perks.map((p) => (
+          {plan.perks.slice(0, 5).map((p) => (
             <Text key={p} style={[styles.perk, { color: colors.textSecondary }]}>
               ✓ {p}
             </Text>

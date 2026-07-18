@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import router as auth_router
+from .admin.routes import router as admin_router
 from .auth.blacklist import init_blacklist
 from .auth.deps import CurrentUser, get_current_user, get_optional_user
 from .auth.rate_limit import cdsc_user_limiter
@@ -63,6 +64,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router)
+app.include_router(admin_router)
 
 
 def require_key(x_api_key: str = Header(default="")) -> None:

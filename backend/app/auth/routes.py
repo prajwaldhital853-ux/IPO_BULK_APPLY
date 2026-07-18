@@ -4,12 +4,12 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..config import get_settings
-from ..db.models import PremiumEntitlement, RefreshToken, User
+from ..db.models import PremiumEntitlement, RefreshToken, SubscriptionRequest, User
 from ..db.session import get_db
 from .blacklist import get_blacklist
 from .deps import CurrentUser, get_current_user, utcnow
@@ -25,10 +25,19 @@ from .schemas import (
     GoogleAuthRequest,
     LogoutRequest,
     MeResponse,
+    PaymentInfoOut,
     PremiumOut,
     RefreshRequest,
+    SubscriptionRequestIn,
     UserOut,
-    premium_from_row,
+)
+from .subscription import (
+    PLAN_CATALOG,
+    build_premium_out,
+    get_pending_request,
+    load_user_with_premium,
+    plan_info,
+    upsert_premium,
 )
 
 router = APIRouter(prefix='/auth', tags=['auth'])
@@ -40,14 +49,6 @@ def _user_out(user: User) -> UserOut:
         email=user.email,
         name=user.name,
         avatarUrl=user.avatar_url,
-    )
-
-
-async def _load_user(db: AsyncSession, user_id: str) -> User | None:
-    return await db.scalar(
-        select(User)
-        .where(User.id == user_id)
-        .options(selectinload(User.premium)),
     )
 
 
@@ -71,10 +72,7 @@ async def _issue_tokens(db: AsyncSession, user: User) -> AuthResponse:
         ),
     )
     await db.commit()
-    premium = premium_from_row(
-        user.premium.plan if user.premium else None,
-        user.premium.expires_at if user.premium else None,
-    )
+    premium = await build_premium_out(db, user)
     return AuthResponse(
         accessToken=access,
         refreshToken=refresh_id,
@@ -112,7 +110,7 @@ async def auth_google(
         user.avatar_url = info.get('picture') or user.avatar_url
 
     await db.flush()
-    user = await _load_user(db, user.id)
+    user = await load_user_with_premium(db, user.id)
     assert user is not None
     return await _issue_tokens(db, user)
 
@@ -126,7 +124,7 @@ async def auth_refresh(
     row = await db.scalar(
         select(RefreshToken)
         .where(RefreshToken.id == body.refresh_token)
-        .options(selectinload(RefreshToken.user).selectinload(User.premium)),
+        .options(selectinload(RefreshToken.user)),
     )
     if row is None or row.revoked:
         raise HTTPException(status_code=401, detail='Invalid refresh token')
@@ -156,10 +154,9 @@ async def auth_refresh(
         ),
     )
     await db.commit()
-    premium = premium_from_row(
-        user.premium.plan if user.premium else None,
-        user.premium.expires_at if user.premium else None,
-    )
+    user = await load_user_with_premium(db, user.id)
+    assert user is not None
+    premium = await build_premium_out(db, user)
     return AuthResponse(
         accessToken=access,
         refreshToken=new_id,
@@ -199,9 +196,16 @@ async def delete_account(
 ) -> dict[str, bool]:
     settings = get_settings()
     await get_blacklist().add_jti(user.jti, settings.jwt_access_ttl)
-    row = await _load_user(db, user.id)
+
+    row = await load_user_with_premium(db, user.id)
     if row is None:
-        raise HTTPException(status_code=404, detail='User not found')
+        return {'ok': True}
+
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user.id)
+        .values(revoked=True),
+    )
     await db.delete(row)
     await db.commit()
     return {'ok': True}
@@ -212,11 +216,87 @@ async def auth_me(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MeResponse:
-    row = await _load_user(db, user.id)
+    row = await load_user_with_premium(db, user.id)
     if row is None:
-        raise HTTPException(status_code=404, detail='User not found')
-    premium = premium_from_row(
-        row.premium.plan if row.premium else None,
-        row.premium.expires_at if row.premium else None,
-    )
+        raise HTTPException(status_code=401, detail='User not found')
+    premium = await build_premium_out(db, row)
     return MeResponse(user=_user_out(row), premium=premium)
+
+
+@router.get('/subscription/payment-info', response_model=PaymentInfoOut)
+async def subscription_payment_info() -> PaymentInfoOut:
+    settings = get_settings()
+    return PaymentInfoOut(
+        qrText=settings.payment_qr_text,
+        bankName=settings.payment_bank_name,
+        accountName=settings.payment_account_name,
+        accountNumber=settings.payment_account_number,
+        whatsappUrl=f'https://wa.me/{settings.payment_whatsapp}',
+    )
+
+
+@router.get('/subscription/status', response_model=PremiumOut)
+async def subscription_status(
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PremiumOut:
+    row = await load_user_with_premium(db, user.id)
+    if row is None:
+        raise HTTPException(status_code=401, detail='User not found')
+    return await build_premium_out(db, row)
+
+
+@router.post('/subscription/request', response_model=PremiumOut)
+async def subscription_request(
+    body: SubscriptionRequestIn,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PremiumOut:
+    row = await load_user_with_premium(db, user.id)
+    if row is None:
+        raise HTTPException(status_code=401, detail='User not found')
+
+    premium = await build_premium_out(db, row)
+    if premium.active:
+        raise HTTPException(status_code=400, detail='Premium is already active')
+    if premium.status == 'pending':
+        raise HTTPException(
+            status_code=400,
+            detail='A subscription request is already pending verification',
+        )
+
+    try:
+        info = plan_info(body.plan_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    req = SubscriptionRequest(
+        id=str(uuid.uuid4()),
+        user_id=user.id,
+        plan_id=body.plan_id,
+        plan_title=str(info['title']),
+        amount_npr=int(info['amountNpr']),
+        status='pending',
+        payment_note=(body.payment_note or '').strip() or None,
+    )
+    db.add(req)
+    await db.commit()
+    row = await load_user_with_premium(db, user.id)
+    assert row is not None
+    return await build_premium_out(db, row)
+
+
+@router.post('/subscription/cancel-pending', response_model=PremiumOut)
+async def subscription_cancel_pending(
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PremiumOut:
+    pending = await get_pending_request(db, user.id)
+    if pending is None:
+        raise HTTPException(status_code=404, detail='No pending subscription request')
+    pending.status = 'cancelled'
+    pending.reviewed_at = utcnow()
+    await db.commit()
+    row = await load_user_with_premium(db, user.id)
+    assert row is not None
+    return await build_premium_out(db, row)

@@ -1,0 +1,220 @@
+import { AUTH_API_BASE } from '../auth/config';
+
+export type AdminSubscriptionRow = {
+  id: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  userCreatedAt: string;
+  userAccessLevel: string;
+  planId: string;
+  planTitle: string;
+  amountNpr: number;
+  status: string;
+  paymentNote: string | null;
+  adminNote: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  premiumActive: boolean;
+  premiumExpiresAt: string | null;
+};
+
+export type AdminUserRow = {
+  id: string;
+  googleSub: string;
+  email: string;
+  name: string;
+  avatarUrl: string | null;
+  createdAt: string;
+  accessLevel: 'free' | 'pending' | 'premium';
+  premiumPlan: string | null;
+  premiumExpiresAt: string | null;
+  premiumSource: string | null;
+  pendingRequest: {
+    id: string;
+    planId: string;
+    planTitle: string;
+    amountNpr: number;
+    createdAt: string;
+  } | null;
+  subscriptionRequestCount: number;
+  lastSubscriptionAt: string | null;
+};
+
+export type AdminStats = {
+  pendingCount: number;
+  activeCount: number;
+  totalRequests: number;
+  totalUsers: number;
+};
+
+async function parseError(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { detail?: string };
+    return body.detail ?? `HTTP ${res.status}`;
+  } catch {
+    return `HTTP ${res.status}`;
+  }
+}
+
+async function adminFetch(
+  path: string,
+  token: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set('Authorization', `Bearer ${token}`);
+  headers.set('Accept', 'application/json');
+  return fetch(`${AUTH_API_BASE}${path}`, { ...init, headers });
+}
+
+export async function adminLogin(
+  email: string,
+  password: string,
+): Promise<{ accessToken: string; expiresIn: number; email: string }> {
+  const res = await fetch(`${AUTH_API_BASE}/admin/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as Record<string, unknown>;
+  return {
+    accessToken: String(json.accessToken),
+    expiresIn: Number(json.expiresIn ?? 86400),
+    email: String(json.email),
+  };
+}
+
+export async function fetchAdminStats(token: string): Promise<AdminStats> {
+  const res = await adminFetch('/admin/stats', token);
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as Record<string, unknown>;
+  return {
+    pendingCount: Number(json.pendingCount ?? 0),
+    activeCount: Number(json.activeCount ?? 0),
+    totalRequests: Number(json.totalRequests ?? 0),
+    totalUsers: Number(json.totalUsers ?? 0),
+  };
+}
+
+function mapUserRow(json: Record<string, unknown>): AdminUserRow {
+  const pendingRaw = json.pendingRequest as Record<string, unknown> | null | undefined;
+  return {
+    id: String(json.id),
+    googleSub: String(json.googleSub ?? ''),
+    email: String(json.email ?? ''),
+    name: String(json.name ?? ''),
+    avatarUrl: json.avatarUrl ? String(json.avatarUrl) : null,
+    createdAt: String(json.createdAt ?? ''),
+    accessLevel: (json.accessLevel as AdminUserRow['accessLevel']) ?? 'free',
+    premiumPlan: json.premiumPlan ? String(json.premiumPlan) : null,
+    premiumExpiresAt: json.premiumExpiresAt ? String(json.premiumExpiresAt) : null,
+    premiumSource: json.premiumSource ? String(json.premiumSource) : null,
+    pendingRequest: pendingRaw
+      ? {
+          id: String(pendingRaw.id),
+          planId: String(pendingRaw.planId),
+          planTitle: String(pendingRaw.planTitle),
+          amountNpr: Number(pendingRaw.amountNpr ?? 0),
+          createdAt: String(pendingRaw.createdAt),
+        }
+      : null,
+    subscriptionRequestCount: Number(json.subscriptionRequestCount ?? 0),
+    lastSubscriptionAt: json.lastSubscriptionAt ? String(json.lastSubscriptionAt) : null,
+  };
+}
+
+export async function fetchAdminUsers(
+  token: string,
+  access?: string,
+): Promise<AdminUserRow[]> {
+  const q = access && access !== 'all' ? `?access=${encodeURIComponent(access)}` : '';
+  const res = await adminFetch(`/admin/users${q}`, token);
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as Record<string, unknown>[];
+  return json.map((row) => mapUserRow(row));
+}
+
+function mapRow(json: Record<string, unknown>): AdminSubscriptionRow {
+  return {
+    id: String(json.id),
+    userId: String(json.userId),
+    userEmail: String(json.userEmail),
+    userName: String(json.userName),
+    userCreatedAt: String(json.userCreatedAt ?? ''),
+    userAccessLevel: String(json.userAccessLevel ?? 'free'),
+    planId: String(json.planId),
+    planTitle: String(json.planTitle),
+    amountNpr: Number(json.amountNpr ?? 0),
+    status: String(json.status),
+    paymentNote: json.paymentNote ? String(json.paymentNote) : null,
+    adminNote: json.adminNote ? String(json.adminNote) : null,
+    createdAt: String(json.createdAt),
+    reviewedAt: json.reviewedAt ? String(json.reviewedAt) : null,
+    premiumActive: Boolean(json.premiumActive),
+    premiumExpiresAt: json.premiumExpiresAt ? String(json.premiumExpiresAt) : null,
+  };
+}
+
+export async function fetchAdminSubscriptions(
+  token: string,
+  status?: string,
+): Promise<AdminSubscriptionRow[]> {
+  const q = status ? `?status=${encodeURIComponent(status)}` : '';
+  const res = await adminFetch(`/admin/subscriptions${q}`, token);
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as Record<string, unknown>[];
+  return json.map((row) => mapRow(row));
+}
+
+export async function approveSubscription(
+  token: string,
+  requestId: string,
+  adminNote?: string,
+): Promise<AdminSubscriptionRow> {
+  const res = await adminFetch(`/admin/subscriptions/${requestId}/approve`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ adminNote }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapRow((await res.json()) as Record<string, unknown>);
+}
+
+export async function rejectSubscription(
+  token: string,
+  requestId: string,
+  adminNote?: string,
+): Promise<AdminSubscriptionRow> {
+  const res = await adminFetch(`/admin/subscriptions/${requestId}/reject`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ adminNote }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapRow((await res.json()) as Record<string, unknown>);
+}
+
+export async function deactivateUserPremium(
+  token: string,
+  userId: string,
+  adminNote?: string,
+): Promise<void> {
+  const res = await adminFetch(`/admin/users/${userId}/deactivate`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ adminNote }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export async function deleteUserSubscription(
+  token: string,
+  userId: string,
+): Promise<void> {
+  const res = await adminFetch(`/admin/users/${userId}/subscription`, token, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}

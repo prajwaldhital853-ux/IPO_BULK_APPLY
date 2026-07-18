@@ -37,6 +37,8 @@ import { IpoIssuesScreen } from '../screens/IpoIssuesScreen';
 import { MeroshareWebScreen } from '../screens/MeroshareWebScreen';
 import { AccountExpiryScreen } from '../screens/AccountExpiryScreen';
 import { SubscriptionScreen } from '../screens/SubscriptionScreen';
+import { AdminLoginScreen } from '../screens/AdminLoginScreen';
+import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
 import { InvestmentSummaryScreen } from '../screens/premium/InvestmentSummaryScreen';
 import { LiveMarketPulseScreen } from '../screens/premium/LiveMarketPulseScreen';
 import {
@@ -151,6 +153,8 @@ function RootStack() {
       <Stack.Screen name="MeroshareWeb" component={MeroshareWebScreen} />
       <Stack.Screen name="AccountExpiry" component={AccountExpiryScreen} />
       <Stack.Screen name="Subscription" component={SubscriptionScreen} />
+      <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
+      <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
       <Stack.Screen name="InvestmentSummary" component={InvestmentSummaryScreen} />
       <Stack.Screen name="AggressiveHolders" component={AggressiveHoldersScreen} />
       <Stack.Screen name="LiveMarketPulse" component={LiveMarketPulseScreen} />

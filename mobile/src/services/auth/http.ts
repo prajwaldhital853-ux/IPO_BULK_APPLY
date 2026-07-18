@@ -30,7 +30,13 @@ export async function refreshSessionIfNeeded(): Promise<AuthSession | null> {
         refreshToken: rt,
         expiresIn: 900,
         user: { id: '', email: '', name: '', avatarUrl: null },
-        premium: { active: false, plan: null, expiresAt: null },
+        premium: {
+          active: false,
+          plan: null,
+          expiresAt: null,
+          status: 'free',
+          pendingRequest: null,
+        },
       };
     }
   }
@@ -104,6 +110,11 @@ export async function deleteAccount(): Promise<void> {
       detail = body.detail ?? detail;
     } catch {
       // ignore
+    }
+    if (res.status === 404 && detail === 'Not Found') {
+      throw new Error(
+        'Delete account is not available on the server yet. Please update the backend deployment.',
+      );
     }
     throw new Error(detail);
   }

@@ -1,15 +1,31 @@
-import React, { useMemo } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
+import { fetchPaymentInfo, type PaymentInfo } from '../services/auth/subscriptionApi';
 import type { ThemeColors } from '../theme/colors';
 import { PREMIUM_PLANS } from '../storage/subscriptionStorage';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
+
+const QR_URL =
+  'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=NEPSE%20GHAR%20Premium%20Payment';
 
 export function SubscriptionScreen() {
   const navigation =
@@ -17,25 +33,89 @@ export function SubscriptionScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { isPremium, daysLeft, state, purchasePlan, resetToFree } =
-    useSubscription();
+  const auth = useAuth();
+  const {
+    isPremium,
+    isPending,
+    daysLeft,
+    state,
+    serverStatus,
+    loading,
+    requestPlan,
+    cancelPending,
+    refresh,
+  } = useSubscription();
+  const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
+  const [paymentNote, setPaymentNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const onBuy = (productId: string, days: number, title: string) => {
-    Alert.alert(
-      'Activate Premium',
-      `Demo purchase: ${title}. Play Store billing can replace this later.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Activate',
-          onPress: () =>
-            void purchasePlan(productId, days).then(() => {
-              Alert.alert('Premium active', 'All premium services are unlocked.');
-            }),
-        },
-      ],
-    );
-  };
+  useEffect(() => {
+    void fetchPaymentInfo()
+      .then(setPaymentInfo)
+      .catch(() => undefined);
+  }, []);
+
+  const pending = serverStatus?.pendingRequest ?? auth.premium.pendingRequest;
+
+  const onSubmit = useCallback(
+    async (planId: string, title: string, price: string) => {
+      if (!auth.isAuthenticated) {
+        Alert.alert('Login required', 'Please sign in with Google before subscribing.');
+        return;
+      }
+      if (isPending) {
+        Alert.alert(
+          'Pending verification',
+          'Your previous payment is still being verified. Please wait for admin approval.',
+        );
+        return;
+      }
+      if (isPremium) {
+        Alert.alert('Premium active', 'Your subscription is already active.');
+        return;
+      }
+      Alert.alert(
+        'Submit for verification',
+        `Plan: ${title} (${price})\n\n1. Pay using QR/bank details below\n2. Send payment screenshot on WhatsApp\n3. Tap Submit — admin will activate your account`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Submit',
+            onPress: () => {
+              setSubmitting(true);
+              void requestPlan(planId, paymentNote.trim() || undefined)
+                .then(() => {
+                  Alert.alert(
+                    'Submitted',
+                    'Your subscription is pending verification. You will get premium access after admin approval.',
+                  );
+                  setPaymentNote('');
+                })
+                .catch((e: unknown) => {
+                  Alert.alert(
+                    'Could not submit',
+                    e instanceof Error ? e.message : 'Unknown error',
+                  );
+                })
+                .finally(() => setSubmitting(false));
+            },
+          },
+        ],
+      );
+    },
+    [auth.isAuthenticated, isPending, isPremium, paymentNote, requestPlan],
+  );
+
+  const openWhatsApp = useCallback(async () => {
+    const url = paymentInfo?.whatsappUrl ?? 'https://wa.me/9779709133067';
+    const msg = pending
+      ? `Hi, I submitted premium payment for ${pending.planTitle}. Please verify.`
+      : 'Hi, I want to subscribe to NEPSE GHAR Premium. I will send payment screenshot.';
+    const full = `${url}?text=${encodeURIComponent(msg)}`;
+    await Linking.openURL(full).catch(() => {
+      Alert.alert('WhatsApp', 'Could not open WhatsApp.');
+    });
+  }, [paymentInfo?.whatsappUrl, pending]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -44,14 +124,24 @@ export function SubscriptionScreen() {
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>Premium Subscription</Text>
-        <View style={{ width: rs(22) }} />
+        <Pressable onPress={() => void refresh()} hitSlop={12}>
+          <Ionicons name="refresh" size={rs(20)} color={colors.teal} />
+        </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
+        {loading ? (
+          <ActivityIndicator color={colors.teal} style={{ marginVertical: rs(20) }} />
+        ) : null}
+
         <View style={styles.hero}>
           <Ionicons name="diamond" size={rs(36)} color={colors.tealHeader} />
           <Text style={styles.heroTitle}>
-            {isPremium ? 'Premium active' : 'Upgrade to Premium'}
+            {isPremium
+              ? 'Premium active'
+              : isPending
+                ? 'Pending verification'
+                : 'Upgrade to Premium'}
           </Text>
           {isPremium ? (
             <Text style={styles.heroSub}>
@@ -59,41 +149,110 @@ export function SubscriptionScreen() {
                 ? `${daysLeft} day(s) remaining · ${state.productId ?? 'premium'}`
                 : 'Active subscription'}
             </Text>
+          ) : isPending && pending ? (
+            <Text style={styles.heroSub}>
+              {pending.planTitle} · Rs {pending.amountNpr} submitted on{' '}
+              {new Date(pending.createdAt).toLocaleDateString()}. Admin is verifying your
+              payment. Premium features stay locked until approved.
+            </Text>
           ) : (
             <Text style={styles.heroSub}>
-              Professional NEPSE analytics — worth more than the monthly fee for active traders.
+              Pay via QR/bank transfer, send screenshot on WhatsApp, then submit here.
             </Text>
           )}
         </View>
 
-        {PREMIUM_PLANS.map((plan) => (
-          <View key={plan.id} style={styles.planCard}>
-            <View style={styles.planHead}>
-              <Text style={styles.planTitle}>{plan.title}</Text>
-              <Text style={styles.planPrice}>{plan.price}</Text>
-            </View>
-            <Text style={styles.planPeriod}>{plan.period} full access</Text>
-            {plan.perks.map((p) => (
-              <Text key={p} style={styles.perk}>
-                ✓ {p}
-              </Text>
-            ))}
+        {isPending && pending ? (
+          <View style={styles.pendingCard}>
+            <Ionicons name="time-outline" size={rs(28)} color="#F9A825" />
+            <Text style={styles.pendingTitle}>Account pending verification</Text>
+            <Text style={styles.pendingText}>
+              You cannot buy another plan or use premium features until admin activates
+              your subscription.
+            </Text>
+            <Pressable style={styles.waBtn} onPress={() => void openWhatsApp()}>
+              <Ionicons name="logo-whatsapp" size={rs(18)} color="#fff" />
+              <Text style={styles.waBtnText}>Send screenshot on WhatsApp</Text>
+            </Pressable>
             <Pressable
-              style={styles.buyBtn}
-              onPress={() => onBuy(plan.id, plan.days, plan.title)}
+              style={styles.cancelBtn}
+              onPress={() =>
+                Alert.alert('Cancel request?', 'You can submit again after cancelling.', [
+                  { text: 'No', style: 'cancel' },
+                  {
+                    text: 'Cancel request',
+                    style: 'destructive',
+                    onPress: () =>
+                      void cancelPending().catch((e: unknown) =>
+                        Alert.alert(
+                          'Error',
+                          e instanceof Error ? e.message : 'Could not cancel',
+                        ),
+                      ),
+                  },
+                ])
+              }
             >
-              <Text style={styles.buyText}>
-                {isPremium ? 'Extend' : 'Subscribe'} · {plan.price}
-              </Text>
+              <Text style={styles.cancelText}>Cancel pending request</Text>
             </Pressable>
           </View>
-        ))}
-
-        {isPremium ? (
-          <Pressable style={styles.resetBtn} onPress={() => void resetToFree()}>
-            <Text style={styles.resetText}>Reset to Free (dev)</Text>
-          </Pressable>
         ) : null}
+
+        {!isPremium && !isPending ? (
+          <View style={styles.paymentCard}>
+            <Text style={styles.sectionTitle}>Payment details</Text>
+            <Image source={{ uri: QR_URL }} style={styles.qr} />
+            <Text style={styles.bankLine}>
+              {paymentInfo?.bankName ?? 'Kalash Financial Solution Pvt. Ltd.'}
+            </Text>
+            <Text style={styles.bankLine}>
+              Account: {paymentInfo?.accountName ?? 'Kalash Financial Solution'}
+            </Text>
+            <Text style={styles.bankLine}>
+              A/C No: {paymentInfo?.accountNumber ?? '0123456789'}
+            </Text>
+            <Pressable style={styles.waBtn} onPress={() => void openWhatsApp()}>
+              <Ionicons name="logo-whatsapp" size={rs(18)} color="#fff" />
+              <Text style={styles.waBtnText}>WhatsApp payment screenshot</Text>
+            </Pressable>
+            <TextInput
+              style={styles.noteInput}
+              placeholder="Payment note (optional) — e.g. transaction ID"
+              placeholderTextColor={colors.textMuted}
+              value={paymentNote}
+              onChangeText={setPaymentNote}
+            />
+          </View>
+        ) : null}
+
+        {!isPending
+          ? PREMIUM_PLANS.map((plan) => (
+              <View key={plan.id} style={styles.planCard}>
+                <View style={styles.planHead}>
+                  <Text style={styles.planTitle}>{plan.title}</Text>
+                  <Text style={styles.planPrice}>{plan.price}</Text>
+                </View>
+                <Text style={styles.planPeriod}>{plan.period} full access</Text>
+                {plan.perks.slice(0, 4).map((p) => (
+                  <Text key={p} style={styles.perk}>
+                    ✓ {p}
+                  </Text>
+                ))}
+                <Text style={styles.perk}>✓ …and more premium tools</Text>
+                {!isPremium ? (
+                  <Pressable
+                    style={[styles.buyBtn, submitting && styles.buyBtnDisabled]}
+                    disabled={submitting || isPending}
+                    onPress={() => onSubmit(plan.id, plan.title, plan.price)}
+                  >
+                    <Text style={styles.buyText}>
+                      {submitting ? 'Submitting…' : `Submit payment · ${plan.price}`}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ))
+          : null}
       </ScrollView>
     </View>
   );
@@ -114,7 +273,7 @@ function makeStyles(c: ThemeColors) {
     hero: {
       alignItems: 'center',
       gap: rs(8),
-      marginBottom: rs(20),
+      marginBottom: rs(16),
       padding: rs(16),
     },
     heroTitle: { color: c.text, fontWeight: '800', fontSize: rs(20) },
@@ -123,6 +282,70 @@ function makeStyles(c: ThemeColors) {
       textAlign: 'center',
       fontSize: rs(13),
       lineHeight: rs(18),
+    },
+    pendingCard: {
+      borderWidth: 1,
+      borderColor: '#F9A825',
+      backgroundColor: c.surface,
+      borderRadius: rs(14),
+      padding: rs(16),
+      alignItems: 'center',
+      gap: rs(8),
+      marginBottom: rs(16),
+    },
+    pendingTitle: { color: c.text, fontWeight: '800', fontSize: rs(16) },
+    pendingText: {
+      color: c.textSecondary,
+      textAlign: 'center',
+      fontSize: rs(12),
+      lineHeight: rs(18),
+    },
+    paymentCard: {
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderRadius: rs(14),
+      padding: rs(16),
+      backgroundColor: c.surface,
+      marginBottom: rs(16),
+      alignItems: 'center',
+      gap: rs(6),
+    },
+    sectionTitle: {
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(15),
+      alignSelf: 'flex-start',
+    },
+    qr: {
+      width: rs(180),
+      height: rs(180),
+      borderRadius: rs(12),
+      marginVertical: rs(8),
+      backgroundColor: '#fff',
+    },
+    bankLine: { color: c.textSecondary, fontSize: rs(13) },
+    waBtn: {
+      marginTop: rs(8),
+      backgroundColor: '#25D366',
+      borderRadius: rs(12),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(16),
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      alignSelf: 'stretch',
+      justifyContent: 'center',
+    },
+    waBtnText: { color: '#fff', fontWeight: '800', fontSize: rs(13) },
+    noteInput: {
+      marginTop: rs(10),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderRadius: rs(10),
+      padding: rs(12),
+      color: c.text,
+      alignSelf: 'stretch',
+      fontSize: rs(13),
     },
     planCard: {
       borderWidth: 1,
@@ -148,8 +371,9 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(12),
       alignItems: 'center',
     },
+    buyBtnDisabled: { opacity: 0.6 },
     buyText: { color: '#fff', fontWeight: '800', fontSize: rs(14) },
-    resetBtn: { alignItems: 'center', padding: rs(16) },
-    resetText: { color: c.danger, fontSize: rs(12) },
+    cancelBtn: { padding: rs(8) },
+    cancelText: { color: c.danger, fontSize: rs(12), fontWeight: '600' },
   });
 }

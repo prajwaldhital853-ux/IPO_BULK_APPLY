@@ -1,7 +1,19 @@
+export type PendingPremiumInfo = {
+  id: string;
+  planId: string;
+  planTitle: string;
+  amountNpr: number;
+  status: string;
+  paymentNote: string | null;
+  createdAt: string;
+};
+
 export type PremiumInfo = {
   active: boolean;
   plan: string | null;
   expiresAt: string | null;
+  status: 'free' | 'pending' | 'active';
+  pendingRequest: PendingPremiumInfo | null;
 };
 
 export type AuthUser = {
@@ -34,10 +46,23 @@ function mapUser(raw: Record<string, unknown>): AuthUser {
 }
 
 function mapPremium(raw: Record<string, unknown>): PremiumInfo {
+  const pendingRaw = raw.pendingRequest as Record<string, unknown> | null | undefined;
   return {
     active: Boolean(raw.active),
     plan: raw.plan ? String(raw.plan) : null,
     expiresAt: raw.expiresAt ? String(raw.expiresAt) : null,
+    status: (raw.status as PremiumInfo['status']) ?? (raw.active ? 'active' : 'free'),
+    pendingRequest: pendingRaw
+      ? {
+          id: String(pendingRaw.id),
+          planId: String(pendingRaw.planId),
+          planTitle: String(pendingRaw.planTitle),
+          amountNpr: Number(pendingRaw.amountNpr ?? 0),
+          status: String(pendingRaw.status),
+          paymentNote: pendingRaw.paymentNote ? String(pendingRaw.paymentNote) : null,
+          createdAt: String(pendingRaw.createdAt),
+        }
+      : null,
   };
 }
 

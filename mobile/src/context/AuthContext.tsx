@@ -61,6 +61,8 @@ const defaultPremium: PremiumInfo = {
   active: false,
   plan: null,
   expiresAt: null,
+  status: 'free',
+  pendingRequest: null,
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);

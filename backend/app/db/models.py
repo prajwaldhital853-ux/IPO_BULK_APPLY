@@ -28,6 +28,9 @@ class User(Base):
         back_populates='user',
         uselist=False,
     )
+    subscription_requests: Mapped[list['SubscriptionRequest']] = relationship(
+        back_populates='user',
+    )
 
 
 class RefreshToken(Base):
@@ -63,3 +66,30 @@ class PremiumEntitlement(Base):
     )
 
     user: Mapped['User'] = relationship(back_populates='premium')
+
+
+class SubscriptionRequest(Base):
+    __tablename__ = 'subscription_requests'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey('users.id', ondelete='CASCADE'),
+        index=True,
+    )
+    plan_id: Mapped[str] = mapped_column(String(64))
+    plan_title: Mapped[str] = mapped_column(String(128))
+    amount_npr: Mapped[int] = mapped_column(default=0)
+    status: Mapped[str] = mapped_column(String(32), default='pending', index=True)
+    payment_note: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    admin_note: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    user: Mapped['User'] = relationship(back_populates='subscription_requests')

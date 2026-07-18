@@ -48,3 +48,22 @@ def new_token_family_id() -> str:
 
 def refresh_expires_at(days: int) -> datetime:
     return _utcnow() + timedelta(days=days)
+
+
+def create_admin_token(
+    *,
+    email: str,
+    secret: str,
+    ttl_seconds: int = 86_400,
+) -> tuple[str, int]:
+    exp = _utcnow() + timedelta(seconds=ttl_seconds)
+    payload = {
+        'sub': 'admin',
+        'email': email,
+        'jti': str(uuid.uuid4()),
+        'exp': exp,
+        'iat': _utcnow(),
+        'type': 'admin',
+    }
+    token = jwt.encode(payload, secret, algorithm=ALGORITHM)
+    return token, ttl_seconds
