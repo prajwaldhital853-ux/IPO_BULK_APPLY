@@ -99,6 +99,12 @@ async def health() -> dict[str, object]:
     }
 
 
+@app.get("/ping")
+async def ping() -> dict[str, str]:
+    """Lightweight keep-alive for uptime/cron pings (Render free tier)."""
+    return {"status": "ok"}
+
+
 @app.get("/cdsc/companies", response_model=CompaniesResponse)
 async def companies(_: str = Depends(require_cdsc_access)) -> CompaniesResponse:
     try:
