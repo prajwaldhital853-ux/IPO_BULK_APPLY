@@ -1,6 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  Alert,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
@@ -16,29 +24,74 @@ import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
 
-type ConnectItem = {
+type ContactItem = {
   label: string;
+  detail: string;
   bg: string;
   iconColor: string;
-  ion?: keyof typeof Ionicons.glyphMap;
-  mci?: keyof typeof MaterialCommunityIcons.glyphMap;
+  ion: keyof typeof Ionicons.glyphMap;
+  onPress: () => void;
 };
 
-const CONNECT: ConnectItem[] = [
-  { label: 'Subscribe Us', bg: '#FFCDD2', iconColor: '#C62828', ion: 'logo-youtube' },
-  { label: 'Like Us', bg: '#BBDEFB', iconColor: '#1565C0', ion: 'thumbs-up' },
-  { label: 'Follow Us on TikTok', bg: '#E0E0E0', iconColor: '#212121', ion: 'logo-tiktok' },
-  { label: 'Viber Community', bg: '#E1BEE7', iconColor: '#7B1FA2', ion: 'call' },
-  { label: 'Contact Us', bg: '#C8E6C9', iconColor: '#2E7D32', ion: 'call-outline' },
-  { label: 'About', bg: '#ECEFF1', iconColor: '#455A64', ion: 'information-circle-outline' },
-  { label: 'Developer Profile', bg: '#B2EBF2', iconColor: '#00838F', ion: 'person-outline' },
-  {
-    label: 'Administrator Control Panel',
-    bg: '#FFCDD2',
-    iconColor: '#C62828',
-    mci: 'shield-account',
-  },
-];
+const KALASH_EMAIL = 'kalashfinancialsolution@gmail.com';
+const KALASH_WHATSAPP = '9709133067';
+const KALASH_WHATSAPP_URL = 'https://wa.me/9779709133067';
+const KALASH_TIKTOK_URL =
+  'https://www.tiktok.com/@unique_share_market?_r=1&_t=ZS-987xHBiY8G4';
+
+async function openExternal(url: string, failLabel: string): Promise<void> {
+  try {
+    const ok = await Linking.canOpenURL(url);
+    if (!ok) {
+      Alert.alert(failLabel, url);
+      return;
+    }
+    await Linking.openURL(url);
+  } catch {
+    Alert.alert(failLabel, 'Could not open link on this device.');
+  }
+}
+
+function buildContactItems(): ContactItem[] {
+  return [
+    {
+      label: 'Email',
+      detail: KALASH_EMAIL,
+      bg: '#FFCDD2',
+      iconColor: '#C62828',
+      ion: 'mail-outline',
+      onPress: () => void openExternal(`mailto:${KALASH_EMAIL}`, 'Email'),
+    },
+    {
+      label: 'WhatsApp',
+      detail: KALASH_WHATSAPP,
+      bg: '#C8E6C9',
+      iconColor: '#2E7D32',
+      ion: 'logo-whatsapp',
+      onPress: () => void openExternal(KALASH_WHATSAPP_URL, 'WhatsApp'),
+    },
+    {
+      label: 'TikTok',
+      detail: '@unique_share_market',
+      bg: '#E0E0E0',
+      iconColor: '#212121',
+      ion: 'logo-tiktok',
+      onPress: () => void openExternal(KALASH_TIKTOK_URL, 'TikTok'),
+    },
+    {
+      label: 'Facebook',
+      detail: 'Link coming soon',
+      bg: '#BBDEFB',
+      iconColor: '#1565C0',
+      ion: 'logo-facebook',
+      onPress: () =>
+        Alert.alert(
+          'Facebook',
+          'Facebook page link will be added soon. Contact us on WhatsApp or email for now.',
+        ),
+    },
+  ];
+}
 
 const GENERAL = [
   { label: 'Settings', icon: 'settings-outline' as const, bg: '#CFD8DC', iconColor: '#455A64' },
@@ -61,6 +114,7 @@ export function ProfileScreen() {
   const [changePinOpen, setChangePinOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const contactItems = useMemo(() => buildContactItems(), []);
 
   return (
     <View style={styles.root}>
@@ -181,28 +235,23 @@ export function ProfileScreen() {
         </View>
 
         <Text style={styles.sectionOutside}>Connect With Us</Text>
+        <Text style={styles.sectionHint}>Kalash Financial Solution Pvt. Ltd.</Text>
         <View style={styles.card}>
-          {CONNECT.map((item, index) => (
+          {contactItems.map((item, index) => (
             <View key={item.label}>
-              <Pressable style={styles.row}>
+              <Pressable style={styles.row} onPress={item.onPress}>
                 <View style={[styles.rowIcon, { backgroundColor: item.bg }]}>
-                  {item.mci ? (
-                    <MaterialCommunityIcons
-                      name={item.mci}
-                      size={rs(18)}
-                      color={item.iconColor}
-                    />
-                  ) : (
-                    <Ionicons
-                      name={item.ion!}
-                      size={rs(18)}
-                      color={item.iconColor}
-                    />
-                  )}
+                  <Ionicons name={item.ion} size={rs(18)} color={item.iconColor} />
                 </View>
-                <Text style={styles.rowLabel}>{item.label}</Text>
+                <View style={styles.rowTextWrap}>
+                  <Text style={styles.rowLabel}>{item.label}</Text>
+                  <Text style={styles.rowDetail} numberOfLines={2}>
+                    {item.detail}
+                  </Text>
+                </View>
+                <Ionicons name="open-outline" size={rs(16)} color={colors.textDim} />
               </Pressable>
-              {index < CONNECT.length - 1 ? (
+              {index < contactItems.length - 1 ? (
                 <View style={[styles.divider, { backgroundColor: colors.borderMuted }]} />
               ) : null}
             </View>
@@ -322,6 +371,13 @@ function makeStyles(c: ThemeColors) {
       marginBottom: rs(8),
       marginTop: rs(4),
     },
+    sectionHint: {
+      color: c.textSecondary,
+      fontSize: rs(12),
+      marginHorizontal: rs(20),
+      marginBottom: rs(8),
+      marginTop: rs(-4),
+    },
     card: {
       marginHorizontal: rs(16),
       marginBottom: rs(16),
@@ -349,6 +405,12 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
     },
-    rowLabel: { flex: 1, color: c.text, fontSize: rs(14), fontWeight: '600' },
+    rowLabel: { color: c.text, fontSize: rs(14), fontWeight: '600' },
+    rowTextWrap: { flex: 1 },
+    rowDetail: {
+      color: c.textSecondary,
+      fontSize: rs(12),
+      marginTop: rs(2),
+    },
   });
 }
