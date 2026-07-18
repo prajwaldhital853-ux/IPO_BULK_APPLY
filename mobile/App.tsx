@@ -5,6 +5,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native';
 import { AuthProvider } from './src/context/AuthContext';
+import { AppLockProvider } from './src/context/AppLockContext';
 import { AccountsProvider } from './src/context/AccountsContext';
 import { SubscriptionProvider } from './src/context/SubscriptionContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
@@ -17,13 +18,15 @@ function AppShell() {
     <GestureHandlerRootView style={[styles.root, { backgroundColor: colors.bg }]}>
       <SafeAreaProvider>
         <AuthProvider>
-          <AccountsProvider>
-            <SubscriptionProvider>
-              <StatusBar style={isDark ? 'light' : 'dark'} />
-              <AppWarmup />
-              <RootNavigator />
-            </SubscriptionProvider>
-          </AccountsProvider>
+          <AppLockProvider>
+            <AccountsProvider>
+              <SubscriptionProvider>
+                <StatusBar style={isDark ? 'light' : 'dark'} />
+                <AppWarmup />
+                <RootNavigator />
+              </SubscriptionProvider>
+            </AccountsProvider>
+          </AppLockProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

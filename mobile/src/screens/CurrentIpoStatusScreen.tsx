@@ -173,7 +173,8 @@ export function CurrentIpoStatusScreen() {
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Check Live',
-          onPress: () => void sensitive.requestSensitiveAction(run),
+          onPress: () =>
+            void sensitive.requestSensitiveAction(run, { pinPolicy: 'skipIfUnlocked' }),
         },
       ],
     );

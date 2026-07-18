@@ -12,10 +12,12 @@ import { rs } from '../utils/responsive';
 
 export function PinSetupModal({
   visible,
+  required = false,
   onComplete,
   onCancel,
 }: {
   visible: boolean;
+  required?: boolean;
   onComplete: (pin: string) => void;
   onCancel: () => void;
 }) {
@@ -54,9 +56,9 @@ export function PinSetupModal({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.title, { color: colors.text }]}>Create step-up PIN</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Create your PIN</Text>
           <Text style={[styles.sub, { color: colors.textSecondary }]}>
-            A 4-digit PIN protects bulk apply, result checks, and saved credentials on this device.
+            Choose a 4-digit PIN to unlock the app and protect bulk apply, results, and saved accounts on this device.
           </Text>
           {step === 'enter' ? (
             <>
@@ -94,9 +96,15 @@ export function PinSetupModal({
           {error ? (
             <Text style={[styles.error, { color: colors.danger }]}>{error}</Text>
           ) : null}
-          <Pressable onPress={() => { reset(); onCancel(); }}>
-            <Text style={[styles.cancel, { color: colors.textSecondary }]}>Cancel</Text>
-          </Pressable>
+          {!required ? (
+            <Pressable onPress={() => { reset(); onCancel(); }}>
+              <Text style={[styles.cancel, { color: colors.textSecondary }]}>Cancel</Text>
+            </Pressable>
+          ) : (
+            <Pressable onPress={() => { reset(); onCancel(); }}>
+              <Text style={[styles.cancel, { color: colors.textSecondary }]}>Sign out</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </Modal>

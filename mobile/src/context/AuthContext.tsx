@@ -31,8 +31,14 @@ import {
   saveRefreshToken,
   setAccessToken,
 } from '../services/auth/tokenStorage';
-import { refreshSessionIfNeeded, fetchMe } from '../services/auth/http';
+import { refreshSessionIfNeeded, fetchMe, deleteAccount as deleteAccountApi } from '../services/auth/http';
 import { migrateLocalDataToUser, clearGuestNamespace } from '../storage/dataMigration';
+import {
+  clearLastSignedInUserId,
+  loadLastSignedInUserId,
+  saveLastSignedInUserId,
+} from '../storage/sessionStorage';
+import { clearAllUserLocalData } from '../storage/userDataCleanup';
 import { setActiveUserId } from '../storage/userScope';
 import {
   cachePremiumFromServer,
@@ -47,6 +53,7 @@ type AuthContextValue = {
   isAuthenticated: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
 
@@ -74,6 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setActiveUserId(session.user.id);
       setAccessToken(session.accessToken, session.expiresIn);
       await saveRefreshToken(session.refreshToken, session.user.id);
+      await saveLastSignedInUserId(session.user.id);
       await migrateLocalDataToUser(session.user.id);
       await clearGuestNamespace();
       setUser(session.user);
@@ -102,12 +110,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
     (async () => {
       try {
+        const lastUserId = await loadLastSignedInUserId();
+        if (lastUserId) setActiveUserId(lastUserId);
         const session = await refreshSessionIfNeeded();
         if (!mounted) return;
         if (session?.accessToken && getAccessToken()) {
           const me = await fetchMe();
           if (me && mounted) {
             setActiveUserId(me.user.id);
+            await saveLastSignedInUserId(me.user.id);
             setUser(me.user);
             setPremium(me.premium);
             await cachePremiumFromServer(me.premium);
@@ -144,6 +155,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     await signOutGoogleNative();
     await clearAllTokens(user?.id);
+    await clearLastSignedInUserId();
+    await clearPremiumCache();
+    setActiveUserId(null);
+    setUser(null);
+    setPremium(defaultPremium);
+    clearAccessToken();
+  }, [user?.id]);
+
+  const deleteAccount = useCallback(async () => {
+    const uid = user?.id;
+    if (!uid) return;
+    await deleteAccountApi();
+    await clearAllUserLocalData(uid);
+    await signOutGoogleNative();
+    await clearAllTokens(uid);
     await clearPremiumCache();
     setActiveUserId(null);
     setUser(null);
@@ -160,9 +186,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthenticated: Boolean(user),
       signInWithGoogle,
       signOut,
+      deleteAccount,
       refreshProfile,
     }),
-    [user, premium, loading, signInWithGoogle, signOut, refreshProfile],
+    [user, premium, loading, signInWithGoogle, signOut, deleteAccount, refreshProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

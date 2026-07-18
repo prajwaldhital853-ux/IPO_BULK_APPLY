@@ -2,11 +2,15 @@ import { useCallback, useState } from 'react';
 import { hasPin, setupPin, verifyPin } from '../storage/pinStorage';
 import { AUTH_ENABLED } from '../services/auth/config';
 import { useAuthGate } from '../components/AuthGateSheet';
+import { useAppLock } from '../context/AppLockContext';
 
 type PendingAction = () => void | Promise<void>;
 
+export type PinPolicy = 'skipIfUnlocked' | 'always';
+
 export function useSensitiveAction() {
   const { enabled, isAuthenticated } = useAuthGate();
+  const { sessionUnlocked } = useAppLock();
   const [setupVisible, setSetupVisible] = useState(false);
   const [promptVisible, setPromptVisible] = useState(false);
   const [pinError, setPinError] = useState('');
@@ -33,11 +37,16 @@ export function useSensitiveAction() {
   );
 
   const requestSensitiveAction = useCallback(
-    async (action: PendingAction) => {
+    async (action: PendingAction, options?: { pinPolicy?: PinPolicy }) => {
+      const pinPolicy = options?.pinPolicy ?? 'always';
       if (enabled && !isAuthenticated) {
         throw new Error('Sign in required');
       }
       if (!AUTH_ENABLED) {
+        await action();
+        return;
+      }
+      if (pinPolicy === 'skipIfUnlocked' && sessionUnlocked) {
         await action();
         return;
       }
@@ -51,7 +60,7 @@ export function useSensitiveAction() {
       setPinError('');
       setPromptVisible(true);
     },
-    [enabled, isAuthenticated],
+    [enabled, isAuthenticated, sessionUnlocked],
   );
 
   const onSetupComplete = useCallback(

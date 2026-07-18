@@ -19,6 +19,7 @@ export function PinPromptModal({
   error,
   onSubmit,
   onCancel,
+  cancelLabel = 'Cancel',
 }: {
   visible: boolean;
   title?: string;
@@ -27,6 +28,7 @@ export function PinPromptModal({
   error?: string;
   onSubmit: (pin: string) => void;
   onCancel: () => void;
+  cancelLabel?: string;
 }) {
   const { colors } = useTheme();
   const [pin, setPin] = useState('');
@@ -73,7 +75,7 @@ export function PinPromptModal({
             )}
           </Pressable>
           <Pressable onPress={onCancel} disabled={busy}>
-            <Text style={[styles.cancel, { color: colors.textSecondary }]}>Cancel</Text>
+            <Text style={[styles.cancel, { color: colors.textSecondary }]}>{cancelLabel}</Text>
           </Pressable>
         </View>
       </View>

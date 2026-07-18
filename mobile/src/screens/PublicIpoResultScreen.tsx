@@ -213,7 +213,8 @@ export function PublicIpoResultScreen() {
       return;
     }
 
-    void sensitive.requestSensitiveAction(async () => {
+    void sensitive.requestSensitiveAction(
+      async () => {
       setRunning(true);
       setProgress('Starting…');
       setSummary(null);
@@ -243,7 +244,9 @@ export function PublicIpoResultScreen() {
         setRunning(false);
         setProgress('');
       }
-    });
+    },
+      { pinPolicy: 'skipIfUnlocked' },
+    );
   }, [checkAccounts, loadError, selected, sensitive, updateAccountMeta]);
 
   const allottedCount =

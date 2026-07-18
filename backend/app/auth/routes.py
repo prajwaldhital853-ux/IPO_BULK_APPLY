@@ -192,6 +192,21 @@ async def auth_logout(
     return {'ok': True}
 
 
+@router.delete('/account')
+async def delete_account(
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    settings = get_settings()
+    await get_blacklist().add_jti(user.jti, settings.jwt_access_ttl)
+    row = await _load_user(db, user.id)
+    if row is None:
+        raise HTTPException(status_code=404, detail='User not found')
+    await db.delete(row)
+    await db.commit()
+    return {'ok': True}
+
+
 @router.get('/me', response_model=MeResponse)
 async def auth_me(
     user: CurrentUser = Depends(get_current_user),

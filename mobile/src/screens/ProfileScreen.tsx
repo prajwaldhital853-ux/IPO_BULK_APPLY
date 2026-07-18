@@ -1,11 +1,13 @@
-import React, { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
 import { PromoBanner } from '../components/PromoBanner';
 import { BrandLogo } from '../components/BrandLogo';
+import { ChangePinModal } from '../components/ChangePinModal';
+import { DeleteAccountModal } from '../components/DeleteAccountModal';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useAuth } from '../context/AuthContext';
@@ -56,6 +58,9 @@ export function ProfileScreen() {
   const auth = useAuth();
   const { colors, isDark, toggle } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [changePinOpen, setChangePinOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   return (
     <View style={styles.root}>
@@ -82,20 +87,29 @@ export function ProfileScreen() {
           {isPremium && daysLeft != null ? (
             <Text style={styles.premiumDays}>{daysLeft} days left</Text>
           ) : null}
-          <Pressable
-            style={styles.loginBtn}
-            onPress={() => {
-              if (auth.isAuthenticated) {
-                void auth.signOut();
-              } else {
-                void auth.signInWithGoogle().catch(() => undefined);
-              }
-            }}
-          >
-            <Text style={styles.loginText}>
-              {auth.isAuthenticated ? 'Log Out' : 'Log In'}
-            </Text>
-          </Pressable>
+          {auth.isAuthenticated ? (
+            <View style={styles.authRow}>
+              <Pressable
+                style={[styles.loginBtn, styles.authBtnHalf]}
+                onPress={() => setChangePinOpen(true)}
+              >
+                <Text style={styles.loginText}>Change PIN</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.loginBtn, styles.authBtnHalf]}
+                onPress={() => void auth.signOut()}
+              >
+                <Text style={styles.loginText}>Log Out</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              style={styles.loginBtn}
+              onPress={() => void auth.signInWithGoogle().catch(() => undefined)}
+            >
+              <Text style={styles.loginText}>Log In</Text>
+            </Pressable>
+          )}
         </View>
 
         <Text style={styles.sectionOutside}>Account Settings</Text>
@@ -194,7 +208,48 @@ export function ProfileScreen() {
             </View>
           ))}
         </View>
+
+        {auth.isAuthenticated ? (
+          <>
+            <Text style={styles.sectionOutside}>Danger Zone</Text>
+            <View style={styles.card}>
+              <Pressable style={styles.row} onPress={() => setDeleteOpen(true)}>
+                <View style={[styles.rowIcon, { backgroundColor: '#FFCDD2' }]}>
+                  <Ionicons name="trash-outline" size={rs(18)} color="#C62828" />
+                </View>
+                <Text style={[styles.rowLabel, { color: colors.danger }]}>
+                  Delete account
+                </Text>
+                <Ionicons name="chevron-forward" size={rs(16)} color={colors.danger} />
+              </Pressable>
+            </View>
+          </>
+        ) : null}
       </ScrollView>
+
+      <ChangePinModal
+        visible={changePinOpen}
+        onClose={() => setChangePinOpen(false)}
+        onChanged={() => {
+          setChangePinOpen(false);
+          Alert.alert('PIN updated', 'Your new PIN is ready to use.');
+        }}
+      />
+      <DeleteAccountModal
+        visible={deleteOpen}
+        busy={deleting}
+        onClose={() => setDeleteOpen(false)}
+        onConfirmDelete={async () => {
+          setDeleting(true);
+          try {
+            await auth.deleteAccount();
+            setDeleteOpen(false);
+            Alert.alert('Account deleted', 'Your profile and local data were removed.');
+          } finally {
+            setDeleting(false);
+          }
+        }}
+      />
     </View>
   );
 }
@@ -248,6 +303,15 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: rs(28),
       paddingVertical: rs(10),
       backgroundColor: c.surface,
+    },
+    authRow: {
+      flexDirection: 'row',
+      gap: rs(10),
+      marginTop: rs(4),
+    },
+    authBtnHalf: {
+      paddingHorizontal: rs(16),
+      minWidth: rs(130),
     },
     loginText: { color: c.text, fontWeight: '600' },
     sectionOutside: {

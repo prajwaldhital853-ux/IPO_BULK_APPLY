@@ -25,7 +25,7 @@ module.exports = {
     },
     android: {
       package: 'com.nepse.ghar',
-      versionCode: 14,
+      versionCode: 16,
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',
         foregroundImage: './assets/nepse-ghar-logo.png',
