@@ -1,0 +1,22 @@
+CAPTCHA MODEL TRAINING REPORT
+Dataset total: 5000
+Train/Val: 4500/500
+Epochs: 30
+
+[Train] samples=4500
+  per-digit acc: 0.9974
+  whole-captcha acc: 0.9873
+  position 1 acc: 0.9987
+  position 2 acc: 0.9978
+  position 3 acc: 0.9980
+  position 4 acc: 0.9942
+  position 5 acc: 0.9984
+
+[Validation] samples=500
+  per-digit acc: 0.9276
+  whole-captcha acc: 0.7240
+  position 1 acc: 0.9940
+  position 2 acc: 0.9420
+  position 3 acc: 0.9200
+  position 4 acc: 0.8760
+  position 5 acc: 0.9060

@@ -1,0 +1,2 @@
+# Trained captcha.onnx goes here (produced by backend/train/train.py).
+# Until then the backend relies on the 2Captcha fallback.

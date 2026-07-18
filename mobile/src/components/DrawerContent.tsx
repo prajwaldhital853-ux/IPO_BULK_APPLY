@@ -14,10 +14,11 @@ import {
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import type { DrawerNavigationProp } from '@react-navigation/drawer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../context/ThemeContext';
 import { colors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import { SoftBadge } from './SoftBadge';
-import type { DrawerParamList } from '../navigation/types';
+import type { DrawerParamList, RootStackParamList } from '../navigation/types';
 
 type Item = {
   label: string;
@@ -37,7 +38,7 @@ function Section({ title, items }: { title: string; items: Item[] }) {
       {items.map((item) => (
         <Pressable
           key={item.label}
-          style={styles.item}
+          style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}
           onPress={item.onPress}
         >
           <View style={styles.itemIcon}>{item.icon}</View>
@@ -53,47 +54,65 @@ function Section({ title, items }: { title: string; items: Item[] }) {
 
 export function DrawerContent(props: DrawerContentComponentProps) {
   const insets = useSafeAreaInsets();
+  const { colors: theme } = useTheme();
   const nav = props.navigation as unknown as DrawerNavigationProp<DrawerParamList>;
 
-  const goCheck = () => {
+  const close = () => nav.closeDrawer();
+
+  const goStack = <T extends keyof RootStackParamList>(
+    screen: T,
+    params?: RootStackParamList[T],
+  ) => {
+    nav.navigate('RootStack', { screen, params } as never);
+    close();
+  };
+
+  const goTab = (screen: 'Home' | 'Apply' | 'Services' | 'Check' | 'Profile') => {
     nav.navigate('RootStack', {
       screen: 'MainTabs',
-      params: { screen: 'Check' },
+      params: { screen },
     });
-    nav.closeDrawer();
+    close();
   };
 
   const market: Item[] = [
     {
       label: 'NEPSE Calendar',
       icon: <Ionicons name="calendar-outline" size={rs(18)} color="#66BB6A" />,
+      onPress: () => goStack('NepseCalendar'),
     },
     {
       label: 'Live NEPSE',
       icon: <Feather name="trending-up" size={rs(18)} color="#42A5F5" />,
+      onPress: () => goStack('NepseData'),
     },
     {
       label: 'Investment Summary',
       icon: <MaterialCommunityIcons name="currency-usd" size={rs(18)} color="#66BB6A" />,
       badge: 'UPDATED',
+      onPress: () => goStack('InvestmentSummary'),
     },
     {
       label: 'Share Portfolio',
       icon: <MaterialCommunityIcons name="chart-pie" size={rs(18)} color="#EC407A" />,
       badge: 'NEW',
+      onPress: () => goStack('Portfolio'),
     },
     {
       label: 'Bulk Portfolio',
       icon: <Ionicons name="folder-outline" size={rs(18)} color="#BDBDBD" />,
       badge: 'UPDATED',
+      onPress: () => goStack('BulkPortfolio'),
     },
     {
       label: 'User Portfolio',
       icon: <Ionicons name="person-circle-outline" size={rs(18)} color="#FFCA28" />,
+      onPress: () => goStack('Portfolio'),
     },
     {
       label: 'Watchlist',
       icon: <Ionicons name="eye-outline" size={rs(18)} color="#42A5F5" />,
+      onPress: () => goStack('Watchlist'),
     },
   ];
 
@@ -101,40 +120,39 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     {
       label: 'Bulk IPO Result',
       icon: <Ionicons name="checkmark-circle" size={rs(18)} color="#66BB6A" />,
-      onPress: goCheck,
+      onPress: () => goTab('Check'),
     },
     {
       label: 'Upcoming Issues',
       icon: <Ionicons name="calendar" size={rs(18)} color="#F48FB1" />,
+      onPress: () => goStack('IpoIssues', { mode: 'upcoming' }),
     },
     {
       label: 'Bulk IPO Status/Result',
       icon: <MaterialCommunityIcons name="clipboard-check-outline" size={rs(18)} color="#80CBC4" />,
-      onPress: goCheck,
+      onPress: () => goStack('CurrentIpoStatus', { mode: 'result' }),
     },
     {
       label: 'Current IPO Status',
       icon: <Ionicons name="search" size={rs(18)} color="#90CAF9" />,
       badge: 'UPDATED',
-      onPress: () => {
-        nav.navigate('RootStack', { screen: 'CurrentIpoStatus' });
-        nav.closeDrawer();
-      },
+      onPress: () => goStack('CurrentIpoStatus', { mode: 'status' }),
     },
     {
       label: 'Current Issues',
       icon: <MaterialCommunityIcons name="clipboard-text-clock" size={rs(18)} color="#CE93D8" />,
       badge: 'NEW',
+      onPress: () => goStack('IpoIssues', { mode: 'current' }),
     },
     {
       label: 'All IPO Status',
       icon: <MaterialCommunityIcons name="checkbox-multiple-marked" size={rs(18)} color="#A5D6A7" />,
-      onPress: goCheck,
+      onPress: () => goStack('CurrentIpoStatus'),
     },
     {
       label: 'IPO Result',
       icon: <MaterialCommunityIcons name="file-document-check-outline" size={rs(18)} color="#80CBC4" />,
-      onPress: goCheck,
+      onPress: () => goTab('Check'),
     },
   ];
 
@@ -142,32 +160,29 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     {
       label: 'Financial News',
       icon: <Ionicons name="newspaper-outline" size={rs(18)} color="#90A4AE" />,
+      onPress: () => goStack('FinancialNews'),
     },
     {
       label: 'Share Calculator',
       icon: <Ionicons name="calculator-outline" size={rs(18)} color="#FFB74D" />,
+      onPress: () => goStack('Calculator'),
     },
     {
       label: 'TMS Brokers',
       icon: <MaterialCommunityIcons name="handshake-outline" size={rs(18)} color="#81D4FA" />,
+      onPress: () => goStack('TmsBrokers'),
     },
   ];
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top + rs(8) }]}>
+    <View style={[styles.root, { paddingTop: insets.top + rs(8), backgroundColor: theme.bg }]}>
       <ScrollView
         contentContainerStyle={{ paddingBottom: insets.bottom + rs(24) }}
         showsVerticalScrollIndicator={false}
       >
         <Pressable
           style={styles.brand}
-          onPress={() => {
-            nav.navigate('RootStack', {
-              screen: 'MainTabs',
-              params: { screen: 'Apply' },
-            });
-            nav.closeDrawer();
-          }}
+          onPress={() => goTab('Apply')}
         >
           <View style={styles.brandIcon}>
             <MaterialCommunityIcons name="chart-bar" size={rs(22)} color="#66BB6A" />
@@ -255,6 +270,7 @@ const styles = StyleSheet.create({
     marginBottom: rs(8),
     gap: rs(10),
   },
+  itemPressed: { opacity: 0.85 },
   itemIcon: {
     width: rs(32),
     height: rs(32),

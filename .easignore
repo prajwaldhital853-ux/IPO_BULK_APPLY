@@ -1,0 +1,13 @@
+mobile/android/
+mobile/ios/
+backend/**
+**/backend/data/**
+**/data/labeled/**
+**/*.png
+!mobile/assets/**
+mobile/build-fail-log*
+mobile/build-fail-log.*
+mobile/build-fail.json
+mobile/build-meta.json
+mobile/_tmp_stock.html
+node_modules/**/cache/**

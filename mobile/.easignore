@@ -1,0 +1,12 @@
+# Shrink upload — not needed for the mobile APK build
+android/
+ios/
+../backend/**
+../**/*.png
+../**/*.jpg
+build-fail-log*
+build-fail-log.*
+build-fail.json
+build-meta.json
+_tmp_stock.html
+node_modules/.cache/**

@@ -1,9 +1,13 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from '../theme/colors';
+import { useTheme } from '../context/ThemeContext';
+import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
+import { BrandLogo } from './BrandLogo';
 
 type Props = {
   title?: string;
@@ -12,25 +16,62 @@ type Props = {
   showBack?: boolean;
   onBack?: () => void;
   right?: React.ReactNode;
+  /** Show NEPSE GHAR mark beside title */
+  showLogo?: boolean;
+  onCalendarPress?: () => void;
+  onNewsPress?: () => void;
 };
 
 export function AppHeader({
-  title = 'IPO Bulk Apply',
+  title = 'NEPSE GHAR',
   onMenuPress,
   showActions = true,
   showBack = false,
   onBack,
   right,
+  showLogo = false,
+  onCalendarPress,
+  onNewsPress,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  const openCalendar = () => {
+    if (onCalendarPress) {
+      onCalendarPress();
+      return;
+    }
+    navigation.navigate('NepseCalendar');
+  };
+
+  const openNews = () => {
+    if (onNewsPress) {
+      onNewsPress();
+      return;
+    }
+    navigation.navigate('FinancialNews');
+  };
 
   return (
-    <View style={[styles.wrap, { paddingTop: Math.max(insets.top, rs(8)) }]}>
+    <View
+      style={[
+        styles.wrap,
+        {
+          paddingTop: Math.max(insets.top, rs(8)),
+          backgroundColor: colors.bgElevated,
+          borderBottomColor: colors.borderMuted,
+        },
+      ]}
+    >
       <View style={styles.row}>
         <Pressable
           onPress={showBack ? onBack : onMenuPress}
           hitSlop={12}
           style={styles.iconBtn}
+          accessibilityRole="button"
+          accessibilityLabel={showBack ? 'Go back' : 'Open menu'}
         >
           <Ionicons
             name={showBack ? 'arrow-back' : 'menu'}
@@ -39,24 +80,60 @@ export function AppHeader({
           />
         </Pressable>
 
-        <Text style={styles.title} numberOfLines={1}>
+        {showLogo ? (
+          <View style={styles.logoWrap}>
+            <BrandLogo variant="mark" height={rs(28)} />
+          </View>
+        ) : null}
+
+        <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
           {title}
         </Text>
 
         {right ??
           (showActions ? (
             <View style={styles.actions}>
-              <View style={styles.calWrap}>
-                <MaterialCommunityIcons
-                  name="calendar-month"
-                  size={rs(20)}
-                  color={colors.text}
-                />
-              </View>
-              <View style={styles.newsWrap}>
-                <Ionicons name="newspaper-outline" size={rs(18)} color={colors.text} />
-                <View style={styles.dot} />
-              </View>
+              <Pressable
+                onPress={openCalendar}
+                hitSlop={8}
+                style={styles.actionItem}
+                accessibilityRole="button"
+                accessibilityLabel="NEPSE Calendar"
+              >
+                <View style={[styles.calWrap, { backgroundColor: colors.primary }]}>
+                  <MaterialCommunityIcons
+                    name="calendar-month"
+                    size={rs(20)}
+                    color="#FFFFFF"
+                  />
+                </View>
+                <Text style={[styles.actionLabel, { color: colors.textMuted }]}>
+                  Calendar
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={openNews}
+                hitSlop={8}
+                style={styles.actionItem}
+                accessibilityRole="button"
+                accessibilityLabel="Financial News"
+              >
+                <View
+                  style={[
+                    styles.newsWrap,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Ionicons name="newspaper-outline" size={rs(18)} color={colors.text} />
+                  <View style={[styles.dot, { backgroundColor: colors.badgeNew }]} />
+                </View>
+                <Text style={[styles.actionLabel, { color: colors.textMuted }]}>
+                  News
+                </Text>
+              </Pressable>
             </View>
           ) : (
             <View style={styles.actionsPlaceholder} />
@@ -68,41 +145,61 @@ export function AppHeader({
 
 const styles = StyleSheet.create({
   wrap: {
-    backgroundColor: colors.bgElevated,
-    paddingBottom: rs(10),
+    paddingBottom: rs(8),
     paddingHorizontal: rs(12),
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: rs(44),
+    alignItems: 'flex-end',
+    minHeight: rs(48),
   },
   iconBtn: {
     width: rs(40),
     height: rs(40),
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: rs(2),
+  },
+  logoWrap: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: rs(8),
+    paddingHorizontal: rs(4),
+    paddingVertical: rs(2),
+    marginRight: rs(8),
+    marginBottom: rs(2),
+    overflow: 'hidden',
   },
   title: {
     flex: 1,
-    color: colors.text,
-    fontSize: rs(18),
-    fontWeight: '600',
-    marginLeft: rs(4),
+    fontSize: rs(17),
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    marginBottom: rs(10),
   },
   actions: {
     flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: rs(12),
+    paddingBottom: rs(2),
+  },
+  actionItem: {
     alignItems: 'center',
-    gap: rs(10),
+    gap: rs(2),
+    minWidth: rs(44),
+  },
+  actionLabel: {
+    fontSize: rs(9),
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   actionsPlaceholder: {
-    width: rs(72),
+    width: rs(96),
   },
   calWrap: {
     width: rs(34),
     height: rs(34),
     borderRadius: rs(8),
-    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -110,7 +207,7 @@ const styles = StyleSheet.create({
     width: rs(34),
     height: rs(34),
     borderRadius: rs(8),
-    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -121,6 +218,5 @@ const styles = StyleSheet.create({
     width: rs(8),
     height: rs(8),
     borderRadius: rs(4),
-    backgroundColor: colors.badgeNew,
   },
 });

@@ -1,6 +1,5 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 
 const PROMO =
@@ -21,7 +20,7 @@ export function PromoBanner() {
 
 const styles = StyleSheet.create({
   banner: {
-    backgroundColor: colors.promoBanner,
+    backgroundColor: '#1B5E20',
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: rs(8),
@@ -32,18 +31,18 @@ const styles = StyleSheet.create({
     width: rs(28),
     height: rs(28),
     borderRadius: rs(14),
-    backgroundColor: colors.accentGreen,
+    backgroundColor: '#4CAF50',
     alignItems: 'center',
     justifyContent: 'center',
   },
   logoText: {
-    color: colors.text,
+    color: '#FFFFFF',
     fontWeight: '800',
     fontSize: rs(14),
   },
   text: {
     flex: 1,
-    color: colors.text,
+    color: '#FFFFFF',
     fontSize: rs(12),
     lineHeight: rs(16),
   },

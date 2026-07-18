@@ -1,0 +1,5 @@
+# Training-time dependencies (run on your dev machine, not required on the server)
+-r requirements.txt
+tensorflow==2.20.0
+tf2onnx==1.16.1
+matplotlib==3.10.0
