@@ -14,9 +14,9 @@
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
         "EXPO_PUBLIC_AUTH_ENABLED": "true",
-        "EXPO_PUBLIC_AUTH_API_URL": "http://192.168.1.5:8080",
-        "EXPO_PUBLIC_CDSC_BACKEND_URL": "http://192.168.1.5:8080",
-        "EXPO_PUBLIC_CDSC_BACKEND_KEY": "change-me-shared-secret",
+        "EXPO_PUBLIC_AUTH_API_URL": "https://ipo-bulk-apply-jhuj.onrender.com",
+        "EXPO_PUBLIC_CDSC_BACKEND_URL": "https://ipo-bulk-apply-jhuj.onrender.com",
+        "EXPO_PUBLIC_CDSC_BACKEND_KEY": "nepse-ghar-prod-api-key-CHANGE-THIS-32chars",
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "395699990420-bemq1vajtbdqv27aplhpdj1gskreveog.apps.googleusercontent.com",
         "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "395699990420-sdcpsm5ucjbn89um1hqd33v3mqssithb.apps.googleusercontent.com"
       }
@@ -30,9 +30,9 @@
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
         "EXPO_PUBLIC_AUTH_ENABLED": "true",
-        "EXPO_PUBLIC_AUTH_API_URL": "http://192.168.1.5:8080",
-        "EXPO_PUBLIC_CDSC_BACKEND_URL": "http://192.168.1.5:8080",
-        "EXPO_PUBLIC_CDSC_BACKEND_KEY": "change-me-shared-secret",
+        "EXPO_PUBLIC_AUTH_API_URL": "https://ipo-bulk-apply-jhuj.onrender.com",
+        "EXPO_PUBLIC_CDSC_BACKEND_URL": "https://ipo-bulk-apply-jhuj.onrender.com",
+        "EXPO_PUBLIC_CDSC_BACKEND_KEY": "nepse-ghar-prod-api-key-CHANGE-THIS-32chars",
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "395699990420-bemq1vajtbdqv27aplhpdj1gskreveog.apps.googleusercontent.com",
         "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "395699990420-sdcpsm5ucjbn89um1hqd33v3mqssithb.apps.googleusercontent.com"
       }
