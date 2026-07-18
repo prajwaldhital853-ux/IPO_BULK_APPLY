@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # then set CHROME_CDP_URL=http://127.0.0.1:9222
     chrome_cdp_url: str = ""
     # When not using CDP: "chrome" | "msedge" | "" (Playwright Chromium)
-    chrome_channel: str = "chrome"
+    chrome_channel: str = ""
 
     headless: bool = True
     max_concurrency: int = 2
