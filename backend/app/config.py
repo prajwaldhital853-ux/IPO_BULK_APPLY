@@ -50,7 +50,13 @@ class Settings(BaseSettings):
     admin_otp_ttl_minutes: int = 10
     app_env: str = 'development'
 
-    # Gmail SMTP for admin OTP (no custom domain needed — use Google App Password)
+    # Email OTP — Render blocks SMTP; use Brevo/Resend HTTP on PaaS
+    email_provider: str = 'auto'  # auto | smtp | brevo | resend
+    brevo_api_key: str = ''
+    resend_api_key: str = ''
+    resend_from: str = ''
+
+    # Gmail SMTP (works on VPS/local only — blocked on Render)
     smtp_host: str = 'smtp.gmail.com'
     smtp_port: int = 587
     smtp_user: str = ''

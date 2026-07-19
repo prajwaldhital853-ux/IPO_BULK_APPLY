@@ -49,7 +49,7 @@ async def request_user_pin_otp(db: AsyncSession, user: User) -> str:
         import logging
 
         logging.getLogger('pin-otp').warning(
-            'SMTP not configured — PIN OTP for %s: %s (expires %s)',
+            'Email not configured — PIN OTP for %s: %s (expires %s)',
             user.email,
             otp,
             expires.isoformat(),
