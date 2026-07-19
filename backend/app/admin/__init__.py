@@ -1,3 +1,1 @@
-from .routes import router
-
-__all__ = ['router']
+"""Admin package — import ``admin.routes`` for the API router."""

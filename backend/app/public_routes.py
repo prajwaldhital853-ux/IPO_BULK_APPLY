@@ -3,11 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth.deps import CurrentUser, get_optional_user
-from ..db.session import get_db
-from ..feedback import create_feedback
-from ..public_settings import settings_to_public
-from ..site_settings import get_or_create_settings
+from .auth.deps import CurrentUser, get_optional_user
+from .db.session import get_db
+from .feedback import create_feedback
+from .public_settings import settings_to_public
+from .site_settings import get_or_create_settings
 from .admin.schemas import FeedbackSubmitIn, FeedbackSubmitOut, PublicAppSettingsOut
 
 router = APIRouter(prefix='/app', tags=['app'])

@@ -1,14 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
-from fastapi import APIRouter
-
-from ..db.models import SiteSettings
 from .admin.schemas import ContactSettingsOut, PaymentSettingsOut, PublicAppSettingsOut
-
-
-router = APIRouter(prefix='/app', tags=['app'])
+from .db.models import SiteSettings
 
 
 def _payment_out(row: SiteSettings) -> PaymentSettingsOut:
