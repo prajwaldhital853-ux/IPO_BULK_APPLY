@@ -50,6 +50,9 @@ export function SubscriptionScreen() {
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
   const [paymentNote, setPaymentNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+
+  const needsSignIn = auth.enabled && !auth.isAuthenticated;
 
   const qrUrl = useMemo(
     () => qrImageUrl(paymentInfo?.qrText ?? ''),
@@ -70,10 +73,43 @@ export function SubscriptionScreen() {
 
   const pending = serverStatus?.pendingRequest ?? auth.premium.pendingRequest;
 
+  const onSignIn = useCallback(async () => {
+    setSigningIn(true);
+    try {
+      await auth.signInWithGoogle();
+    } catch (e: unknown) {
+      Alert.alert(
+        'Sign in failed',
+        e instanceof Error ? e.message : 'Could not sign in with Google.',
+      );
+    } finally {
+      setSigningIn(false);
+    }
+  }, [auth]);
+
   const onSubmit = useCallback(
     async (planId: string, title: string, price: string) => {
-      if (!auth.isAuthenticated) {
-        Alert.alert('Login required', 'Please sign in with Google before subscribing.');
+      if (needsSignIn) {
+        Alert.alert(
+          'Login required',
+          'Please sign in with Google before submitting payment.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Sign in', onPress: () => void onSignIn() },
+          ],
+        );
+        return;
+      }
+      const me = await auth.refreshProfile();
+      if (!me) {
+        Alert.alert(
+          'Session expired',
+          'Please sign in with Google again to submit payment.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Sign in', onPress: () => void onSignIn() },
+          ],
+        );
         return;
       }
       if (isPending) {
@@ -105,9 +141,18 @@ export function SubscriptionScreen() {
                   setPaymentNote('');
                 })
                 .catch((e: unknown) => {
+                  const message =
+                    e instanceof Error ? e.message : 'Unknown error';
+                  const sessionExpired = message.includes('Session expired');
                   Alert.alert(
                     'Could not submit',
-                    e instanceof Error ? e.message : 'Unknown error',
+                    message,
+                    sessionExpired
+                      ? [
+                          { text: 'OK', style: 'cancel' },
+                          { text: 'Sign in', onPress: () => void onSignIn() },
+                        ]
+                      : [{ text: 'OK' }],
                   );
                 })
                 .finally(() => setSubmitting(false));
@@ -116,7 +161,7 @@ export function SubscriptionScreen() {
         ],
       );
     },
-    [auth.isAuthenticated, isPending, isPremium, paymentNote, requestPlan],
+    [needsSignIn, isPending, isPremium, paymentNote, requestPlan, auth, onSignIn],
   );
 
   const openWhatsApp = useCallback(async () => {
@@ -174,6 +219,25 @@ export function SubscriptionScreen() {
             </Text>
           )}
         </View>
+
+        {needsSignIn ? (
+          <View style={styles.signInCard}>
+            <Ionicons name="logo-google" size={rs(24)} color={colors.text} />
+            <Text style={styles.signInTitle}>Sign in required</Text>
+            <Text style={styles.signInText}>
+              Sign in with Google to submit your payment for verification.
+            </Text>
+            <Pressable
+              style={[styles.signInBtn, signingIn && styles.buyBtnDisabled]}
+              disabled={signingIn}
+              onPress={() => void onSignIn()}
+            >
+              <Text style={styles.signInBtnText}>
+                {signingIn ? 'Signing in…' : 'Sign in with Google'}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {isPending && pending ? (
           <View style={styles.pendingCard}>
@@ -254,12 +318,19 @@ export function SubscriptionScreen() {
                 <Text style={styles.perk}>✓ …and more premium tools</Text>
                 {!isPremium ? (
                   <Pressable
-                    style={[styles.buyBtn, submitting && styles.buyBtnDisabled]}
-                    disabled={submitting || isPending}
+                    style={[
+                      styles.buyBtn,
+                      (submitting || needsSignIn) && styles.buyBtnDisabled,
+                    ]}
+                    disabled={submitting || isPending || needsSignIn}
                     onPress={() => onSubmit(plan.id, plan.title, plan.price)}
                   >
                     <Text style={styles.buyText}>
-                      {submitting ? 'Submitting…' : `Submit payment · ${plan.price}`}
+                      {needsSignIn
+                        ? 'Sign in to submit'
+                        : submitting
+                          ? 'Submitting…'
+                          : `Submit payment · ${plan.price}`}
                     </Text>
                   </Pressable>
                 ) : null}
@@ -296,6 +367,33 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(13),
       lineHeight: rs(18),
     },
+    signInCard: {
+      borderWidth: 1,
+      borderColor: c.teal,
+      backgroundColor: c.surface,
+      borderRadius: rs(14),
+      padding: rs(16),
+      alignItems: 'center',
+      gap: rs(8),
+      marginBottom: rs(16),
+    },
+    signInTitle: { color: c.text, fontWeight: '800', fontSize: rs(16) },
+    signInText: {
+      color: c.textSecondary,
+      textAlign: 'center',
+      fontSize: rs(12),
+      lineHeight: rs(18),
+    },
+    signInBtn: {
+      marginTop: rs(4),
+      backgroundColor: c.fab,
+      borderRadius: rs(12),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(20),
+      alignSelf: 'stretch',
+      alignItems: 'center',
+    },
+    signInBtnText: { color: '#fff', fontWeight: '800', fontSize: rs(14) },
     pendingCard: {
       borderWidth: 1,
       borderColor: '#F9A825',

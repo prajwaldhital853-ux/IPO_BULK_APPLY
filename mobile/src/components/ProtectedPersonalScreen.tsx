@@ -30,8 +30,8 @@ export function ProtectedPersonalScreen({
   if (dismissed) return <>{children}</>;
 
   return (
-    <>
-      <View style={styles.dimmed} pointerEvents="none">
+    <View style={styles.host}>
+      <View style={[styles.content, styles.dimmed]} pointerEvents="none">
         {children}
       </View>
       <AuthGateSheet
@@ -40,11 +40,13 @@ export function ProtectedPersonalScreen({
         subtitle={subtitle}
         onDismiss={() => setDismissed(true)}
       />
-    </>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  host: { flex: 1 },
+  content: { flex: 1 },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  dimmed: { flex: 1, opacity: 0.35 },
+  dimmed: { opacity: 0.35 },
 });

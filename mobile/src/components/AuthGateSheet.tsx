@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -39,6 +38,8 @@ export function AuthGateSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  if (!visible) return null;
+
   const onSignIn = async () => {
     setBusy(true);
     setError('');
@@ -52,51 +53,65 @@ export function AuthGateSheet({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
-      <View style={styles.backdrop}>
-        {onDismiss ? (
-          <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} />
+    <View style={styles.overlay} accessibilityViewIsModal>
+      {onDismiss ? (
+        <Pressable
+          style={styles.backdropTap}
+          onPress={onDismiss}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss sign in"
+        />
+      ) : (
+        <View style={styles.backdropTap} />
+      )}
+      <View
+        style={[styles.sheet, { backgroundColor: colors.surface }]}
+        accessibilityRole="menu"
+      >
+        <View style={[styles.handle, { backgroundColor: colors.borderMuted }]} />
+        <Ionicons name="shield-checkmark-outline" size={rs(40)} color={colors.tealHeader} />
+        <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+        <Text style={[styles.sub, { color: colors.textSecondary }]}>{subtitle}</Text>
+        {error ? (
+          <Text style={[styles.error, { color: colors.danger }]}>{error}</Text>
         ) : null}
-        <View style={[styles.sheet, { backgroundColor: colors.surface }]}>
-          <View style={[styles.handle, { backgroundColor: colors.borderMuted }]} />
-          <Ionicons name="shield-checkmark-outline" size={rs(40)} color={colors.tealHeader} />
-          <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-          <Text style={[styles.sub, { color: colors.textSecondary }]}>{subtitle}</Text>
-          {error ? (
-            <Text style={[styles.error, { color: colors.danger }]}>{error}</Text>
-          ) : null}
-          <Pressable
-            style={[styles.googleBtn, busy && styles.disabled]}
-            onPress={() => void onSignIn()}
-            disabled={busy}
-          >
-            {busy ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="logo-google" size={rs(18)} color="#fff" />
-                <Text style={styles.googleText}>Sign in with Google</Text>
-              </>
-            )}
+        <Pressable
+          style={[styles.googleBtn, busy && styles.disabled]}
+          onPress={() => void onSignIn()}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="logo-google" size={rs(18)} color="#fff" />
+              <Text style={styles.googleText}>Sign in with Google</Text>
+            </>
+          )}
+        </Pressable>
+        {onDismiss ? (
+          <Pressable onPress={onDismiss} style={styles.dismissBtn} hitSlop={8}>
+            <Text style={[styles.dismissText, { color: colors.textSecondary }]}>
+              Not now
+            </Text>
           </Pressable>
-          {onDismiss ? (
-            <Pressable onPress={onDismiss} style={styles.dismissBtn}>
-              <Text style={[styles.dismissText, { color: colors.textSecondary }]}>
-                Not now
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
+        ) : null}
       </View>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    zIndex: 50,
+    elevation: 50,
+  },
+  backdropTap: {
+    flex: 1,
+    width: '100%',
   },
   sheet: {
     borderTopLeftRadius: rs(20),
@@ -107,6 +122,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: rs(10),
     width: '100%',
+    zIndex: 51,
+    elevation: 51,
   },
   handle: {
     width: rs(40),

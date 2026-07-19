@@ -72,27 +72,21 @@ async def build_premium_out(
         user.premium.expires_at if user.premium else None,
     )
     if base.active:
-        return PremiumOut(
-            active=True,
-            plan=base.plan,
-            expiresAt=base.expiresAt,
-            status='active',
-            pendingRequest=None,
-        )
+        return base.model_copy(update={'status': 'active', 'pending_request': None})
     if pending is not None:
         return PremiumOut(
             active=False,
             plan=None,
-            expiresAt=None,
+            expires_at=None,
             status='pending',
-            pendingRequest=_pending_out(pending),
+            pending_request=_pending_out(pending),
         )
     return PremiumOut(
         active=False,
         plan=None,
-        expiresAt=None,
+        expires_at=None,
         status='free',
-        pendingRequest=None,
+        pending_request=None,
     )
 
 

@@ -71,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [premium, setPremium] = useState<PremiumInfo>(defaultPremium);
   const [loading, setLoading] = useState(AUTH_ENABLED);
+  const [sessionReady, setSessionReady] = useState(!AUTH_ENABLED);
 
   useEffect(() => {
     if (canUseNativeGoogleSignIn()) {
@@ -82,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (session: Awaited<ReturnType<typeof authGoogle>>) => {
       setActiveUserId(session.user.id);
       setAccessToken(session.accessToken, session.expiresIn);
+      setSessionReady(true);
       await saveRefreshToken(session.refreshToken, session.user.id);
       await saveLastSignedInUserId(session.user.id);
       await migrateLocalDataToUser(session.user.id);
@@ -100,7 +102,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setActiveUserId(me.user.id);
       setUser(me.user);
       setPremium(me.premium);
+      setSessionReady(true);
       await cachePremiumFromServer(me.premium);
+    } else {
+      const lastUserId = await loadLastSignedInUserId();
+      await clearAllTokens(lastUserId ?? undefined);
+      setActiveUserId(null);
+      setUser(null);
+      setPremium(defaultPremium);
+      setSessionReady(false);
     }
     return me;
   }, []);
@@ -124,16 +134,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await saveLastSignedInUserId(me.user.id);
             setUser(me.user);
             setPremium(me.premium);
+            setSessionReady(true);
             await cachePremiumFromServer(me.premium);
           } else if (mounted) {
             await clearAllTokens(lastUserId ?? undefined);
             setActiveUserId(null);
             setUser(null);
             setPremium(defaultPremium);
+            setSessionReady(false);
           }
+        } else if (mounted) {
+          setSessionReady(false);
         }
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setSessionReady(Boolean(getAccessToken()));
+          setLoading(false);
+        }
       }
     })();
     return () => {
@@ -168,6 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setActiveUserId(null);
     setUser(null);
     setPremium(defaultPremium);
+    setSessionReady(false);
     clearAccessToken();
   }, [user?.id]);
 
@@ -182,6 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setActiveUserId(null);
     setUser(null);
     setPremium(defaultPremium);
+    setSessionReady(false);
     clearAccessToken();
   }, [user?.id]);
 
@@ -191,13 +210,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       premium,
       loading,
-      isAuthenticated: Boolean(user),
+      isAuthenticated:
+        AUTH_ENABLED
+          ? sessionReady && Boolean(user) && Boolean(getAccessToken())
+          : true,
       signInWithGoogle,
       signOut,
       deleteAccount,
       refreshProfile,
     }),
-    [user, premium, loading, signInWithGoogle, signOut, deleteAccount, refreshProfile],
+    [user, premium, loading, sessionReady, signInWithGoogle, signOut, deleteAccount, refreshProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

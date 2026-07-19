@@ -16,7 +16,17 @@ import {
 import { saveLastSignedInUserId, loadLastSignedInUserId } from '../../storage/sessionStorage';
 import { setActiveUserId } from '../../storage/userScope';
 
+export const SESSION_EXPIRED_MESSAGE =
+  'Session expired. Please sign in with Google again.';
+
 let refreshPromise: Promise<AuthSession | null> | null = null;
+
+function unauthorizedResponse(detail = SESSION_EXPIRED_MESSAGE): Response {
+  return new Response(JSON.stringify({ detail }), {
+    status: 401,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
 export async function refreshSessionIfNeeded(): Promise<AuthSession | null> {
   const lastUserId = await loadLastSignedInUserId();
@@ -56,17 +66,18 @@ export async function authFetch(
     const session = await refreshSessionIfNeeded();
     token = session?.accessToken ?? null;
   }
+  if (!token) return unauthorizedResponse();
+
   const headers = new Headers(init.headers);
-  if (token) headers.set('Authorization', `Bearer ${token}`);
+  headers.set('Authorization', `Bearer ${token}`);
   headers.set('Accept', 'application/json');
   let res = await fetch(`${AUTH_API_BASE}${path}`, { ...init, headers });
   if (res.status === 401) {
     clearAccessToken();
     const session = await refreshSessionIfNeeded();
-    if (session?.accessToken) {
-      headers.set('Authorization', `Bearer ${session.accessToken}`);
-      res = await fetch(`${AUTH_API_BASE}${path}`, { ...init, headers });
-    }
+    if (!session?.accessToken) return unauthorizedResponse();
+    headers.set('Authorization', `Bearer ${session.accessToken}`);
+    res = await fetch(`${AUTH_API_BASE}${path}`, { ...init, headers });
   }
   return res;
 }

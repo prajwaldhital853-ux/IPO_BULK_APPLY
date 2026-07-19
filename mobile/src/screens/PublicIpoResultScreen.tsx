@@ -5,7 +5,9 @@ import {
   FlatList,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -20,13 +22,13 @@ import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
 import {
   ISSUE_MANAGERS,
-  NEPAL_ISSUE_MANAGERS,
   catalogSortedForDisplay,
   isCdscBackendConfigured,
   loadIssueManagerCompanies,
   loadCdscFallbackCompanies,
   runIssueManagerBulkCheck,
   type CompanyLoadResult,
+  type IssueManagerBulkRow,
   type IssueManagerBulkSummary,
   type IssueManagerCompany,
 } from '../services/issuemanager';
@@ -63,6 +65,10 @@ export function PublicIpoResultScreen() {
   const [partialWarn, setPartialWarn] = useState<string | null>(null);
   const [providerErrors, setProviderErrors] = useState<ProviderLoadError[]>([]);
   const [liveCount, setLiveCount] = useState(ISSUE_MANAGERS.length);
+  const [hideBoids, setHideBoids] = useState(false);
+  const [resultsMap, setResultsMap] = useState<Record<string, IssueManagerBulkRow>>({});
+  const [resultModalOpen, setResultModalOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const managersSorted = useMemo(() => catalogSortedForDisplay(), []);
   const failedProviderIds = useMemo(
@@ -182,6 +188,12 @@ export function PublicIpoResultScreen() {
     void refreshCompanies();
   }, [refreshCompanies]);
 
+  useEffect(() => {
+    setResultsMap({});
+    setSummary(null);
+    setResultModalOpen(false);
+  }, [selected?.key]);
+
   const toggleCheckAccount = (account: AccountMeta) => {
     setCheckAccountIds((prev) => {
       const base = prev.length ? prev : accounts.map((a) => a.id);
@@ -193,67 +205,154 @@ export function PublicIpoResultScreen() {
     });
   };
 
-  const checkLabel =
-    checkAccounts.length === accounts.length
-      ? `All ${accounts.length} accounts`
-      : checkAccounts.length === 1
-        ? checkAccounts[0].name
-        : `${checkAccounts.length} of ${accounts.length} accounts`;
-
-  const onCheck = useCallback(() => {
-    if (!selected) {
-      Alert.alert(
-        'Not ready',
-        loadError ?? 'Wait for the company list to load, then retry.',
-      );
-      return;
-    }
-    if (checkAccounts.length === 0) {
-      Alert.alert('No accounts', 'Select at least one account to check.');
-      return;
-    }
-
-    void sensitive.requestSensitiveAction(
-      async () => {
-      setRunning(true);
-      setProgress('Starting…');
-      setSummary(null);
-      try {
-        for (const a of checkAccounts) {
-          const built = resolveBoidSync(a);
-          if (built && a.demat !== built) {
-            await updateAccountMeta(a.id, {
-              demat: built,
-              boidHint: built.slice(-4),
-            });
-          }
-        }
-
-        const result = await runIssueManagerBulkCheck({
-          accounts: checkAccounts,
-          company: selected,
-          onProgress: (msg) => setProgress(msg),
-        });
-        setSummary(result);
-      } catch (e) {
-        Alert.alert(
-          'Check failed',
-          e instanceof Error ? e.message : 'Unknown error',
-        );
-      } finally {
-        setRunning(false);
-        setProgress('');
+  const mergeResults = useCallback((result: IssueManagerBulkSummary) => {
+    setSummary(result);
+    setResultsMap((prev) => {
+      const next = { ...prev };
+      for (const row of result.results) {
+        next[row.accountId] = row;
       }
-    },
-      { pinPolicy: 'skipIfUnlocked' },
-    );
-  }, [checkAccounts, loadError, selected, sensitive, updateAccountMeta]);
+      return next;
+    });
+  }, []);
 
-  const allottedCount =
-    summary?.results.filter((r) => r.ok && r.allotted).length ?? 0;
-  const notAllottedCount =
-    summary?.results.filter((r) => r.ok && !r.allotted).length ?? 0;
-  const failedCount = summary?.results.filter((r) => !r.ok).length ?? 0;
+  const runCheck = useCallback(
+    (targets: AccountMeta[], openModal: boolean) => {
+      if (!selected) {
+        Alert.alert(
+          'Not ready',
+          loadError ?? 'Wait for the company list to load, then retry.',
+        );
+        return;
+      }
+      if (targets.length === 0) {
+        Alert.alert('No accounts', 'Select at least one account to check.');
+        return;
+      }
+
+      void sensitive.requestSensitiveAction(
+        async () => {
+          setRunning(true);
+          setProgress('Starting…');
+          try {
+            for (const a of targets) {
+              const built = resolveBoidSync(a);
+              if (built && a.demat !== built) {
+                await updateAccountMeta(a.id, {
+                  demat: built,
+                  boidHint: built.slice(-4),
+                });
+              }
+            }
+
+            const result = await runIssueManagerBulkCheck({
+              accounts: targets,
+              company: selected,
+              onProgress: (msg) => setProgress(msg),
+            });
+            mergeResults(result);
+            if (openModal) setResultModalOpen(true);
+          } catch (e) {
+            Alert.alert(
+              'Check failed',
+              e instanceof Error ? e.message : 'Unknown error',
+            );
+          } finally {
+            setRunning(false);
+            setProgress('');
+          }
+        },
+        { pinPolicy: 'skipIfUnlocked' },
+      );
+    },
+    [loadError, mergeResults, selected, sensitive, updateAccountMeta],
+  );
+
+  const onCheckAll = useCallback(() => {
+    runCheck(checkAccounts, true);
+  }, [checkAccounts, runCheck]);
+
+  const onCheckOne = useCallback(
+    (account: AccountMeta) => {
+      runCheck([account], false);
+    },
+    [runCheck],
+  );
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refreshCompanies();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshCompanies]);
+
+  const displayRows = useMemo(
+    () =>
+      checkAccounts.map((account, idx) => ({
+        account,
+        index: idx + 1,
+        result: resultsMap[account.id],
+      })),
+    [checkAccounts, resultsMap],
+  );
+
+  const allottedCount = useMemo(
+    () => displayRows.filter((row) => row.result?.ok && row.result.allotted).length,
+    [displayRows],
+  );
+  const notAllottedCount = useMemo(
+    () => displayRows.filter((row) => row.result?.ok && !row.result.allotted).length,
+    [displayRows],
+  );
+  const failedCount = useMemo(
+    () => displayRows.filter((row) => row.result && !row.result.ok).length,
+    [displayRows],
+  );
+
+  const modalAllotted =
+    summary?.results.filter((r) => r.ok && r.allotted).length ?? allottedCount;
+  const modalTotal = summary?.results.length ?? checkAccounts.length;
+
+  const shareSummary = useCallback(async () => {
+    const company = selected?.name ?? summary?.companyName ?? 'IPO';
+    const lines = displayRows.map((row) => {
+      const r = row.result;
+      const status = !r
+        ? 'Not checked'
+        : !r.ok
+          ? `Error: ${r.message}`
+          : r.allotted
+            ? `Allotted${r.quantity != null ? ` (${r.quantity})` : ''}`
+            : r.message || 'Not allotted';
+      return `${row.index}. ${row.account.name}: ${status}`;
+    });
+    const message = [
+      `NEPSE GHAR — IPO Result`,
+      company,
+      `Allotted ${modalAllotted} / ${modalTotal}`,
+      '',
+      ...lines,
+    ].join('\n');
+    try {
+      await Share.share({ message });
+    } catch {
+      Alert.alert('Share', message);
+    }
+  }, [displayRows, modalAllotted, modalTotal, selected?.name, summary?.companyName]);
+
+  const resultHeadline =
+    modalAllotted > 0
+      ? `Congratulations! 🎉`
+      : 'Better luck next time! 😔';
+
+  const resultSubtext =
+    modalAllotted > 0
+      ? `You were allotted in ${modalAllotted} of ${modalTotal} account${modalTotal === 1 ? '' : 's'}.`
+      : modalTotal === 1
+        ? 'Unfortunately, you were not allotted in your account.'
+        : 'Unfortunately, you were not allotted in any of your accounts.';
 
   return (
     <ProtectedPersonalScreen title="Sign in to check IPO results">
@@ -262,25 +361,154 @@ export function PublicIpoResultScreen() {
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
-        <Text style={styles.title}>Same-day IPO Result</Text>
-        <Pressable
-          onPress={() => void refreshCompanies()}
-          hitSlop={10}
-          disabled={loadingCompanies || loadingCdsc}
-        >
-          {loadingCompanies || loadingCdsc ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <Ionicons name="refresh" size={rs(22)} color={colors.primary} />
-          )}
+        <Text style={styles.title}>IPO Result</Text>
+        <Pressable onPress={() => setHideBoids((v) => !v)} hitSlop={10}>
+          <Ionicons
+            name={hideBoids ? 'eye-off-outline' : 'eye-outline'}
+            size={rs(22)}
+            color={colors.text}
+          />
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.body}>
-        <Text style={styles.banner}>
-          Checks issue managers first. CDSC fallback covers IPOs not listed
-          there.
-        </Text>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void onRefresh()}
+            tintColor={colors.primary}
+          />
+        }
+      >
+        {loadError ? <Text style={styles.errorNote}>{loadError}</Text> : null}
+        {partialWarn ? <Text style={styles.warnNote}>{partialWarn}</Text> : null}
+
+        <Pressable
+          style={styles.companyPicker}
+          onPress={() => setCompanyPickerOpen(true)}
+          disabled={loadingCompanies || companies.length === 0}
+        >
+          <Text style={styles.companyPickerText} numberOfLines={2}>
+            {selected?.name ??
+              (loadingCompanies
+                ? 'Loading issue managers…'
+                : loadingCdsc
+                  ? 'Loading CDSC extras…'
+                  : 'Select IPO / FPO / Right')}
+          </Text>
+          {loadingCompanies || loadingCdsc ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
+          )}
+        </Pressable>
+
+        <View style={styles.summaryHead}>
+          <View style={styles.summaryTitleRow}>
+            <MaterialCommunityIcons
+              name="chart-bar"
+              size={rs(16)}
+              color={colors.textSecondary}
+            />
+            <Text style={styles.summaryHeadTitle}>Summary</Text>
+          </View>
+          <Pressable onPress={() => setCheckPickerOpen(true)} hitSlop={8}>
+            <Text style={styles.summaryTotal}>Total: {checkAccounts.length}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.statRow}>
+          <View style={[styles.statCard, styles.statAllotted]}>
+            <Ionicons name="checkmark-circle" size={rs(18)} color="#66BB6A" />
+            <Text style={[styles.statNum, { color: '#66BB6A' }]}>{allottedCount}</Text>
+            <Text style={[styles.statLabel, { color: '#66BB6A' }]}>Alloted</Text>
+          </View>
+          <View style={[styles.statCard, styles.statNotAllotted]}>
+            <Ionicons name="close-circle" size={rs(18)} color="#EF5350" />
+            <Text style={[styles.statNum, { color: '#EF5350' }]}>{notAllottedCount}</Text>
+            <Text style={[styles.statLabel, { color: '#EF5350' }]}>Not Alloted</Text>
+          </View>
+          <View style={[styles.statCard, styles.statErrors]}>
+            <Ionicons name="alert-circle" size={rs(18)} color="#FB8C00" />
+            <Text style={[styles.statNum, { color: '#FB8C00' }]}>{failedCount}</Text>
+            <Text style={[styles.statLabel, { color: '#FB8C00' }]}>Errors</Text>
+          </View>
+        </View>
+
+        <Pressable
+          style={[styles.checkNowBtn, (running || !selected) && styles.checkNowDisabled]}
+          onPress={onCheckAll}
+          disabled={running || !selected}
+        >
+          {running ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <Text style={styles.checkNowText}>Check Now</Text>
+          )}
+        </Pressable>
+
+        {progress ? <Text style={styles.progress}>{progress}</Text> : null}
+
+        {displayRows.map(({ account, index, result }) => {
+          const boidRaw = result?.boidMasked ?? resolveBoidSync(account) ?? account.demat;
+          const boidText = hideBoids
+            ? '••••••••••••••••'
+            : boidRaw
+              ? maskBoid(boidRaw)
+              : 'BOID missing';
+          const isAllotted = Boolean(result?.ok && result.allotted);
+          const isError = Boolean(result && !result.ok);
+          const isNotAllotted = Boolean(result?.ok && !result.allotted);
+          const statusColor = isAllotted
+            ? '#66BB6A'
+            : isError
+              ? '#FB8C00'
+              : isNotAllotted
+                ? '#EF9A9A'
+                : colors.textMuted;
+          const statusMessage =
+            result?.message ??
+            (boidRaw ? 'Tap Check to look up this BOID.' : 'Add BOID in account settings.');
+          const iconName = isAllotted
+            ? 'checkmark'
+            : isError
+              ? 'alert'
+              : isNotAllotted
+                ? 'alert'
+                : 'help';
+          const iconBg = isAllotted
+            ? '#2E7D32'
+            : isError
+              ? '#EF6C00'
+              : isNotAllotted
+                ? '#C62828'
+                : colors.surfaceAlt;
+
+          return (
+            <View key={account.id} style={styles.resultCard}>
+              <View style={[styles.resultIcon, { backgroundColor: iconBg }]}>
+                <Ionicons name={iconName} size={rs(22)} color="#FFFFFF" />
+              </View>
+              <View style={styles.resultBody}>
+                <Text style={styles.resultName}>
+                  {index}. {account.name.toUpperCase()}
+                </Text>
+                <Text style={styles.resultBoid}>{boidText}</Text>
+                <Text style={[styles.resultMsg, { color: statusColor }]}>
+                  {statusMessage}
+                </Text>
+              </View>
+              <Pressable
+                style={styles.resultCheckBtn}
+                onPress={() => onCheckOne(account)}
+                disabled={running || !selected}
+              >
+                <Text style={styles.resultCheckText}>Check</Text>
+              </Pressable>
+            </View>
+          );
+        })}
 
         <Pressable style={styles.catalogChip} onPress={() => setManagersOpen(true)}>
           <MaterialCommunityIcons
@@ -289,148 +517,63 @@ export function PublicIpoResultScreen() {
             color={colors.primary}
           />
           <Text style={styles.catalogChipText}>
-            {liveCount} of {NEPAL_ISSUE_MANAGERS.length} Nepal issue managers
-            live · tap for full list (scrollable)
+            {liveCount} live issue managers · tap for full list
           </Text>
           <Ionicons name="chevron-forward" size={rs(16)} color={colors.primary} />
         </Pressable>
-
-        {loadError ? <Text style={styles.errorNote}>{loadError}</Text> : null}
-        {partialWarn ? (
-          <Text style={styles.warnNote}>{partialWarn}</Text>
-        ) : null}
-
-        <View style={styles.labelRow}>
-          <MaterialCommunityIcons
-            name="domain"
-            size={rs(16)}
-            color={colors.textSecondary}
-          />
-          <Text style={styles.label}>Company</Text>
-        </View>
-        <Pressable
-          style={styles.picker}
-          onPress={() => setCompanyPickerOpen(true)}
-          disabled={loadingCompanies || companies.length === 0}
-        >
-          <View style={{ flex: 1 }}>
-            <Text style={styles.pickerTitle} numberOfLines={2}>
-              {selected?.name ??
-                (loadingCompanies
-                  ? 'Loading issue managers…'
-                  : loadingCdsc
-                    ? 'Loading CDSC extras…'
-                    : 'No company listed')}
-            </Text>
-            {selected ? (
-              <Text style={styles.pickerSub}>{selected.providerLabel}</Text>
-            ) : null}
-          </View>
-          <Ionicons
-            name="chevron-down"
-            size={rs(18)}
-            color={colors.textMuted}
-          />
-        </Pressable>
-
-        <View style={styles.labelRow}>
-          <MaterialCommunityIcons
-            name="account-multiple-check"
-            size={rs(16)}
-            color={colors.textSecondary}
-          />
-          <Text style={styles.label}>Accounts</Text>
-        </View>
-        <Pressable
-          style={styles.picker}
-          onPress={() => setCheckPickerOpen(true)}
-        >
-          <View style={{ flex: 1 }}>
-            <Text style={styles.pickerTitle}>{checkLabel}</Text>
-            <Text style={styles.pickerSub}>
-              BOID from demat · tap to select
-            </Text>
-          </View>
-          <Ionicons
-            name="chevron-down"
-            size={rs(18)}
-            color={colors.textMuted}
-          />
-        </Pressable>
-
-        <View style={styles.accountPreview}>
-          {checkAccounts.slice(0, 8).map((a) => {
-            const boid = resolveBoidSync(a) ?? a.demat;
-            return (
-              <Text key={a.id} style={styles.accountPreviewLine}>
-                {a.name} · {boid ? maskBoid(boid) : 'BOID missing'}
-              </Text>
-            );
-          })}
-          {checkAccounts.length > 8 ? (
-            <Text style={styles.accountPreviewLine}>
-              +{checkAccounts.length - 8} more…
-            </Text>
-          ) : null}
-        </View>
-
-        <Pressable
-          style={[
-            styles.cta,
-            (running || !selected) && styles.ctaDisabled,
-          ]}
-          onPress={onCheck}
-          disabled={running || !selected}
-        >
-          {running ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.ctaText}>Check all results</Text>
-          )}
-        </Pressable>
-
-        {progress ? <Text style={styles.progress}>{progress}</Text> : null}
-
-        {summary ? (
-          <View style={styles.summaryBox}>
-            <Text style={styles.summaryTitle}>{summary.companyName}</Text>
-            <Text style={styles.summaryMeta}>
-              via {summary.providerLabel} · Allotted {allottedCount} · Not
-              allotted {notAllottedCount}
-              {failedCount ? ` · Failed ${failedCount}` : ''}
-            </Text>
-            {summary.results.map((r) => (
-              <View key={r.accountId} style={styles.resultRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.resultName}>{r.accountName}</Text>
-                  {r.boidMasked ? (
-                    <Text style={styles.resultBoid}>{r.boidMasked}</Text>
-                  ) : null}
-                  <Text style={styles.resultMsg}>{r.message}</Text>
-                </View>
-                <Text
-                  style={[
-                    styles.resultBadge,
-                    r.ok && r.allotted
-                      ? styles.badgeOk
-                      : r.ok
-                        ? styles.badgeNo
-                        : styles.badgeFail,
-                  ]}
-                >
-                  {!r.ok
-                    ? 'Error'
-                    : r.allotted
-                      ? r.quantity != null
-                        ? `Allotted ${r.quantity}`
-                        : 'Allotted'
-                      : 'Not allotted'}
-                </Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
       </ScrollView>
+
+      <Modal
+        visible={resultModalOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setResultModalOpen(false)}
+      >
+        <View style={styles.resultModalBackdrop}>
+          <View style={styles.resultModalCard}>
+            <View style={styles.resultModalIconWrap}>
+              <MaterialCommunityIcons
+                name="chart-line"
+                size={rs(34)}
+                color="#FFFFFF"
+              />
+            </View>
+            <Text style={styles.resultModalBrand}>IPO Bulk Apply</Text>
+            <Text
+              style={[
+                styles.resultModalHeadline,
+                { color: modalAllotted > 0 ? '#81C784' : '#EF9A9A' },
+              ]}
+            >
+              {resultHeadline}
+            </Text>
+            <Text style={styles.resultModalCompany} numberOfLines={2}>
+              {selected?.name ?? summary?.companyName ?? 'Selected IPO'}
+            </Text>
+            <View style={styles.resultModalScoreBox}>
+              <Text style={styles.resultModalScore}>
+                {modalAllotted} / {modalTotal}
+              </Text>
+              <Text style={styles.resultModalScoreLabel}>Accounts Allotted</Text>
+            </View>
+            <Text style={styles.resultModalDesc}>{resultSubtext}</Text>
+            <View style={styles.resultModalActions}>
+              <Pressable
+                style={styles.resultModalBtn}
+                onPress={() => setResultModalOpen(false)}
+              >
+                <Text style={styles.resultModalBtnText}>Close</Text>
+              </Pressable>
+              <Pressable
+                style={styles.resultModalBtn}
+                onPress={() => void shareSummary()}
+              >
+                <Text style={styles.resultModalBtnText}>Share</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={companyPickerOpen}
@@ -642,11 +785,135 @@ function makeStyles(c: ThemeColors) {
       marginHorizontal: rs(8),
     },
     body: { padding: rs(16), paddingBottom: rs(40) },
-    banner: {
+    companyPicker: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: rs(14),
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(14),
+      backgroundColor: c.surface,
+      marginBottom: rs(16),
+      gap: rs(10),
+    },
+    companyPickerText: {
+      flex: 1,
+      color: c.text,
+      fontWeight: '600',
+      fontSize: rs(14),
+      lineHeight: rs(20),
+    },
+    summaryHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: rs(10),
+    },
+    summaryTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(6),
+    },
+    summaryHeadTitle: {
+      color: c.text,
+      fontWeight: '700',
+      fontSize: rs(14),
+    },
+    summaryTotal: {
       color: c.textSecondary,
       fontSize: rs(12),
-      lineHeight: rs(17),
+      fontWeight: '600',
+    },
+    statRow: {
+      flexDirection: 'row',
+      gap: rs(8),
+      marginBottom: rs(16),
+    },
+    statCard: {
+      flex: 1,
+      borderRadius: rs(12),
+      borderWidth: 1,
+      paddingVertical: rs(10),
+      alignItems: 'center',
+      gap: rs(4),
+      backgroundColor: c.surface,
+    },
+    statAllotted: { borderColor: 'rgba(102,187,106,0.45)' },
+    statNotAllotted: { borderColor: 'rgba(239,83,80,0.45)' },
+    statErrors: { borderColor: 'rgba(251,140,0,0.45)' },
+    statNum: { fontWeight: '800', fontSize: rs(18) },
+    statLabel: { fontSize: rs(11), fontWeight: '600' },
+    checkNowBtn: {
+      borderWidth: 1,
+      borderColor: c.primary,
+      borderRadius: rs(24),
+      minHeight: rs(46),
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: rs(16),
+      backgroundColor: 'transparent',
+    },
+    checkNowDisabled: { opacity: 0.55 },
+    checkNowText: {
+      color: c.primary,
+      fontWeight: '800',
+      fontSize: rs(15),
+    },
+    progress: {
+      textAlign: 'center',
+      color: c.textSecondary,
       marginBottom: rs(10),
+      fontSize: rs(12),
+    },
+    resultCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(12),
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: rs(14),
+      padding: rs(12),
+      backgroundColor: c.surface,
+      marginBottom: rs(10),
+    },
+    resultIcon: {
+      width: rs(44),
+      height: rs(44),
+      borderRadius: rs(22),
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    resultBody: { flex: 1 },
+    resultName: {
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(13),
+      letterSpacing: 0.3,
+    },
+    resultBoid: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      marginTop: rs(3),
+      fontVariant: ['tabular-nums'],
+    },
+    resultMsg: {
+      fontSize: rs(11),
+      marginTop: rs(4),
+      lineHeight: rs(15),
+    },
+    resultCheckBtn: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: rs(16),
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(8),
+      backgroundColor: c.bg,
+    },
+    resultCheckText: {
+      color: c.text,
+      fontWeight: '700',
+      fontSize: rs(12),
     },
     catalogChip: {
       flexDirection: 'row',
@@ -658,7 +925,7 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: rs(12),
       paddingVertical: rs(10),
       backgroundColor: c.surface,
-      marginBottom: rs(14),
+      marginTop: rs(6),
     },
     catalogChipText: {
       flex: 1,
@@ -694,104 +961,96 @@ function makeStyles(c: ThemeColors) {
       lineHeight: rs(16),
       marginBottom: rs(10),
     },
-    labelRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(6),
-      marginBottom: rs(8),
-      marginTop: rs(4),
-    },
-    label: { color: c.textSecondary, fontSize: rs(12), fontWeight: '600' },
-    picker: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      borderWidth: 1,
-      borderColor: c.border,
-      borderRadius: rs(14),
-      padding: rs(14),
-      backgroundColor: c.surface,
-      marginBottom: rs(12),
-      gap: rs(8),
-    },
-    pickerTitle: { color: c.text, fontWeight: '700', fontSize: rs(14) },
-    pickerSub: {
-      color: c.textMuted,
-      fontSize: rs(12),
-      marginTop: rs(3),
-    },
-    accountPreview: {
-      marginBottom: rs(16),
-      gap: rs(4),
-    },
-    accountPreviewLine: {
-      color: c.textSecondary,
-      fontSize: rs(11),
-      fontVariant: ['tabular-nums'],
-    },
-    cta: {
-      backgroundColor: c.primary,
-      borderRadius: rs(28),
-      minHeight: rs(50),
+    resultModalBackdrop: {
+      flex: 1,
+      backgroundColor: c.overlay,
       alignItems: 'center',
       justifyContent: 'center',
+      padding: rs(24),
     },
-    ctaDisabled: { opacity: 0.5 },
-    ctaText: { color: '#fff', fontWeight: '800', fontSize: rs(15) },
-    progress: {
-      textAlign: 'center',
-      color: c.textSecondary,
-      marginTop: rs(10),
-      fontSize: rs(12),
-    },
-    summaryBox: {
-      marginTop: rs(20),
+    resultModalCard: {
+      width: '100%',
+      maxWidth: rs(340),
+      borderRadius: rs(18),
       borderWidth: 1,
       borderColor: c.border,
-      borderRadius: rs(14),
-      padding: rs(14),
       backgroundColor: c.surface,
-      gap: rs(10),
+      padding: rs(22),
+      alignItems: 'center',
     },
-    summaryTitle: { color: c.text, fontWeight: '800', fontSize: rs(14) },
-    summaryMeta: {
-      color: c.textSecondary,
-      fontSize: rs(12),
-      marginBottom: rs(4),
+    resultModalIconWrap: {
+      width: rs(72),
+      height: rs(72),
+      borderRadius: rs(16),
+      backgroundColor: '#1565C0',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: rs(12),
     },
-    resultRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: rs(10),
-      paddingVertical: rs(8),
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: c.borderMuted,
-    },
-    resultName: { color: c.text, fontWeight: '700', fontSize: rs(13) },
-    resultBoid: {
-      color: c.textMuted,
-      fontSize: rs(11),
-      marginTop: rs(2),
-      fontVariant: ['tabular-nums'],
-    },
-    resultMsg: {
-      color: c.textSecondary,
-      fontSize: rs(11),
-      marginTop: rs(3),
-      lineHeight: rs(15),
-    },
-    resultBadge: {
-      fontSize: rs(11),
+    resultModalBrand: {
+      color: '#81C784',
       fontWeight: '800',
-      paddingHorizontal: rs(8),
-      paddingVertical: rs(4),
-      borderRadius: rs(8),
-      overflow: 'hidden',
-      maxWidth: rs(110),
+      fontSize: rs(18),
+      marginBottom: rs(8),
+    },
+    resultModalHeadline: {
+      fontWeight: '800',
+      fontSize: rs(16),
+      marginBottom: rs(8),
       textAlign: 'center',
     },
-    badgeOk: { backgroundColor: c.primarySoft, color: c.accentGreen },
-    badgeNo: { backgroundColor: c.surfaceAlt, color: c.textSecondary },
-    badgeFail: { backgroundColor: c.surfaceAlt, color: c.danger },
+    resultModalCompany: {
+      color: c.textSecondary,
+      fontSize: rs(12),
+      textAlign: 'center',
+      marginBottom: rs(14),
+      lineHeight: rs(17),
+    },
+    resultModalScoreBox: {
+      width: '100%',
+      borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: 'rgba(129,199,132,0.35)',
+      backgroundColor: c.primarySoft,
+      paddingVertical: rs(14),
+      alignItems: 'center',
+      marginBottom: rs(12),
+    },
+    resultModalScore: {
+      color: '#81C784',
+      fontWeight: '800',
+      fontSize: rs(28),
+    },
+    resultModalScoreLabel: {
+      color: '#81C784',
+      fontSize: rs(12),
+      fontWeight: '600',
+      marginTop: rs(2),
+    },
+    resultModalDesc: {
+      color: c.textSecondary,
+      fontSize: rs(13),
+      textAlign: 'center',
+      lineHeight: rs(19),
+      marginBottom: rs(16),
+    },
+    resultModalActions: {
+      flexDirection: 'row',
+      gap: rs(10),
+      width: '100%',
+    },
+    resultModalBtn: {
+      flex: 1,
+      backgroundColor: '#81C784',
+      borderRadius: rs(22),
+      paddingVertical: rs(12),
+      alignItems: 'center',
+    },
+    resultModalBtnText: {
+      color: '#1B1B1B',
+      fontWeight: '800',
+      fontSize: rs(14),
+    },
     modalBackdrop: {
       flex: 1,
       backgroundColor: c.overlay,

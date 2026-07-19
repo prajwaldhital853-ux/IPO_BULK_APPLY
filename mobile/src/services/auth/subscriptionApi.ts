@@ -1,5 +1,5 @@
 import { AUTH_API_BASE } from './config';
-import { authFetch } from './http';
+import { authFetch, SESSION_EXPIRED_MESSAGE } from './http';
 
 export type PendingSubscription = {
   id: string;
@@ -61,9 +61,11 @@ function mapStatus(json: Record<string, unknown>): SubscriptionStatus {
 async function parseError(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { detail?: string };
-    return body.detail ?? `HTTP ${res.status}`;
+    const detail = body.detail ?? `HTTP ${res.status}`;
+    if (detail === 'Missing bearer token') return SESSION_EXPIRED_MESSAGE;
+    return detail;
   } catch {
-    return `HTTP ${res.status}`;
+    return res.status === 401 ? SESSION_EXPIRED_MESSAGE : `HTTP ${res.status}`;
   }
 }
 
