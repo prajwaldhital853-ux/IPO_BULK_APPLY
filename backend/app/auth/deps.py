@@ -53,8 +53,15 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail='Invalid token subject')
 
     row = await db.scalar(select(User).where(User.id == user_id))
+    if row is None and email:
+        row = await db.scalar(
+            select(User).where(User.email == email.strip().lower()),
+        )
     if row is None:
-        raise HTTPException(status_code=401, detail='User not found')
+        raise HTTPException(
+            status_code=401,
+            detail='Session expired. Please sign in with Google again.',
+        )
 
     return CurrentUser(id=row.id, email=email or row.email, jti=jti)
 

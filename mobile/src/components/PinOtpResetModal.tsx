@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 import { sendPinResetOtp, verifyPinResetOtp } from '../services/auth/pinApi';
 import { resetPinAfterVerification } from '../storage/pinStorage';
 import { rs } from '../utils/responsive';
@@ -27,6 +28,7 @@ export function PinOtpResetModal({
   onReset: () => void;
 }) {
   const { colors } = useTheme();
+  const auth = useAuth();
   const [step, setStep] = useState<Step>('send');
   const [maskedEmail, setMaskedEmail] = useState('');
   const [otp, setOtp] = useState('');
