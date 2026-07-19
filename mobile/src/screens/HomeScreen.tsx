@@ -25,7 +25,6 @@ import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 import type { AccountMeta } from '../types/account';
-import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { MEROSHARE_WEB_HOME } from '../services/meroshare/webSession';
 
 export function HomeScreen() {
@@ -111,10 +110,6 @@ export function HomeScreen() {
       {tab === 'Market' ? (
         <HomeMarketPanel active={tab === 'Market'} />
       ) : (
-        <ProtectedPersonalScreen
-          title="Sign in to manage accounts"
-          subtitle="Your MeroShare accounts are saved securely on this device."
-        >
           <>
             {searchOpen ? (
               <View style={styles.searchBar}>
@@ -270,7 +265,6 @@ export function HomeScreen() {
               onDelete={confirmDelete}
             />
           </>
-        </ProtectedPersonalScreen>
       )}
     </View>
   );

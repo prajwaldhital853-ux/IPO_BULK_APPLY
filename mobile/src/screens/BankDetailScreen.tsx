@@ -22,7 +22,6 @@ import {
 import { colors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
-import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 
@@ -223,10 +222,6 @@ export function BankDetailScreen() {
     errorField === field ? styles.fieldErrorWrap : null;
 
   return (
-    <ProtectedPersonalScreen
-      title="Sign in to save accounts"
-      subtitle="MeroShare passwords and CRN/PIN are stored locally on this device only."
-    >
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
@@ -335,7 +330,6 @@ export function BankDetailScreen() {
       </ScrollView>
       <SensitiveActionModals action={sensitive} />
     </View>
-    </ProtectedPersonalScreen>
   );
 }
 

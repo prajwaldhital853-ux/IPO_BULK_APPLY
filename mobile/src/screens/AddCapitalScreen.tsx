@@ -24,7 +24,6 @@ import {
 import { colors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
-import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 
 type DpOption = { id: string; code: string; name: string };
 
@@ -134,10 +133,6 @@ export function AddCapitalScreen() {
   };
 
   return (
-    <ProtectedPersonalScreen
-      title="Sign in to add accounts"
-      subtitle="Google sign-in links saved MeroShare accounts to your profile on this device."
-    >
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
@@ -245,7 +240,6 @@ export function AddCapitalScreen() {
         </View>
       </Modal>
     </View>
-    </ProtectedPersonalScreen>
   );
 }
 

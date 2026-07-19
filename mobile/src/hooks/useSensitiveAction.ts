@@ -39,8 +39,10 @@ export function useSensitiveAction() {
   const requestSensitiveAction = useCallback(
     async (action: PendingAction, options?: { pinPolicy?: PinPolicy }) => {
       const pinPolicy = options?.pinPolicy ?? 'always';
+      // Guest users can save/manage MeroShare accounts locally without Google login.
       if (enabled && !isAuthenticated) {
-        throw new Error('Sign in required');
+        await action();
+        return;
       }
       if (!AUTH_ENABLED) {
         await action();
