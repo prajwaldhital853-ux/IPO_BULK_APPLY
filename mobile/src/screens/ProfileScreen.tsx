@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Linking,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -23,6 +24,11 @@ import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
+import {
+  fetchPublicAppSettings,
+  type ContactSettings,
+  type PublicAppSettings,
+} from '../services/app/publicSettingsApi';
 
 type ContactItem = {
   label: string;
@@ -33,11 +39,14 @@ type ContactItem = {
   onPress: () => void;
 };
 
-const KALASH_EMAIL = 'kalashfinancialsolution@gmail.com';
-const KALASH_WHATSAPP = '9709133067';
-const KALASH_WHATSAPP_URL = 'https://wa.me/9779709133067';
-const KALASH_TIKTOK_URL =
-  'https://www.tiktok.com/@unique_share_market?_r=1&_t=ZS-987xHBiY8G4';
+const FALLBACK_CONTACT: ContactSettings = {
+  companyName: 'Kalash Financial Solution Pvt. Ltd.',
+  email: 'kalashfinancialsolution@gmail.com',
+  whatsapp: '9709133067',
+  whatsappUrl: 'https://wa.me/9779709133067',
+  facebookUrl: null,
+  tiktokUrl: 'https://www.tiktok.com/@unique_share_market',
+};
 
 async function openExternal(url: string, failLabel: string): Promise<void> {
   try {
@@ -52,55 +61,70 @@ async function openExternal(url: string, failLabel: string): Promise<void> {
   }
 }
 
-function buildContactItems(): ContactItem[] {
-  return [
+function buildContactItems(contact: ContactSettings): ContactItem[] {
+  const items: ContactItem[] = [
     {
       label: 'Email',
-      detail: KALASH_EMAIL,
+      detail: contact.email,
       bg: '#FFCDD2',
       iconColor: '#C62828',
       ion: 'mail-outline',
-      onPress: () => void openExternal(`mailto:${KALASH_EMAIL}`, 'Email'),
+      onPress: () => void openExternal(`mailto:${contact.email}`, 'Email'),
     },
     {
       label: 'WhatsApp',
-      detail: KALASH_WHATSAPP,
+      detail: contact.whatsapp,
       bg: '#C8E6C9',
       iconColor: '#2E7D32',
       ion: 'logo-whatsapp',
-      onPress: () => void openExternal(KALASH_WHATSAPP_URL, 'WhatsApp'),
+      onPress: () => void openExternal(contact.whatsappUrl, 'WhatsApp'),
     },
-    {
+  ];
+
+  if (contact.tiktokUrl) {
+    items.push({
       label: 'TikTok',
-      detail: '@unique_share_market',
+      detail: contact.tiktokUrl.replace(/^https?:\/\/(www\.)?tiktok\.com\//, '@'),
       bg: '#E0E0E0',
       iconColor: '#212121',
       ion: 'logo-tiktok',
-      onPress: () => void openExternal(KALASH_TIKTOK_URL, 'TikTok'),
+      onPress: () => void openExternal(contact.tiktokUrl!, 'TikTok'),
+    });
+  }
+
+  items.push({
+    label: 'Facebook',
+    detail: contact.facebookUrl ? 'Open page' : 'Link coming soon',
+    bg: '#BBDEFB',
+    iconColor: '#1565C0',
+    ion: 'logo-facebook',
+    onPress: () => {
+      if (contact.facebookUrl) {
+        void openExternal(contact.facebookUrl, 'Facebook');
+        return;
+      }
+      Alert.alert(
+        'Facebook',
+        'Facebook page link will be added soon. Contact us on WhatsApp or email for now.',
+      );
     },
-    {
-      label: 'Facebook',
-      detail: 'Link coming soon',
-      bg: '#BBDEFB',
-      iconColor: '#1565C0',
-      ion: 'logo-facebook',
-      onPress: () =>
-        Alert.alert(
-          'Facebook',
-          'Facebook page link will be added soon. Contact us on WhatsApp or email for now.',
-        ),
-    },
-  ];
+  });
+
+  return items;
 }
 
-const GENERAL = [
-  { label: 'Settings', icon: 'settings-outline' as const, bg: '#CFD8DC', iconColor: '#455A64' },
-  { label: 'Notifications', icon: 'notifications-outline' as const, bg: '#BBDEFB', iconColor: '#1565C0' },
-  { label: 'Rate this App', icon: 'star-outline' as const, bg: '#FFF9C4', iconColor: '#F9A825' },
-  { label: 'Whatsapp Group', icon: 'logo-whatsapp' as const, bg: '#E1BEE7', iconColor: '#7B1FA2' },
-  { label: 'Share this App', icon: 'share-social-outline' as const, bg: '#C8E6C9', iconColor: '#2E7D32' },
-  { label: 'Feedback', icon: 'mail-outline' as const, bg: '#FFCDD2', iconColor: '#C62828' },
-  { label: 'Feature Request', icon: 'play-forward-outline' as const, bg: '#D1C4E9', iconColor: '#4527A0' },
+const GENERAL: {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  bg: string;
+  iconColor: string;
+  action: 'settings' | 'notifications' | 'share' | 'feedback' | 'feature';
+}[] = [
+  { label: 'Settings', icon: 'settings-outline', bg: '#CFD8DC', iconColor: '#455A64', action: 'settings' },
+  { label: 'Notifications', icon: 'notifications-outline', bg: '#BBDEFB', iconColor: '#1565C0', action: 'notifications' },
+  { label: 'Share this App', icon: 'share-social-outline', bg: '#C8E6C9', iconColor: '#2E7D32', action: 'share' },
+  { label: 'Feedback', icon: 'mail-outline', bg: '#FFCDD2', iconColor: '#C62828', action: 'feedback' },
+  { label: 'Feature Request', icon: 'play-forward-outline', bg: '#D1C4E9', iconColor: '#4527A0', action: 'feature' },
 ];
 
 export function ProfileScreen() {
@@ -114,7 +138,37 @@ export function ProfileScreen() {
   const [changePinOpen, setChangePinOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const contactItems = useMemo(() => buildContactItems(), []);
+  const [publicSettings, setPublicSettings] = useState<PublicAppSettings | null>(null);
+
+  useEffect(() => {
+    void fetchPublicAppSettings().then(setPublicSettings);
+  }, []);
+
+  const contact = publicSettings?.contact ?? FALLBACK_CONTACT;
+  const contactItems = useMemo(() => buildContactItems(contact), [contact]);
+
+  const onGeneralPress = async (action: (typeof GENERAL)[number]['action']) => {
+    if (action === 'settings' || action === 'notifications') {
+      navigation.navigate('AppSettings');
+      return;
+    }
+    if (action === 'share') {
+      const message =
+        `NEPSE GHAR — Bulk MeroShare IPO apply, live NEPSE data, portfolio tools & premium features.\n\n` +
+        `${contact.companyName}\n${contact.email}`;
+      try {
+        await Share.share({ message, title: 'NEPSE GHAR' });
+      } catch {
+        Alert.alert('Share', message);
+      }
+      return;
+    }
+    if (action === 'feedback') {
+      navigation.navigate('FeedbackForm', { kind: 'feedback' });
+      return;
+    }
+    navigation.navigate('FeedbackForm', { kind: 'feature_request' });
+  };
 
   return (
     <View style={styles.root}>
@@ -241,7 +295,10 @@ export function ProfileScreen() {
         <View style={styles.card}>
           {GENERAL.map((item, index) => (
             <View key={item.label}>
-              <Pressable style={styles.row}>
+              <Pressable
+                style={styles.row}
+                onPress={() => void onGeneralPress(item.action)}
+              >
                 <View style={[styles.rowIcon, { backgroundColor: item.bg }]}>
                   <Ionicons name={item.icon} size={rs(18)} color={item.iconColor} />
                 </View>
@@ -256,7 +313,7 @@ export function ProfileScreen() {
         </View>
 
         <Text style={styles.sectionOutside}>Connect With Us</Text>
-        <Text style={styles.sectionHint}>Kalash Financial Solution Pvt. Ltd.</Text>
+        <Text style={styles.sectionHint}>{contact.companyName}</Text>
         <View style={styles.card}>
           {contactItems.map((item, index) => (
             <View key={item.label}>

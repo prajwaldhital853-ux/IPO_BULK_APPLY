@@ -93,3 +93,73 @@ class SubscriptionRequest(Base):
     )
 
     user: Mapped['User'] = relationship(back_populates='subscription_requests')
+
+
+class SiteSettings(Base):
+    """Singleton app configuration editable from admin panel."""
+
+    __tablename__ = 'site_settings'
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    admin_email: Mapped[str] = mapped_column(String(320), default='kalashfinancialsolution@gmail.com')
+    admin_password_hash: Mapped[str] = mapped_column(String(256))
+
+    payment_qr_text: Mapped[str] = mapped_column(String(512), default='')
+    payment_bank_name: Mapped[str] = mapped_column(String(256), default='')
+    payment_account_name: Mapped[str] = mapped_column(String(256), default='')
+    payment_account_number: Mapped[str] = mapped_column(String(64), default='')
+    payment_whatsapp: Mapped[str] = mapped_column(String(32), default='')
+
+    contact_company_name: Mapped[str] = mapped_column(String(256), default='')
+    contact_email: Mapped[str] = mapped_column(String(320), default='')
+    contact_whatsapp: Mapped[str] = mapped_column(String(32), default='')
+    contact_whatsapp_url: Mapped[str] = mapped_column(String(512), default='')
+    contact_facebook_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    contact_tiktok_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class AdminOtpReset(Base):
+    __tablename__ = 'admin_otp_resets'
+
+    email: Mapped[str] = mapped_column(String(320), primary_key=True)
+    otp_hash: Mapped[str] = mapped_column(String(128))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
+class UserFeedback(Base):
+    __tablename__ = 'user_feedback'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str] = mapped_column(String(256), default='')
+    email: Mapped[str] = mapped_column(String(320), default='')
+    message: Mapped[str] = mapped_column(String(4000))
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
+class UserPinOtp(Base):
+    __tablename__ = 'user_pin_otps'
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    otp_hash: Mapped[str] = mapped_column(String(128))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )

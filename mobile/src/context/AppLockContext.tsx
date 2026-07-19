@@ -9,6 +9,7 @@ import React, {
 import { AppState, StyleSheet, View } from 'react-native';
 import { PinPromptModal } from '../components/PinPromptModal';
 import { PinSetupModal } from '../components/PinSetupModal';
+import { PinOtpResetModal } from '../components/PinOtpResetModal';
 import { AUTH_ENABLED } from '../services/auth/config';
 import { hasPin, setupPin, verifyPin } from '../storage/pinStorage';
 import { useAuth } from './AuthContext';
@@ -31,6 +32,7 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<LockPhase>('idle');
   const [pinError, setPinError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
 
   const authLockActive = enabled && AUTH_ENABLED && isAuthenticated && Boolean(user);
 
@@ -137,6 +139,16 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
         onSubmit={(pin) => void onPromptSubmit(pin)}
         onCancel={() => void signOut()}
         cancelLabel="Sign out"
+        onForgotPin={() => setForgotOpen(true)}
+      />
+      <PinOtpResetModal
+        visible={forgotOpen}
+        userEmail={user?.email}
+        onClose={() => setForgotOpen(false)}
+        onReset={() => {
+          setForgotOpen(false);
+          unlock();
+        }}
       />
     </AppLockContext.Provider>
   );

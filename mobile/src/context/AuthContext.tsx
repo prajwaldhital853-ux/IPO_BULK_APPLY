@@ -54,7 +54,7 @@ type AuthContextValue = {
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
+  refreshProfile: () => Promise<import('../services/auth/api').MeResponse | null>;
 };
 
 const defaultPremium: PremiumInfo = {
@@ -94,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const refreshProfile = useCallback(async () => {
-    if (!AUTH_ENABLED) return;
+    if (!AUTH_ENABLED) return null;
     const me = await fetchMe();
     if (me) {
       setActiveUserId(me.user.id);
@@ -102,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setPremium(me.premium);
       await cachePremiumFromServer(me.premium);
     }
+    return me;
   }, []);
 
   useEffect(() => {

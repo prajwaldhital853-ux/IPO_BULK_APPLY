@@ -26,6 +26,9 @@ from .schemas import (
     LogoutRequest,
     MeResponse,
     PaymentInfoOut,
+    PinOtpSendOut,
+    PinOtpVerifyIn,
+    PinOtpVerifyOut,
     PremiumOut,
     RefreshRequest,
     SubscriptionRequestIn,
@@ -39,6 +42,8 @@ from .subscription import (
     plan_info,
     upsert_premium,
 )
+from ..emailer import EmailNotConfiguredError
+from ..pin_otp import request_user_pin_otp, verify_user_pin_otp
 
 router = APIRouter(prefix='/auth', tags=['auth'])
 
@@ -223,15 +228,58 @@ async def auth_me(
     return MeResponse(user=_user_out(row), premium=premium)
 
 
+@router.post('/pin/send-otp', response_model=PinOtpSendOut)
+async def pin_send_otp(
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PinOtpSendOut:
+    row = await db.scalar(select(User).where(User.id == user.id))
+    if row is None:
+        raise HTTPException(status_code=401, detail='User not found')
+    try:
+        masked = await request_user_pin_otp(db, row)
+        await db.commit()
+    except EmailNotConfiguredError:
+        raise HTTPException(
+            status_code=503,
+            detail='Email is not configured on the server. Contact support.',
+        ) from None
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return PinOtpSendOut(
+        message=f'Verification code sent to {masked}',
+        email=masked,
+    )
+
+
+@router.post('/pin/verify-otp', response_model=PinOtpVerifyOut)
+async def pin_verify_otp(
+    body: PinOtpVerifyIn,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PinOtpVerifyOut:
+    try:
+        await verify_user_pin_otp(db, user.id, body.otp)
+        await db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return PinOtpVerifyOut(ok=True)
+
+
 @router.get('/subscription/payment-info', response_model=PaymentInfoOut)
-async def subscription_payment_info() -> PaymentInfoOut:
-    settings = get_settings()
+async def subscription_payment_info(
+    db: AsyncSession = Depends(get_db),
+) -> PaymentInfoOut:
+    from ..site_settings import get_or_create_settings
+
+    row = await get_or_create_settings(db)
+    wa = row.payment_whatsapp.strip()
     return PaymentInfoOut(
-        qrText=settings.payment_qr_text,
-        bankName=settings.payment_bank_name,
-        accountName=settings.payment_account_name,
-        accountNumber=settings.payment_account_number,
-        whatsappUrl=f'https://wa.me/{settings.payment_whatsapp}',
+        qrText=row.payment_qr_text,
+        bankName=row.payment_bank_name,
+        accountName=row.payment_account_name,
+        accountNumber=row.payment_account_number,
+        whatsappUrl=f'https://wa.me/{wa}' if wa else '',
     )
 
 

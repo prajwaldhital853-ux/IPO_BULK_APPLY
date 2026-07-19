@@ -46,6 +46,31 @@ export type AdminStats = {
   activeCount: number;
   totalRequests: number;
   totalUsers: number;
+  newFeedbackCount: number;
+};
+
+export type AdminPaymentSettings = {
+  qrText: string;
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  whatsapp: string;
+  whatsappUrl: string;
+};
+
+export type AdminContactSettings = {
+  companyName: string;
+  email: string;
+  whatsapp: string;
+  whatsappUrl: string;
+  facebookUrl: string | null;
+  tiktokUrl: string | null;
+};
+
+export type AdminSettings = {
+  adminEmail: string;
+  payment: AdminPaymentSettings;
+  contact: AdminContactSettings;
 };
 
 async function parseError(res: Response): Promise<string> {
@@ -95,6 +120,7 @@ export async function fetchAdminStats(token: string): Promise<AdminStats> {
     activeCount: Number(json.activeCount ?? 0),
     totalRequests: Number(json.totalRequests ?? 0),
     totalUsers: Number(json.totalUsers ?? 0),
+    newFeedbackCount: Number(json.newFeedbackCount ?? 0),
   };
 }
 
@@ -217,4 +243,145 @@ export async function deleteUserSubscription(
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(await parseError(res));
+}
+
+function mapPaymentSettings(json: Record<string, unknown>): AdminPaymentSettings {
+  return {
+    qrText: String(json.qrText ?? ''),
+    bankName: String(json.bankName ?? ''),
+    accountName: String(json.accountName ?? ''),
+    accountNumber: String(json.accountNumber ?? ''),
+    whatsapp: String(json.whatsapp ?? ''),
+    whatsappUrl: String(json.whatsappUrl ?? ''),
+  };
+}
+
+function mapContactSettings(json: Record<string, unknown>): AdminContactSettings {
+  return {
+    companyName: String(json.companyName ?? ''),
+    email: String(json.email ?? ''),
+    whatsapp: String(json.whatsapp ?? ''),
+    whatsappUrl: String(json.whatsappUrl ?? ''),
+    facebookUrl: json.facebookUrl ? String(json.facebookUrl) : null,
+    tiktokUrl: json.tiktokUrl ? String(json.tiktokUrl) : null,
+  };
+}
+
+function mapAdminSettings(json: Record<string, unknown>): AdminSettings {
+  return {
+    adminEmail: String(json.adminEmail ?? ''),
+    payment: mapPaymentSettings((json.payment as Record<string, unknown>) ?? {}),
+    contact: mapContactSettings((json.contact as Record<string, unknown>) ?? {}),
+  };
+}
+
+export async function fetchAdminSettings(token: string): Promise<AdminSettings> {
+  const res = await adminFetch('/admin/settings', token);
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapAdminSettings((await res.json()) as Record<string, unknown>);
+}
+
+export async function updateAdminSettings(
+  token: string,
+  payload: {
+    payment?: Omit<AdminPaymentSettings, 'whatsappUrl'>;
+    contact?: AdminContactSettings;
+  },
+): Promise<AdminSettings> {
+  const res = await adminFetch('/admin/settings', token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapAdminSettings((await res.json()) as Record<string, unknown>);
+}
+
+export async function changeAdminPassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  const res = await adminFetch('/admin/password/change', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export async function requestAdminPasswordReset(email: string): Promise<string> {
+  const res = await fetch(`${AUTH_API_BASE}/admin/password/forgot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { message?: string };
+  return json.message ?? 'If that email is registered as admin, a verification code was sent.';
+}
+
+export async function resetAdminPassword(
+  email: string,
+  otp: string,
+  newPassword: string,
+): Promise<void> {
+  const res = await fetch(`${AUTH_API_BASE}/admin/password/reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ email, otp, newPassword }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export type AdminFeedbackRow = {
+  id: string;
+  kind: 'feedback' | 'feature_request';
+  name: string;
+  email: string;
+  message: string;
+  userId: string | null;
+  status: 'new' | 'read' | 'resolved';
+  createdAt: string;
+};
+
+function mapFeedbackRow(json: Record<string, unknown>): AdminFeedbackRow {
+  return {
+    id: String(json.id),
+    kind: (json.kind as AdminFeedbackRow['kind']) ?? 'feedback',
+    name: String(json.name ?? ''),
+    email: String(json.email ?? ''),
+    message: String(json.message ?? ''),
+    userId: json.userId ? String(json.userId) : null,
+    status: (json.status as AdminFeedbackRow['status']) ?? 'new',
+    createdAt: String(json.createdAt ?? ''),
+  };
+}
+
+export async function fetchAdminFeedback(
+  token: string,
+  filters?: { kind?: string; status?: string },
+): Promise<AdminFeedbackRow[]> {
+  const params = new URLSearchParams();
+  if (filters?.kind && filters.kind !== 'all') params.set('kind', filters.kind);
+  if (filters?.status && filters.status !== 'all') params.set('status', filters.status);
+  const q = params.toString();
+  const res = await adminFetch(`/admin/feedback${q ? `?${q}` : ''}`, token);
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as Record<string, unknown>[];
+  return json.map((row) => mapFeedbackRow(row));
+}
+
+export async function updateAdminFeedbackStatus(
+  token: string,
+  feedbackId: string,
+  status: AdminFeedbackRow['status'],
+): Promise<AdminFeedbackRow> {
+  const res = await adminFetch(`/admin/feedback/${feedbackId}`, token, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapFeedbackRow((await res.json()) as Record<string, unknown>);
 }

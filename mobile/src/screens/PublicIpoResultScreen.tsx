@@ -278,8 +278,8 @@ export function PublicIpoResultScreen() {
 
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.banner}>
-          Checks the 11 issue managers first (no captcha). CDSC trained-model
-          fallback is used only for IPOs not listed on those managers.
+          Checks issue managers first. CDSC fallback covers IPOs not listed
+          there.
         </Text>
 
         <Pressable style={styles.catalogChip} onPress={() => setManagersOpen(true)}>

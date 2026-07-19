@@ -18,17 +18,35 @@ from ..auth.subscription import (
     upsert_premium,
 )
 from ..config import get_settings
-from ..db.models import PremiumEntitlement, SubscriptionRequest, User
+from ..db.models import PremiumEntitlement, SubscriptionRequest, User, UserFeedback
 from ..db.session import get_db
 from .deps import AdminUser, get_admin_user
 from .schemas import (
     AdminActionIn,
     AdminDashboardStats,
+    AdminForgotPasswordIn,
     AdminLoginRequest,
     AdminLoginResponse,
+    AdminPasswordChangeIn,
     AdminPendingBrief,
+    AdminResetPasswordIn,
+    AdminSettingsOut,
+    AdminSettingsUpdateIn,
     AdminSubscriptionRow,
     AdminUserRow,
+    FeedbackRowOut,
+    FeedbackStatusIn,
+)
+from ..emailer import EmailNotConfiguredError
+from ..feedback import list_feedback, update_feedback_status
+from ..public_settings import _contact_out, _payment_out
+from ..site_settings import (
+    get_or_create_settings,
+    request_password_reset,
+    reset_password_with_otp,
+    update_admin_password,
+    update_site_settings,
+    verify_admin_login,
 )
 
 router = APIRouter(prefix='/admin', tags=['admin'])
@@ -124,19 +142,153 @@ async def _user_row(db: AsyncSession, user: User) -> AdminUserRow:
 
 
 @router.post('/login', response_model=AdminLoginResponse)
-async def admin_login(body: AdminLoginRequest) -> AdminLoginResponse:
+async def admin_login(
+    body: AdminLoginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> AdminLoginResponse:
     settings = get_settings()
-    if (
-        body.email.strip().lower() != settings.admin_email.strip().lower()
-        or body.password != settings.admin_password
-    ):
+    ok = await verify_admin_login(db, body.email, body.password)
+    if not ok:
         raise HTTPException(status_code=401, detail='Invalid admin email or password')
+    row = await get_or_create_settings(db)
+    await db.commit()
     token, ttl = create_admin_token(
-        email=settings.admin_email,
+        email=row.admin_email,
         secret=settings.jwt_secret,
         ttl_seconds=86_400,
     )
-    return AdminLoginResponse(accessToken=token, expiresIn=ttl, email=settings.admin_email)
+    return AdminLoginResponse(accessToken=token, expiresIn=ttl, email=row.admin_email)
+
+
+def _settings_out(row) -> AdminSettingsOut:
+    return AdminSettingsOut(
+        adminEmail=row.admin_email,
+        payment=_payment_out(row),
+        contact=_contact_out(row),
+    )
+
+
+@router.get('/settings', response_model=AdminSettingsOut)
+async def admin_get_settings(
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminSettingsOut:
+    row = await get_or_create_settings(db)
+    return _settings_out(row)
+
+
+@router.put('/settings', response_model=AdminSettingsOut)
+async def admin_update_settings(
+    body: AdminSettingsUpdateIn,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminSettingsOut:
+    payment = None
+    if body.payment is not None:
+        payment = {
+            'qr_text': body.payment.qr_text,
+            'bank_name': body.payment.bank_name,
+            'account_name': body.payment.account_name,
+            'account_number': body.payment.account_number,
+            'whatsapp': body.payment.whatsapp,
+        }
+    contact = None
+    if body.contact is not None:
+        contact = {
+            'company_name': body.contact.company_name,
+            'email': body.contact.email,
+            'whatsapp': body.contact.whatsapp,
+            'whatsapp_url': body.contact.whatsapp_url,
+            'facebook_url': body.contact.facebook_url,
+            'tiktok_url': body.contact.tiktok_url,
+        }
+    row = await update_site_settings(db, payment=payment, contact=contact)
+    await db.commit()
+    return _settings_out(row)
+
+
+@router.post('/password/change')
+async def admin_change_password(
+    body: AdminPasswordChangeIn,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    ok = await verify_admin_login(db, _.email, body.current_password)
+    if not ok:
+        raise HTTPException(status_code=400, detail='Current password is incorrect')
+    try:
+        await update_admin_password(db, body.new_password)
+        await db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {'ok': True}
+
+
+@router.post('/password/forgot')
+async def admin_forgot_password(
+    body: AdminForgotPasswordIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        await request_password_reset(db, body.email)
+        await db.commit()
+    except EmailNotConfiguredError:
+        raise HTTPException(
+            status_code=503,
+            detail='Email is not configured on the server. Set SMTP_USER and SMTP_PASSWORD.',
+        ) from None
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return {
+        'ok': True,
+        'message': 'If that email is registered as admin, a verification code was sent.',
+    }
+
+
+@router.post('/password/reset')
+async def admin_reset_password(
+    body: AdminResetPasswordIn,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    try:
+        await reset_password_with_otp(
+            db,
+            body.email,
+            body.otp,
+            body.new_password,
+        )
+        await db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {'ok': True}
+
+
+@router.get('/feedback', response_model=list[FeedbackRowOut])
+async def admin_list_feedback(
+    kind: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[FeedbackRowOut]:
+    rows = await list_feedback(db, kind=kind, status=status)
+    return [FeedbackRowOut.model_validate(row) for row in rows]
+
+
+@router.patch('/feedback/{feedback_id}', response_model=FeedbackRowOut)
+async def admin_update_feedback(
+    feedback_id: str,
+    body: FeedbackStatusIn,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> FeedbackRowOut:
+    try:
+        row = await update_feedback_status(db, feedback_id, body.status)
+        await db.commit()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return FeedbackRowOut.model_validate(row)
 
 
 @router.get('/stats', response_model=AdminDashboardStats)
@@ -156,11 +308,17 @@ async def admin_stats(
     )
     total = await db.scalar(select(func.count()).select_from(SubscriptionRequest))
     users = await db.scalar(select(func.count()).select_from(User))
+    new_feedback = await db.scalar(
+        select(func.count())
+        .select_from(UserFeedback)
+        .where(UserFeedback.status == 'new'),
+    )
     return AdminDashboardStats(
         pendingCount=int(pending or 0),
         activeCount=int(active or 0),
         totalRequests=int(total or 0),
         totalUsers=int(users or 0),
+        newFeedbackCount=int(new_feedback or 0),
     )
 
 

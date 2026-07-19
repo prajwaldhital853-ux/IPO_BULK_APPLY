@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import router as auth_router
 from .admin.routes import router as admin_router
+from .public_routes import router as public_router
 from .auth.blacklist import init_blacklist
 from .auth.deps import CurrentUser, get_current_user, get_optional_user
 from .auth.rate_limit import cdsc_user_limiter
@@ -16,7 +17,7 @@ from .cache import ResultCache
 from .captcha_model import CaptchaModel
 from .cdsc import CdscBlockedError, CdscSession, CdscSessionError, CheckResult
 from .config import get_settings
-from .db.session import configure, init_db
+from .db.session import configure, init_db, run_with_session
 from .schemas import (
     CheckRequest,
     CheckResponse,
@@ -42,6 +43,12 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure(settings.database_url)
     await init_db()
+    from .site_settings import get_or_create_settings
+
+    async def _seed(session):
+        await get_or_create_settings(session)
+
+    await run_with_session(_seed)
     await init_blacklist(settings.redis_url or None)
     _check_semaphore = asyncio.Semaphore(settings.max_concurrency)
     try:
@@ -65,6 +72,7 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(public_router)
 
 
 def require_key(x_api_key: str = Header(default="")) -> None:

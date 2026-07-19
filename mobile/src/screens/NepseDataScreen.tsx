@@ -27,7 +27,6 @@ import {
 } from '../services/nepse';
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
-import { useAfterTransition } from '../utils/useAfterTransition';
 import { usePollingRefresh } from '../utils/usePollingRefresh';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -35,10 +34,10 @@ type MainTab = 'summary' | 'live' | 'movers' | 'today';
 type MoverTab = 'gainers' | 'losers' | 'turnovers' | 'transactions';
 
 const MAIN_TABS: { id: MainTab; label: string }[] = [
-  { id: 'summary', label: 'Summary' },
+  { id: 'summary', label: 'Overview' },
   { id: 'live', label: 'Live Market' },
   { id: 'movers', label: 'Market Movers' },
-  { id: 'today', label: "Today's Share Price" },
+  { id: 'today', label: "Today's Price" },
 ];
 
 const MOVER_TABS: { id: MoverTab; label: string }[] = [
@@ -195,8 +194,6 @@ export function NepseDataScreen() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState<IndexQuote | null>(null);
-  const ready = useAfterTransition();
-
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
@@ -215,9 +212,8 @@ export function NepseDataScreen() {
   }, []);
 
   useEffect(() => {
-    if (!ready) return;
     void refresh();
-  }, [ready, refresh]);
+  }, [refresh]);
 
   usePollingRefresh(refresh);
 
@@ -419,6 +415,60 @@ export function NepseDataScreen() {
           />
         </View>
 
+        <View style={styles.breadthRow}>
+          <View style={styles.breadthItem}>
+            <Text style={[styles.breadthNum, { color: colors.accentGreen }]}>
+              {data.summary.advanced ?? '—'}
+            </Text>
+            <Text style={styles.breadthLabel}>Advanced</Text>
+          </View>
+          <View style={styles.breadthItem}>
+            <Text style={[styles.breadthNum, { color: colors.danger }]}>
+              {data.summary.declined ?? '—'}
+            </Text>
+            <Text style={styles.breadthLabel}>Declined</Text>
+          </View>
+          <View style={styles.breadthItem}>
+            <Text style={[styles.breadthNum, { color: colors.teal }]}>
+              {data.summary.unchanged ?? '—'}
+            </Text>
+            <Text style={styles.breadthLabel}>Unchanged</Text>
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Top Gainers</Text>
+        <MoverPreviewTable
+          rows={data.gainers.slice(0, 8)}
+          colors={colors}
+          styles={styles}
+          onPressSymbol={(symbol) =>
+            navigation.navigate('StockDetail', { symbol })
+          }
+        />
+        <Pressable style={styles.moreBtn} onPress={() => setTab('movers')}>
+          <Text style={styles.moreBtnText}>All gainers →</Text>
+        </Pressable>
+
+        <Text style={styles.sectionTitle}>Top Losers</Text>
+        <MoverPreviewTable
+          rows={data.losers.slice(0, 8)}
+          colors={colors}
+          styles={styles}
+          onPressSymbol={(symbol) =>
+            navigation.navigate('StockDetail', { symbol })
+          }
+        />
+        <Pressable
+          style={styles.moreBtn}
+          onPress={() => {
+            setMoverTab('losers');
+            setTab('movers');
+          }}
+        >
+          <Text style={styles.moreBtnText}>All losers →</Text>
+        </Pressable>
+
+        <Text style={styles.sectionTitle}>All Indices</Text>
         <TableHeader
           cols={['Index', 'Current', 'CH P', 'CH %']}
           layout={['sym', 'num', 'narrow', 'narrow']}
@@ -438,6 +488,19 @@ export function NepseDataScreen() {
             </View>
           </View>
         ))}
+
+        <Text style={styles.sectionTitle}>Full market lists</Text>
+        <View style={styles.quickLinks}>
+          <Pressable style={styles.quickLink} onPress={() => setTab('live')}>
+            <Text style={styles.quickLinkText}>Live prices</Text>
+          </Pressable>
+          <Pressable style={styles.quickLink} onPress={() => setTab('today')}>
+            <Text style={styles.quickLinkText}>Today A–Z</Text>
+          </Pressable>
+          <Pressable style={styles.quickLink} onPress={() => setTab('movers')}>
+            <Text style={styles.quickLinkText}>Turnover & trades</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     );
   };
@@ -655,6 +718,49 @@ function SummaryCell({
   );
 }
 
+function MoverPreviewTable({
+  rows,
+  colors,
+  styles,
+  onPressSymbol,
+}: {
+  rows: MoverRow[];
+  colors: ThemeColors;
+  styles: ReturnType<typeof makeStyles>;
+  onPressSymbol: (symbol: string) => void;
+}) {
+  if (!rows.length) {
+    return <Text style={styles.emptyList}>No data</Text>;
+  }
+  return (
+    <>
+      <TableHeader
+        cols={['SYM', 'LTP', 'CH P', 'CH %']}
+        layout={['sym', 'num', 'narrow', 'narrow']}
+        styles={styles}
+      />
+      {rows.map((row) => (
+        <Pressable
+          key={row.symbol}
+          style={styles.tableRow}
+          onPress={() => onPressSymbol(row.symbol)}
+        >
+          <Text style={[styles.tdSym, styles.colSym]} numberOfLines={1}>
+            {row.symbol}
+          </Text>
+          <Text style={[styles.td, styles.colNum]}>{fmtNum(row.ltp)}</Text>
+          <View style={styles.colNarrow}>
+            <ChangeCell value={row.change} colors={colors} styles={styles} />
+          </View>
+          <View style={styles.colNarrow}>
+            <ChangeCell value={row.pct} colors={colors} styles={styles} pct />
+          </View>
+        </Pressable>
+      ))}
+    </>
+  );
+}
+
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
@@ -792,6 +898,30 @@ function makeStyles(c: ThemeColors) {
       fontWeight: '800',
       marginTop: rs(4),
     },
+    breadthRow: {
+      flexDirection: 'row',
+      marginTop: rs(12),
+      marginBottom: rs(8),
+      gap: rs(12),
+    },
+    breadthItem: { flex: 1, alignItems: 'center' },
+    breadthNum: { fontWeight: '800', fontSize: rs(18) },
+    breadthLabel: { color: c.textMuted, fontSize: rs(10), marginTop: rs(2) },
+    moreBtn: { alignSelf: 'flex-start', paddingVertical: rs(4), marginBottom: rs(8) },
+    moreBtnText: { color: c.primary, fontWeight: '700', fontSize: rs(12) },
+    quickLinks: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: rs(8),
+      marginBottom: rs(12),
+    },
+    quickLink: {
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(10),
+      borderRadius: rs(20),
+      backgroundColor: c.primarySoft,
+    },
+    quickLinkText: { color: c.primary, fontWeight: '700', fontSize: rs(12) },
     tableHead: {
       flexDirection: 'row',
       alignItems: 'center',

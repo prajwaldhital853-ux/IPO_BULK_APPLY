@@ -27,7 +27,6 @@ import {
 } from '../../services/nepse';
 import type { ThemeColors } from '../../theme/colors';
 import { rs } from '../../utils/responsive';
-import { useAfterTransition } from '../../utils/useAfterTransition';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -108,7 +107,6 @@ export function HomeMarketPanel({ active }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [listTab, setListTab] = useState<ListTab>('gainers');
   const [selectedIndex, setSelectedIndex] = useState<IndexQuote | null>(null);
-  const ready = useAfterTransition();
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -122,9 +120,9 @@ export function HomeMarketPanel({ active }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!ready || !active) return;
+    if (!active) return;
     void refresh();
-  }, [ready, active, refresh]);
+  }, [active, refresh]);
 
   usePollingRefresh(refresh, undefined, active);
 

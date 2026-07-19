@@ -1,10 +1,9 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
-import { InteractionManager } from 'react-native';
 
-/** Wait until navigation transition finishes before running heavy work. */
+/** Marks screen focused — defers heavy work by one frame only (no interaction queue wait). */
 export function useAfterTransition(enabled = true): boolean {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
 
   useFocusEffect(
     useCallback(() => {
@@ -12,14 +11,8 @@ export function useAfterTransition(enabled = true): boolean {
         setReady(true);
         return;
       }
-      setReady(false);
-      const handle = InteractionManager.runAfterInteractions(() => {
-        setReady(true);
-      });
-      return () => {
-        handle.cancel();
-        setReady(false);
-      };
+      setReady(true);
+      return () => setReady(false);
     }, [enabled]),
   );
 

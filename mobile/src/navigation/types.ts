@@ -39,6 +39,10 @@ export type RootStackParamList = {
   Subscription: undefined;
   AdminLogin: undefined;
   AdminDashboard: undefined;
+  AdminSettings: undefined;
+  AdminForgotPassword: undefined;
+  AppSettings: undefined;
+  FeedbackForm: { kind: 'feedback' | 'feature_request' };
   InvestmentSummary: undefined;
   AggressiveHolders: undefined;
   LiveMarketPulse: undefined;

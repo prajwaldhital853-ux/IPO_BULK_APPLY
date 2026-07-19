@@ -8,7 +8,9 @@ import {
   View,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 import { changePin } from '../storage/pinStorage';
+import { PinOtpResetModal } from './PinOtpResetModal';
 import { rs } from '../utils/responsive';
 
 type Step = 'current' | 'new' | 'confirm';
@@ -23,7 +25,9 @@ export function ChangePinModal({
   onChanged: () => void;
 }) {
   const { colors } = useTheme();
+  const auth = useAuth();
   const [step, setStep] = useState<Step>('current');
+  const [forgotOpen, setForgotOpen] = useState(false);
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -110,38 +114,55 @@ export function ChangePinModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <View style={styles.backdrop}>
-        <View style={[styles.card, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-          <Text style={[styles.sub, { color: colors.textSecondary }]}>{subtitle}</Text>
-          <TextInput
-            style={[styles.input, { borderColor: colors.borderMuted, color: colors.text }]}
-            value={value}
-            onChangeText={(v) => setValue(v.replace(/\D/g, '').slice(0, 4))}
-            keyboardType="number-pad"
-            secureTextEntry
-            maxLength={4}
-            placeholder="••••"
-            placeholderTextColor={colors.textSecondary}
-          />
-          {error ? (
-            <Text style={[styles.error, { color: colors.danger }]}>{error}</Text>
-          ) : null}
-          <Pressable
-            style={[styles.btn, { backgroundColor: colors.fab }]}
-            onPress={onPrimary}
-          >
-            <Text style={styles.btnText}>
-              {step === 'confirm' ? 'Save new PIN' : 'Continue'}
-            </Text>
-          </Pressable>
-          <Pressable onPress={close}>
-            <Text style={[styles.cancel, { color: colors.textSecondary }]}>Cancel</Text>
-          </Pressable>
+    <>
+      <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+        <View style={styles.backdrop}>
+          <View style={[styles.card, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+            <Text style={[styles.sub, { color: colors.textSecondary }]}>{subtitle}</Text>
+            <TextInput
+              style={[styles.input, { borderColor: colors.borderMuted, color: colors.text }]}
+              value={value}
+              onChangeText={(v) => setValue(v.replace(/\D/g, '').slice(0, 4))}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={4}
+              placeholder="••••"
+              placeholderTextColor={colors.textSecondary}
+            />
+            {error ? (
+              <Text style={[styles.error, { color: colors.danger }]}>{error}</Text>
+            ) : null}
+            <Pressable
+              style={[styles.btn, { backgroundColor: colors.fab }]}
+              onPress={onPrimary}
+            >
+              <Text style={styles.btnText}>
+                {step === 'confirm' ? 'Save new PIN' : 'Continue'}
+              </Text>
+            </Pressable>
+            <Pressable onPress={close}>
+              <Text style={[styles.cancel, { color: colors.textSecondary }]}>Cancel</Text>
+            </Pressable>
+            {step === 'current' && auth.isAuthenticated ? (
+              <Pressable onPress={() => setForgotOpen(true)}>
+                <Text style={[styles.forgot, { color: colors.primary }]}>Forgot PIN?</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+      <PinOtpResetModal
+        visible={forgotOpen}
+        userEmail={auth.user?.email}
+        onClose={() => setForgotOpen(false)}
+        onReset={() => {
+          setForgotOpen(false);
+          close();
+          onChanged();
+        }}
+      />
+    </>
   );
 }
 
@@ -168,4 +189,5 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontWeight: '800' },
   error: { fontSize: rs(12), textAlign: 'center' },
   cancel: { textAlign: 'center', fontSize: rs(13), paddingVertical: rs(8) },
+  forgot: { textAlign: 'center', fontSize: rs(13), fontWeight: '600' },
 });

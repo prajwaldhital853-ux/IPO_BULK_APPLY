@@ -2,14 +2,18 @@ import React, { useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
+  Linking,
   Pressable,
+  Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { AccountDetailSheet } from '../components/AccountDetailSheet';
 import { AppHeader } from '../components/AppHeader';
 import { HomeMarketPanel } from '../components/home/HomeMarketPanel';
 import { PromoBanner } from '../components/PromoBanner';
@@ -22,20 +26,38 @@ import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 import type { AccountMeta } from '../types/account';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
+import { MEROSHARE_WEB_HOME } from '../services/meroshare/webSession';
 
 export function HomeScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const openDrawer = useOpenDrawer();
   const { accounts, removeAccount } = useAccounts();
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [tab, setTab] = useState<'Accounts' | 'Market'>('Accounts');
+  const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState<AccountMeta | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const filteredAccounts = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return accounts;
+    return accounts.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        a.username.includes(q) ||
+        (a.bankName ?? '').toLowerCase().includes(q) ||
+        (a.dpName ?? '').toLowerCase().includes(q),
+    );
+  }, [accounts, query]);
 
   const confirmDelete = (item: AccountMeta) => {
     Alert.alert(
       'Delete account?',
-      `Remove ${item.name} (${item.username}) from this device?\n\nCredentials and apply history for this account will be deleted locally.`,
+      `Remove ${item.name} from this device? Saved credentials and apply history for this account will be deleted.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -52,21 +74,28 @@ export function HomeScreen() {
     );
   };
 
-  const openAccountMenu = (item: AccountMeta) => {
-    Alert.alert(item.name, `Username: ${item.username}`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete account',
-        style: 'destructive',
-        onPress: () => confirmDelete(item),
-      },
-    ]);
+  const openSheet = (item: AccountMeta, index: number) => {
+    setSelectedAccount(item);
+    setSelectedIndex(index);
+    setSheetOpen(true);
+  };
+
+  const exportAccounts = async () => {
+    const lines = accounts.map(
+      (a, i) => `${i + 1}. ${a.name} — ${a.username}`,
+    );
+    const message = `NEPSE GHAR accounts (${accounts.length})\n\n${lines.join('\n')}`;
+    try {
+      await Share.share({ message });
+    } catch {
+      Alert.alert('Export', message);
+    }
   };
 
   return (
     <View style={styles.root}>
       <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
-      {isDark ? <PromoBanner /> : null}
+      <PromoBanner onPress={() => navigation.navigate('AddCapital')} />
 
       <View style={styles.tabs}>
         {(['Accounts', 'Market'] as const).map((t) => (
@@ -84,112 +113,163 @@ export function HomeScreen() {
       ) : (
         <ProtectedPersonalScreen
           title="Sign in to manage accounts"
-          subtitle="Saved MeroShare accounts are stored per Google user on this device."
+          subtitle="Your MeroShare accounts are saved securely on this device."
         >
-        <>
-          <Pressable style={styles.notice}>
-            <View style={styles.noticeIcon}>
-              <Ionicons name="information" size={rs(16)} color="#FFFFFF" />
-            </View>
-            <View style={styles.noticeBody}>
-              <Text style={styles.noticeTitle} numberOfLines={2}>
-                Welcome to NEPSE GHAR! Apply for multiple demat accounts
-                seamlessly in one click.
-              </Text>
-              <Text style={styles.noticeSub}>System Notice • Check details</Text>
-            </View>
-            <Ionicons
-              name="chevron-forward"
-              size={rs(18)}
-              color={colors.primary}
-            />
-          </Pressable>
-
-          <View style={styles.listHead}>
-            <Text style={styles.total}>Total Accounts : {accounts.length}</Text>
-          </View>
-
-          <FlatList
-            data={accounts}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={
-              accounts.length === 0 ? styles.listEmpty : styles.list
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyMarket}>
-                <View style={styles.emptyIcon}>
-                  <Ionicons name="person" size={rs(64)} color={colors.sage} />
-                </View>
-                <Text style={styles.emptySub}>
-                  No applicant accounts added yet.{'\n'}
-                  Tap the &apos;+&apos; button at the bottom-right corner to add
-                  your accounts manually.
-                </Text>
-              </View>
-            }
-            renderItem={({ item, index }) => (
-              <View style={styles.card}>
-                <View style={styles.indexBadge}>
-                  <Text style={styles.indexText}>{index + 1}</Text>
-                </View>
-                <View style={styles.cardBody}>
-                  <View style={styles.nameRow}>
-                    <Text style={styles.name}>{item.name}</Text>
-                    {item.verified ? (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={rs(16)}
-                        color={colors.accentGreen}
-                      />
-                    ) : null}
-                  </View>
-                  <Text style={styles.username}>
-                    Username : {item.username}
-                  </Text>
-                  {item.crnPinVerified === false ? (
-                    <Text style={styles.deferredHint}>
-                      CRN/PIN not confirmed yet — checked on first Live Apply
-                    </Text>
-                  ) : null}
-                  {item.dpName || item.bankName ? (
-                    <Text style={styles.username} numberOfLines={1}>
-                      {item.bankName || item.dpName}
-                    </Text>
-                  ) : null}
-                </View>
+          <>
+            {searchOpen ? (
+              <View style={styles.searchBar}>
+                <Ionicons name="search" size={rs(16)} color={colors.textMuted} />
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Search name or username"
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.searchInput}
+                  autoFocus
+                />
                 <Pressable
-                  onPress={() => openAccountMenu(item)}
-                  hitSlop={10}
-                  style={styles.menuBtn}
+                  onPress={() => {
+                    setQuery('');
+                    setSearchOpen(false);
+                  }}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={rs(20)} color={colors.textMuted} />
+                </Pressable>
+              </View>
+            ) : null}
+
+            <View style={styles.listHead}>
+              <Text style={styles.total}>
+                Total Accounts : {accounts.length}
+              </Text>
+              <View style={styles.listActions}>
+                <Pressable
+                  onPress={() => setSearchOpen((v) => !v)}
+                  hitSlop={8}
+                  style={styles.iconBtn}
+                >
+                  <Ionicons name="search" size={rs(20)} color={colors.text} />
+                </Pressable>
+                <Pressable
+                  onPress={() => void exportAccounts()}
+                  hitSlop={8}
+                  style={styles.iconBtn}
+                  disabled={!accounts.length}
                 >
                   <Ionicons
-                    name="ellipsis-vertical"
-                    size={rs(18)}
+                    name="share-outline"
+                    size={rs(20)}
+                    color={accounts.length ? colors.text : colors.textMuted}
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    Alert.alert(
+                      'Accounts',
+                      'Tap a card to open, edit, or delete. Use + to add a new MeroShare account.',
+                    )
+                  }
+                  hitSlop={8}
+                  style={styles.iconBtn}
+                >
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={rs(20)}
+                    color={colors.text}
+                  />
+                </Pressable>
+              </View>
+            </View>
+
+            <FlatList
+              data={filteredAccounts}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={
+                filteredAccounts.length === 0 ? styles.listEmpty : styles.list
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyMarket}>
+                  <View style={styles.emptyIcon}>
+                    <Ionicons name="person" size={rs(64)} color={colors.sage} />
+                  </View>
+                  <Text style={styles.emptyTitle}>
+                    {query.trim() ? 'No matching accounts' : 'No accounts yet'}
+                  </Text>
+                  <Text style={styles.emptySub}>
+                    {query.trim()
+                      ? 'Try a different search term.'
+                      : 'Tap + to add your first MeroShare account.'}
+                  </Text>
+                </View>
+              }
+              renderItem={({ item, index }) => (
+                <Pressable
+                  style={styles.card}
+                  onPress={() => openSheet(item, index)}
+                >
+                  <View style={styles.indexBadge}>
+                    <Text style={styles.indexText}>{index + 1}</Text>
+                  </View>
+                  <View style={styles.cardBody}>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.name}>{item.name}</Text>
+                      {item.verified ? (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={rs(16)}
+                          color={colors.accentGreen}
+                        />
+                      ) : null}
+                    </View>
+                    <Text style={styles.username}>
+                      Username : {item.username}
+                    </Text>
+                    {item.bankName || item.dpName ? (
+                      <Text style={styles.bankLine} numberOfLines={1}>
+                        {item.bankName || item.dpName}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Ionicons
+                    name="reorder-three"
+                    size={rs(22)}
                     color={colors.textSecondary}
                   />
                 </Pressable>
-                <Pressable
-                  onPress={() => confirmDelete(item)}
-                  hitSlop={8}
-                  style={styles.deleteBtn}
-                >
-                  <Ionicons
-                    name="trash-outline"
-                    size={rs(18)}
-                    color={colors.danger}
-                  />
-                </Pressable>
-              </View>
-            )}
-          />
+              )}
+            />
 
-          <Pressable
-            style={styles.fab}
-            onPress={() => navigation.navigate('AddCapital')}
-          >
-            <Ionicons name="add" size={rs(28)} color={colors.primary} />
-          </Pressable>
-        </>
+            <Pressable
+              style={styles.fab}
+              onPress={() => navigation.navigate('AddCapital')}
+            >
+              <Ionicons name="add" size={rs(28)} color={colors.fabIcon} />
+            </Pressable>
+
+            <AccountDetailSheet
+              account={selectedAccount}
+              index={selectedIndex}
+              visible={sheetOpen}
+              onClose={() => setSheetOpen(false)}
+              onOpen={() => void Linking.openURL(MEROSHARE_WEB_HOME)}
+              onEdit={(acc) => {
+                Alert.alert(
+                  'Update account',
+                  `To change credentials for ${acc.name}, delete this account and add it again with the updated details.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete & re-add',
+                      style: 'destructive',
+                      onPress: () => confirmDelete(acc),
+                    },
+                  ],
+                );
+              }}
+              onDelete={confirmDelete}
+            />
+          </>
         </ProtectedPersonalScreen>
       )}
     </View>
@@ -215,37 +295,24 @@ function makeStyles(c: ThemeColors) {
       borderRadius: 2,
       backgroundColor: c.primary,
     },
-    notice: {
-      marginHorizontal: rs(14),
-      marginTop: rs(12),
-      marginBottom: rs(4),
-      backgroundColor: c.primarySoft,
-      borderRadius: rs(14),
-      paddingVertical: rs(12),
-      paddingHorizontal: rs(12),
+    searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(10),
+      gap: rs(8),
+      marginHorizontal: rs(16),
+      marginTop: rs(10),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
+      borderRadius: rs(12),
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.borderMuted,
     },
-    noticeIcon: {
-      width: rs(28),
-      height: rs(28),
-      borderRadius: rs(14),
-      backgroundColor: c.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    noticeBody: { flex: 1 },
-    noticeTitle: {
-      color: c.primary,
-      fontSize: rs(12),
-      fontWeight: '600',
-      lineHeight: rs(16),
-    },
-    noticeSub: {
-      color: c.textSecondary,
-      fontSize: rs(11),
-      marginTop: rs(3),
+    searchInput: {
+      flex: 1,
+      color: c.text,
+      fontSize: rs(14),
+      padding: 0,
     },
     listHead: {
       flexDirection: 'row',
@@ -255,6 +322,8 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(14),
     },
     total: { color: c.text, fontSize: rs(14), fontWeight: '700' },
+    listActions: { flexDirection: 'row', alignItems: 'center', gap: rs(4) },
+    iconBtn: { padding: rs(6) },
     list: { paddingHorizontal: rs(16), paddingBottom: rs(100) },
     listEmpty: { flexGrow: 1, paddingBottom: rs(100) },
     card: {
@@ -281,14 +350,7 @@ function makeStyles(c: ThemeColors) {
     nameRow: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
     name: { color: c.text, fontWeight: '700', fontSize: rs(14) },
     username: { color: c.textSecondary, fontSize: rs(12), marginTop: rs(2) },
-    deferredHint: {
-      color: c.danger,
-      fontSize: rs(11),
-      marginTop: rs(4),
-      fontWeight: '600',
-    },
-    menuBtn: { padding: rs(4) },
-    deleteBtn: { padding: rs(6) },
+    bankLine: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
     fab: {
       position: 'absolute',
       right: rs(20),
@@ -324,7 +386,7 @@ function makeStyles(c: ThemeColors) {
     emptyTitle: { color: c.text, fontSize: rs(18), fontWeight: '700' },
     emptySub: {
       color: c.textSecondary,
-      marginTop: rs(4),
+      marginTop: rs(8),
       textAlign: 'center',
       fontSize: rs(13),
       lineHeight: rs(20),

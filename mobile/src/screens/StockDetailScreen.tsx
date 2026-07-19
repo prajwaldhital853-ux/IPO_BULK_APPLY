@@ -45,7 +45,6 @@ import {
   removeFromWatchlist,
 } from '../storage/watchlistStorage';
 import { rs } from '../utils/responsive';
-import { useAfterTransition } from '../utils/useAfterTransition';
 import { usePollingRefresh } from '../utils/usePollingRefresh';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -98,8 +97,6 @@ export function StockDetailScreen() {
   const [fundamentals, setFundamentals] = useState<Fundamentals | null>(null);
   const [dividends, setDividends] = useState<DividendRow[]>([]);
   const [announcements, setAnnouncements] = useState<AnnouncementRow[]>([]);
-  const ready = useAfterTransition();
-
   const loadCore = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     const [sec, watch, candles] = await Promise.all([
@@ -114,9 +111,8 @@ export function StockDetailScreen() {
   }, [symbol]);
 
   useEffect(() => {
-    if (!ready) return;
     void loadCore();
-  }, [ready, loadCore]);
+  }, [loadCore]);
 
   const loadTab = useCallback(async () => {
     switch (tab) {

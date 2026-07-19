@@ -25,6 +25,7 @@ export type ThemeColors = {
 
   promoBanner: string;
   fab: string;
+  fabIcon: string;
 
   checkIconBrown: string;
   checkIconGreen: string;
@@ -75,6 +76,7 @@ export const darkColors: ThemeColors = {
 
   promoBanner: '#1B5E20',
   fab: '#2E7D32',
+  fabIcon: '#FFFFFF',
 
   checkIconBrown: '#6D4C41',
   checkIconGreen: '#2E5A3C',
@@ -125,7 +127,8 @@ export const lightColors: ThemeColors = {
   badgeUpdated: '#FB8C00',
 
   promoBanner: '#1B5E20',
-  fab: '#D1EAD3',
+  fab: '#2D5A27',
+  fabIcon: '#FFFFFF',
 
   checkIconBrown: '#EF6C00',
   checkIconGreen: '#43A047',

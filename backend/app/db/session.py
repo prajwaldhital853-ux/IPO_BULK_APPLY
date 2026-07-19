@@ -23,6 +23,15 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
 
+async def run_with_session(coro) -> None:
+    """Run a coroutine with a one-off DB session (startup tasks)."""
+    if _session_factory is None:
+        raise RuntimeError('Database not configured')
+    async with _session_factory() as session:
+        await coro(session)
+        await session.commit()
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     if _session_factory is None:
         raise RuntimeError('Database not configured')

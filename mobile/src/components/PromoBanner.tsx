@@ -1,21 +1,39 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { rs } from '../utils/responsive';
 
 const PROMO =
-  'Esewa वा Khalti बाट भुक्तानी गरेर प्रिमियम सुविधाहरू लिनुहोस्!🌟💰';
+  'Add your MeroShare account to bulk apply for IPOs — tap here to get started';
 
-export function PromoBanner() {
-  return (
-    <View style={styles.banner}>
+type Props = {
+  onPress?: () => void;
+};
+
+export function PromoBanner({ onPress }: Props) {
+  const content = (
+    <>
       <View style={styles.logo}>
-        <Text style={styles.logoText}>e</Text>
+        <Ionicons name="person-add-outline" size={rs(16)} color="#FFFFFF" />
       </View>
       <Text style={styles.text} numberOfLines={2}>
         {PROMO}
       </Text>
-    </View>
+      {onPress ? (
+        <Ionicons name="chevron-forward" size={rs(18)} color="#FFFFFF" />
+      ) : null}
+    </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable style={styles.banner} onPress={onPress}>
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View style={styles.banner}>{content}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -34,11 +52,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#4CAF50',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  logoText: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: rs(14),
   },
   text: {
     flex: 1,

@@ -39,6 +39,10 @@ import { AccountExpiryScreen } from '../screens/AccountExpiryScreen';
 import { SubscriptionScreen } from '../screens/SubscriptionScreen';
 import { AdminLoginScreen } from '../screens/AdminLoginScreen';
 import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
+import { AdminSettingsScreen } from '../screens/AdminSettingsScreen';
+import { AdminForgotPasswordScreen } from '../screens/AdminForgotPasswordScreen';
+import { AppSettingsScreen } from '../screens/AppSettingsScreen';
+import { FeedbackFormScreen } from '../screens/FeedbackFormScreen';
 import { InvestmentSummaryScreen } from '../screens/premium/InvestmentSummaryScreen';
 import { LiveMarketPulseScreen } from '../screens/premium/LiveMarketPulseScreen';
 import {
@@ -79,8 +83,8 @@ const Drawer = createDrawerNavigator();
 const tabTransitionSpec = {
   animation: 'timing' as const,
   config: {
-    duration: 180,
-    easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+    duration: 120,
+    easing: Easing.out(Easing.cubic),
   },
 };
 
@@ -88,14 +92,14 @@ function MainTabs() {
   return (
     <Tab.Navigator
       tabBar={(props) => <AppTabBar {...props} />}
-      detachInactiveScreens
+      detachInactiveScreens={false}
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
-        animation: 'fade',
+        animation: 'shift',
         transitionSpec: tabTransitionSpec,
-        lazy: true,
-        freezeOnBlur: true,
+        lazy: false,
+        freezeOnBlur: false,
       }}
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Home' }} />
@@ -122,7 +126,7 @@ function RootStack() {
       screenOptions={{
         headerShown: false,
         animation: 'slide_from_right',
-        animationDuration: 220,
+        animationDuration: 160,
         animationTypeForReplace: 'push',
         gestureEnabled: true,
         fullScreenGestureEnabled: true,
@@ -155,6 +159,10 @@ function RootStack() {
       <Stack.Screen name="Subscription" component={SubscriptionScreen} />
       <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
       <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+      <Stack.Screen name="AdminSettings" component={AdminSettingsScreen} />
+      <Stack.Screen name="AdminForgotPassword" component={AdminForgotPasswordScreen} />
+      <Stack.Screen name="AppSettings" component={AppSettingsScreen} />
+      <Stack.Screen name="FeedbackForm" component={FeedbackFormScreen} />
       <Stack.Screen name="InvestmentSummary" component={InvestmentSummaryScreen} />
       <Stack.Screen name="AggressiveHolders" component={AggressiveHoldersScreen} />
       <Stack.Screen name="LiveMarketPulse" component={LiveMarketPulseScreen} />

@@ -25,11 +25,15 @@ export function AdminLoginScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [email, setEmail] = useState('admin@nepseghar.com');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
   const onLogin = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert('Missing fields', 'Enter admin email and password.');
+      return;
+    }
     setBusy(true);
     try {
       const session = await adminLogin(email.trim(), password);
@@ -51,13 +55,16 @@ export function AdminLoginScreen() {
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
-        <Text style={styles.title}>Admin Login</Text>
+        <Text style={styles.title}>Admin</Text>
         <View style={{ width: rs(22) }} />
       </View>
 
-      <View style={styles.card}>
-        <Ionicons name="shield-checkmark" size={rs(40)} color={colors.tealHeader} />
-        <Text style={styles.subtitle}>Demo admin access for subscription management</Text>
+      <View style={styles.body}>
+        <View style={styles.iconWrap}>
+          <Ionicons name="shield-checkmark" size={rs(32)} color={colors.fabIcon} />
+        </View>
+        <Text style={styles.subtitle}>Sign in to manage subscriptions</Text>
+
         <TextInput
           style={styles.input}
           autoCapitalize="none"
@@ -77,12 +84,17 @@ export function AdminLoginScreen() {
         />
         <Pressable style={styles.btn} onPress={() => void onLogin()} disabled={busy}>
           {busy ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={colors.fabIcon} />
           ) : (
             <Text style={styles.btnText}>Login</Text>
           )}
         </Pressable>
-        <Text style={styles.hint}>Demo: admin@nepseghar.com / admin123</Text>
+        <Pressable
+          style={styles.forgotBtn}
+          onPress={() => navigation.navigate('AdminForgotPassword')}
+        >
+          <Text style={styles.forgotText}>Forgot password?</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -99,30 +111,38 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(12),
     },
     title: { color: c.text, fontWeight: '800', fontSize: rs(16) },
-    card: {
-      margin: rs(16),
-      padding: rs(20),
-      borderRadius: rs(16),
-      borderWidth: 1,
-      borderColor: c.borderMuted,
-      backgroundColor: c.surface,
-      gap: rs(12),
-      alignItems: 'stretch',
+    body: {
+      paddingHorizontal: rs(24),
+      paddingTop: rs(32),
+      maxWidth: rs(400),
+      alignSelf: 'center',
+      width: '100%',
+    },
+    iconWrap: {
+      width: rs(56),
+      height: rs(56),
+      borderRadius: rs(28),
+      backgroundColor: c.fab,
+      alignItems: 'center',
+      justifyContent: 'center',
+      alignSelf: 'center',
+      marginBottom: rs(16),
     },
     subtitle: {
       color: c.textSecondary,
-      fontSize: rs(13),
-      lineHeight: rs(18),
+      fontSize: rs(14),
       textAlign: 'center',
-      marginBottom: rs(4),
+      marginBottom: rs(24),
     },
     input: {
       borderWidth: 1,
       borderColor: c.borderMuted,
-      borderRadius: rs(10),
-      padding: rs(12),
+      borderRadius: rs(12),
+      padding: rs(14),
       color: c.text,
       fontSize: rs(14),
+      marginBottom: rs(12),
+      backgroundColor: c.surface,
     },
     btn: {
       backgroundColor: c.fab,
@@ -131,12 +151,8 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       marginTop: rs(4),
     },
-    btnText: { color: '#fff', fontWeight: '800', fontSize: rs(14) },
-    hint: {
-      color: c.textMuted,
-      fontSize: rs(11),
-      textAlign: 'center',
-      marginTop: rs(4),
-    },
+    btnText: { color: c.fabIcon, fontWeight: '800', fontSize: rs(15) },
+    forgotBtn: { alignItems: 'center', marginTop: rs(16), paddingVertical: rs(8) },
+    forgotText: { color: c.primary, fontWeight: '600', fontSize: rs(14) },
   });
 }

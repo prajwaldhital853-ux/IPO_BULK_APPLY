@@ -20,6 +20,7 @@ export function PinPromptModal({
   onSubmit,
   onCancel,
   cancelLabel = 'Cancel',
+  onForgotPin,
 }: {
   visible: boolean;
   title?: string;
@@ -29,6 +30,7 @@ export function PinPromptModal({
   onSubmit: (pin: string) => void;
   onCancel: () => void;
   cancelLabel?: string;
+  onForgotPin?: () => void;
 }) {
   const { colors } = useTheme();
   const [pin, setPin] = useState('');
@@ -77,6 +79,11 @@ export function PinPromptModal({
           <Pressable onPress={onCancel} disabled={busy}>
             <Text style={[styles.cancel, { color: colors.textSecondary }]}>{cancelLabel}</Text>
           </Pressable>
+          {onForgotPin ? (
+            <Pressable onPress={onForgotPin} disabled={busy}>
+              <Text style={[styles.forgot, { color: colors.primary }]}>Forgot PIN?</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -115,4 +122,5 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.7 },
   error: { fontSize: rs(12), textAlign: 'center' },
   cancel: { textAlign: 'center', fontSize: rs(13), paddingVertical: rs(8) },
+  forgot: { textAlign: 'center', fontSize: rs(13), fontWeight: '600' },
 });

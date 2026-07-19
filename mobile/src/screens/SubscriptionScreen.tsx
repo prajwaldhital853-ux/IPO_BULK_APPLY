@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
@@ -24,8 +24,10 @@ import { PREMIUM_PLANS } from '../storage/subscriptionStorage';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
-const QR_URL =
-  'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=NEPSE%20GHAR%20Premium%20Payment';
+function qrImageUrl(text: string): string {
+  const data = text.trim() || 'NEPSE GHAR Premium Payment';
+  return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(data)}`;
+}
 
 export function SubscriptionScreen() {
   const navigation =
@@ -49,11 +51,22 @@ export function SubscriptionScreen() {
   const [paymentNote, setPaymentNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const qrUrl = useMemo(
+    () => qrImageUrl(paymentInfo?.qrText ?? ''),
+    [paymentInfo?.qrText],
+  );
+
   useEffect(() => {
     void fetchPaymentInfo()
       .then(setPaymentInfo)
       .catch(() => undefined);
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refresh();
+    }, [refresh]),
+  );
 
   const pending = serverStatus?.pendingRequest ?? auth.premium.pendingRequest;
 
@@ -201,7 +214,7 @@ export function SubscriptionScreen() {
         {!isPremium && !isPending ? (
           <View style={styles.paymentCard}>
             <Text style={styles.sectionTitle}>Payment details</Text>
-            <Image source={{ uri: QR_URL }} style={styles.qr} />
+            <Image source={{ uri: qrUrl }} style={styles.qr} />
             <Text style={styles.bankLine}>
               {paymentInfo?.bankName ?? 'Kalash Financial Solution Pvt. Ltd.'}
             </Text>

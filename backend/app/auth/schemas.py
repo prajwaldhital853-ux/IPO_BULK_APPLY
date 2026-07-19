@@ -87,6 +87,26 @@ class PaymentInfoOut(BaseModel):
     model_config = {'populate_by_name': True}
 
 
+class PinOtpSendOut(BaseModel):
+    ok: bool = True
+    message: str
+    email: str
+
+    model_config = {'populate_by_name': True}
+
+
+class PinOtpVerifyIn(BaseModel):
+    otp: str
+
+    model_config = {'populate_by_name': True}
+
+
+class PinOtpVerifyOut(BaseModel):
+    ok: bool = True
+
+    model_config = {'populate_by_name': True}
+
+
 def premium_from_row(plan: str | None, expires_at) -> PremiumOut:
     from datetime import UTC, datetime
 

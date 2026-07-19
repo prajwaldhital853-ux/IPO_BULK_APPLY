@@ -44,11 +44,20 @@ class Settings(BaseSettings):
     cors_origins: str = "*"
     cdsc_require_jwt: bool = True
 
-    # Admin dashboard (demo credentials — change in production)
-    admin_email: str = 'admin@nepseghar.com'
+    # Admin dashboard
+    admin_email: str = 'kalashfinancialsolution@gmail.com'
     admin_password: str = 'admin123'
+    admin_otp_ttl_minutes: int = 10
+    app_env: str = 'development'
 
-    # Payment details shown in app subscription screen
+    # Gmail SMTP for admin OTP (no custom domain needed — use Google App Password)
+    smtp_host: str = 'smtp.gmail.com'
+    smtp_port: int = 587
+    smtp_user: str = ''
+    smtp_password: str = ''
+    smtp_from: str = ''
+
+    # Payment details shown in mobile app subscription screen (seed defaults)
     payment_qr_text: str = 'NEPSE GHAR Premium|Kalash Financial Solution'
     payment_bank_name: str = 'Kalash Financial Solution Pvt. Ltd.'
     payment_account_name: str = 'Kalash Financial Solution'

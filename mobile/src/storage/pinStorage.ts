@@ -80,6 +80,22 @@ export async function setupPin(pin: string, userId?: string): Promise<void> {
   await SecureStore.setItemAsync(scopedPinKey(uid), JSON.stringify(record));
 }
 
+export async function resetPinAfterVerification(
+  newPin: string,
+  userId?: string,
+): Promise<void> {
+  const uid = userId ?? getActiveUserId();
+  if (!/^\d{4}$/.test(newPin)) throw new Error('PIN must be 4 digits');
+  if (await isPinReused(newPin, uid)) {
+    throw new Error('Choose a PIN you have not used before on this account');
+  }
+  const current = await loadCurrentPinRecord(uid);
+  if (current) await appendPinHistory(current, uid);
+  await SecureStore.deleteItemAsync(scopedPinLockKey(uid));
+  await SecureStore.deleteItemAsync(`${scopedPinKey(uid)}_fails`);
+  await setupPin(newPin, uid);
+}
+
 export async function changePin(
   currentPin: string,
   newPin: string,

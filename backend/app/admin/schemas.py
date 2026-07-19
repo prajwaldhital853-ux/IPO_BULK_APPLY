@@ -48,6 +48,7 @@ class AdminDashboardStats(BaseModel):
     active_count: int = Field(alias='activeCount')
     total_requests: int = Field(alias='totalRequests')
     total_users: int = Field(alias='totalUsers')
+    new_feedback_count: int = Field(alias='newFeedbackCount')
 
     model_config = {'populate_by_name': True}
 
@@ -78,3 +79,120 @@ class AdminUserRow(BaseModel):
     last_subscription_at: str | None = Field(default=None, alias='lastSubscriptionAt')
 
     model_config = {'populate_by_name': True}
+
+
+class PaymentSettingsOut(BaseModel):
+    qr_text: str = Field(alias='qrText')
+    bank_name: str = Field(alias='bankName')
+    account_name: str = Field(alias='accountName')
+    account_number: str = Field(alias='accountNumber')
+    whatsapp: str
+    whatsapp_url: str = Field(alias='whatsappUrl')
+
+    model_config = {'populate_by_name': True}
+
+
+class PaymentSettingsIn(BaseModel):
+    qr_text: str = Field(alias='qrText')
+    bank_name: str = Field(alias='bankName')
+    account_name: str = Field(alias='accountName')
+    account_number: str = Field(alias='accountNumber')
+    whatsapp: str
+
+    model_config = {'populate_by_name': True}
+
+
+class ContactSettingsOut(BaseModel):
+    company_name: str = Field(alias='companyName')
+    email: str
+    whatsapp: str
+    whatsapp_url: str = Field(alias='whatsappUrl')
+    facebook_url: str | None = Field(default=None, alias='facebookUrl')
+    tiktok_url: str | None = Field(default=None, alias='tiktokUrl')
+
+    model_config = {'populate_by_name': True}
+
+
+class ContactSettingsIn(BaseModel):
+    company_name: str = Field(alias='companyName')
+    email: str
+    whatsapp: str
+    whatsapp_url: str = Field(alias='whatsappUrl')
+    facebook_url: str | None = Field(default=None, alias='facebookUrl')
+    tiktok_url: str | None = Field(default=None, alias='tiktokUrl')
+
+    model_config = {'populate_by_name': True}
+
+
+class AdminSettingsOut(BaseModel):
+    admin_email: str = Field(alias='adminEmail')
+    payment: PaymentSettingsOut
+    contact: ContactSettingsOut
+
+    model_config = {'populate_by_name': True}
+
+
+class AdminSettingsUpdateIn(BaseModel):
+    payment: PaymentSettingsIn | None = None
+    contact: ContactSettingsIn | None = None
+
+    model_config = {'populate_by_name': True}
+
+
+class AdminPasswordChangeIn(BaseModel):
+    current_password: str = Field(alias='currentPassword')
+    new_password: str = Field(alias='newPassword')
+
+    model_config = {'populate_by_name': True}
+
+
+class AdminForgotPasswordIn(BaseModel):
+    email: str
+
+
+class AdminResetPasswordIn(BaseModel):
+    email: str
+    otp: str
+    new_password: str = Field(alias='newPassword')
+
+    model_config = {'populate_by_name': True}
+
+
+class PublicAppSettingsOut(BaseModel):
+    payment: PaymentSettingsOut
+    contact: ContactSettingsOut
+
+    model_config = {'populate_by_name': True}
+
+
+class FeedbackSubmitIn(BaseModel):
+    kind: str
+    name: str = ''
+    email: str = ''
+    message: str
+
+    model_config = {'populate_by_name': True}
+
+
+class FeedbackSubmitOut(BaseModel):
+    id: str
+    ok: bool = True
+
+    model_config = {'populate_by_name': True}
+
+
+class FeedbackRowOut(BaseModel):
+    id: str
+    kind: str
+    name: str
+    email: str
+    message: str
+    user_id: str | None = Field(default=None, alias='userId')
+    status: str
+    created_at: str = Field(alias='createdAt')
+
+    model_config = {'populate_by_name': True}
+
+
+class FeedbackStatusIn(BaseModel):
+    status: str

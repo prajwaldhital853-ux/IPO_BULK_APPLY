@@ -59,11 +59,8 @@ export function ApplyScreen() {
   const [historyMap, setHistoryMap] = useState<
     Awaited<ReturnType<typeof loadApplyHistory>>
   >({});
-  /** Live = real MeroShare; dry-run = offline demo */
-  const [liveMode, setLiveMode] = useState(true);
   const [loadingIssues, setLoadingIssues] = useState(false);
 
-  const primary = accounts[0];
   const kitta = Math.max(1, parseInt(qty.replace(/\D/g, ''), 10) || 10);
   const companyShareId = selected?.companyShareId;
 
@@ -177,10 +174,10 @@ export function ApplyScreen() {
       Alert.alert('No IPO', 'Select a Current Opening IPO first.');
       return;
     }
-    if (liveMode && selected.companyShareId === 9001) {
+    if (selected.companyShareId === 9001) {
       Alert.alert(
-        'Demo IPO only',
-        'No live opening loaded. Pull real openings (refresh) after a successful account login, or switch to Dry-run.',
+        'No open IPO',
+        'No live opening is available right now. Pull to refresh after MeroShare login, or check allotment on the Check tab.',
       );
       return;
     }
@@ -192,18 +189,14 @@ export function ApplyScreen() {
       return;
     }
 
-    const title = liveMode
-      ? '⚠ LIVE Bulk Apply'
-      : 'Confirm Bulk Apply (Dry-run)';
-    const body = liveMode
-      ? `${selected.companyName} (${selected.scrip || '—'})\nKitta: ${kitta}\nAccounts: ${checkedEligible.length}\n\nThis WILL submit real applications to MeroShare with CRN + PIN.\nStart with 1 account if unsure.\nCredentials stay on this device.`
-      : `${selected.companyName} (${selected.scrip || '—'})\nKitta: ${kitta}\nSelected accounts: ${checkedEligible.length}\n\nDry-run only — does NOT call MeroShare apply.`;
+    const title = 'Confirm bulk apply';
+    const body = `${selected.companyName} (${selected.scrip || '—'})\nKitta: ${kitta}\nAccounts: ${checkedEligible.length}\n\nThis submits real applications to MeroShare. Start with one account if you are unsure.`;
 
     Alert.alert(title, body, [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: liveMode ? 'Apply Live' : 'Run Dry-run',
-        style: liveMode ? 'destructive' : 'default',
+        text: 'Apply',
+        style: 'destructive',
         onPress: () => {
           const execute = () => {
             void (async () => {
@@ -215,8 +208,8 @@ export function ApplyScreen() {
                   accounts: checkedEligible,
                   issue: selected,
                   kitta,
-                  dryRun: !liveMode,
-                  simulateLogin: !liveMode,
+                  dryRun: false,
+                  simulateLogin: false,
                   onProgress: (msg) => setProgress(msg),
                 });
                 setSummary(result);
@@ -232,15 +225,11 @@ export function ApplyScreen() {
               }
             })();
           };
-          if (liveMode) {
-            void sensitive.requestSensitiveAction(execute);
-          } else {
-            execute();
-          }
+          void sensitive.requestSensitiveAction(execute);
         },
       },
     ]);
-  }, [checkedEligible, kitta, liveMode, selected, sensitive]);
+  }, [checkedEligible, kitta, selected, sensitive]);
 
   const runSingle = useCallback(
     (accountId: string) => {
@@ -248,10 +237,10 @@ export function ApplyScreen() {
         Alert.alert('No IPO', 'Select a Current Opening IPO first.');
         return;
       }
-      if (liveMode && selected.companyShareId === 9001) {
+      if (selected.companyShareId === 9001) {
         Alert.alert(
-          'Demo IPO only',
-          'No live opening loaded. Refresh openings after login, or use Dry-run.',
+          'No open IPO',
+          'No live opening is available right now. Refresh openings after login.',
         );
         return;
       }
@@ -265,15 +254,13 @@ export function ApplyScreen() {
       const one = accounts.filter((a) => a.id === accountId);
       if (!one.length) return;
       Alert.alert(
-        liveMode ? '⚠ LIVE Apply' : 'Confirm Apply (Dry-run)',
-        liveMode
-          ? `${selected.companyName}\nKitta: ${kitta}\nAccount: ${one[0].name}\n\nSubmits a real MeroShare application.`
-          : `${selected.companyName}\nKitta: ${kitta}\nAccount: ${one[0].name}\n\nDry-run only — not live MeroShare.`,
+        'Confirm apply',
+        `${selected.companyName}\nKitta: ${kitta}\nAccount: ${one[0].name}\n\nSubmits a real MeroShare application.`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: liveMode ? 'Apply Live' : 'Run',
-            style: liveMode ? 'destructive' : 'default',
+            text: 'Apply',
+            style: 'destructive',
             onPress: () => {
               const execute = () => {
                 void (async () => {
@@ -283,8 +270,8 @@ export function ApplyScreen() {
                       accounts: one,
                       issue: selected,
                       kitta,
-                      dryRun: !liveMode,
-                      simulateLogin: !liveMode,
+                      dryRun: false,
+                      simulateLogin: false,
                     });
                     setSummary(result);
                     await persistSuccessful(result, selected.companyShareId);
@@ -293,17 +280,13 @@ export function ApplyScreen() {
                   }
                 })();
               };
-              if (liveMode) {
-                void sensitive.requestSensitiveAction(execute);
-              } else {
-                execute();
-              }
+              void sensitive.requestSensitiveAction(execute);
             },
           },
         ],
       );
     },
-    [accounts, alreadyApplied, kitta, liveMode, selected, sensitive],
+    [accounts, alreadyApplied, kitta, selected, sensitive],
   );
 
   return (
@@ -329,80 +312,19 @@ export function ApplyScreen() {
               <Ionicons name="add" size={rs(28)} color={colors.text} />
             </View>
           </View>
-          <Text style={styles.emptyTitle}>Oops! No Data Found</Text>
+          <Text style={styles.emptyTitle}>No accounts added</Text>
           <Text style={styles.emptySub}>
-            Please add some data first to apply bulk IPO
+            Add at least one MeroShare account to apply for IPOs.
           </Text>
           <Pressable
             style={styles.addDataBtn}
             onPress={() => navigation.navigate('AddCapital')}
           >
-            <Text style={styles.addDataText}>Add Data</Text>
+            <Text style={styles.addDataText}>Add account</Text>
           </Pressable>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
-          <View style={[styles.bannerWarn, liveMode && styles.bannerLive]}>
-            <Ionicons
-              name={liveMode ? 'warning' : 'information-circle'}
-              size={rs(18)}
-              color={liveMode ? colors.danger : colors.primary}
-            />
-            <Text style={styles.bannerWarnText}>
-              {liveMode
-                ? 'LIVE mode: Apply submits real MeroShare applications. Start with 1 account.'
-                : 'Dry-run mode: simulates only — no live apply.'}
-            </Text>
-          </View>
-
-          <View style={styles.modeRow}>
-            <View style={styles.modeToggle}>
-              {(
-                [
-                  { key: true, label: 'Live' },
-                  { key: false, label: 'Dry-run' },
-                ] as const
-              ).map((m) => (
-                <Pressable
-                  key={String(m.key)}
-                  onPress={() => setLiveMode(m.key)}
-                  style={[
-                    styles.modeBtn,
-                    liveMode === m.key && styles.modeBtnActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.modeText,
-                      liveMode === m.key && styles.modeTextActive,
-                    ]}
-                  >
-                    {m.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <Pressable
-              onPress={() => void refreshIssues()}
-              style={styles.refreshBtn}
-              disabled={loadingIssues || running}
-            >
-              {loadingIssues ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Ionicons name="refresh" size={rs(18)} color={colors.primary} />
-              )}
-            </Pressable>
-          </View>
-
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryName}>{primary.name}</Text>
-            <Text style={styles.metaLine}>
-              {accounts.length} account{accounts.length === 1 ? '' : 's'} on this
-              device
-            </Text>
-          </View>
-
           <View style={styles.modeRow}>
             <View style={styles.modeToggle}>
               {(['Bulk', 'Single'] as const).map((m) => (
@@ -422,6 +344,17 @@ export function ApplyScreen() {
                 </Pressable>
               ))}
             </View>
+            <Pressable
+              onPress={() => void refreshIssues()}
+              style={styles.refreshBtn}
+              disabled={loadingIssues || running}
+            >
+              {loadingIssues ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="refresh" size={rs(18)} color={colors.primary} />
+              )}
+            </Pressable>
           </View>
 
           <View style={styles.fieldBlock}>
@@ -560,8 +493,7 @@ export function ApplyScreen() {
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <Text style={styles.autoApplyText}>
-                    {liveMode ? 'Live Apply' : 'Dry-run Apply'} (
-                    {checkedEligible.length})
+                    Auto Apply ({checkedEligible.length})
                   </Text>
                 )}
               </Pressable>
@@ -610,9 +542,7 @@ export function ApplyScreen() {
 
           {summary ? (
             <View style={styles.resultCard}>
-              <Text style={styles.resultTitle}>
-                {summary.dryRun ? 'Dry-run results (demo)' : 'Apply results'}
-              </Text>
+              <Text style={styles.resultTitle}>Apply results</Text>
               <Text style={styles.resultSub}>
                 {summary.companyName} · {summary.kitta} kitta ·{' '}
                 {summary.results.filter((r) => r.ok).length}/
@@ -708,7 +638,7 @@ function makeStyles(c: ThemeColors) {
       width: rs(52),
       height: rs(52),
       borderRadius: rs(26),
-      backgroundColor: '#2196F3',
+      backgroundColor: c.primary,
       alignItems: 'center',
       justifyContent: 'center',
     },
