@@ -188,7 +188,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
             <MaterialCommunityIcons name="chart-bar" size={rs(22)} color="#66BB6A" />
             <Text style={styles.ipoTag}>IPO</Text>
           </View>
-          <Text style={styles.brandText}>IPO Bulk Apply</Text>
+          <Text style={styles.brandText}>NEPSE GHAR</Text>
         </Pressable>
 
         <Section title="MARKET & PORTFOLIO" items={market} />

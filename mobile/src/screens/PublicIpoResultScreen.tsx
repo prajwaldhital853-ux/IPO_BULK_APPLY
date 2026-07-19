@@ -538,7 +538,7 @@ export function PublicIpoResultScreen() {
                 color="#FFFFFF"
               />
             </View>
-            <Text style={styles.resultModalBrand}>IPO Bulk Apply</Text>
+            <Text style={styles.resultModalBrand}>NEPSE GHAR</Text>
             <Text
               style={[
                 styles.resultModalHeadline,

@@ -31,8 +31,18 @@ const SubscriptionContext = React.createContext<SubscriptionContextValue | null>
   null,
 );
 
+function premiumStillValid(
+  active: boolean | undefined,
+  expiresAt: string | null | undefined,
+  now = Date.now(),
+): boolean {
+  if (!active || !expiresAt) return false;
+  const exp = new Date(expiresAt).getTime();
+  return !Number.isNaN(exp) && exp > now;
+}
+
 function applyStatusToState(status: SubscriptionStatus): SubscriptionState {
-  if (status.active && status.expiresAt) {
+  if (premiumStillValid(status.active, status.expiresAt)) {
     return {
       plan: 'premium',
       expiresAt: status.expiresAt,
@@ -148,6 +158,57 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return () => sub.remove();
   }, [auth.isAuthenticated, refresh]);
 
+  // Drop to free as soon as local expiry time passes (no wait for next API call).
+  useEffect(() => {
+    const candidates = [
+      auth.premium.expiresAt,
+      serverStatus?.expiresAt,
+      state.expiresAt,
+    ].filter((v): v is string => Boolean(v));
+    if (!candidates.length) return;
+
+    const nearest = Math.min(...candidates.map((v) => new Date(v).getTime()));
+    if (Number.isNaN(nearest)) return;
+    const delay = nearest - Date.now();
+    if (delay <= 0) {
+      void cachePremiumFromServer({
+        active: false,
+        plan: null,
+        expiresAt: null,
+      }).then(() => {
+        setState({
+          plan: 'free',
+          expiresAt: null,
+          activatedAt: null,
+          productId: null,
+        });
+        setServerStatus((prev) =>
+          prev
+            ? {
+                ...prev,
+                active: false,
+                plan: null,
+                expiresAt: null,
+                status: prev.status === 'pending' ? 'pending' : 'free',
+              }
+            : prev,
+        );
+        void auth.refreshProfile();
+      });
+      return;
+    }
+    const timer = setTimeout(() => {
+      void refresh();
+    }, Math.min(delay + 500, 2_147_483_647));
+    return () => clearTimeout(timer);
+  }, [
+    auth,
+    auth.premium.expiresAt,
+    serverStatus?.expiresAt,
+    state.expiresAt,
+    refresh,
+  ]);
+
   const ensureSession = useCallback(async () => {
     if (!auth.enabled) {
       throw new Error('Subscriptions are not available.');
@@ -180,8 +241,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [applyServerStatus, auth, ensureSession]);
 
   const isPremium = auth.enabled
-    ? auth.premium.active ||
-      serverStatus?.active === true ||
+    ? premiumStillValid(auth.premium.active, auth.premium.expiresAt) ||
+      premiumStillValid(serverStatus?.active, serverStatus?.expiresAt) ||
       isPremiumActive(state)
     : isPremiumActive(state);
 

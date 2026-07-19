@@ -62,10 +62,28 @@ async def get_pending_request(
     )
 
 
+async def expire_premium_if_needed(
+    db: AsyncSession,
+    user: User,
+) -> bool:
+    """Delete expired entitlement so the user is treated as free. Returns True if removed."""
+    row = user.premium
+    if row is None or row.expires_at is None:
+        return False
+    exp = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
+    if exp > utcnow():
+        return False
+    await db.delete(row)
+    await db.flush()
+    user.premium = None
+    return True
+
+
 async def build_premium_out(
     db: AsyncSession,
     user: User,
 ) -> PremiumOut:
+    await expire_premium_if_needed(db, user)
     pending = await get_pending_request(db, user.id)
     base = premium_from_row(
         user.premium.plan if user.premium else None,

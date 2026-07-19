@@ -12,6 +12,7 @@ from ..auth.jwt_tokens import create_admin_token
 from ..auth.subscription import (
     PLAN_CATALOG,
     clear_premium,
+    expire_premium_if_needed,
     get_pending_request,
     load_user_with_premium,
     plan_info,
@@ -67,6 +68,7 @@ def _premium_active(user: User) -> tuple[bool, str | None]:
 
 
 async def _access_level(db: AsyncSession, user: User) -> str:
+    await expire_premium_if_needed(db, user)
     active, _ = _premium_active(user)
     if active:
         return 'premium'
@@ -418,6 +420,7 @@ async def admin_list_subscriptions(
     for req, user in rows.all():
         access = await _access_level(db, user)
         out.append(_row_out(req, user, access))
+    await db.commit()
     return out
 
 

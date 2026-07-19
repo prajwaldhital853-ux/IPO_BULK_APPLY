@@ -225,6 +225,7 @@ async def auth_me(
     if row is None:
         raise HTTPException(status_code=401, detail='User not found')
     premium = await build_premium_out(db, row)
+    await db.commit()
     return MeResponse(user=_user_out(row), premium=premium)
 
 
@@ -298,7 +299,9 @@ async def subscription_status(
     row = await load_user_with_premium(db, user.id)
     if row is None:
         raise HTTPException(status_code=401, detail='User not found')
-    return await build_premium_out(db, row)
+    premium = await build_premium_out(db, row)
+    await db.commit()
+    return premium
 
 
 @router.post('/subscription/request', response_model=PremiumOut)
