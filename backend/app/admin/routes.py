@@ -398,6 +398,7 @@ async def admin_list_users(
         if access and access != 'all' and row.access_level != access:
             continue
         out.append(row)
+    await db.commit()
     return out
 
 
