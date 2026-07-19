@@ -8,7 +8,7 @@ module.exports = {
   expo: {
     name: 'NEPSE GHAR',
     slug: 'nepse',
-    owner: 'nepse_ghar',
+    owner: 'nepseghars-team',
     scheme: 'nepseghar',
     version: '3.2.2',
     orientation: 'portrait',

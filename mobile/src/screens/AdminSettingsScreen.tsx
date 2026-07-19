@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,6 +25,11 @@ import { loadAdminToken } from '../services/admin/adminTokenStorage';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
+
+function qrPreviewUrl(text: string): string {
+  const data = text.trim() || 'NEPSE GHAR Premium Payment';
+  return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data)}`;
+}
 
 function Field({
   label,
@@ -189,8 +195,24 @@ export function AdminSettingsScreen() {
             <Text style={styles.hint}>Admin: {settings.adminEmail}</Text>
           ) : null}
 
-          <Text style={styles.section}>Payment details</Text>
-          <Field label="QR code text" value={qrText} onChangeText={setQrText} colors={colors} multiline />
+          <Text style={styles.section}>Payment QR & bank details</Text>
+          <Text style={styles.help}>
+            This QR appears on the Premium Subscription screen in the app. Change the text
+            below and tap Save — users see the new QR on their next visit.
+          </Text>
+          <Field
+            label="QR payment text (encoded in QR image)"
+            value={qrText}
+            onChangeText={setQrText}
+            colors={colors}
+            multiline
+          />
+          {qrText.trim() ? (
+            <View style={styles.qrPreview}>
+              <Text style={styles.qrPreviewLabel}>Preview</Text>
+              <Image source={{ uri: qrPreviewUrl(qrText) }} style={styles.qrImage} />
+            </View>
+          ) : null}
           <Field label="Bank name" value={bankName} onChangeText={setBankName} colors={colors} />
           <Field label="Account name" value={accountName} onChangeText={setAccountName} colors={colors} />
           <Field label="Account number" value={accountNumber} onChangeText={setAccountNumber} colors={colors} />
@@ -272,6 +294,33 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(15),
       marginTop: rs(8),
       marginBottom: rs(10),
+    },
+    help: {
+      color: c.textSecondary,
+      fontSize: rs(12),
+      lineHeight: rs(18),
+      marginBottom: rs(12),
+    },
+    qrPreview: {
+      alignItems: 'center',
+      marginBottom: rs(14),
+      padding: rs(12),
+      borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+    },
+    qrPreviewLabel: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      marginBottom: rs(8),
+      alignSelf: 'flex-start',
+    },
+    qrImage: {
+      width: rs(160),
+      height: rs(160),
+      borderRadius: rs(8),
+      backgroundColor: '#fff',
     },
     btn: {
       backgroundColor: c.fab,

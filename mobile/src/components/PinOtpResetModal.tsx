@@ -56,11 +56,23 @@ export function PinOtpResetModal({
     setBusy(true);
     setError('');
     try {
+      if (auth.enabled) {
+        const me = await auth.refreshProfile();
+        if (!me) {
+          setError('Session expired. Sign out and sign in with Google again, then retry.');
+          return;
+        }
+      }
       const res = await sendPinResetOtp();
       setMaskedEmail(res.email || userEmail || '');
       setStep('otp');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not send code');
+      const msg = e instanceof Error ? e.message : 'Could not send code';
+      setError(
+        msg.includes('Session expired') || msg.includes('sign in')
+          ? 'Session expired. Sign out and sign in with Google again, then retry.'
+          : msg,
+      );
     } finally {
       setBusy(false);
     }

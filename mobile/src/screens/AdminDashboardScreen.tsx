@@ -587,6 +587,22 @@ export function AdminDashboardScreen() {
         </View>
       ) : null}
 
+      <Pressable
+        style={styles.paymentCard}
+        onPress={() => navigation.navigate('AdminSettings')}
+      >
+        <View style={styles.paymentCardIcon}>
+          <Ionicons name="qr-code-outline" size={rs(28)} color={colors.primary} />
+        </View>
+        <View style={styles.paymentCardBody}>
+          <Text style={styles.paymentCardTitle}>Payment QR & bank details</Text>
+          <Text style={styles.paymentCardSub}>
+            Change subscription QR code, bank account, and WhatsApp number shown in the app
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={rs(20)} color={colors.textMuted} />
+      </Pressable>
+
       <View style={styles.tabs}>
         {(['users', 'subscriptions', 'feedback'] as Tab[]).map((t) => (
           <Pressable
@@ -794,6 +810,34 @@ function makeStyles(c: ThemeColors) {
       gap: rs(10),
       paddingHorizontal: rs(16),
       marginBottom: rs(12),
+    },
+    paymentCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(12),
+      marginHorizontal: rs(16),
+      marginBottom: rs(12),
+      padding: rs(14),
+      borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+    },
+    paymentCardIcon: {
+      width: rs(44),
+      height: rs(44),
+      borderRadius: rs(10),
+      backgroundColor: c.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    paymentCardBody: { flex: 1 },
+    paymentCardTitle: { color: c.text, fontWeight: '800', fontSize: rs(14) },
+    paymentCardSub: {
+      color: c.textSecondary,
+      fontSize: rs(11),
+      lineHeight: rs(16),
+      marginTop: rs(2),
     },
     tabs: {
       flexDirection: 'row',
