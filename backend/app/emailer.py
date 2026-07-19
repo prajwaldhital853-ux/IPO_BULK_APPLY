@@ -129,6 +129,12 @@ def _send_via_brevo(*, to_email: str, subject: str, body: str) -> None:
         raise EmailNotConfiguredError('BREVO_API_KEY is not set')
 
     sender = _sender_email()
+    recipient = to_email.strip().lower()
+    html = (
+        '<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111">'
+        f'<p>{body.replace(chr(10), "<br/>")}</p>'
+        '</div>'
+    )
     resp = httpx.post(
         'https://api.brevo.com/v3/smtp/email',
         headers={
@@ -138,15 +144,41 @@ def _send_via_brevo(*, to_email: str, subject: str, body: str) -> None:
         },
         json={
             'sender': {'name': 'NEPSE GHAR', 'email': sender},
-            'to': [{'email': to_email}],
+            'replyTo': {'name': 'NEPSE GHAR', 'email': sender},
+            'to': [{'email': recipient, 'name': recipient}],
             'subject': subject,
             'textContent': body,
+            'htmlContent': html,
+            'tags': ['otp', 'nepse-ghar'],
         },
         timeout=30.0,
     )
     if resp.status_code >= 400:
         detail = resp.text.strip()[:240] or resp.reason_phrase
         raise RuntimeError(f'Brevo rejected email ({resp.status_code}): {detail}')
+
+    try:
+        payload = resp.json()
+        message_id = payload.get('messageId') or payload.get('messageIds')
+    except Exception:  # noqa: BLE001
+        message_id = None
+    log.info(
+        'Brevo OTP queued from=%s to=%s messageId=%s',
+        sender,
+        _mask_email_for_log(recipient),
+        message_id or 'unknown',
+    )
+
+
+def _mask_email_for_log(email: str) -> str:
+    if '@' not in email:
+        return email
+    local, domain = email.split('@', 1)
+    if len(local) <= 2:
+        masked = local[0] + '***'
+    else:
+        masked = local[0] + '***' + local[-1]
+    return f'{masked}@{domain}'
 
 
 def _send_via_resend(*, to_email: str, subject: str, body: str) -> None:

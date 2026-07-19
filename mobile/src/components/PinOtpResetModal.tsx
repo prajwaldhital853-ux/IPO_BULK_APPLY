@@ -116,7 +116,7 @@ export function PinOtpResetModal({
     step === 'send'
       ? `We will send a code to your Google login email${userEmail ? ` (${userEmail})` : ''}.`
       : step === 'otp'
-        ? `Code sent to ${maskedEmail || 'your email'}.`
+        ? `Code sent to ${maskedEmail || 'your email'}. Check Inbox, Spam, and Promotions.`
         : step === 'new'
           ? 'Choose a new 4-digit PIN.'
           : 'Enter the same PIN again.';

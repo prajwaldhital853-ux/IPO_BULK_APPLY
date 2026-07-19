@@ -247,7 +247,12 @@ async def pin_send_otp(
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     return PinOtpSendOut(
-        message=f'Verification code sent to {masked}',
+        message=(
+            f'Verification code sent to {masked}. '
+            'Check Inbox, Spam, and Promotions tabs. '
+            'If it does not arrive within 2 minutes, verify your Brevo sender '
+            'and check Brevo → Transactional → Logs.'
+        ),
         email=masked,
     )
 
