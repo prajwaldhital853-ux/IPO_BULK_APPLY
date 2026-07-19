@@ -56,6 +56,7 @@ export function BankDetailScreen() {
   const [linkedBank, setLinkedBank] = useState('');
   const [loadingBank, setLoadingBank] = useState(true);
   const [bankError, setBankError] = useState('');
+  const [bankRetryKey, setBankRetryKey] = useState(0);
   const [crn, setCrn] = useState('');
   const [pin, setPin] = useState('');
   const [hideCrn, setHideCrn] = useState(true);
@@ -85,7 +86,7 @@ export function BankDetailScreen() {
           username: draft.username,
           password: draft.password,
         });
-        const banks = await client.listBanks();
+        const banks = await client.listBanksWithRetry();
         if (!mounted) return;
         if (banks.length) {
           setLinkedBank(banks[0].name || `Bank #${banks[0].id}`);
@@ -98,10 +99,11 @@ export function BankDetailScreen() {
       } catch (e) {
         if (!mounted) return;
         setLinkedBank(draft.dpName);
+        const msg = e instanceof Error ? e.message : 'MeroShare bank list failed';
         setBankError(
-          e instanceof Error
-            ? `Could not load linked bank: ${e.message}`
-            : 'Could not load linked bank from MeroShare',
+          /unable to process/i.test(msg)
+            ? 'MeroShare bank list is busy right now. Showing your DP name instead — you can still enter CRN/PIN and tap Verify & Save.'
+            : `Could not load linked bank (${msg}). You can still enter CRN/PIN and save.`,
         );
       } finally {
         client.clearSession();
@@ -111,7 +113,7 @@ export function BankDetailScreen() {
     return () => {
       mounted = false;
     };
-  }, [draft]);
+  }, [draft, bankRetryKey]);
 
   const onSubmit = async () => {
     if (!draft) {
@@ -266,7 +268,16 @@ export function BankDetailScreen() {
             <Text style={styles.infoValue}>{linkedBank || '—'}</Text>
           )}
           {bankError ? (
-            <Text style={styles.bankWarn}>{bankError}</Text>
+            <View style={styles.bankWarnBox}>
+              <Text style={styles.bankWarn}>{bankError}</Text>
+              <Pressable
+                onPress={() => setBankRetryKey((k) => k + 1)}
+                hitSlop={8}
+                style={styles.retryBtn}
+              >
+                <Text style={styles.retryText}>Retry bank load</Text>
+              </Pressable>
+            </View>
           ) : null}
         </View>
 
@@ -375,8 +386,20 @@ const styles = StyleSheet.create({
   bankWarn: {
     color: colors.textMuted,
     fontSize: rs(11),
-    marginTop: rs(8),
     lineHeight: rs(15),
+  },
+  bankWarnBox: {
+    marginTop: rs(8),
+    gap: rs(6),
+  },
+  retryBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: rs(4),
+  },
+  retryText: {
+    color: colors.sage,
+    fontSize: rs(12),
+    fontWeight: '700',
   },
   errorBanner: {
     marginHorizontal: rs(16),

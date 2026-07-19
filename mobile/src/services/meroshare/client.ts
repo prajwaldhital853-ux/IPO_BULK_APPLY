@@ -438,7 +438,7 @@ export class MeroshareClient {
   }
 
   private async fetchBankBranch(): Promise<BankBranch> {
-    const banks = await this.listBanks();
+    const banks = await this.listBanksWithRetry();
     if (!banks.length) {
       throw new MeroshareError('UNKNOWN', 'No linked bank found on MeroShare');
     }
@@ -451,6 +451,33 @@ export class MeroshareClient {
       { method: 'GET', auth: true },
     );
     return banks ?? [];
+  }
+
+  /**
+   * MeroShare bank list often returns "Unable to process request at the moment".
+   * Retry a few times before giving up.
+   */
+  async listBanksWithRetry(
+    attempts = 3,
+  ): Promise<Array<{ id: number; name?: string }>> {
+    let lastError: unknown;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await this.listBanks();
+      } catch (e) {
+        lastError = e;
+        const msg = e instanceof Error ? e.message : String(e);
+        const transient =
+          /unable to process|try again|temporarily|timeout|502|503|504|network/i.test(
+            msg,
+          );
+        if (!transient || i === attempts - 1) break;
+        await new Promise((r) => setTimeout(r, 700 * (i + 1)));
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new MeroshareError('UNKNOWN', 'Could not load bank list');
   }
 
   async getBankBranchDetails(bankId: number): Promise<BankBranch> {

@@ -74,6 +74,12 @@ function classifyApplyProbe(msg: string): 'pin' | 'crn' | 'accepted' | 'unknown'
   return 'unknown';
 }
 
+function isTransientMeroShareError(msg: string): boolean {
+  return /unable to process|try again|temporarily|timeout|502|503|504|network request failed/i.test(
+    msg,
+  );
+}
+
 /**
  * Full live verify before saving an account.
  * Saves only when DP + username + password + CRN + PIN check out against MeroShare.
@@ -179,10 +185,11 @@ export async function verifyAccountForSave(args: {
       };
     }
 
-    // 2) Profile / bank must load for a real ASBA-ready account
+    // 2) Profile / bank — MeroShare bank API is often flaky
     let bankName: string | undefined;
+    let bankDeferred = false;
     try {
-      const banks = await client.listBanks();
+      const banks = await client.listBanksWithRetry();
       if (!banks.length) {
         return {
           ok: false,
@@ -198,13 +205,42 @@ export async function verifyAccountForSave(args: {
       await client.getBankBranchDetails(banks[0].id);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not load bank details';
+      if (!isTransientMeroShareError(msg)) {
+        return {
+          ok: false,
+          field: 'bank',
+          message: `Login OK, but bank details failed: ${msg}`,
+          stage: 'bank',
+          boid: session.boid,
+          demat: session.demat,
+        };
+      }
+      // Transient CDSC outage — still allow save; confirm CRN/PIN on first live apply
+      bankDeferred = true;
+      try {
+        const me = await client.fetchOwnDetailRaw();
+        const fromProfile =
+          (typeof me.bankName === 'string' && me.bankName) ||
+          (typeof me.bank === 'string' && me.bank) ||
+          (typeof me.accountName === 'string' && me.accountName) ||
+          null;
+        if (fromProfile) bankName = fromProfile;
+      } catch {
+        // ignore
+      }
+    }
+
+    if (bankDeferred) {
       return {
-        ok: false,
-        field: 'bank',
-        message: `Login OK, but bank details failed: ${msg}`,
-        stage: 'bank',
+        ok: true,
+        field: null,
+        message:
+          'Login OK. MeroShare bank list is temporarily unavailable. Account can be saved — CRN/PIN will be confirmed on first live IPO apply.',
+        stage: 'complete',
         boid: session.boid,
         demat: session.demat,
+        bankName,
+        crnPinDeferred: true,
       };
     }
 
