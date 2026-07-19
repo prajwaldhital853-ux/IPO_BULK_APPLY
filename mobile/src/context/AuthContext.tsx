@@ -117,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (lastUserId) setActiveUserId(lastUserId);
         const session = await refreshSessionIfNeeded();
         if (!mounted) return;
-        if (session?.accessToken && getAccessToken()) {
+        if (session?.accessToken) {
           const me = await fetchMe();
           if (me && mounted) {
             setActiveUserId(me.user.id);
@@ -125,6 +125,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(me.user);
             setPremium(me.premium);
             await cachePremiumFromServer(me.premium);
+          } else if (mounted) {
+            await clearAllTokens(lastUserId ?? undefined);
+            setActiveUserId(null);
+            setUser(null);
+            setPremium(defaultPremium);
           }
         }
       } finally {

@@ -28,21 +28,31 @@ export type PaymentInfo = {
 };
 
 function mapStatus(json: Record<string, unknown>): SubscriptionStatus {
-  const pendingRaw = json.pendingRequest as Record<string, unknown> | null | undefined;
+  const pendingRaw =
+    (json.pendingRequest as Record<string, unknown> | null | undefined) ??
+    (json.pending_request as Record<string, unknown> | null | undefined);
+  const expiresAtRaw = json.expiresAt ?? json.expires_at;
+  const active = Boolean(json.active);
   return {
-    active: Boolean(json.active),
+    active,
     plan: json.plan ? String(json.plan) : null,
-    expiresAt: json.expiresAt ? String(json.expiresAt) : null,
-    status: (json.status as SubscriptionStatus['status']) ?? 'free',
+    expiresAt: expiresAtRaw ? String(expiresAtRaw) : null,
+    status:
+      (json.status as SubscriptionStatus['status']) ??
+      (active ? 'active' : pendingRaw ? 'pending' : 'free'),
     pendingRequest: pendingRaw
       ? {
           id: String(pendingRaw.id),
-          planId: String(pendingRaw.planId),
-          planTitle: String(pendingRaw.planTitle),
-          amountNpr: Number(pendingRaw.amountNpr ?? 0),
+          planId: String(pendingRaw.planId ?? pendingRaw.plan_id),
+          planTitle: String(pendingRaw.planTitle ?? pendingRaw.plan_title),
+          amountNpr: Number(pendingRaw.amountNpr ?? pendingRaw.amount_npr ?? 0),
           status: String(pendingRaw.status),
-          paymentNote: pendingRaw.paymentNote ? String(pendingRaw.paymentNote) : null,
-          createdAt: String(pendingRaw.createdAt),
+          paymentNote: pendingRaw.paymentNote
+            ? String(pendingRaw.paymentNote)
+            : pendingRaw.payment_note
+              ? String(pendingRaw.payment_note)
+              : null,
+          createdAt: String(pendingRaw.createdAt ?? pendingRaw.created_at),
         }
       : null,
   };

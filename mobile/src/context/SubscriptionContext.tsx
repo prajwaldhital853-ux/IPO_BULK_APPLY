@@ -118,6 +118,26 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [refresh, auth.user?.id]);
 
   useEffect(() => {
+    if (!auth.enabled || !auth.isAuthenticated) return;
+    void applyServerStatus({
+      active: auth.premium.active,
+      plan: auth.premium.plan,
+      expiresAt: auth.premium.expiresAt,
+      status: auth.premium.status,
+      pendingRequest: auth.premium.pendingRequest,
+    });
+  }, [
+    auth.enabled,
+    auth.isAuthenticated,
+    auth.premium.active,
+    auth.premium.plan,
+    auth.premium.expiresAt,
+    auth.premium.status,
+    auth.premium.pendingRequest,
+    applyServerStatus,
+  ]);
+
+  useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active' && auth.isAuthenticated) {
         void refresh();

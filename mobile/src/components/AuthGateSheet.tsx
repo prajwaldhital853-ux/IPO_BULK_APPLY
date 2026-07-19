@@ -53,11 +53,11 @@ export function AuthGateSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
-      <Pressable style={styles.backdrop} onPress={onDismiss}>
-        <Pressable
-          style={[styles.sheet, { backgroundColor: colors.surface }]}
-          onPress={(e) => e.stopPropagation()}
-        >
+      <View style={styles.backdrop}>
+        {onDismiss ? (
+          <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} />
+        ) : null}
+        <View style={[styles.sheet, { backgroundColor: colors.surface }]}>
           <View style={[styles.handle, { backgroundColor: colors.borderMuted }]} />
           <Ionicons name="shield-checkmark-outline" size={rs(40)} color={colors.tealHeader} />
           <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
@@ -86,8 +86,8 @@ export function AuthGateSheet({
               </Text>
             </Pressable>
           ) : null}
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -106,6 +106,7 @@ const styles = StyleSheet.create({
     paddingBottom: rs(32),
     alignItems: 'center',
     gap: rs(10),
+    width: '100%',
   },
   handle: {
     width: rs(40),

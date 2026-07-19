@@ -46,21 +46,31 @@ function mapUser(raw: Record<string, unknown>): AuthUser {
 }
 
 function mapPremium(raw: Record<string, unknown>): PremiumInfo {
-  const pendingRaw = raw.pendingRequest as Record<string, unknown> | null | undefined;
+  const pendingRaw =
+    (raw.pendingRequest as Record<string, unknown> | null | undefined) ??
+    (raw.pending_request as Record<string, unknown> | null | undefined);
+  const expiresAtRaw = raw.expiresAt ?? raw.expires_at;
+  const active = Boolean(raw.active);
   return {
-    active: Boolean(raw.active),
+    active,
     plan: raw.plan ? String(raw.plan) : null,
-    expiresAt: raw.expiresAt ? String(raw.expiresAt) : null,
-    status: (raw.status as PremiumInfo['status']) ?? (raw.active ? 'active' : 'free'),
+    expiresAt: expiresAtRaw ? String(expiresAtRaw) : null,
+    status:
+      (raw.status as PremiumInfo['status']) ??
+      (active ? 'active' : pendingRaw ? 'pending' : 'free'),
     pendingRequest: pendingRaw
       ? {
           id: String(pendingRaw.id),
-          planId: String(pendingRaw.planId),
-          planTitle: String(pendingRaw.planTitle),
-          amountNpr: Number(pendingRaw.amountNpr ?? 0),
+          planId: String(pendingRaw.planId ?? pendingRaw.plan_id),
+          planTitle: String(pendingRaw.planTitle ?? pendingRaw.plan_title),
+          amountNpr: Number(pendingRaw.amountNpr ?? pendingRaw.amount_npr ?? 0),
           status: String(pendingRaw.status),
-          paymentNote: pendingRaw.paymentNote ? String(pendingRaw.paymentNote) : null,
-          createdAt: String(pendingRaw.createdAt),
+          paymentNote: pendingRaw.paymentNote
+            ? String(pendingRaw.paymentNote)
+            : pendingRaw.payment_note
+              ? String(pendingRaw.payment_note)
+              : null,
+          createdAt: String(pendingRaw.createdAt ?? pendingRaw.created_at),
         }
       : null,
   };

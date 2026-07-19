@@ -11,6 +11,7 @@ import {
   loadRefreshToken,
   saveRefreshToken,
   setAccessToken,
+  clearRefreshToken,
 } from './tokenStorage';
 import { saveLastSignedInUserId, loadLastSignedInUserId } from '../../storage/sessionStorage';
 import { setActiveUserId } from '../../storage/userScope';
@@ -21,30 +22,14 @@ export async function refreshSessionIfNeeded(): Promise<AuthSession | null> {
   const lastUserId = await loadLastSignedInUserId();
   if (lastUserId) setActiveUserId(lastUserId);
 
-  const existing = getAccessToken();
-  if (existing) {
-    const rt = await loadRefreshToken();
-    if (rt) {
-      return {
-        accessToken: existing,
-        refreshToken: rt,
-        expiresIn: 900,
-        user: { id: '', email: '', name: '', avatarUrl: null },
-        premium: {
-          active: false,
-          plan: null,
-          expiresAt: null,
-          status: 'free',
-          pendingRequest: null,
-        },
-      };
-    }
-  }
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     try {
-      const rt = await loadRefreshToken();
-      if (!rt) return null;
+      const rt = await loadRefreshToken(lastUserId ?? undefined);
+      if (!rt) {
+        clearAccessToken();
+        return null;
+      }
       const session = await authRefresh(rt, AUTH_API_BASE);
       setActiveUserId(session.user.id);
       await saveLastSignedInUserId(session.user.id);
@@ -53,6 +38,7 @@ export async function refreshSessionIfNeeded(): Promise<AuthSession | null> {
       return session;
     } catch {
       clearAccessToken();
+      await clearRefreshToken(lastUserId ?? undefined);
       return null;
     } finally {
       refreshPromise = null;
@@ -86,18 +72,24 @@ export async function authFetch(
 }
 
 export async function fetchMe(): Promise<MeResponse | null> {
-  const token = getAccessToken();
+  let token = getAccessToken();
   if (!token) {
     const session = await refreshSessionIfNeeded();
-    if (!session?.accessToken) return null;
-    return authMe(session.accessToken, AUTH_API_BASE);
+    token = session?.accessToken ?? null;
   }
+  if (!token) return null;
   try {
     return await authMe(token, AUTH_API_BASE);
   } catch {
+    clearAccessToken();
     const session = await refreshSessionIfNeeded();
     if (!session?.accessToken) return null;
-    return authMe(session.accessToken, AUTH_API_BASE);
+    try {
+      return await authMe(session.accessToken, AUTH_API_BASE);
+    } catch {
+      clearAccessToken();
+      return null;
+    }
   }
 }
 

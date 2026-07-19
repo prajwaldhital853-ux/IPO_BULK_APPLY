@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { AuthGateSheet, useAuthGate } from './AuthGateSheet';
 
@@ -14,6 +14,10 @@ export function ProtectedPersonalScreen({
   const { enabled, isAuthenticated, loading } = useAuthGate();
   const [dismissed, setDismissed] = useState(false);
 
+  useEffect(() => {
+    if (isAuthenticated) setDismissed(false);
+  }, [isAuthenticated]);
+
   if (!enabled || isAuthenticated) return <>{children}</>;
   if (loading) {
     return (
@@ -23,13 +27,15 @@ export function ProtectedPersonalScreen({
     );
   }
 
+  if (dismissed) return <>{children}</>;
+
   return (
     <>
       <View style={styles.dimmed} pointerEvents="none">
         {children}
       </View>
       <AuthGateSheet
-        visible={!dismissed}
+        visible
         title={title}
         subtitle={subtitle}
         onDismiss={() => setDismissed(true)}
