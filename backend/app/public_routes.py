@@ -37,4 +37,7 @@ async def submit_feedback(
         await db.commit()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f'Could not save feedback: {e}') from e
     return FeedbackSubmitOut(id=row.id, ok=True)

@@ -146,6 +146,7 @@ class UserFeedback(Base):
     email: Mapped[str] = mapped_column(String(320), default='')
     message: Mapped[str] = mapped_column(String(4000))
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default='new', index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
