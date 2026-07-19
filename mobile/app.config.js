@@ -25,7 +25,7 @@ module.exports = {
     },
     android: {
       package: 'com.nepse.ghar',
-      versionCode: 25,
+      versionCode: 26,
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',
         foregroundImage: './assets/nepse-ghar-logo.png',
@@ -45,6 +45,13 @@ module.exports = {
         ? ['expo-dev-client']
         : []),
       'expo-secure-store',
+      [
+        'expo-image-picker',
+        {
+          photosPermission:
+            'Allow NEPSE GHAR to access your photos so admin can upload the payment QR code.',
+        },
+      ],
       [
         'expo-screen-orientation',
         {

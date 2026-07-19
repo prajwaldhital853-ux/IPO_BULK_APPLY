@@ -2,6 +2,7 @@ import { AUTH_API_BASE } from '../auth/config';
 
 export type PaymentSettings = {
   qrText: string;
+  qrImageUrl: string | null;
   bankName: string;
   accountName: string;
   accountNumber: string;
@@ -26,6 +27,7 @@ export type PublicAppSettings = {
 const FALLBACK: PublicAppSettings = {
   payment: {
     qrText: 'NEPSE GHAR Premium|Kalash Financial Solution',
+    qrImageUrl: null,
     bankName: 'Kalash Financial Solution Pvt. Ltd.',
     accountName: 'Kalash Financial Solution',
     accountNumber: '0123456789',
@@ -43,8 +45,10 @@ const FALLBACK: PublicAppSettings = {
 };
 
 function mapPayment(json: Record<string, unknown>): PaymentSettings {
+  const rawImage = json.qrImageUrl ?? json.qr_image_url;
   return {
     qrText: String(json.qrText ?? FALLBACK.payment.qrText),
+    qrImageUrl: rawImage ? String(rawImage) : null,
     bankName: String(json.bankName ?? FALLBACK.payment.bankName),
     accountName: String(json.accountName ?? FALLBACK.payment.accountName),
     accountNumber: String(json.accountNumber ?? FALLBACK.payment.accountNumber),

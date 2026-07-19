@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth.deps import CurrentUser, get_optional_user
@@ -17,6 +17,25 @@ router = APIRouter(prefix='/app', tags=['app'])
 async def public_settings(db: AsyncSession = Depends(get_db)) -> PublicAppSettingsOut:
     row = await get_or_create_settings(db)
     return settings_to_public(row)
+
+
+@router.get('/payment-qr')
+async def payment_qr_image(db: AsyncSession = Depends(get_db)) -> Response:
+    row = await get_or_create_settings(db)
+    if not row.payment_qr_image_b64:
+        raise HTTPException(status_code=404, detail='No payment QR image uploaded')
+    import base64
+
+    try:
+        data = base64.b64decode(row.payment_qr_image_b64)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail='Invalid QR image data') from e
+    mime = row.payment_qr_image_mime or 'image/jpeg'
+    return Response(
+        content=data,
+        media_type=mime,
+        headers={'Cache-Control': 'public, max-age=300'},
+    )
 
 
 @router.post('/feedback', response_model=FeedbackSubmitOut)

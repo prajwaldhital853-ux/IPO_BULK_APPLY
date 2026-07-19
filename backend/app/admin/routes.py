@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -204,6 +204,62 @@ async def admin_update_settings(
         }
     row = await update_site_settings(db, payment=payment, contact=contact)
     await db.commit()
+    return _settings_out(row)
+
+
+_ALLOWED_QR_MIME = {
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+}
+_MAX_QR_BYTES = 2 * 1024 * 1024
+
+
+@router.post('/settings/payment-qr', response_model=AdminSettingsOut)
+async def admin_upload_payment_qr(
+    file: UploadFile = File(...),
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminSettingsOut:
+    import base64
+    from datetime import UTC, datetime
+
+    mime = (file.content_type or '').lower().strip()
+    if mime not in _ALLOWED_QR_MIME:
+        raise HTTPException(
+            status_code=400,
+            detail='Upload a JPG, PNG, WEBP, or GIF image from your gallery.',
+        )
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail='Empty image file')
+    if len(raw) > _MAX_QR_BYTES:
+        raise HTTPException(status_code=400, detail='Image too large (max 2 MB)')
+
+    row = await get_or_create_settings(db)
+    row.payment_qr_image_b64 = base64.b64encode(raw).decode('ascii')
+    row.payment_qr_image_mime = 'image/jpeg' if mime == 'image/jpg' else mime
+    row.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(row)
+    return _settings_out(row)
+
+
+@router.delete('/settings/payment-qr', response_model=AdminSettingsOut)
+async def admin_delete_payment_qr(
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminSettingsOut:
+    from datetime import UTC, datetime
+
+    row = await get_or_create_settings(db)
+    row.payment_qr_image_b64 = None
+    row.payment_qr_image_mime = None
+    row.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(row)
     return _settings_out(row)
 
 

@@ -17,18 +17,28 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import {
   changeAdminPassword,
+  deleteAdminPaymentQr,
   fetchAdminSettings,
   updateAdminSettings,
+  uploadAdminPaymentQr,
   type AdminSettings,
 } from '../services/admin/adminApi';
 import { loadAdminToken } from '../services/admin/adminTokenStorage';
+import { AUTH_API_BASE } from '../services/auth/config';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
+import * as ImagePicker from 'expo-image-picker';
 
 function qrPreviewUrl(text: string): string {
   const data = text.trim() || 'NEPSE GHAR Premium Payment';
   return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data)}`;
+}
+
+function resolveQrImageUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  return `${AUTH_API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 function Field({
@@ -72,7 +82,9 @@ export function AdminSettingsScreen() {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [qrBusy, setQrBusy] = useState(false);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
 
   const [qrText, setQrText] = useState('');
   const [bankName, setBankName] = useState('');
@@ -93,6 +105,7 @@ export function AdminSettingsScreen() {
   const applySettings = useCallback((s: AdminSettings) => {
     setSettings(s);
     setQrText(s.payment.qrText);
+    setQrImageUrl(resolveQrImageUrl(s.payment.qrImageUrl));
     setBankName(s.payment.bankName);
     setAccountName(s.payment.accountName);
     setAccountNumber(s.payment.accountNumber);
@@ -127,6 +140,71 @@ export function AdminSettingsScreen() {
       void load(t);
     });
   }, [load, navigation]);
+
+  const onPickQrFromGallery = async () => {
+    if (!token) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        'Permission needed',
+        'Allow photo access so you can upload the payment QR from your gallery.',
+      );
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.85,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+
+    const asset = result.assets[0];
+    setQrBusy(true);
+    try {
+      const mime = asset.mimeType ?? 'image/jpeg';
+      const name =
+        asset.fileName ??
+        (mime.includes('png') ? 'payment-qr.png' : 'payment-qr.jpg');
+      const updated = await uploadAdminPaymentQr(token, asset.uri, mime, name);
+      applySettings(updated);
+      Alert.alert('Uploaded', 'Payment QR image updated. Users will see it on Premium.');
+    } catch (e) {
+      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Try again');
+    } finally {
+      setQrBusy(false);
+    }
+  };
+
+  const onDeleteQrImage = () => {
+    if (!token) return;
+    Alert.alert(
+      'Remove QR image?',
+      'The app will fall back to generating a QR from the payment text (if set).',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setQrBusy(true);
+            void deleteAdminPaymentQr(token)
+              .then((updated) => {
+                applySettings(updated);
+                Alert.alert('Removed', 'Custom QR image deleted.');
+              })
+              .catch((e: unknown) =>
+                Alert.alert(
+                  'Delete failed',
+                  e instanceof Error ? e.message : 'Try again',
+                ),
+              )
+              .finally(() => setQrBusy(false));
+          },
+        },
+      ],
+    );
+  };
 
   const onSave = async () => {
     if (!token) return;
@@ -197,22 +275,57 @@ export function AdminSettingsScreen() {
 
           <Text style={styles.section}>Payment QR & bank details</Text>
           <Text style={styles.help}>
-            This QR appears on the Premium Subscription screen in the app. Change the text
-            below and tap Save — users see the new QR on their next visit.
+            Upload your eSewa / bank QR from gallery. This image is shown on the Premium
+            Subscription screen. You can also delete it anytime.
           </Text>
+
+          <View style={styles.qrPreview}>
+            <Text style={styles.qrPreviewLabel}>
+              {qrImageUrl ? 'Uploaded QR (from gallery)' : 'Preview (from QR text)'}
+            </Text>
+            <Image
+              source={{
+                uri: qrImageUrl ?? qrPreviewUrl(qrText),
+              }}
+              style={styles.qrImage}
+            />
+            <View style={styles.qrActions}>
+              <Pressable
+                style={[styles.qrBtn, qrBusy && styles.btnDisabled]}
+                disabled={qrBusy}
+                onPress={() => void onPickQrFromGallery()}
+              >
+                {qrBusy ? (
+                  <ActivityIndicator color={colors.fabIcon} />
+                ) : (
+                  <>
+                    <Ionicons name="images-outline" size={rs(16)} color={colors.fabIcon} />
+                    <Text style={styles.qrBtnText}>
+                      {qrImageUrl ? 'Replace from gallery' : 'Add from gallery'}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+              {qrImageUrl ? (
+                <Pressable
+                  style={[styles.qrBtnDanger, qrBusy && styles.btnDisabled]}
+                  disabled={qrBusy}
+                  onPress={onDeleteQrImage}
+                >
+                  <Ionicons name="trash-outline" size={rs(16)} color="#fff" />
+                  <Text style={styles.qrBtnText}>Delete QR</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+
           <Field
-            label="QR payment text (encoded in QR image)"
+            label="QR payment text (optional fallback if no image)"
             value={qrText}
             onChangeText={setQrText}
             colors={colors}
             multiline
           />
-          {qrText.trim() ? (
-            <View style={styles.qrPreview}>
-              <Text style={styles.qrPreviewLabel}>Preview</Text>
-              <Image source={{ uri: qrPreviewUrl(qrText) }} style={styles.qrImage} />
-            </View>
-          ) : null}
           <Field label="Bank name" value={bankName} onChangeText={setBankName} colors={colors} />
           <Field label="Account name" value={accountName} onChangeText={setAccountName} colors={colors} />
           <Field label="Account number" value={accountNumber} onChangeText={setAccountNumber} colors={colors} />
@@ -322,6 +435,33 @@ function makeStyles(c: ThemeColors) {
       borderRadius: rs(8),
       backgroundColor: '#fff',
     },
+    qrActions: {
+      alignSelf: 'stretch',
+      gap: rs(8),
+      marginTop: rs(12),
+    },
+    qrBtn: {
+      backgroundColor: c.fab,
+      borderRadius: rs(10),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(14),
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(8),
+    },
+    qrBtnDanger: {
+      backgroundColor: c.danger,
+      borderRadius: rs(10),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(14),
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(8),
+    },
+    qrBtnText: { color: '#fff', fontWeight: '800', fontSize: rs(13) },
+    btnDisabled: { opacity: 0.65 },
     btn: {
       backgroundColor: c.fab,
       borderRadius: rs(12),

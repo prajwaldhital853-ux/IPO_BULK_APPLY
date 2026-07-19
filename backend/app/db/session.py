@@ -30,6 +30,19 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     "ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'new'"
                 )
             )
+    if 'site_settings' in tables:
+        cols = {c['name'] for c in insp.get_columns('site_settings')}
+        if 'payment_qr_image_b64' not in cols:
+            sync_conn.execute(
+                text('ALTER TABLE site_settings ADD COLUMN payment_qr_image_b64 TEXT')
+            )
+        if 'payment_qr_image_mime' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE site_settings '
+                    'ADD COLUMN payment_qr_image_mime VARCHAR(64)'
+                )
+            )
 
 
 async def init_db() -> None:

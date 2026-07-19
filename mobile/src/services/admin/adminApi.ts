@@ -51,6 +51,7 @@ export type AdminStats = {
 
 export type AdminPaymentSettings = {
   qrText: string;
+  qrImageUrl: string | null;
   bankName: string;
   accountName: string;
   accountNumber: string;
@@ -246,8 +247,10 @@ export async function deleteUserSubscription(
 }
 
 function mapPaymentSettings(json: Record<string, unknown>): AdminPaymentSettings {
+  const rawUrl = json.qrImageUrl ?? json.qr_image_url;
   return {
     qrText: String(json.qrText ?? ''),
+    qrImageUrl: rawUrl ? String(rawUrl) : null,
     bankName: String(json.bankName ?? ''),
     accountName: String(json.accountName ?? ''),
     accountNumber: String(json.accountNumber ?? ''),
@@ -284,7 +287,7 @@ export async function fetchAdminSettings(token: string): Promise<AdminSettings> 
 export async function updateAdminSettings(
   token: string,
   payload: {
-    payment?: Omit<AdminPaymentSettings, 'whatsappUrl'>;
+    payment?: Omit<AdminPaymentSettings, 'whatsappUrl' | 'qrImageUrl'>;
     contact?: AdminContactSettings;
   },
 ): Promise<AdminSettings> {
@@ -292,6 +295,38 @@ export async function updateAdminSettings(
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapAdminSettings((await res.json()) as Record<string, unknown>);
+}
+
+export async function uploadAdminPaymentQr(
+  token: string,
+  uri: string,
+  mimeType = 'image/jpeg',
+  fileName = 'payment-qr.jpg',
+): Promise<AdminSettings> {
+  const form = new FormData();
+  form.append('file', {
+    uri,
+    type: mimeType,
+    name: fileName,
+  } as unknown as Blob);
+  const res = await fetch(`${AUTH_API_BASE}/admin/settings/payment-qr`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    },
+    body: form,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapAdminSettings((await res.json()) as Record<string, unknown>);
+}
+
+export async function deleteAdminPaymentQr(token: string): Promise<AdminSettings> {
+  const res = await adminFetch('/admin/settings/payment-qr', token, {
+    method: 'DELETE',
   });
   if (!res.ok) throw new Error(await parseError(res));
   return mapAdminSettings((await res.json()) as Record<string, unknown>);

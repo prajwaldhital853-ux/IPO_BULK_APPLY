@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -105,6 +105,8 @@ class SiteSettings(Base):
     admin_password_hash: Mapped[str] = mapped_column(String(256))
 
     payment_qr_text: Mapped[str] = mapped_column(String(512), default='')
+    payment_qr_image_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payment_qr_image_mime: Mapped[str | None] = mapped_column(String(64), nullable=True)
     payment_bank_name: Mapped[str] = mapped_column(String(256), default='')
     payment_account_name: Mapped[str] = mapped_column(String(256), default='')
     payment_account_number: Mapped[str] = mapped_column(String(64), default='')

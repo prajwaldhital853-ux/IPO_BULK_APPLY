@@ -4,11 +4,19 @@ from .admin.schemas import ContactSettingsOut, PaymentSettingsOut, PublicAppSett
 from .db.models import SiteSettings
 
 
+def payment_qr_public_path(row: SiteSettings) -> str | None:
+    if row.payment_qr_image_b64:
+        stamp = int(row.updated_at.timestamp()) if row.updated_at else 0
+        return f'/app/payment-qr?v={stamp}'
+    return None
+
+
 def _payment_out(row: SiteSettings) -> PaymentSettingsOut:
     wa = row.payment_whatsapp.strip()
     wa_url = f'https://wa.me/{wa}' if wa else ''
     return PaymentSettingsOut(
         qrText=row.payment_qr_text,
+        qrImageUrl=payment_qr_public_path(row),
         bankName=row.payment_bank_name,
         accountName=row.payment_account_name,
         accountNumber=row.payment_account_number,

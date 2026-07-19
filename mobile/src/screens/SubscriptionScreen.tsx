@@ -18,15 +18,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
+import { AUTH_API_BASE } from '../services/auth/config';
 import { fetchPaymentInfo, type PaymentInfo } from '../services/auth/subscriptionApi';
 import type { ThemeColors } from '../theme/colors';
 import { PREMIUM_PLANS } from '../storage/subscriptionStorage';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
-function qrImageUrl(text: string): string {
+function generatedQrUrl(text: string): string {
   const data = text.trim() || 'NEPSE GHAR Premium Payment';
   return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(data)}`;
+}
+
+function resolvePaymentQrUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  return `${AUTH_API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 export function SubscriptionScreen() {
@@ -54,10 +61,11 @@ export function SubscriptionScreen() {
 
   const needsSignIn = auth.enabled && !auth.isAuthenticated;
 
-  const qrUrl = useMemo(
-    () => qrImageUrl(paymentInfo?.qrText ?? ''),
-    [paymentInfo?.qrText],
-  );
+  const qrUrl = useMemo(() => {
+    const uploaded = resolvePaymentQrUrl(paymentInfo?.qrImageUrl);
+    if (uploaded) return uploaded;
+    return generatedQrUrl(paymentInfo?.qrText ?? '');
+  }, [paymentInfo?.qrImageUrl, paymentInfo?.qrText]);
 
   useEffect(() => {
     void fetchPaymentInfo()

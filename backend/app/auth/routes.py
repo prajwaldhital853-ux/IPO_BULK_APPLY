@@ -278,8 +278,11 @@ async def subscription_payment_info(
 
     row = await get_or_create_settings(db)
     wa = row.payment_whatsapp.strip()
+    from ..public_settings import payment_qr_public_path
+
     return PaymentInfoOut(
         qrText=row.payment_qr_text,
+        qrImageUrl=payment_qr_public_path(row),
         bankName=row.payment_bank_name,
         accountName=row.payment_account_name,
         accountNumber=row.payment_account_number,

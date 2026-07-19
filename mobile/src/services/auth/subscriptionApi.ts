@@ -21,6 +21,7 @@ export type SubscriptionStatus = {
 
 export type PaymentInfo = {
   qrText: string;
+  qrImageUrl: string | null;
   bankName: string;
   accountName: string;
   accountNumber: string;
@@ -82,8 +83,10 @@ export async function fetchPaymentInfo(): Promise<PaymentInfo> {
   });
   if (!res.ok) throw new Error(await parseError(res));
   const json = (await res.json()) as Record<string, unknown>;
+  const rawImage = json.qrImageUrl ?? json.qr_image_url;
   return {
     qrText: String(json.qrText ?? ''),
+    qrImageUrl: rawImage ? String(rawImage) : null,
     bankName: String(json.bankName ?? ''),
     accountName: String(json.accountName ?? ''),
     accountNumber: String(json.accountNumber ?? ''),

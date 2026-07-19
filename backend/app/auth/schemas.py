@@ -79,6 +79,7 @@ class SubscriptionRequestIn(BaseModel):
 
 class PaymentInfoOut(BaseModel):
     qr_text: str = Field(alias='qrText')
+    qr_image_url: str | None = Field(default=None, alias='qrImageUrl')
     bank_name: str = Field(alias='bankName')
     account_name: str = Field(alias='accountName')
     account_number: str = Field(alias='accountNumber')
