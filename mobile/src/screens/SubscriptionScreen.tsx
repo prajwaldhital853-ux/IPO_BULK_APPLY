@@ -140,29 +140,73 @@ export function SubscriptionScreen() {
                   );
                   setPaymentNote('');
                 })
-                .catch((e: unknown) => {
-                  const message =
-                    e instanceof Error ? e.message : 'Unknown error';
-                  const sessionExpired = message.includes('Session expired');
-                  Alert.alert(
-                    'Could not submit',
-                    message,
-                    sessionExpired
-                      ? [
-                          { text: 'OK', style: 'cancel' },
-                          { text: 'Sign in', onPress: () => void onSignIn() },
-                        ]
-                      : [{ text: 'OK' }],
-                  );
-                })
+                .catch((e: unknown) => showAuthActionError('Could not submit', e))
                 .finally(() => setSubmitting(false));
             },
           },
         ],
       );
     },
-    [needsSignIn, isPending, isPremium, paymentNote, requestPlan, auth, onSignIn],
+    [needsSignIn, isPending, isPremium, paymentNote, requestPlan, onSignIn, showAuthActionError],
   );
+
+  const showAuthActionError = useCallback(
+    (title: string, e: unknown) => {
+      const message = e instanceof Error ? e.message : 'Something went wrong';
+      const needsAuth =
+        message.includes('Session expired') ||
+        message.includes('sign in') ||
+        message.includes('Sign in');
+      Alert.alert(
+        title,
+        message,
+        needsAuth
+          ? [
+              { text: 'OK', style: 'cancel' },
+              { text: 'Sign in', onPress: () => void onSignIn() },
+            ]
+          : [{ text: 'OK' }],
+      );
+    },
+    [onSignIn],
+  );
+
+  const onCancelPending = useCallback(async () => {
+    if (needsSignIn) {
+      Alert.alert(
+        'Login required',
+        'Sign in with Google to cancel or manage your pending subscription.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign in', onPress: () => void onSignIn() },
+        ],
+      );
+      return;
+    }
+    const me = await auth.refreshProfile();
+    if (!me) {
+      Alert.alert(
+        'Session expired',
+        'Please sign in with Google again to cancel your pending request.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign in', onPress: () => void onSignIn() },
+        ],
+      );
+      return;
+    }
+    Alert.alert('Cancel request?', 'You can submit again after cancelling.', [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Cancel request',
+        style: 'destructive',
+        onPress: () =>
+          void cancelPending().catch((e: unknown) =>
+            showAuthActionError('Could not cancel', e),
+          ),
+      },
+    ]);
+  }, [needsSignIn, auth, onSignIn, cancelPending, showAuthActionError]);
 
   const openWhatsApp = useCallback(async () => {
     const url = paymentInfo?.whatsappUrl ?? 'https://wa.me/9779709133067';
@@ -225,7 +269,9 @@ export function SubscriptionScreen() {
             <Ionicons name="logo-google" size={rs(24)} color={colors.text} />
             <Text style={styles.signInTitle}>Sign in required</Text>
             <Text style={styles.signInText}>
-              Sign in with Google to submit your payment for verification.
+              {isPending
+                ? 'Sign in with Google to manage or cancel your pending subscription.'
+                : 'Sign in with Google to submit your payment for verification.'}
             </Text>
             <Pressable
               style={[styles.signInBtn, signingIn && styles.buyBtnDisabled]}
@@ -253,22 +299,7 @@ export function SubscriptionScreen() {
             </Pressable>
             <Pressable
               style={styles.cancelBtn}
-              onPress={() =>
-                Alert.alert('Cancel request?', 'You can submit again after cancelling.', [
-                  { text: 'No', style: 'cancel' },
-                  {
-                    text: 'Cancel request',
-                    style: 'destructive',
-                    onPress: () =>
-                      void cancelPending().catch((e: unknown) =>
-                        Alert.alert(
-                          'Error',
-                          e instanceof Error ? e.message : 'Could not cancel',
-                        ),
-                      ),
-                  },
-                ])
-              }
+              onPress={() => void onCancelPending()}
             >
               <Text style={styles.cancelText}>Cancel pending request</Text>
             </Pressable>

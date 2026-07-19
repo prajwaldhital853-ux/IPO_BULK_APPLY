@@ -50,11 +50,14 @@ class Settings(BaseSettings):
     admin_otp_ttl_minutes: int = 10
     app_env: str = 'development'
 
-    # Email OTP — Render blocks SMTP; use Brevo/Resend HTTP on PaaS
-    email_provider: str = 'auto'  # auto | smtp | brevo | resend
+    # Email OTP — Render blocks SMTP; use HTTP API providers on PaaS
+    # auto = try sendgrid → resend → brevo → smtp (first configured wins per send, with fallback)
+    email_provider: str = 'auto'  # auto | smtp | brevo | resend | sendgrid
     brevo_api_key: str = ''
     resend_api_key: str = ''
     resend_from: str = ''
+    sendgrid_api_key: str = ''
+    sendgrid_from: str = ''
 
     # Gmail SMTP (works on VPS/local only — blocked on Render)
     smtp_host: str = 'smtp.gmail.com'

@@ -95,6 +95,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           });
           return;
         }
+      } else if (auth.enabled) {
+        setServerStatus(null);
       }
 
       const local = await loadSubscription();
@@ -146,30 +148,36 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return () => sub.remove();
   }, [auth.isAuthenticated, refresh]);
 
+  const ensureSession = useCallback(async () => {
+    if (!auth.enabled) {
+      throw new Error('Subscriptions are not available.');
+    }
+    if (!auth.isAuthenticated) {
+      throw new Error('Please sign in with Google first.');
+    }
+    const me = await auth.refreshProfile();
+    if (!me) {
+      throw new Error('Session expired. Please sign in with Google again.');
+    }
+    return me;
+  }, [auth]);
+
   const requestPlan = useCallback(
     async (planId: string, paymentNote?: string) => {
-      if (!auth.enabled) {
-        throw new Error('Subscriptions are not available.');
-      }
-      if (!auth.isAuthenticated) {
-        throw new Error('Please sign in with Google before subscribing.');
-      }
-      const me = await auth.refreshProfile();
-      if (!me) {
-        throw new Error('Session expired. Please sign in with Google again.');
-      }
+      await ensureSession();
       const status = await submitSubscriptionRequest(planId, paymentNote);
       await applyServerStatus(status);
       await auth.refreshProfile();
     },
-    [applyServerStatus, auth],
+    [applyServerStatus, auth, ensureSession],
   );
 
   const cancelPending = useCallback(async () => {
+    await ensureSession();
     const status = await cancelPendingSubscription();
     await applyServerStatus(status);
     await auth.refreshProfile();
-  }, [applyServerStatus, auth]);
+  }, [applyServerStatus, auth, ensureSession]);
 
   const isPremium = auth.enabled
     ? auth.premium.active ||
@@ -179,6 +187,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   const isPending =
     !isPremium &&
+    auth.isAuthenticated &&
     (auth.premium.status === 'pending' || serverStatus?.status === 'pending');
 
   const value = useMemo(

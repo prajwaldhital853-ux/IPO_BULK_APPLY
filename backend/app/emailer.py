@@ -2,19 +2,27 @@
 
 Render and many PaaS hosts block outbound SMTP. Use an HTTP provider there:
 
-  Brevo (recommended, free tier, verify Gmail as sender):
+  SendGrid (good deliverability, free tier ~100/day):
+    SENDGRID_API_KEY=SG....
+    SENDGRID_FROM=noreply@yourdomain.com   # or verified single sender
+
+  Resend (simple setup, free tier):
+    RESEND_API_KEY=re_...
+    RESEND_FROM=onboarding@resend.dev        # testing only (your signup email)
+    RESEND_FROM=NEPSE GHAR <noreply@yourdomain.com>  # production
+
+  Brevo (free 300/day; Gmail sender often lands in spam / deferred):
     BREVO_API_KEY=...
     SMTP_FROM=your.verified@gmail.com
 
-  Resend:
-    RESEND_API_KEY=...
-    RESEND_FROM=onboarding@resend.dev
-
-  SMTP (VPS / local only):
+  SMTP (VPS / local only — blocked on Render):
     SMTP_HOST=smtp.gmail.com
     SMTP_PORT=587
     SMTP_USER=...
     SMTP_PASSWORD=...
+
+Set EMAIL_PROVIDER=auto to try SendGrid → Resend → Brevo → SMTP (with fallback on failure).
+For best Gmail delivery, verify your own domain on any provider above.
 """
 from __future__ import annotations
 
@@ -39,12 +47,7 @@ def smtp_configured() -> bool:
 
 
 def email_configured() -> bool:
-    s = get_settings()
-    if s.brevo_api_key:
-        return bool(s.smtp_from or s.smtp_user)
-    if s.resend_api_key:
-        return bool(s.resend_from or s.smtp_from or s.smtp_user)
-    return smtp_configured()
+    return bool(_resolve_providers())
 
 
 def _sender_email() -> str:
@@ -57,18 +60,30 @@ def _sender_email() -> str:
     return sender
 
 
-def _resolve_provider() -> str:
+def _provider_configured(name: str) -> bool:
+    settings = get_settings()
+    if name == 'sendgrid':
+        return bool(settings.sendgrid_api_key) and bool(
+            settings.sendgrid_from or settings.smtp_from or settings.smtp_user
+        )
+    if name == 'brevo':
+        return bool(settings.brevo_api_key) and bool(settings.smtp_from or settings.smtp_user)
+    if name == 'resend':
+        return bool(settings.resend_api_key)
+    if name == 'smtp':
+        return smtp_configured()
+    return False
+
+
+def _resolve_providers() -> list[str]:
     settings = get_settings()
     forced = settings.email_provider.strip().lower()
     if forced and forced != 'auto':
-        return forced
-    if settings.brevo_api_key:
-        return 'brevo'
-    if settings.resend_api_key:
-        return 'resend'
-    if smtp_configured():
-        return 'smtp'
-    return ''
+        return [forced] if _provider_configured(forced) else []
+
+    order = ('sendgrid', 'resend', 'brevo', 'smtp')
+    configured = [name for name in order if _provider_configured(name)]
+    return configured
 
 
 def send_admin_otp(*, to_email: str, otp: str) -> None:
@@ -91,11 +106,11 @@ def send_user_pin_otp(*, to_email: str, otp: str) -> None:
 
 def _send_otp_email(*, to_email: str, otp: str, subject: str, intro: str) -> None:
     settings = get_settings()
-    provider = _resolve_provider()
-    if not provider:
+    providers = _resolve_providers()
+    if not providers:
         raise EmailNotConfiguredError(
-            'Email is not configured. On Render set BREVO_API_KEY (recommended) '
-            'or RESEND_API_KEY. SMTP only works on VPS/local.'
+            'Email is not configured. On Render set SENDGRID_API_KEY, RESEND_API_KEY, '
+            'or BREVO_API_KEY. SMTP only works on VPS/local.'
         )
 
     body = (
@@ -104,23 +119,81 @@ def _send_otp_email(*, to_email: str, otp: str, subject: str, intro: str) -> Non
         'If you did not request this, ignore this email.'
     )
 
-    try:
-        if provider == 'brevo':
-            _send_via_brevo(to_email=to_email, subject=subject, body=body)
-        elif provider == 'resend':
-            _send_via_resend(to_email=to_email, subject=subject, body=body)
-        elif provider == 'smtp':
-            _send_via_smtp(to_email=to_email, subject=subject, body=body)
-        else:
-            raise EmailNotConfiguredError(f'Unknown email provider: {provider}')
-    except EmailNotConfiguredError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        log.exception('Email send failed (%s)', provider)
-        hint = ''
-        if provider == 'smtp' and 'Network is unreachable' in str(exc):
-            hint = ' Render blocks SMTP — set BREVO_API_KEY on the server.'
-        raise RuntimeError(f'Could not send email: {exc}.{hint}') from exc
+    last_error: Exception | None = None
+    for provider in providers:
+        try:
+            if provider == 'sendgrid':
+                _send_via_sendgrid(to_email=to_email, subject=subject, body=body)
+            elif provider == 'brevo':
+                _send_via_brevo(to_email=to_email, subject=subject, body=body)
+            elif provider == 'resend':
+                _send_via_resend(to_email=to_email, subject=subject, body=body)
+            elif provider == 'smtp':
+                _send_via_smtp(to_email=to_email, subject=subject, body=body)
+            else:
+                raise EmailNotConfiguredError(f'Unknown email provider: {provider}')
+            if len(providers) > 1:
+                log.info('OTP sent via %s (fallback chain had %s)', provider, providers)
+            return
+        except EmailNotConfiguredError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            log.warning('Email provider %s failed: %s', provider, exc)
+
+    hint = ''
+    if last_error and 'Network is unreachable' in str(last_error):
+        hint = ' Render blocks SMTP — use SENDGRID_API_KEY or RESEND_API_KEY.'
+    raise RuntimeError(
+        f'Could not send email via {", ".join(providers)}: {last_error}.{hint}'
+    ) from last_error
+
+
+def _send_via_sendgrid(*, to_email: str, subject: str, body: str) -> None:
+    settings = get_settings()
+    if not settings.sendgrid_api_key:
+        raise EmailNotConfiguredError('SENDGRID_API_KEY is not set')
+
+    raw_from = (
+        settings.sendgrid_from
+        or settings.smtp_from
+        or settings.smtp_user
+        or ''
+    ).strip()
+    if not raw_from:
+        raise EmailNotConfiguredError(
+            'Set SENDGRID_FROM or SMTP_FROM to a verified SendGrid sender.'
+        )
+    from_email = raw_from
+    from_name = 'NEPSE GHAR'
+    if '<' in raw_from and raw_from.endswith('>'):
+        from_name = raw_from.split('<', 1)[0].strip() or from_name
+        from_email = raw_from.split('<', 1)[1].rstrip('>').strip()
+
+    recipient = to_email.strip().lower()
+    resp = httpx.post(
+        'https://api.sendgrid.com/v3/mail/send',
+        headers={
+            'Authorization': f'Bearer {settings.sendgrid_api_key}',
+            'Content-Type': 'application/json',
+        },
+        json={
+            'personalizations': [{'to': [{'email': recipient}]}],
+            'from': {'email': from_email, 'name': from_name},
+            'subject': subject,
+            'content': [{'type': 'text/plain', 'value': body}],
+        },
+        timeout=30.0,
+    )
+    if resp.status_code >= 400:
+        detail = resp.text.strip()[:240] or resp.reason_phrase
+        raise RuntimeError(f'SendGrid rejected email ({resp.status_code}): {detail}')
+
+    log.info(
+        'SendGrid OTP queued from=%s to=%s',
+        from_email,
+        _mask_email_for_log(recipient),
+    )
 
 
 def _send_via_brevo(*, to_email: str, subject: str, body: str) -> None:
@@ -193,6 +266,7 @@ def _send_via_resend(*, to_email: str, subject: str, body: str) -> None:
         or 'onboarding@resend.dev'
     ).strip()
     from_addr = raw_from if '<' in raw_from else f'NEPSE GHAR <{raw_from}>'
+    recipient = to_email.strip().lower()
 
     resp = httpx.post(
         'https://api.resend.com/emails',
@@ -202,7 +276,7 @@ def _send_via_resend(*, to_email: str, subject: str, body: str) -> None:
         },
         json={
             'from': from_addr,
-            'to': [to_email],
+            'to': [recipient],
             'subject': subject,
             'text': body,
         },
@@ -211,6 +285,18 @@ def _send_via_resend(*, to_email: str, subject: str, body: str) -> None:
     if resp.status_code >= 400:
         detail = resp.text.strip()[:240] or resp.reason_phrase
         raise RuntimeError(f'Resend rejected email ({resp.status_code}): {detail}')
+
+    try:
+        payload = resp.json()
+        message_id = payload.get('id')
+    except Exception:  # noqa: BLE001
+        message_id = None
+    log.info(
+        'Resend OTP queued from=%s to=%s id=%s',
+        from_addr,
+        _mask_email_for_log(recipient),
+        message_id or 'unknown',
+    )
 
 
 def _send_via_smtp(*, to_email: str, subject: str, body: str) -> None:

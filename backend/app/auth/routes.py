@@ -250,8 +250,7 @@ async def pin_send_otp(
         message=(
             f'Verification code sent to {masked}. '
             'Check Inbox, Spam, and Promotions tabs. '
-            'If it does not arrive within 2 minutes, verify your Brevo sender '
-            'and check Brevo → Transactional → Logs.'
+            'If it does not arrive within 2 minutes, ask support to verify the email provider.'
         ),
         email=masked,
     )

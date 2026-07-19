@@ -235,7 +235,7 @@ async def admin_forgot_password(
     except EmailNotConfiguredError:
         raise HTTPException(
             status_code=503,
-            detail='Email is not configured on the server. Set SMTP_USER and SMTP_PASSWORD.',
+            detail='Email is not configured on the server. Set SENDGRID_API_KEY, RESEND_API_KEY, or BREVO_API_KEY.',
         ) from None
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
