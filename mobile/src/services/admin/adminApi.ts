@@ -287,7 +287,10 @@ export async function fetchAdminSettings(token: string): Promise<AdminSettings> 
 export async function updateAdminSettings(
   token: string,
   payload: {
-    payment?: Omit<AdminPaymentSettings, 'whatsappUrl' | 'qrImageUrl'>;
+    payment?: Omit<AdminPaymentSettings, 'whatsappUrl' | 'qrImageUrl'> & {
+      qrImageBase64?: string;
+      clearQrImage?: boolean;
+    };
     contact?: AdminContactSettings;
   },
 ): Promise<AdminSettings> {
@@ -304,32 +307,50 @@ export async function uploadAdminPaymentQr(
   token: string,
   uri: string,
   mimeType = 'image/jpeg',
-  fileName = 'payment-qr.jpg',
+  _fileName = 'payment-qr.jpg',
 ): Promise<AdminSettings> {
-  const form = new FormData();
-  form.append('file', {
-    uri,
-    type: mimeType,
-    name: fileName,
-  } as unknown as Blob);
-  const res = await fetch(`${AUTH_API_BASE}/admin/settings/payment-qr`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-    },
-    body: form,
+  // Prefer JSON base64 via existing PUT /admin/settings (works without multipart).
+  const fileRes = await fetch(uri);
+  const blob = await fileRes.blob();
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = String(reader.result ?? '');
+      const raw = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+      if (!raw) reject(new Error('Could not read image'));
+      else resolve(raw);
+    };
+    reader.onerror = () => reject(new Error('Could not read image'));
+    reader.readAsDataURL(blob);
   });
-  if (!res.ok) throw new Error(await parseError(res));
-  return mapAdminSettings((await res.json()) as Record<string, unknown>);
+
+  const current = await fetchAdminSettings(token);
+  return updateAdminSettings(token, {
+    payment: {
+      qrText: current.payment.qrText,
+      bankName: current.payment.bankName,
+      accountName: current.payment.accountName,
+      accountNumber: current.payment.accountNumber,
+      whatsapp: current.payment.whatsapp,
+      qrImageBase64: `data:${mimeType || blob.type || 'image/jpeg'};base64,${base64}`,
+    },
+    contact: current.contact,
+  });
 }
 
 export async function deleteAdminPaymentQr(token: string): Promise<AdminSettings> {
-  const res = await adminFetch('/admin/settings/payment-qr', token, {
-    method: 'DELETE',
+  const current = await fetchAdminSettings(token);
+  return updateAdminSettings(token, {
+    payment: {
+      qrText: current.payment.qrText,
+      bankName: current.payment.bankName,
+      accountName: current.payment.accountName,
+      accountNumber: current.payment.accountNumber,
+      whatsapp: current.payment.whatsapp,
+      clearQrImage: true,
+    },
+    contact: current.contact,
   });
-  if (!res.ok) throw new Error(await parseError(res));
-  return mapAdminSettings((await res.json()) as Record<string, unknown>);
 }
 
 export async function changeAdminPassword(

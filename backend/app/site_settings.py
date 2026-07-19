@@ -167,6 +167,43 @@ async def update_site_settings(
             row.payment_account_number,
         ).strip()
         row.payment_whatsapp = payment.get('whatsapp', row.payment_whatsapp).strip()
+        if payment.get('clear_qr_image'):
+            row.payment_qr_image_b64 = None
+            row.payment_qr_image_mime = None
+        elif payment.get('qr_image_base64'):
+            import base64
+            import re
+
+            raw_b64 = str(payment['qr_image_base64']).strip()
+            mime = str(payment.get('qr_image_mime') or 'image/jpeg').strip().lower()
+            match = re.match(
+                r'^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$',
+                raw_b64,
+                flags=re.DOTALL,
+            )
+            if match:
+                mime = match.group(1).lower()
+                raw_b64 = match.group(2)
+            raw_b64 = re.sub(r'\s+', '', raw_b64)
+            try:
+                data = base64.b64decode(raw_b64, validate=False)
+            except Exception as e:  # noqa: BLE001
+                raise ValueError('Invalid QR image data') from e
+            if not data:
+                raise ValueError('Empty QR image')
+            if len(data) > 2 * 1024 * 1024:
+                raise ValueError('Image too large (max 2 MB)')
+            if mime == 'image/jpg':
+                mime = 'image/jpeg'
+            if mime not in {
+                'image/jpeg',
+                'image/png',
+                'image/webp',
+                'image/gif',
+            }:
+                raise ValueError('Upload a JPG, PNG, WEBP, or GIF image')
+            row.payment_qr_image_b64 = base64.b64encode(data).decode('ascii')
+            row.payment_qr_image_mime = mime
 
     if contact is not None:
         row.contact_company_name = contact.get(

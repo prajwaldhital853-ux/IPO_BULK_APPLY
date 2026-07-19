@@ -194,6 +194,11 @@ async def admin_update_settings(
             'account_number': body.payment.account_number,
             'whatsapp': body.payment.whatsapp,
         }
+        if body.payment.clear_qr_image:
+            payment['clear_qr_image'] = '1'
+        elif body.payment.qr_image_base64:
+            payment['qr_image_base64'] = body.payment.qr_image_base64
+            payment['qr_image_mime'] = 'image/jpeg'
     contact = None
     if body.contact is not None:
         contact = {
@@ -204,12 +209,12 @@ async def admin_update_settings(
             'facebook_url': body.contact.facebook_url,
             'tiktok_url': body.contact.tiktok_url,
         }
-    row = await update_site_settings(db, payment=payment, contact=contact)
-    await db.commit()
+    try:
+        row = await update_site_settings(db, payment=payment, contact=contact)
+        await db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return _settings_out(row)
-
-
-_ALLOWED_QR_MIME = {
     'image/jpeg',
     'image/jpg',
     'image/png',

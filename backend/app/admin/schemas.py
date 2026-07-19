@@ -99,6 +99,8 @@ class PaymentSettingsIn(BaseModel):
     account_name: str = Field(alias='accountName')
     account_number: str = Field(alias='accountNumber')
     whatsapp: str
+    qr_image_base64: str | None = Field(default=None, alias='qrImageBase64')
+    clear_qr_image: bool = Field(default=False, alias='clearQrImage')
 
     model_config = {'populate_by_name': True}
 
