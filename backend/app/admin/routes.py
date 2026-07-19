@@ -215,6 +215,9 @@ async def admin_update_settings(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return _settings_out(row)
+
+
+_ALLOWED_QR_MIME = {
     'image/jpeg',
     'image/jpg',
     'image/png',
