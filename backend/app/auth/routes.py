@@ -4,12 +4,18 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..config import get_settings
-from ..db.models import PremiumEntitlement, RefreshToken, SubscriptionRequest, User
+from ..db.models import (
+    PremiumEntitlement,
+    RefreshToken,
+    SubscriptionRequest,
+    User,
+    UserPinOtp,
+)
 from ..db.session import get_db
 from .blacklist import get_blacklist
 from .deps import CurrentUser, get_current_user, utcnow
@@ -202,15 +208,20 @@ async def delete_account(
     settings = get_settings()
     await get_blacklist().add_jti(user.jti, settings.jwt_access_ttl)
 
-    row = await load_user_with_premium(db, user.id)
+    uid = user.id
+    row = await db.get(User, uid)
     if row is None:
         return {'ok': True}
 
+    # Explicit deletes — SQLite often lacks ORM/FK cascade at runtime.
+    await db.execute(delete(RefreshToken).where(RefreshToken.user_id == uid))
     await db.execute(
-        update(RefreshToken)
-        .where(RefreshToken.user_id == user.id)
-        .values(revoked=True),
+        delete(PremiumEntitlement).where(PremiumEntitlement.user_id == uid),
     )
+    await db.execute(
+        delete(SubscriptionRequest).where(SubscriptionRequest.user_id == uid),
+    )
+    await db.execute(delete(UserPinOtp).where(UserPinOtp.user_id == uid))
     await db.delete(row)
     await db.commit()
     return {'ok': True}
