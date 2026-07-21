@@ -53,10 +53,6 @@ type AccountsContextValue = {
     crn: string;
     pin: string;
   } | null>;
-  /** Dev-only: append fake accounts to test list scrolling. */
-  addDemoAccounts: (count: number) => Promise<void>;
-  /** Dev-only: remove accounts created by addDemoAccounts. */
-  removeDemoAccounts: () => Promise<void>;
 };
 
 const AccountsContext = createContext<AccountsContextValue | null>(null);
@@ -70,7 +66,15 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
   const reloadAccounts = useCallback(async () => {
     setLoading(true);
     try {
-      setAccounts(await loadAccountMeta());
+      const list = await loadAccountMeta();
+      // One-time cleanup: drop any leftover demo accounts from earlier builds.
+      const cleaned = list.filter((a) => !a.id.startsWith('demo_'));
+      if (cleaned.length !== list.length) {
+        await saveAccountMeta(cleaned);
+        setAccounts(await loadAccountMeta());
+      } else {
+        setAccounts(list);
+      }
     } finally {
       setLoading(false);
     }
@@ -89,36 +93,6 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
 
   const removeAccount = useCallback(async (id: string) => {
     setAccounts(await removeAccountFully(id));
-  }, []);
-
-  const addDemoAccounts = useCallback(async (count: number) => {
-    const list = await loadAccountMeta();
-    const base = list.length;
-    const demo: AccountMeta[] = Array.from({ length: count }, (_, i) => {
-      const n = base + i + 1;
-      const username = String(10000000 + n);
-      return {
-        id: `demo_${Date.now()}_${i}`,
-        name: `DEMO USER ${n}`,
-        dpId: '13700',
-        dpCode: '13700',
-        dpName: 'DEMO CAPITAL LTD',
-        username,
-        bankName: 'DEMO BANK LTD',
-        accountNumber: `0600${String(1000000000 + n)}`,
-        verified: true,
-        demat: `13013700${username}`,
-        boidHint: username.slice(-4),
-      };
-    });
-    await saveAccountMeta([...list, ...demo]);
-    setAccounts(await loadAccountMeta());
-  }, []);
-
-  const removeDemoAccounts = useCallback(async () => {
-    const list = await loadAccountMeta();
-    await saveAccountMeta(list.filter((a) => !a.id.startsWith('demo_')));
-    setAccounts(await loadAccountMeta());
   }, []);
 
   const clearAll = useCallback(async () => {
@@ -169,8 +143,6 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       updateAccountMeta,
       updateAccount,
       loadSecrets,
-      addDemoAccounts,
-      removeDemoAccounts,
     }),
     [
       accounts,
@@ -184,8 +156,6 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       updateAccountMeta,
       updateAccount,
       loadSecrets,
-      addDemoAccounts,
-      removeDemoAccounts,
     ],
   );
 

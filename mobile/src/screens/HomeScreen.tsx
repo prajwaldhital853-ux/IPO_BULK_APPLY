@@ -41,8 +41,6 @@ export function HomeScreen() {
     accounts,
     removeAccount,
     reorderAccounts,
-    addDemoAccounts,
-    removeDemoAccounts,
   } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
   const { colors } = useTheme();
@@ -229,28 +227,6 @@ export function HomeScreen() {
               Total Accounts : {accounts.length}/{maxAccounts}
             </Text>
             <View style={styles.listActions}>
-              {__DEV__ ? (
-                <Pressable
-                  onPress={() =>
-                    Alert.alert('Dry run (dev only)', 'Add demo accounts to test list scrolling?', [
-                      {
-                        text: 'Add 15 demo',
-                        onPress: () => void addDemoAccounts(15),
-                      },
-                      {
-                        text: 'Remove demo',
-                        style: 'destructive',
-                        onPress: () => void removeDemoAccounts(),
-                      },
-                      { text: 'Cancel', style: 'cancel' },
-                    ])
-                  }
-                  hitSlop={8}
-                  style={styles.iconBtn}
-                >
-                  <Ionicons name="flask-outline" size={rs(20)} color={colors.text} />
-                </Pressable>
-              ) : null}
               <Pressable
                 onPress={() => setSearchOpen((v) => !v)}
                 hitSlop={8}

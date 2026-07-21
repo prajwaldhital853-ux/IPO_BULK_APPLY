@@ -61,6 +61,13 @@ function readField(source: Record<string, unknown>, aliases: string[]): unknown 
   return null;
 }
 
+/** Add whole years to a YYYY-MM-DD string, returning YYYY-MM-DD. */
+function addYears(iso: string | null, years: number): string | null {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const [y, m, d] = iso.split('-').map(Number);
+  return toIsoDay(new Date(y + years, m - 1, d));
+}
+
 function toIsoDay(date: Date): string {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, '0');
@@ -158,11 +165,24 @@ function resolveExpired(date: string | null, flag: boolean | null): boolean | nu
   return flag;
 }
 
+/**
+ * Human-friendly "time remaining" so far-future demat dates (e.g. year 2084)
+ * read as years rather than an unrealistic-looking raw day count.
+ */
+function humanizeRemaining(days: number): string {
+  if (days < 60) return `${days} d`;
+  if (days < 365) return `${Math.round(days / 30)} mo`;
+  const years = Math.floor(days / 365);
+  const months = Math.round((days - years * 365) / 30);
+  if (years < 5 && months > 0) return `${years}y ${months}m`;
+  return `${years} yr`;
+}
+
 function statusLineFor(expired: boolean | null, days: number | null): string {
   if (expired === true || (days != null && days < 0)) {
     return days != null ? `Expired ${Math.abs(days)}d ago` : 'Expired';
   }
-  if (days != null) return `Valid (${days} d)`;
+  if (days != null) return `Valid (${humanizeRemaining(days)})`;
   if (expired === false) return 'Valid';
   return 'Unknown';
 }
@@ -277,6 +297,20 @@ export async function fetchAccountExpiryInfo(
         ? (renewRaw as Record<string, unknown>)
         : {};
 
+    const passwordExpiryDate =
+      readDate(detail, [
+        'passwordExpiryDate',
+        'passwordExpiryDateStr',
+        'passwordExpireDate',
+        'pwdExpiryDate',
+      ]) ??
+      readDate(renew, [
+        'passwordExpiryDate',
+        'passwordExpiryDateStr',
+        'passwordExpireDate',
+      ]);
+
+    // MeroShare account access expiry — CDSC "expiredDate" (account term).
     const meroshareExpiryDate =
       readDate(detail, [
         'expiredDate',
@@ -294,22 +328,23 @@ export async function fetchAccountExpiryInfo(
         'meroshareExpiryDate',
       ]);
 
+    // Demat renewal expiry: CDSC demat accounts renew ANNUALLY from the last
+    // renewed date. The literal `dematExpiryDate` field is the demat-number
+    // lifetime (~year 2084), NOT the renewable expiry — so we derive the real
+    // one as renewedDate + 1 year, falling back to any explicit demat field.
+    const renewedDate = readDate(detail, [
+      'renewedDate',
+      'renewedDateStr',
+      'renewDate',
+      'lastRenewedDate',
+    ]);
+    const dematLifetime = readDate(detail, [
+      'dematExpiryDate',
+      'dematExpiredDate',
+      'dematExpireDate',
+    ]);
     const dematExpiryDate =
-      readDate(detail, ['dematExpiryDate', 'dematExpiredDate', 'dematExpireDate']) ??
-      readDate(renew, ['dematExpiryDate', 'dematExpiredDate']);
-
-    const passwordExpiryDate =
-      readDate(detail, [
-        'passwordExpiryDate',
-        'passwordExpiryDateStr',
-        'passwordExpireDate',
-        'pwdExpiryDate',
-      ]) ??
-      readDate(renew, [
-        'passwordExpiryDate',
-        'passwordExpiryDateStr',
-        'passwordExpireDate',
-      ]);
+      addYears(renewedDate, 1) ?? meroshareExpiryDate ?? dematLifetime;
 
     const fields: ExpiryFields = {
       meroshareExpiryDate,
