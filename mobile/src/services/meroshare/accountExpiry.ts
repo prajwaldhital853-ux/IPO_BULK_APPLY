@@ -149,14 +149,14 @@ function pillStatusLine(
   expired: boolean | null,
   days: number | null,
 ): string {
-  // "Expired" is driven only by the resolved expired flag, never by a past
-  // date alone (some MeroShare date fields are unreliable, e.g. demat).
-  if (expired === true) {
+  if (expired === true || (days != null && days < 0)) {
     const ago = days != null ? Math.abs(days) : null;
     return ago != null ? `Expired ${ago}d ago` : 'Expired';
   }
-  if (days != null && days >= 0) return `Valid (${days} d)`;
-  if (expired === false || days != null) return 'Valid';
+  if (days != null) {
+    return `Valid (${days} d)`;
+  }
+  if (expired === false) return 'Valid';
   return 'Unknown';
 }
 
@@ -195,12 +195,8 @@ function buildPills(info: {
   ];
   return defs.map((d) => {
     const days = daysUntil(d.date);
-    // Trust CDSC's explicit expired flag when present; only infer from the
-    // date when no flag was returned. Demat is excluded from date-inference
-    // entirely — its date field is unreliable and was falsely flagging active
-    // demats as "expired". Only an explicit CDSC flag marks a demat expired.
     let isExpired = d.expired;
-    if (isExpired == null && days != null && d.kind !== 'demat') {
+    if (days != null) {
       isExpired = days < 0;
     }
     return {
@@ -272,11 +268,9 @@ function classifyExpiry(opts: {
 }
 
 function expiredFromDate(date: string | null, flag: boolean | null): boolean | null {
-  // Explicit CDSC flag wins; fall back to date math only when flag is absent.
-  if (flag != null) return flag;
   const days = daysUntil(date);
   if (days != null) return days < 0;
-  return null;
+  return flag;
 }
 
 export async function fetchAccountExpiryInfo(

@@ -538,6 +538,7 @@ function Field({
   placeholder: string;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const { colors } = useTheme();
   return (
     <View style={styles.fieldBlock}>
       <Text style={styles.fieldLabel}>

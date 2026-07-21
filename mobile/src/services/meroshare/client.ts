@@ -361,7 +361,7 @@ export class MeroshareClient {
     }
     throw lastErr instanceof Error
       ? lastErr
-      : new MeroshareError('API', 'Could not change password');
+      : new MeroshareError('UNKNOWN', 'Could not change password');
   }
 
   /**
