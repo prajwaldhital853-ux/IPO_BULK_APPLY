@@ -41,6 +41,8 @@ import { BulkPortfolioScreen } from '../screens/BulkPortfolioScreen';
 import { IpoIssuesScreen } from '../screens/IpoIssuesScreen';
 import { MeroshareWebScreen } from '../screens/MeroshareWebScreen';
 import { AccountExpiryScreen } from '../screens/AccountExpiryScreen';
+import { BankTrackerScreen } from '../screens/BankTrackerScreen';
+import { BankTrackerDetailScreen } from '../screens/BankTrackerDetailScreen';
 import { ChangePasswordScreen } from '../screens/ChangePasswordScreen';
 import { SubscriptionScreen } from '../screens/SubscriptionScreen';
 import { AboutCompanyScreen } from '../screens/AboutCompanyScreen';
@@ -171,6 +173,8 @@ function RootStack() {
       <Stack.Screen name="IpoIssues" component={IpoIssuesScreen} />
       <Stack.Screen name="MeroshareWeb" component={MeroshareWebScreen} />
       <Stack.Screen name="AccountExpiry" component={AccountExpiryScreen} />
+      <Stack.Screen name="BankTracker" component={BankTrackerScreen} />
+      <Stack.Screen name="BankTrackerDetail" component={BankTrackerDetailScreen} />
       <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
       <Stack.Screen name="Subscription" component={SubscriptionScreen} />
       <Stack.Screen name="AboutCompany" component={AboutCompanyScreen} />

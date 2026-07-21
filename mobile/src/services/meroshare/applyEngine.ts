@@ -1,5 +1,6 @@
 import type { AccountMeta } from '../../types/account';
 import { getSecrets } from '../../storage/accountsStorage';
+import { recordIpoApply } from '../../storage/bankTrackerStorage';
 import { MeroshareClient, DEMO_OPENINGS } from './client';
 import { MeroshareError } from './errors';
 import type {
@@ -9,6 +10,9 @@ import type {
 } from './types';
 
 const ACCOUNT_GAP_MS = 1500;
+
+/** Par value per IPO unit (Rs) — ordinary Nepali IPOs are issued at par. */
+const IPO_PRICE_PER_UNIT = 100;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -120,6 +124,20 @@ export async function runBulkApply(
         companyName: opts.issue.companyName,
         kitta: opts.kitta,
       });
+
+      // On a real successful apply, auto-record the blocked amount + CASBA fee
+      // in Bank Tracker (no-op for accounts without tracking enabled).
+      if (applyRes.ok && !applyRes.dryRun) {
+        try {
+          await recordIpoApply(
+            account.id,
+            opts.issue.scrip || opts.issue.companyName,
+            opts.kitta * IPO_PRICE_PER_UNIT,
+          );
+        } catch {
+          // Never let tracker bookkeeping break the apply flow.
+        }
+      }
     } catch (e) {
       const raw = e instanceof Error ? e.message : 'Unknown error';
       const code = e instanceof MeroshareError ? e.code : 'UNKNOWN';

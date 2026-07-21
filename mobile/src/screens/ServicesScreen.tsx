@@ -74,6 +74,7 @@ function buildSections(): Section[] {
         { id: 'charts', label: 'Charts', iconSet: 'mci', iconName: 'chart-areaspline', accent: '#AB47BC', route: 'Charts' },
         { id: 'announcements', label: 'Announcements', iconSet: 'ion', iconName: 'megaphone-outline', accent: '#FFA726', route: 'Announcements' },
         { id: 'watchlist', label: 'Watchlist', badge: 'NEW', iconSet: 'ion', iconName: 'eye-outline', accent: '#29B6F6', route: 'Watchlist' },
+        { id: 'bank-tracker', label: 'Bank Tracker', badge: 'NEW', iconSet: 'mci', iconName: 'bank-outline', accent: '#26A69A', route: 'BankTracker' },
       ],
     },
     {
@@ -400,6 +401,10 @@ export function ServicesScreen() {
     }
     if (item.route === 'AccountExpiry') {
       navigation.navigate('AccountExpiry');
+      return;
+    }
+    if (item.route === 'BankTracker') {
+      navigation.navigate('BankTracker');
       return;
     }
     if (item.route === 'ChangePassword') {

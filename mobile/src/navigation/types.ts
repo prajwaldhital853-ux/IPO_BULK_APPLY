@@ -50,6 +50,8 @@ export type RootStackParamList = {
   IpoIssues: { mode: 'current' | 'upcoming' };
   MeroshareWeb: undefined;
   AccountExpiry: undefined;
+  BankTracker: undefined;
+  BankTrackerDetail: { accountId: string };
   ChangePassword: undefined;
   Subscription: undefined;
   AboutCompany: undefined;
