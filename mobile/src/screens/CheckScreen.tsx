@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -13,8 +13,6 @@ import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
-
-const MEROSHARE_WEB = 'https://meroshare.cdsc.com.np';
 
 export function CheckScreen() {
   const navigation =
@@ -36,12 +34,10 @@ export function CheckScreen() {
   const cards = [
     {
       title: 'Check From MeroShare',
-      desc: 'Verify your allocation directly through the official MeroShare portal.',
+      desc: 'Open the CDSC result page in-app with BOID and captcha auto-filled.',
       tint: '#A1887F',
       icon: 'file-document-outline' as const,
-      onPress: () => {
-        void Linking.openURL(MEROSHARE_WEB);
-      },
+      onPress: () => needAccounts(() => navigation.navigate('CheckResultWeb')),
     },
     {
       title: 'IPO Bulk Result',
@@ -75,12 +71,7 @@ export function CheckScreen() {
       subtitle="Bulk result and status checks require Google sign-in. MeroShare credentials stay on this device."
     >
       <View style={styles.root}>
-        <AppHeader
-          onMenuPress={openDrawer}
-          title="Check"
-          showLogo={false}
-          showActions={false}
-        />
+        <AppHeader onMenuPress={openDrawer} title="Check" showLogo={false} />
         {isDark ? (
           <PromoBanner onPress={() => navigation.navigate('Subscription')} />
         ) : null}

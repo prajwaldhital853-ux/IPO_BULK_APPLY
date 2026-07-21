@@ -23,6 +23,12 @@ export type BulkResultOptions = {
   dryRun?: boolean;
   simulateLogin?: boolean;
   onProgress?: (msg: string, index: number, total: number) => void;
+  /** Called as soon as each account finishes, for progressive UI rendering. */
+  onAccountResult?: (
+    row: ResultAccountStatus,
+    index: number,
+    total: number,
+  ) => void;
 };
 
 /**
@@ -37,6 +43,12 @@ export async function runBulkResultCheck(
   const results: ResultAccountStatus[] = [];
   let stoppedEarly = false;
 
+  const total = opts.accounts.length;
+  const emit = (row: ResultAccountStatus, i: number) => {
+    results.push(row);
+    opts.onAccountResult?.(row, i, total);
+  };
+
   for (let i = 0; i < opts.accounts.length; i++) {
     const account = opts.accounts[i];
     opts.onProgress?.(
@@ -47,16 +59,19 @@ export async function runBulkResultCheck(
 
     const secrets = await getSecrets(account.id);
     if (!secrets?.password) {
-      results.push({
-        accountId: account.id,
-        accountName: account.name,
-        username: account.username,
-        ok: false,
-        dryRun,
-        status: 'MISSING_SECRETS',
-        message: 'Missing password in SecureStore',
-        companyName: opts.issue.companyName,
-      });
+      emit(
+        {
+          accountId: account.id,
+          accountName: account.name,
+          username: account.username,
+          ok: false,
+          dryRun,
+          status: 'MISSING_SECRETS',
+          message: 'Missing password in SecureStore',
+          companyName: opts.issue.companyName,
+        },
+        i,
+      );
       continue;
     }
 
@@ -77,32 +92,38 @@ export async function runBulkResultCheck(
         companyName: opts.issue.companyName,
       });
 
-      results.push({
-        accountId: account.id,
-        accountName: account.name,
-        username: account.username,
-        ok: true,
-        dryRun: res.dryRun,
-        status: res.status,
-        message: res.message,
-        companyName: opts.issue.companyName,
-        appliedKitta: res.appliedKitta,
-        allotmentStatus: res.allotmentStatus,
-        remarks: res.remarks,
-      });
+      emit(
+        {
+          accountId: account.id,
+          accountName: account.name,
+          username: account.username,
+          ok: true,
+          dryRun: res.dryRun,
+          status: res.status,
+          message: res.message,
+          companyName: opts.issue.companyName,
+          appliedKitta: res.appliedKitta,
+          allotmentStatus: res.allotmentStatus,
+          remarks: res.remarks,
+        },
+        i,
+      );
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       const code = e instanceof MeroshareError ? e.code : 'UNKNOWN';
-      results.push({
-        accountId: account.id,
-        accountName: account.name,
-        username: account.username,
-        ok: false,
-        dryRun,
-        status: code,
-        message: msg,
-        companyName: opts.issue.companyName,
-      });
+      emit(
+        {
+          accountId: account.id,
+          accountName: account.name,
+          username: account.username,
+          ok: false,
+          dryRun,
+          status: code,
+          message: msg,
+          companyName: opts.issue.companyName,
+        },
+        i,
+      );
       if (code === 'AUTH') {
         stoppedEarly = true;
         break;

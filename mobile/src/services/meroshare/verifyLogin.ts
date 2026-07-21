@@ -19,6 +19,8 @@ export type VerifyAccountResult = {
   boid?: string;
   demat?: string;
   bankName?: string;
+  /** Linked ASBA bank account number */
+  accountNumber?: string;
   /** Account holder name from MeroShare ownDetail */
   accountHolderName?: string;
   /** How far verification got */
@@ -217,6 +219,7 @@ export async function verifyAccountForSave(args: {
 
     // 2) Profile / bank — MeroShare bank API is often flaky
     let bankName: string | undefined;
+    let accountNumber: string | undefined;
     let bankDeferred = false;
     try {
       const banks = await client.listBanksWithRetry();
@@ -233,7 +236,8 @@ export async function verifyAccountForSave(args: {
         };
       }
       bankName = banks[0].name;
-      await client.getBankBranchDetails(banks[0].id);
+      const branch = await client.getBankBranchDetails(banks[0].id);
+      accountNumber = branch.accountNumber;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not load bank details';
       if (!isTransientMeroShareError(msg)) {
@@ -274,6 +278,7 @@ export async function verifyAccountForSave(args: {
         boid: session.boid,
         demat: session.demat,
         bankName,
+        accountNumber,
         accountHolderName,
         crnPinDeferred: true,
       };
@@ -332,6 +337,7 @@ export async function verifyAccountForSave(args: {
         boid: session.boid,
         demat: session.demat,
         bankName,
+        accountNumber,
         accountHolderName,
         crnPinDeferred: true,
       };
@@ -346,6 +352,7 @@ export async function verifyAccountForSave(args: {
       boid: session.boid,
       demat: session.demat,
       bankName,
+      accountNumber,
       accountHolderName,
       crnPinDeferred: false,
     };

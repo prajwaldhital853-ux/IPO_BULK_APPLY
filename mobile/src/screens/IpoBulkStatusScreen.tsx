@@ -112,6 +112,12 @@ export function IpoBulkStatusScreen() {
   const [loadingList, setLoadingList] = useState(false);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<ResultAccountStatus[]>([]);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+  const [filter, setFilter] = useState<'all' | 'allotted' | 'not' | 'rejected'>(
+    'all',
+  );
 
   const checkAccounts = useMemo(() => {
     const set = new Set(
@@ -211,12 +217,19 @@ export function IpoBulkStatusScreen() {
     void sensitive.requestSensitiveAction(
       async () => {
         setRunning(true);
+        setResults([]);
+        setProgress({ done: 0, total: checkAccounts.length });
         try {
-          const summary = await runBulkResultCheck({
+          await runBulkResultCheck({
             accounts: checkAccounts,
             issue,
+            // Render each account as soon as it resolves so the user sees
+            // 1, 2, 3… appear instead of staring at a blank screen.
+            onAccountResult: (row, index, total) => {
+              setResults((prev) => [...prev, row]);
+              setProgress({ done: index + 1, total });
+            },
           });
-          setResults(summary.results);
         } catch (e) {
           Alert.alert(
             'Check failed',
@@ -224,6 +237,7 @@ export function IpoBulkStatusScreen() {
           );
         } finally {
           setRunning(false);
+          setProgress(null);
         }
       },
       { pinPolicy: 'skipIfUnlocked' },
@@ -231,6 +245,12 @@ export function IpoBulkStatusScreen() {
   };
 
   const allotted = results.filter((r) => classify(r) === 'allotted');
+  const notAllotted = results.filter((r) => classify(r) === 'not');
+  const rejected = results.filter((r) => classify(r) === 'rejected');
+  const visibleResults = results.filter((r) => {
+    if (filter === 'all') return true;
+    return classify(r) === filter;
+  });
 
   const shareToExcel = async () => {
     if (!results.length) {
@@ -361,29 +381,82 @@ export function IpoBulkStatusScreen() {
           )}
         </Pressable>
 
+        {running && progress ? (
+          <View style={styles.progressWrap}>
+            <ActivityIndicator size="small" color={ACCENT} />
+            <Text style={styles.progressText}>
+              Checking account {progress.done}/{progress.total}…
+            </Text>
+          </View>
+        ) : null}
+
         {results.length > 0 ? (
           <View style={styles.updatesBox}>
             <View style={styles.updatesHead}>
               <Text style={styles.updatesTitle}>
                 IPO/FPO Status Updates{' '}
                 <Text style={{ color: GREEN }}>
-                  ({results.length}/{allotted.length})
+                  ({results.length}
+                  {progress ? `/${progress.total}` : ''})
                 </Text>
               </Text>
               <View style={styles.headActions}>
                 <Pressable onPress={() => void shareToExcel()} hitSlop={8}>
                   <Text style={styles.shareText}>Share Excel</Text>
                 </Pressable>
-                <Pressable onPress={() => setResults([])} hitSlop={8}>
+                <Pressable
+                  onPress={() => {
+                    setResults([]);
+                    setFilter('all');
+                  }}
+                  hitSlop={8}
+                >
                   <Text style={styles.clearText}>clear</Text>
                 </Pressable>
               </View>
             </View>
 
-            {results.map((row, idx) => {
+            <View style={styles.chipRow}>
+              {([
+                { key: 'all', label: 'All', count: results.length, color: colors.text },
+                { key: 'allotted', label: 'Alloted', count: allotted.length, color: GREEN },
+                { key: 'not', label: 'Not Alloted', count: notAllotted.length, color: RED },
+                { key: 'rejected', label: 'Rejected', count: rejected.length, color: '#FB8C00' },
+              ] as const).map((chip) => {
+                const active = filter === chip.key;
+                return (
+                  <Pressable
+                    key={chip.key}
+                    onPress={() => setFilter(chip.key)}
+                    style={[
+                      styles.chip,
+                      active && { borderColor: chip.color, backgroundColor: `${chip.color}22` },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        { color: active ? chip.color : colors.textMuted },
+                      ]}
+                    >
+                      {chip.label} ({chip.count})
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {visibleResults.length === 0 ? (
+              <Text style={styles.empty}>No accounts in this category.</Text>
+            ) : null}
+
+            {visibleResults.map((row) => {
+              const idx = results.indexOf(row);
               const kind = classify(row);
-              const color = kind === 'allotted' ? GREEN : RED;
-              const icon = kind === 'allotted' ? 'checkmark' : 'close';
+              const color =
+                kind === 'allotted' ? GREEN : kind === 'rejected' ? '#FB8C00' : RED;
+              const icon =
+                kind === 'allotted' ? 'checkmark' : kind === 'rejected' ? 'alert' : 'close';
               return (
                 <View
                   key={row.accountId}
@@ -402,12 +475,7 @@ export function IpoBulkStatusScreen() {
                     <View
                       style={[
                         styles.remarkPill,
-                        {
-                          backgroundColor:
-                            kind === 'allotted'
-                              ? 'rgba(46,125,50,0.45)'
-                              : 'rgba(183,28,28,0.45)',
-                        },
+                        { backgroundColor: `${color}22` },
                       ]}
                     >
                       <Text style={[styles.remarkText, { color }]}>
@@ -605,6 +673,30 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
     },
     actionText: { color: ACCENT, fontWeight: '700', fontSize: rs(14) },
+    progressWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(8),
+      paddingVertical: rs(10),
+      marginBottom: rs(6),
+    },
+    progressText: { color: c.textSecondary, fontSize: rs(12), fontWeight: '600' },
+    chipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: rs(8),
+      marginBottom: rs(12),
+    },
+    chip: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: rs(16),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(6),
+      backgroundColor: c.surface,
+    },
+    chipText: { fontSize: rs(11), fontWeight: '700' },
     updatesBox: {
       borderWidth: 1,
       borderColor: c.border,

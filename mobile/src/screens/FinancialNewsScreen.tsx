@@ -16,6 +16,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
+import type { ThemeColors } from '../theme/colors';
 import {
   formatNewsTime,
   loadShareNews,
@@ -33,7 +34,7 @@ export function FinancialNewsScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(), []);
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [sourceId, setSourceId] = useState<NewsSourceId>('sharesansar');
   const [rows, setRows] = useState<ShareNewsItem[]>([]);
@@ -79,7 +80,7 @@ export function FinancialNewsScreen() {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={rs(22)} color="#FFFFFF" />
+          <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>Share News</Text>
         <View style={{ width: rs(22) }} />
@@ -199,19 +200,19 @@ export function FinancialNewsScreen() {
   );
 }
 
-function makeStyles() {
+function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: '#121212' },
+    root: { flex: 1, backgroundColor: c.bg },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: rs(12),
       paddingVertical: rs(12),
-      backgroundColor: '#121212',
+      backgroundColor: c.bgElevated,
     },
     title: {
-      color: '#FFFFFF',
+      color: c.text,
       fontSize: rs(16),
       fontWeight: '700',
       flex: 1,
@@ -220,7 +221,7 @@ function makeStyles() {
     tabsBar: {
       maxHeight: rs(46),
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: '#2A2A2A',
+      borderBottomColor: c.border,
     },
     tabs: {
       paddingHorizontal: rs(8),
@@ -232,16 +233,16 @@ function makeStyles() {
       alignItems: 'center',
     },
     tabText: {
-      color: '#888888',
+      color: c.textMuted,
       fontSize: rs(13),
       fontWeight: '600',
     },
-    tabTextActive: { color: '#FFFFFF', fontWeight: '800' },
+    tabTextActive: { color: c.text, fontWeight: '800' },
     tabLine: {
       marginTop: rs(6),
       height: rs(2),
       width: '100%',
-      backgroundColor: ACCENT,
+      backgroundColor: c.primary,
       borderRadius: 1,
     },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
@@ -250,18 +251,20 @@ function makeStyles() {
       marginHorizontal: rs(14),
       marginTop: rs(12),
       marginBottom: rs(4),
-      backgroundColor: '#1E1E1E',
+      backgroundColor: c.surface,
       borderRadius: rs(12),
       overflow: 'hidden',
       paddingBottom: rs(12),
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.borderMuted,
     },
     featuredImage: {
       width: '100%',
       height: rs(180),
-      backgroundColor: '#2A2A2A',
+      backgroundColor: c.surfaceAlt,
     },
     featuredTitle: {
-      color: '#FFFFFF',
+      color: c.text,
       fontSize: rs(15),
       fontWeight: '700',
       lineHeight: rs(21),
@@ -269,7 +272,7 @@ function makeStyles() {
       paddingTop: rs(10),
     },
     featuredTime: {
-      color: '#888888',
+      color: c.textMuted,
       fontSize: rs(11),
       paddingHorizontal: rs(12),
       paddingTop: rs(6),
@@ -285,7 +288,7 @@ function makeStyles() {
       width: rs(64),
       height: rs(64),
       borderRadius: rs(8),
-      backgroundColor: '#2A2A2A',
+      backgroundColor: c.surfaceAlt,
     },
     imageFallback: {
       alignItems: 'center',
@@ -293,23 +296,23 @@ function makeStyles() {
     },
     rowBody: { flex: 1 },
     rowTitle: {
-      color: '#FFFFFF',
+      color: c.text,
       fontSize: rs(13),
       fontWeight: '600',
       lineHeight: rs(18),
     },
     rowTime: {
-      color: '#888888',
+      color: c.textMuted,
       fontSize: rs(11),
       marginTop: rs(6),
     },
     sep: {
       height: StyleSheet.hairlineWidth,
-      backgroundColor: '#2A2A2A',
+      backgroundColor: c.border,
       marginHorizontal: rs(14),
     },
     empty: {
-      color: '#888888',
+      color: c.textMuted,
       textAlign: 'center',
       paddingVertical: rs(40),
       paddingHorizontal: rs(20),

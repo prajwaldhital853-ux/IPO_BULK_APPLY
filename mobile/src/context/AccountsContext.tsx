@@ -14,8 +14,15 @@ import {
   patchAccountMeta,
   removeAccountFully,
   reorderAccountMeta,
+  saveAccountMeta,
+  updateAccountSecrets,
 } from '../storage/accountsStorage';
-import type { AccountMeta, DraftCapital, LinkedAccount } from '../types/account';
+import type {
+  AccountMeta,
+  AccountSecrets,
+  DraftCapital,
+  LinkedAccount,
+} from '../types/account';
 import { useAuth } from './AuthContext';
 
 type AccountsContextValue = {
@@ -32,11 +39,24 @@ type AccountsContextValue = {
     id: string,
     patch: Partial<Omit<AccountMeta, 'id'>>,
   ) => Promise<void>;
+  /**
+   * Edit an existing account in place (keeps the same id, so apply history and
+   * ordering are preserved). Updates meta and, when provided, secrets.
+   */
+  updateAccount: (
+    id: string,
+    patch: Partial<Omit<AccountMeta, 'id'>>,
+    secrets?: Partial<AccountSecrets>,
+  ) => Promise<void>;
   loadSecrets: (id: string) => Promise<{
     password: string;
     crn: string;
     pin: string;
   } | null>;
+  /** Dev-only: append fake accounts to test list scrolling. */
+  addDemoAccounts: (count: number) => Promise<void>;
+  /** Dev-only: remove accounts created by addDemoAccounts. */
+  removeDemoAccounts: () => Promise<void>;
 };
 
 const AccountsContext = createContext<AccountsContextValue | null>(null);
@@ -71,6 +91,36 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     setAccounts(await removeAccountFully(id));
   }, []);
 
+  const addDemoAccounts = useCallback(async (count: number) => {
+    const list = await loadAccountMeta();
+    const base = list.length;
+    const demo: AccountMeta[] = Array.from({ length: count }, (_, i) => {
+      const n = base + i + 1;
+      const username = String(10000000 + n);
+      return {
+        id: `demo_${Date.now()}_${i}`,
+        name: `DEMO USER ${n}`,
+        dpId: '13700',
+        dpCode: '13700',
+        dpName: 'DEMO CAPITAL LTD',
+        username,
+        bankName: 'DEMO BANK LTD',
+        accountNumber: `0600${String(1000000000 + n)}`,
+        verified: true,
+        demat: `13013700${username}`,
+        boidHint: username.slice(-4),
+      };
+    });
+    await saveAccountMeta([...list, ...demo]);
+    setAccounts(await loadAccountMeta());
+  }, []);
+
+  const removeDemoAccounts = useCallback(async () => {
+    const list = await loadAccountMeta();
+    await saveAccountMeta(list.filter((a) => !a.id.startsWith('demo_')));
+    setAccounts(await loadAccountMeta());
+  }, []);
+
   const clearAll = useCallback(async () => {
     await clearAllAccounts();
     setAccounts([]);
@@ -82,6 +132,20 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
 
   const updateAccountMeta = useCallback(
     async (id: string, patch: Partial<Omit<AccountMeta, 'id'>>) => {
+      setAccounts(await patchAccountMeta(id, patch));
+    },
+    [],
+  );
+
+  const updateAccount = useCallback(
+    async (
+      id: string,
+      patch: Partial<Omit<AccountMeta, 'id'>>,
+      secrets?: Partial<AccountSecrets>,
+    ) => {
+      if (secrets && Object.keys(secrets).length) {
+        await updateAccountSecrets(id, secrets);
+      }
       setAccounts(await patchAccountMeta(id, patch));
     },
     [],
@@ -103,7 +167,10 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       clearAll,
       reorderAccounts,
       updateAccountMeta,
+      updateAccount,
       loadSecrets,
+      addDemoAccounts,
+      removeDemoAccounts,
     }),
     [
       accounts,
@@ -115,7 +182,10 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       clearAll,
       reorderAccounts,
       updateAccountMeta,
+      updateAccount,
       loadSecrets,
+      addDemoAccounts,
+      removeDemoAccounts,
     ],
   );
 

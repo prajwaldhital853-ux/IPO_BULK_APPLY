@@ -319,17 +319,45 @@ async function fetchHomePageData(): Promise<HomePageData | null> {
   return shFetch<HomePageData>('/home-page-data', BASE_V2, true);
 }
 
+function pickNum(obj: Record<string, unknown>, keys: string[]): number | null {
+  for (const k of keys) {
+    const v = obj[k];
+    if (v == null || v === '') continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
 function parseMiniScreener(rows: MiniScreenerRow[]): SecurityQuote[] {
   return rows
     .filter((r) => r.symbol)
-    .map((r) => ({
-      symbol: r.symbol,
-      name: r.name,
-      ltp: r.ltp,
-      change: r.change,
-      pct: r.changePercent,
-      qty: r.volume,
-    }))
+    .map((r) => {
+      const raw = r as unknown as Record<string, unknown>;
+      // Non-traded scrips (bonds, promoter shares, MFs) come back with a null
+      // LTP; fall back to their previous close / last traded price so the row
+      // is not blank in the live list.
+      const ltp =
+        r.ltp ??
+        pickNum(raw, [
+          'previousClose',
+          'previousDayClose',
+          'prevClose',
+          'lastTradedPrice',
+          'closePrice',
+          'closingPrice',
+          'close',
+          'openPrice',
+        ]);
+      return {
+        symbol: r.symbol,
+        name: r.name,
+        ltp,
+        change: r.change,
+        pct: r.changePercent,
+        qty: r.volume,
+      };
+    })
     .sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
 

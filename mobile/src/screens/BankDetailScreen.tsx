@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,12 +15,13 @@ import { FormField } from '../components/FormField';
 import { LocalDisclaimer } from '../components/LocalDisclaimer';
 import { useAccounts } from '../context/AccountsContext';
 import { useSubscription } from '../context/SubscriptionContext';
+import { useTheme } from '../context/ThemeContext';
 import {
   MeroshareClient,
   verifyAccountForSave,
   type VerifyField,
 } from '../services/meroshare';
-import { colors } from '../theme/colors';
+import type { ThemeColors } from '../theme/colors';
 import { guardAddAccount } from '../utils/accountLimits';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
@@ -55,6 +56,8 @@ export function BankDetailScreen() {
   const { draft, addAccount, accounts } = useAccounts();
   const { isPremium } = useSubscription();
   const sensitive = useSensitiveAction();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [linkedBank, setLinkedBank] = useState('');
   const [loadingBank, setLoadingBank] = useState(true);
@@ -194,6 +197,7 @@ export function BankDetailScreen() {
           username: draft.username,
           password: draft.password,
           bankName: verify.bankName || linkedBank || draft.dpName,
+          accountNumber: verify.accountNumber,
           crn: crn.trim(),
           pin,
           verified: true,
@@ -279,7 +283,7 @@ export function BankDetailScreen() {
           </Text>
           {loadingBank ? (
             <ActivityIndicator
-              color={colors.sage}
+              color={colors.primary}
               style={{ marginTop: rs(8), alignSelf: 'flex-start' }}
             />
           ) : (
@@ -349,7 +353,7 @@ export function BankDetailScreen() {
         >
           {submitting ? (
             <View style={styles.submitRow}>
-              <ActivityIndicator color={colors.sage} />
+              <ActivityIndicator color={colors.primary} />
               <Text style={styles.submitText}> Verifying live…</Text>
             </View>
           ) : (
@@ -362,7 +366,8 @@ export function BankDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row',
@@ -456,5 +461,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   submitRow: { flexDirection: 'row', alignItems: 'center' },
-  submitText: { color: colors.sage, fontWeight: '700', fontSize: rs(15) },
-});
+  submitText: { color: colors.primary, fontWeight: '700', fontSize: rs(15) },
+  });
+}

@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../theme/colors';
+import { useTheme } from '../context/ThemeContext';
+import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 
 export function LocalDisclaimer() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.box}>
       <Ionicons name="information-circle" size={rs(20)} color={colors.sage} />
@@ -16,7 +19,8 @@ export function LocalDisclaimer() {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   box: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -30,8 +34,9 @@ const styles = StyleSheet.create({
   },
   text: {
     flex: 1,
-    color: colors.sage,
+    color: colors.accentGreen,
     fontSize: rs(13),
     lineHeight: rs(18),
   },
-});
+  });
+}

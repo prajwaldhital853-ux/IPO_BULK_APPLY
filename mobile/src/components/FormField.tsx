@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -8,7 +8,8 @@ import {
   type TextInputProps,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../theme/colors';
+import { useTheme } from '../context/ThemeContext';
+import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 
 type Props = {
@@ -44,6 +45,8 @@ export function FormField({
   keyboardType,
   maxLength,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.wrap}>
       <View style={styles.labelRow}>
@@ -93,7 +96,8 @@ export function FormField({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   wrap: {
     marginHorizontal: rs(16),
     marginTop: rs(14),
@@ -139,4 +143,5 @@ const styles = StyleSheet.create({
     fontSize: rs(11),
     marginTop: rs(4),
   },
-});
+  });
+}

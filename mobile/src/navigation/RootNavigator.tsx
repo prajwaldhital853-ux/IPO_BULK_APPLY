@@ -15,10 +15,12 @@ import { ServicesScreen } from '../screens/ServicesScreen';
 import { CheckScreen } from '../screens/CheckScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { AddCapitalScreen } from '../screens/AddCapitalScreen';
+import { EditAccountScreen } from '../screens/EditAccountScreen';
 import { BankDetailScreen } from '../screens/BankDetailScreen';
 import { CurrentIpoStatusScreen } from '../screens/CurrentIpoStatusScreen';
 import { IpoBulkStatusScreen } from '../screens/IpoBulkStatusScreen';
 import { AllIpoStatusScreen } from '../screens/AllIpoStatusScreen';
+import { CheckResultWebScreen } from '../screens/CheckResultWebScreen';
 import { IpoStatusDetailScreen } from '../screens/IpoStatusDetailScreen';
 import { PublicIpoResultScreen } from '../screens/PublicIpoResultScreen';
 import { NepseDataScreen } from '../screens/NepseDataScreen';
@@ -143,10 +145,12 @@ function RootStack() {
     >
       <Stack.Screen name="MainTabs" component={MainTabs} />
       <Stack.Screen name="AddCapital" component={AddCapitalScreen} />
+      <Stack.Screen name="EditAccount" component={EditAccountScreen} />
       <Stack.Screen name="BankDetail" component={BankDetailScreen} />
       <Stack.Screen name="CurrentIpoStatus" component={CurrentIpoStatusScreen} />
       <Stack.Screen name="IpoBulkStatus" component={IpoBulkStatusScreen} />
       <Stack.Screen name="AllIpoStatus" component={AllIpoStatusScreen} />
+      <Stack.Screen name="CheckResultWeb" component={CheckResultWebScreen} />
       <Stack.Screen name="IpoStatusDetail" component={IpoStatusDetailScreen} />
       <Stack.Screen name="PublicIpoResult" component={PublicIpoResultScreen} />
       <Stack.Screen name="NepseData" component={NepseDataScreen} />

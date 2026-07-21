@@ -3,7 +3,10 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -17,12 +20,13 @@ import { FormField } from '../components/FormField';
 import { LocalDisclaimer } from '../components/LocalDisclaimer';
 import { useAccounts } from '../context/AccountsContext';
 import { useSubscription } from '../context/SubscriptionContext';
+import { useTheme } from '../context/ThemeContext';
 import {
   fetchCapitalList,
   verifyMeroshareLogin,
   type CapitalDp,
 } from '../services/meroshare';
-import { colors } from '../theme/colors';
+import type { ThemeColors } from '../theme/colors';
 import { guardAddAccount } from '../utils/accountLimits';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
@@ -51,6 +55,8 @@ export function AddCapitalScreen() {
   const insets = useSafeAreaInsets();
   const { setDraft, accounts } = useAccounts();
   const { isPremium } = useSubscription();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [dps, setDps] = useState<DpOption[]>(FALLBACK_DPS);
   const [loadingDps, setLoadingDps] = useState(true);
@@ -207,14 +213,29 @@ export function AddCapitalScreen() {
         disabled={loadingDps || checkingLogin}
       >
         {loadingDps || checkingLogin ? (
-          <ActivityIndicator color={colors.sage} />
+          <ActivityIndicator color={colors.primary} />
         ) : (
           <Text style={styles.nextText}>Next</Text>
         )}
       </Pressable>
 
-      <Modal visible={pickerOpen} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
+      <Modal
+        visible={pickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPickerOpen(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              Keyboard.dismiss();
+              setPickerOpen(false);
+            }}
+          />
           <View
             style={[styles.modalSheet, { paddingBottom: insets.bottom + rs(12) }]}
           >
@@ -225,10 +246,18 @@ export function AddCapitalScreen() {
               placeholderTextColor={colors.textMuted}
               value={query}
               onChangeText={setQuery}
+              autoCorrect={false}
             />
             <FlatList
               data={filtered}
+              style={styles.dpList}
               keyExtractor={(item) => item.id}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator
+              ListEmptyComponent={
+                <Text style={styles.dpEmpty}>No matching DP found.</Text>
+              }
               renderItem={({ item }) => (
                 <Pressable
                   style={styles.dpRow}
@@ -236,6 +265,7 @@ export function AddCapitalScreen() {
                     setDp(item);
                     setPickerOpen(false);
                     setQuery('');
+                    Keyboard.dismiss();
                   }}
                 >
                   <Text style={styles.dpText}>{item.name}</Text>
@@ -243,19 +273,23 @@ export function AddCapitalScreen() {
               )}
             />
             <Pressable
-              onPress={() => setPickerOpen(false)}
+              onPress={() => {
+                Keyboard.dismiss();
+                setPickerOpen(false);
+              }}
               style={styles.closeBtn}
             >
               <Text style={styles.closeText}>Close</Text>
             </Pressable>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row',
@@ -292,19 +326,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   nextDisabled: { opacity: 0.4 },
-  nextText: { color: colors.sage, fontWeight: '700', fontSize: rs(15) },
+  nextText: { color: colors.primary, fontWeight: '700', fontSize: rs(15) },
   modalOverlay: {
     flex: 1,
     backgroundColor: colors.overlay,
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    maxHeight: '70%',
+    height: '75%',
     backgroundColor: colors.surface,
     borderTopLeftRadius: rs(16),
     borderTopRightRadius: rs(16),
     padding: rs(16),
   },
+  dpList: { flex: 1 },
   modalTitle: {
     color: colors.text,
     fontWeight: '700',
@@ -326,6 +361,13 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   dpText: { color: colors.text, fontSize: rs(14) },
+  dpEmpty: {
+    color: colors.textMuted,
+    fontSize: rs(13),
+    textAlign: 'center',
+    paddingVertical: rs(20),
+  },
   closeBtn: { alignItems: 'center', paddingTop: rs(12) },
-  closeText: { color: colors.sage, fontWeight: '700' },
-});
+  closeText: { color: colors.primary, fontWeight: '700' },
+  });
+}

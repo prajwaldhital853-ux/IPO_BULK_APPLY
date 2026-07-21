@@ -15,10 +15,12 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   AddCapital: undefined;
+  EditAccount: { accountId: string };
   BankDetail: undefined;
   CurrentIpoStatus: { mode?: 'status' | 'result' } | undefined;
   IpoBulkStatus: undefined;
   AllIpoStatus: undefined;
+  CheckResultWeb: undefined;
   IpoStatusDetail: {
     accountId: string;
     report: import('../services/meroshare/types').ApplicationReportRow;

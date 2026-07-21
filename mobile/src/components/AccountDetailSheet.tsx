@@ -8,13 +8,25 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
 import { maskBoid, resolveBoidSync } from '../utils/boid';
 import { rs } from '../utils/responsive';
+
+const ACTION_BLUE = '#2F80ED';
+const ACTION_GREEN = '#2E9E5B';
+
+/** Keep first 4 + last 4, mask the middle so account numbers stay private. */
+function maskAccountNumber(raw: string): string {
+  const s = raw.trim();
+  if (s.length <= 8) return s;
+  const head = s.slice(0, 4);
+  const tail = s.slice(-4);
+  return `${head}${'*'.repeat(s.length - 8)}${tail}`;
+}
 
 type Props = {
   account: AccountMeta | null;
@@ -38,24 +50,32 @@ export function AccountDetailSheet({
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<'boid' | 'acc' | null>(null);
 
   if (!account) return null;
 
   const boid = resolveBoidSync(account) ?? account.demat?.trim() ?? null;
   const boidDisplay = boid ? maskBoid(boid) : 'Not available yet';
+  const accountNumber = account.accountNumber?.trim() || null;
+  const accDisplay = accountNumber ? maskAccountNumber(accountNumber) : '—';
 
-  const copyBoid = async () => {
-    if (!boid) {
+  const copyValue = async (
+    which: 'boid' | 'acc',
+    value: string | null,
+    label: string,
+  ) => {
+    if (!value) {
       Alert.alert(
-        'BOID unavailable',
-        'This account has no 16-digit BOID yet. Re-save the account with DP code, or open MeroShare once.',
+        `${label} unavailable`,
+        which === 'boid'
+          ? 'This account has no 16-digit BOID yet. Re-save the account with DP code, or open MeroShare once.'
+          : 'No linked bank account number saved yet. Edit the account and re-verify while logged in to fetch it.',
       );
       return;
     }
-    await Clipboard.setStringAsync(boid);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
+    await Clipboard.setStringAsync(value);
+    setCopied(which);
+    setTimeout(() => setCopied(null), 1800);
   };
 
   return (
@@ -82,34 +102,70 @@ export function AccountDetailSheet({
           </View>
         </View>
 
-        <View style={styles.fieldBlock}>
+        <View style={styles.fieldRow}>
+          <MaterialCommunityIcons
+            name="card-account-details-outline"
+            size={rs(18)}
+            color={colors.textMuted}
+            style={styles.fieldIcon}
+          />
           <Text style={styles.fieldLabel}>BOID</Text>
-          <Pressable style={styles.fieldValueRow} onPress={() => void copyBoid()}>
-            <Text style={styles.fieldValue}>{boidDisplay}</Text>
-            <View style={styles.copyBtn}>
-              <Ionicons
-                name={copied ? 'checkmark-circle' : 'copy-outline'}
-                size={rs(18)}
-                color={copied ? colors.accentGreen : colors.primary}
-              />
-              <Text
-                style={[
-                  styles.copyLabel,
-                  copied && { color: colors.accentGreen },
-                ]}
-              >
-                {copied ? 'Copied' : 'Copy BOID'}
-              </Text>
-            </View>
+          <Text style={styles.fieldValue} numberOfLines={1}>
+            {boidDisplay}
+          </Text>
+          <Pressable
+            hitSlop={10}
+            style={styles.copyBtn}
+            onPress={() => void copyValue('boid', boid, 'BOID')}
+          >
+            <Ionicons
+              name={copied === 'boid' ? 'checkmark' : 'copy-outline'}
+              size={rs(18)}
+              color={copied === 'boid' ? colors.accentGreen : colors.primary}
+            />
           </Pressable>
         </View>
 
-        <View style={styles.fieldBlock}>
+        <View style={styles.fieldRow}>
+          <MaterialCommunityIcons
+            name="bank-outline"
+            size={rs(18)}
+            color={colors.textMuted}
+            style={styles.fieldIcon}
+          />
           <Text style={styles.fieldLabel}>Bank</Text>
-          <Text style={styles.fieldValue}>
+          <Text style={styles.fieldValue} numberOfLines={1}>
             {account.bankName || account.dpName || '—'}
           </Text>
         </View>
+
+        <View style={styles.fieldRow}>
+          <MaterialCommunityIcons
+            name="receipt"
+            size={rs(18)}
+            color={colors.textMuted}
+            style={styles.fieldIcon}
+          />
+          <Text style={styles.fieldLabel}>Acc</Text>
+          <Text style={styles.fieldValue} numberOfLines={1}>
+            {accDisplay}
+          </Text>
+          {accountNumber ? (
+            <Pressable
+              hitSlop={10}
+              style={styles.copyBtn}
+              onPress={() => void copyValue('acc', accountNumber, 'Account number')}
+            >
+              <Ionicons
+                name={copied === 'acc' ? 'checkmark' : 'copy-outline'}
+                size={rs(18)}
+                color={copied === 'acc' ? colors.accentGreen : colors.primary}
+              />
+            </Pressable>
+          ) : null}
+        </View>
+
+        <View style={styles.divider} />
 
         <View style={styles.actions}>
           <Pressable
@@ -119,8 +175,8 @@ export function AccountDetailSheet({
               onOpen(account);
             }}
           >
-            <Ionicons name="open-outline" size={rs(18)} color={colors.primary} />
-            <Text style={styles.actionText}>Open</Text>
+            <Ionicons name="open-outline" size={rs(18)} color={ACTION_BLUE} />
+            <Text style={[styles.actionText, { color: ACTION_BLUE }]}>Open</Text>
           </Pressable>
           <Pressable
             style={styles.actionBtn}
@@ -129,18 +185,18 @@ export function AccountDetailSheet({
               onEdit(account);
             }}
           >
-            <Ionicons name="create-outline" size={rs(18)} color={colors.primary} />
-            <Text style={styles.actionText}>Edit</Text>
+            <Ionicons name="create-outline" size={rs(18)} color={ACTION_GREEN} />
+            <Text style={[styles.actionText, { color: ACTION_GREEN }]}>Edit</Text>
           </Pressable>
           <Pressable
-            style={[styles.actionBtn, styles.actionDanger]}
+            style={styles.actionBtn}
             onPress={() => {
               onClose();
               onDelete(account);
             }}
           >
             <Ionicons name="trash-outline" size={rs(18)} color={colors.danger} />
-            <Text style={[styles.actionText, styles.actionDangerText]}>Delete</Text>
+            <Text style={[styles.actionText, { color: colors.danger }]}>Delete</Text>
           </Pressable>
         </View>
       </View>
@@ -192,42 +248,40 @@ function makeStyles(c: ThemeColors) {
     nameRow: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
     name: { color: c.text, fontWeight: '800', fontSize: rs(16) },
     username: { color: c.textSecondary, fontSize: rs(13), marginTop: rs(4) },
-    fieldBlock: { marginBottom: rs(16) },
-    fieldLabel: {
-      color: c.textMuted,
-      fontSize: rs(11),
-      fontWeight: '700',
-      letterSpacing: 0.4,
-      marginBottom: rs(6),
-    },
-    fieldValueRow: {
+    fieldRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: rs(8),
+      gap: rs(10),
+      marginBottom: rs(14),
+    },
+    fieldIcon: { width: rs(20), textAlign: 'center' },
+    fieldLabel: {
+      color: c.textMuted,
+      fontSize: rs(13),
+      fontWeight: '600',
+      width: rs(44),
     },
     fieldValue: {
       color: c.text,
       fontSize: rs(14),
       fontWeight: '600',
       flex: 1,
+      fontVariant: ['tabular-nums'],
     },
     copyBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(4),
-      paddingVertical: rs(6),
-      paddingHorizontal: rs(8),
+      paddingVertical: rs(4),
+      paddingHorizontal: rs(6),
     },
-    copyLabel: {
-      color: c.primary,
-      fontSize: rs(12),
-      fontWeight: '700',
+    divider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: c.border,
+      marginTop: rs(4),
+      marginBottom: rs(10),
     },
     actions: {
       flexDirection: 'row',
-      gap: rs(10),
-      marginTop: rs(8),
+      alignItems: 'center',
+      justifyContent: 'space-between',
     },
     actionBtn: {
       flex: 1,
@@ -235,21 +289,11 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: rs(6),
-      paddingVertical: rs(14),
-      borderRadius: rs(12),
-      borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: c.bgElevated,
-    },
-    actionDanger: {
-      borderColor: `${c.danger}44`,
-      backgroundColor: `${c.danger}11`,
+      paddingVertical: rs(12),
     },
     actionText: {
-      color: c.primary,
       fontWeight: '700',
-      fontSize: rs(13),
+      fontSize: rs(14),
     },
-    actionDangerText: { color: c.danger },
   });
 }

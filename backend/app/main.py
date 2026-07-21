@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from .auth import router as auth_router
 from .admin.routes import router as admin_router
@@ -153,6 +154,40 @@ async def _check_one(company_share_id: int, boid: str) -> CheckRow:
         quantity=result.quantity,
         message=result.message,
         cached=False,
+    )
+
+
+class SolveCaptchaRequest(BaseModel):
+    image_base64: str
+
+
+class SolveCaptchaResponse(BaseModel):
+    text: str
+    confidence: float
+    method: str
+
+
+@app.post("/cdsc/solve-captcha", response_model=SolveCaptchaResponse)
+async def solve_captcha(
+    req: SolveCaptchaRequest,
+    _: str = Depends(require_cdsc_access),
+) -> SolveCaptchaResponse:
+    """Solve a CDSC numeric captcha image using the trained ONNX model.
+
+    The mobile in-app result checker grabs the captcha <img> as a PNG data URL
+    and posts it here; the trained model is far more reliable on CDSC's grid
+    captchas than generic OCR.
+    """
+    if not model.available:
+        raise HTTPException(status_code=503, detail="Captcha model not available")
+    try:
+        pred = await asyncio.to_thread(model.predict_robust, req.image_base64)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Captcha solve failed: {e}"
+        ) from e
+    return SolveCaptchaResponse(
+        text=pred.text, confidence=pred.confidence, method=pred.method
     )
 
 

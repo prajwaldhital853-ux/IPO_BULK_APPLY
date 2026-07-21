@@ -276,7 +276,8 @@ export function NepseDataScreen() {
   };
 
   const filteredSecurities = useMemo(() => {
-    const rows = data?.securities ?? [];
+    // Drop scrips that have no price at all so the live list has no blank rows.
+    const rows = (data?.securities ?? []).filter((r) => r.ltp != null);
     const q = query.trim().toUpperCase();
     if (!q) return rows;
     return rows.filter(

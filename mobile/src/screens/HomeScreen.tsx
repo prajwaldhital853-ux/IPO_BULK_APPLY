@@ -37,7 +37,13 @@ export function HomeScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const openDrawer = useOpenDrawer();
-  const { accounts, removeAccount, reorderAccounts } = useAccounts();
+  const {
+    accounts,
+    removeAccount,
+    reorderAccounts,
+    addDemoAccounts,
+    removeDemoAccounts,
+  } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -223,6 +229,28 @@ export function HomeScreen() {
               Total Accounts : {accounts.length}/{maxAccounts}
             </Text>
             <View style={styles.listActions}>
+              {__DEV__ ? (
+                <Pressable
+                  onPress={() =>
+                    Alert.alert('Dry run (dev only)', 'Add demo accounts to test list scrolling?', [
+                      {
+                        text: 'Add 15 demo',
+                        onPress: () => void addDemoAccounts(15),
+                      },
+                      {
+                        text: 'Remove demo',
+                        style: 'destructive',
+                        onPress: () => void removeDemoAccounts(),
+                      },
+                      { text: 'Cancel', style: 'cancel' },
+                    ])
+                  }
+                  hitSlop={8}
+                  style={styles.iconBtn}
+                >
+                  <Ionicons name="flask-outline" size={rs(20)} color={colors.text} />
+                </Pressable>
+              ) : null}
               <Pressable
                 onPress={() => setSearchOpen((v) => !v)}
                 hitSlop={8}
@@ -266,6 +294,9 @@ export function HomeScreen() {
             keyExtractor={(item) => item.id}
             onDragEnd={onDragEnd}
             activationDistance={searching ? 9999 : 10}
+            style={styles.listFlex}
+            containerStyle={styles.listFlex}
+            showsVerticalScrollIndicator
             contentContainerStyle={
               filteredAccounts.length === 0 ? styles.listEmpty : styles.list
             }
@@ -297,20 +328,9 @@ export function HomeScreen() {
             visible={sheetOpen}
             onClose={() => setSheetOpen(false)}
             onOpen={() => void Linking.openURL(MEROSHARE_WEB_HOME)}
-            onEdit={(acc) => {
-              Alert.alert(
-                'Update account',
-                `To change credentials for ${acc.name}, delete this account and add it again with the updated details.`,
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Delete & re-add',
-                    style: 'destructive',
-                    onPress: () => confirmDelete(acc),
-                  },
-                ],
-              );
-            }}
+            onEdit={(acc) =>
+              navigation.navigate('EditAccount', { accountId: acc.id })
+            }
             onDelete={confirmDelete}
           />
         </>
@@ -340,7 +360,7 @@ function makeStyles(c: ThemeColors) {
       paddingTop: rs(12),
       paddingBottom: rs(10),
       alignItems: 'center',
-      marginLeft: rs(120),
+      marginLeft: rs(250),
     },
     tabText: {
       color: c.textMuted,
@@ -385,6 +405,7 @@ function makeStyles(c: ThemeColors) {
     total: { color: c.text, fontSize: rs(14), fontWeight: '700' },
     listActions: { flexDirection: 'row', alignItems: 'center', gap: rs(4) },
     iconBtn: { padding: rs(6) },
+    listFlex: { flex: 1 },
     list: { paddingHorizontal: rs(16), paddingBottom: rs(100) },
     listEmpty: { flexGrow: 1, paddingBottom: rs(100) },
     card: {

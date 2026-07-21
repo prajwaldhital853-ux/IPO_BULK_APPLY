@@ -93,6 +93,45 @@ function base64ToBytes(b64: string): Uint8Array {
 }
 
 /**
+ * Solve a CDSC captcha with our trained ONNX model on the backend.
+ * Most reliable option for CDSC's grid captchas. Requires the CDSC backend to
+ * be configured (EXPO_PUBLIC_CDSC_BACKEND_URL) and reachable.
+ */
+export async function solveCaptchaViaBackend(
+  imageBase64: string,
+): Promise<string> {
+  const { CDSC_BACKEND_URL, cdscBackendHeaders } = await import(
+    '../issuemanager/backendConfig'
+  );
+  if (!CDSC_BACKEND_URL) {
+    throw new Error('CDSC backend not configured');
+  }
+  const clean = imageBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch(`${CDSC_BACKEND_URL}/cdsc/solve-captcha`, {
+      method: 'POST',
+      headers: await cdscBackendHeaders(),
+      credentials: 'omit',
+      signal: controller.signal,
+      body: JSON.stringify({ image_base64: clean }),
+    });
+    if (!res.ok) {
+      throw new Error(`backend HTTP ${res.status}`);
+    }
+    const json = (await res.json()) as { text?: string };
+    const digits = normalizeCaptchaDigits(json.text ?? '');
+    if (digits.length < 4) {
+      throw new Error(`backend weak result "${digits}"`);
+    }
+    return digits.length === 5 ? digits : digits.slice(0, 5);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * OCR.space free endpoint — better on CDSC grid captchas than fragile CDN Tesseract.
  */
 export async function solveCaptchaViaOcrSpace(

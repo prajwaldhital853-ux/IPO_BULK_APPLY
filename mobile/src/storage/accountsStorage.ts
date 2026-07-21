@@ -95,6 +95,7 @@ export async function addAccountWithSecrets(
     dpCode: meta.dpCode,
     username: meta.username,
     bankName: meta.bankName,
+    accountNumber: meta.accountNumber,
     verified: meta.verified ?? true,
     crnPinVerified: meta.crnPinVerified,
     boidHint: meta.boidHint,

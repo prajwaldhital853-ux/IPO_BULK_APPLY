@@ -12,6 +12,8 @@ export type AccountMeta = {
   dpCode?: string;
   username: string;
   bankName?: string;
+  /** Linked ASBA bank account number (from MeroShare bank detail) */
+  accountNumber?: string;
   verified?: boolean;
   /**
    * False when account was saved while no IPO was open — CRN/PIN are checked
