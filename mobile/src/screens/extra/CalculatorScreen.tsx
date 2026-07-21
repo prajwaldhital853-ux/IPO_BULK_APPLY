@@ -244,7 +244,7 @@ export function CalculatorScreen() {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={rs(22)} color="#FFF" />
+          <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>Share Calculator</Text>
         <View style={{ width: rs(22) }} />
@@ -442,7 +442,7 @@ export function CalculatorScreen() {
                     )
                   }
                   placeholder="Units"
-                  placeholderTextColor="#6B6B6B"
+                  placeholderTextColor={colors.textMuted}
                   keyboardType="decimal-pad"
                   style={[styles.input, styles.avgInput]}
                 />
@@ -456,7 +456,7 @@ export function CalculatorScreen() {
                     )
                   }
                   placeholder="Price"
-                  placeholderTextColor="#6B6B6B"
+                  placeholderTextColor={colors.textMuted}
                   keyboardType="decimal-pad"
                   style={[styles.input, styles.avgInput]}
                 />
@@ -548,7 +548,7 @@ function Field({
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor="#6B6B6B"
+        placeholderTextColor={colors.textMuted}
         keyboardType="decimal-pad"
         style={styles.input}
       />
@@ -579,21 +579,21 @@ function Radio({
 
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: '#121212' },
+    root: { flex: 1, backgroundColor: c.bg },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: rs(14),
       paddingVertical: rs(12),
-      backgroundColor: '#1E2A1E',
+      backgroundColor: c.bgElevated,
     },
     title: {
-      color: '#FFF',
+      color: c.text,
       fontSize: rs(17),
       fontWeight: '700',
     },
-    tabScroll: { flexGrow: 0, backgroundColor: '#1A1A1A' },
+    tabScroll: { flexGrow: 0, backgroundColor: c.bgElevated },
     tabRow: {
       paddingHorizontal: rs(12),
       gap: rs(18),
@@ -601,11 +601,11 @@ function makeStyles(c: ThemeColors) {
     },
     tabBtn: { paddingBottom: rs(10) },
     tabText: {
-      color: '#9E9E9E',
+      color: c.textMuted,
       fontSize: rs(14),
       fontWeight: '600',
     },
-    tabTextActive: { color: '#FFF' },
+    tabTextActive: { color: c.text },
     tabUnderline: {
       marginTop: rs(8),
       height: rs(3),
@@ -619,20 +619,20 @@ function makeStyles(c: ThemeColors) {
     },
     fieldBlock: { marginBottom: rs(16) },
     fieldLabel: {
-      color: '#EEE',
+      color: c.text,
       fontSize: rs(13),
       fontWeight: '600',
       marginBottom: rs(8),
     },
     input: {
       borderWidth: 1,
-      borderColor: '#5A5A5A',
+      borderColor: c.border,
       borderRadius: rs(24),
       paddingHorizontal: rs(16),
       paddingVertical: rs(12),
-      color: '#FFF',
+      color: c.text,
       fontSize: rs(14),
-      backgroundColor: '#121212',
+      backgroundColor: c.surface,
     },
     radioRow: {
       flexDirection: 'row',
@@ -647,7 +647,7 @@ function makeStyles(c: ThemeColors) {
       height: rs(20),
       borderRadius: rs(10),
       borderWidth: 1.5,
-      borderColor: '#CCC',
+      borderColor: c.textMuted,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -658,9 +658,9 @@ function makeStyles(c: ThemeColors) {
       borderRadius: rs(5),
       backgroundColor: ACCENT,
     },
-    radioLabel: { color: '#EEE', fontSize: rs(13), fontWeight: '600' },
+    radioLabel: { color: c.text, fontSize: rs(13), fontWeight: '600' },
     holdingLabel: {
-      color: '#EEE',
+      color: c.text,
       fontSize: rs(13),
       fontWeight: '600',
       marginBottom: rs(8),
@@ -673,7 +673,7 @@ function makeStyles(c: ThemeColors) {
     paidUpChip: {
       flex: 1,
       borderWidth: 1,
-      borderColor: '#5A5A5A',
+      borderColor: c.border,
       borderRadius: rs(24),
       paddingVertical: rs(12),
       alignItems: 'center',
@@ -682,7 +682,7 @@ function makeStyles(c: ThemeColors) {
       borderColor: ACCENT,
       backgroundColor: 'rgba(165,214,167,0.12)',
     },
-    paidUpText: { color: '#BDBDBD', fontWeight: '700', fontSize: rs(13) },
+    paidUpText: { color: c.textMuted, fontWeight: '700', fontSize: rs(13) },
     paidUpTextActive: { color: ACCENT },
     avgRow: {
       flexDirection: 'row',
@@ -733,8 +733,8 @@ function makeStyles(c: ThemeColors) {
       marginTop: rs(22),
       borderRadius: rs(14),
       borderWidth: 1,
-      borderColor: '#333',
-      backgroundColor: '#1A1A1A',
+      borderColor: c.border,
+      backgroundColor: c.surface,
       padding: rs(14),
     },
     resultTitle: {
@@ -749,11 +749,11 @@ function makeStyles(c: ThemeColors) {
       gap: rs(12),
       paddingVertical: rs(6),
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: '#2A2A2A',
+      borderBottomColor: c.borderMuted,
     },
-    resultLabel: { color: '#BDBDBD', fontSize: rs(12), flex: 1 },
+    resultLabel: { color: c.textMuted, fontSize: rs(12), flex: 1 },
     resultValue: {
-      color: '#FFF',
+      color: c.text,
       fontSize: rs(13),
       fontWeight: '600',
     },

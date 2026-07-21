@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   FlatList,
   Pressable,
   StyleSheet,
@@ -102,14 +103,17 @@ const AUTOMATION = `
     }catch(e){ post({type:'captchaImg', ok:false, error:String(e)}); }
   }
   window.__readCaptcha = readCaptcha;
+  // A few bounded reads while the SPA renders, then stop — an infinite poller
+  // saturates the JS thread and makes the screen flicker / feel stuck.
   var lastKey = '';
-  setInterval(function(){
+  function tryRead(){
     var img = findCaptchaImg();
     if (img && img.src && img.src !== lastKey && (img.complete || (img.naturalWidth||0) > 0)){
       lastKey = img.src;
-      setTimeout(readCaptcha, 250);
+      readCaptcha();
     }
-  }, 1200);
+  }
+  [600, 1500, 3000, 5000].forEach(function(ms){ setTimeout(tryRead, ms); });
   post({type:'ready'});
 })(); true;
 `;
@@ -223,6 +227,16 @@ export function CheckResultWebScreen() {
     webRef.current?.injectJavaScript(AUTOMATION);
   }, []);
 
+  // Always let the hardware back button leave this screen (never trap the user
+  // inside the WebView, even while the CDSC page is reloading).
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      navigation.goBack();
+      return true;
+    });
+    return () => sub.remove();
+  }, [navigation]);
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -262,12 +276,19 @@ export function CheckResultWebScreen() {
           onLoadStart={() => setLoading(true)}
           onLoadEnd={() => {
             setLoading(false);
-            setTimeout(reinject, 1200);
-            setTimeout(reinject, 3000);
+            if (!ready) setTimeout(reinject, 1200);
           }}
+          onError={() =>
+            setStatus(
+              'CDSC did not load. Tap reload to retry, or check later — the portal can be busy.',
+            )
+          }
+          onHttpError={() =>
+            setStatus('CDSC portal is busy right now. Tap reload to retry.')
+          }
           style={styles.webview}
         />
-        {loading ? (
+        {loading && !ready ? (
           <View style={styles.loadingOverlay} pointerEvents="none">
             <ActivityIndicator color={colors.primary} size="large" />
           </View>
