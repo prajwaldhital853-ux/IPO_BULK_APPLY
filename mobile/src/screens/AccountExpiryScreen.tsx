@@ -17,7 +17,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
-import type { ThemeColors } from '../theme/colors';
+import { lightColors, type ThemeColors } from '../theme/colors';
 import {
   fetchAccountExpiryInfo,
   formatExpiryDisplay,
@@ -107,8 +107,11 @@ export function AccountExpiryScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { accounts, loadSecrets } = useAccounts();
-  const { colors, isDark } = useTheme();
-  const pal = useMemo(() => makePalette(colors, isDark), [colors, isDark]);
+  // This screen intentionally always uses the light green palette to match the
+  // reference design, regardless of the app's dark/light theme.
+  useTheme();
+  const colors = lightColors;
+  const pal = useMemo(() => makePalette(colors, false), [colors]);
   const styles = useMemo(() => makeStyles(colors, pal), [colors, pal]);
 
   const [tab, setTab] = useState<TabId>('users');

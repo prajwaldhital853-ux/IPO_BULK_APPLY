@@ -14,7 +14,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
-import type { ThemeColors } from '../theme/colors';
+import { lightColors, type ThemeColors } from '../theme/colors';
 import { importPortfolioFromMeroshare } from '../services/meroshare';
 import type { AccountMeta } from '../types/account';
 import { rs } from '../utils/responsive';
@@ -61,20 +61,32 @@ function formatRs(n: number, hidden: boolean): string {
 }
 
 function formatChange(n: number, hidden: boolean): string {
-  if (hidden) return '— •••';
+  if (hidden) return '••••';
   const abs = Math.abs(n).toLocaleString('en-NP', {
     maximumFractionDigits: 0,
   });
-  if (n > 0) return `+ Rs. ${abs}`;
-  if (n < 0) return `− Rs. ${abs}`;
+  if (n > 0) return `▲ Rs. ${abs}`;
+  if (n < 0) return `▼ Rs. ${abs}`;
   return `— Rs. 0`;
 }
+
+/** Tinted pill colors for the white account cards (light theme). */
+function changeTint(n: number): { bg: string; fg: string } {
+  if (n > 0) return { bg: 'rgba(46,158,91,0.12)', fg: '#2E9E5B' };
+  if (n < 0) return { bg: 'rgba(229,72,77,0.12)', fg: '#E5484D' };
+  return { bg: 'rgba(0,0,0,0.05)', fg: '#8A948A' };
+}
+
+type ChangeFilter = 'all' | 'gained' | 'loss' | 'unch';
 
 export function BulkPortfolioScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  // This screen always uses the light green palette to match the reference
+  // design, regardless of the app's dark/light theme.
+  useTheme();
+  const colors = lightColors;
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { accounts } = useAccounts();
 
@@ -84,6 +96,17 @@ export function BulkPortfolioScreen() {
   const [hidden, setHidden] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<ChangeFilter>('all');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const fetchAll = useCallback(async (list: AccountMeta[]) => {
     if (!list.length) {
@@ -164,11 +187,26 @@ export function BulkPortfolioScreen() {
     }, [accounts, fetchAll]),
   );
 
+  const counts = useMemo(() => {
+    const done = rows.filter((r) => r.status === 'done');
+    return {
+      all: rows.length,
+      gained: done.filter((r) => r.change > 0).length,
+      loss: done.filter((r) => r.change < 0).length,
+      unch: done.filter((r) => r.change === 0).length,
+    };
+  }, [rows]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => r.account.name.toLowerCase().includes(q));
-  }, [rows, query]);
+    return rows.filter((r) => {
+      if (q && !r.account.name.toLowerCase().includes(q)) return false;
+      if (filter === 'gained') return r.status === 'done' && r.change > 0;
+      if (filter === 'loss') return r.status === 'done' && r.change < 0;
+      if (filter === 'unch') return r.status === 'done' && r.change === 0;
+      return true;
+    });
+  }, [rows, query, filter]);
 
   const totals = useMemo(() => {
     const ok = rows.filter((r) => r.status === 'done');
@@ -192,6 +230,18 @@ export function BulkPortfolioScreen() {
         <Text style={styles.title} numberOfLines={1}>
           Bulk Portfolio Check
         </Text>
+        <Pressable
+          onPress={() => void fetchAll(accounts)}
+          hitSlop={10}
+          style={styles.iconBtn}
+          disabled={running}
+        >
+          <Ionicons
+            name="refresh"
+            size={rs(22)}
+            color={running ? colors.textDim : colors.text}
+          />
+        </Pressable>
         <Pressable
           onPress={() => setSearchOpen((v) => !v)}
           hitSlop={10}
@@ -242,10 +292,11 @@ export function BulkPortfolioScreen() {
         keyExtractor={(item) => item.account.id}
         contentContainerStyle={styles.list}
         ListHeaderComponent={
+          <>
           <View style={styles.summaryCard}>
             <View style={styles.summaryTop}>
               <View style={styles.summaryLabelRow}>
-                <Ionicons name="wallet-outline" size={rs(16)} color="#A5D6A7" />
+                <Ionicons name="wallet-outline" size={rs(16)} color="#2E7D32" />
                 <Text style={styles.summaryLabel}>Total Portfolio Value</Text>
               </View>
               <View style={styles.allUsersPill}>
@@ -257,8 +308,18 @@ export function BulkPortfolioScreen() {
               <Text style={styles.summaryValue}>
                 {formatRs(totals.value, hidden)}
               </Text>
-              <View style={styles.changePill}>
-                <Text style={styles.changePillText}>
+              <View
+                style={[
+                  styles.changePill,
+                  { backgroundColor: changeTint(totals.change).bg },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.changePillText,
+                    { color: changeTint(totals.change).fg },
+                  ]}
+                >
                   {formatChange(totals.change, hidden)}
                 </Text>
               </View>
@@ -270,7 +331,7 @@ export function BulkPortfolioScreen() {
                 <Ionicons
                   name={hidden ? 'eye-off-outline' : 'eye-outline'}
                   size={rs(18)}
-                  color="#CFD8DC"
+                  color={colors.textMuted}
                 />
               </Pressable>
             </View>
@@ -279,7 +340,7 @@ export function BulkPortfolioScreen() {
               <Ionicons
                 name="information-circle-outline"
                 size={rs(14)}
-                color="#A5D6A7"
+                color={colors.textMuted}
               />
               <Text style={styles.summaryFooterText}>
                 {totals.accounts} accounts · {totals.holdings} holdings
@@ -287,20 +348,42 @@ export function BulkPortfolioScreen() {
               {running ? (
                 <ActivityIndicator
                   size="small"
-                  color="#A5D6A7"
+                  color={colors.primary}
                   style={{ marginLeft: rs(8) }}
                 />
-              ) : (
-                <Pressable
-                  onPress={() => void fetchAll(accounts)}
-                  hitSlop={8}
-                  style={{ marginLeft: 'auto' }}
-                >
-                  <Ionicons name="refresh" size={rs(16)} color="#A5D6A7" />
-                </Pressable>
-              )}
+              ) : null}
             </View>
           </View>
+
+          <View style={styles.chipRow}>
+            {(
+              [
+                { key: 'all', label: 'All', count: counts.all, icon: null, tint: colors.textMuted },
+                { key: 'gained', label: 'Gained', count: counts.gained, icon: 'caret-up', tint: '#2E9E5B' },
+                { key: 'loss', label: 'Loss', count: counts.loss, icon: 'caret-down', tint: '#E5484D' },
+                { key: 'unch', label: 'Unch', count: counts.unch, icon: 'remove', tint: colors.textMuted },
+              ] as const
+            ).map((chip) => {
+              const active = filter === chip.key;
+              return (
+                <Pressable
+                  key={chip.key}
+                  onPress={() => setFilter(chip.key)}
+                  style={[styles.chip, active && styles.chipActive]}
+                >
+                  {chip.icon ? (
+                    <Ionicons name={chip.icon} size={rs(12)} color={chip.tint} />
+                  ) : (
+                    <View style={[styles.chipDot, { backgroundColor: chip.tint }]} />
+                  )}
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {chip.label} {chip.count}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          </>
         }
         ListEmptyComponent={
           <Text style={styles.empty}>
@@ -313,8 +396,13 @@ export function BulkPortfolioScreen() {
         }
         renderItem={({ item, index }) => {
           const isBusy = item.status === 'running' || item.status === 'pending';
+          const isOpen = expanded.has(item.account.id);
+          const tint = changeTint(item.change);
           return (
-            <View style={styles.card}>
+            <Pressable
+              style={styles.card}
+              onPress={() => toggleExpanded(item.account.id)}
+            >
               <View style={styles.cardTop}>
                 <View style={styles.indexBadge}>
                   <Text style={styles.indexText}>{index + 1}</Text>
@@ -322,6 +410,14 @@ export function BulkPortfolioScreen() {
                 <Text style={styles.cardName} numberOfLines={1}>
                   {item.account.name.toUpperCase()}
                 </Text>
+                {item.status === 'done' && item.holdings > 0 ? (
+                  <View style={styles.holdingBadge}>
+                    <Ionicons name="leaf" size={rs(11)} color="#2E9E5B" />
+                    <Text style={styles.holdingBadgeText}>
+                      {item.holdings} holding{item.holdings > 1 ? 's' : ''}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
 
               <Text style={styles.cardLabel}>Total current value</Text>
@@ -338,8 +434,8 @@ export function BulkPortfolioScreen() {
                     <Text style={styles.cardValue}>
                       {formatRs(item.value, hidden)}
                     </Text>
-                    <View style={styles.changePill}>
-                      <Text style={styles.changePillText}>
+                    <View style={[styles.changePill, { backgroundColor: tint.bg }]}>
+                      <Text style={[styles.changePillText, { color: tint.fg }]}>
                         {formatChange(item.change, hidden)}
                       </Text>
                     </View>
@@ -353,11 +449,32 @@ export function BulkPortfolioScreen() {
                   <Ionicons
                     name={hidden ? 'eye-off-outline' : 'eye-outline'}
                     size={rs(18)}
-                    color="#CFD8DC"
+                    color={colors.textMuted}
                   />
                 </Pressable>
+                <Ionicons
+                  name={isOpen ? 'chevron-up' : 'chevron-down'}
+                  size={rs(18)}
+                  color={colors.textMuted}
+                  style={{ marginLeft: rs(4) }}
+                />
               </View>
-            </View>
+
+              {isOpen && item.status === 'done' ? (
+                <View style={styles.expandBox}>
+                  <View style={styles.expandRow}>
+                    <Text style={styles.expandLabel}>Holdings</Text>
+                    <Text style={styles.expandVal}>{item.holdings}</Text>
+                  </View>
+                  <View style={styles.expandRow}>
+                    <Text style={styles.expandLabel}>Day change</Text>
+                    <Text style={[styles.expandVal, { color: tint.fg }]}>
+                      {formatChange(item.change, hidden)}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </Pressable>
           );
         }}
       />
@@ -433,12 +550,12 @@ function makeStyles(c: ThemeColors) {
       paddingBottom: rs(40),
     },
     summaryCard: {
-      backgroundColor: '#1B3D1F',
+      backgroundColor: '#E9F5EC',
       borderRadius: rs(16),
       padding: rs(14),
       marginBottom: rs(14),
       borderWidth: 1,
-      borderColor: '#2E5A32',
+      borderColor: '#CBE7D0',
     },
     summaryTop: {
       flexDirection: 'row',
@@ -453,18 +570,18 @@ function makeStyles(c: ThemeColors) {
       flex: 1,
     },
     summaryLabel: {
-      color: '#E8F5E9',
+      color: '#2E3D2E',
       fontSize: rs(13),
       fontWeight: '600',
     },
     allUsersPill: {
-      backgroundColor: '#C8E6C9',
+      backgroundColor: '#D4EDD8',
       paddingHorizontal: rs(10),
       paddingVertical: rs(4),
       borderRadius: rs(10),
     },
     allUsersText: {
-      color: '#1B5E20',
+      color: '#2E7D32',
       fontSize: rs(10),
       fontWeight: '800',
       letterSpacing: 0.3,
@@ -476,19 +593,19 @@ function makeStyles(c: ThemeColors) {
       marginBottom: rs(10),
     },
     summaryValue: {
-      color: '#FFF',
+      color: c.text,
       fontSize: rs(28),
       fontWeight: '800',
       flexShrink: 1,
     },
     changePill: {
-      backgroundColor: 'rgba(0,0,0,0.35)',
+      backgroundColor: 'rgba(229,72,77,0.12)',
       paddingHorizontal: rs(10),
       paddingVertical: rs(6),
       borderRadius: rs(12),
     },
     changePillText: {
-      color: '#ECEFF1',
+      color: '#E5484D',
       fontSize: rs(12),
       fontWeight: '700',
     },
@@ -502,7 +619,7 @@ function makeStyles(c: ThemeColors) {
       gap: rs(6),
     },
     summaryFooterText: {
-      color: '#A5D6A7',
+      color: c.textMuted,
       fontSize: rs(12),
     },
     card: {
@@ -522,17 +639,79 @@ function makeStyles(c: ThemeColors) {
     indexBadge: {
       minWidth: rs(26),
       height: rs(26),
-      borderRadius: rs(6),
-      backgroundColor: '#1B5E20',
+      borderRadius: rs(13),
+      backgroundColor: '#E7F6EA',
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: rs(6),
     },
     indexText: {
-      color: '#FFF',
+      color: '#2E9E5B',
       fontWeight: '800',
       fontSize: rs(12),
     },
+    holdingBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(4),
+      backgroundColor: '#E7F6EA',
+      borderRadius: rs(10),
+      paddingHorizontal: rs(8),
+      paddingVertical: rs(3),
+    },
+    holdingBadgeText: {
+      color: '#2E9E5B',
+      fontSize: rs(11),
+      fontWeight: '700',
+    },
+    chipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: rs(8),
+      marginBottom: rs(12),
+    },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(6),
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: rs(16),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(6),
+      backgroundColor: c.surface,
+    },
+    chipActive: {
+      borderColor: c.primary,
+      backgroundColor: '#E7F6EA',
+    },
+    chipDot: {
+      width: rs(7),
+      height: rs(7),
+      borderRadius: rs(4),
+    },
+    chipText: {
+      color: c.textSecondary,
+      fontSize: rs(12),
+      fontWeight: '700',
+    },
+    chipTextActive: {
+      color: c.primary,
+    },
+    expandBox: {
+      marginTop: rs(10),
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.border,
+      paddingTop: rs(8),
+      gap: rs(6),
+    },
+    expandRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    expandLabel: { color: c.textMuted, fontSize: rs(12) },
+    expandVal: { color: c.text, fontSize: rs(12), fontWeight: '700' },
     cardName: {
       flex: 1,
       color: c.text,

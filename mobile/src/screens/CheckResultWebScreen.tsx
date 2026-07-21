@@ -26,9 +26,6 @@ import { maskBoid, resolveBoidSync } from '../utils/boid';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
-const CHROME_UA =
-  'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36';
-
 /**
  * Injected once the CDSC result page (Angular SPA) has rendered. Provides:
  *  - window.__fillBoid(boid)   → types the BOID into the form (Angular-safe)
@@ -42,6 +39,16 @@ const AUTOMATION = `
 (function(){
   if (window.__ngharAuto) return; window.__ngharAuto = true;
   function post(m){ try{ window.ReactNativeWebView.postMessage(JSON.stringify(m)); }catch(e){} }
+  // Detect the CDSC / F5 BIG-IP WAF rejection page so RN can recover with a
+  // fresh session instead of leaving the user stuck on the block screen.
+  try {
+    var __b = (document.body && (document.body.innerText || document.body.textContent)) || '';
+    if (/requested URL was rejected|support ID is/i.test(__b)) {
+      var __m = __b.match(/support ID is[:\\s]*<?\\s*([0-9]+)\\s*>?/i);
+      post({ type: 'blocked', supportId: __m ? __m[1] : '' });
+      return true;
+    }
+  } catch(e){}
   function setNativeValue(el, value){
     try {
       var proto = Object.getPrototypeOf(el);
@@ -141,8 +148,11 @@ export function CheckResultWebScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [blocked, setBlocked] = useState(false);
+  const [webKey, setWebKey] = useState(0);
   const [status, setStatus] = useState('Loading CDSC result page…');
   const lastSolvedKey = useRef<string>('');
+  const autoRetryRef = useRef(0);
 
   const selected = useMemo(
     () => accountsWithBoid.find((r) => r.account.id === selectedId) ?? null,
@@ -167,6 +177,22 @@ export function CheckResultWebScreen() {
     [fillBoid],
   );
 
+  // Wipe the WebView session (cookies/cache) and remount so CDSC/F5 hands out
+  // a clean challenge cookie. Used both for auto-recovery and the manual retry.
+  const freshSession = useCallback(() => {
+    setBlocked(false);
+    setReady(false);
+    setLoading(true);
+    lastSolvedKey.current = '';
+    try {
+      webRef.current?.clearCache?.(true);
+    } catch {
+      // clearCache is Android-only; ignore where unavailable.
+    }
+    setStatus('Starting a fresh CDSC session…');
+    setWebKey((k) => k + 1);
+  }, []);
+
   const onMessage = useCallback(
     async (event: WebViewMessageEvent) => {
       let data: Record<string, unknown>;
@@ -177,7 +203,24 @@ export function CheckResultWebScreen() {
       }
       const type = String(data.type ?? '');
 
+      if (type === 'blocked') {
+        setBlocked(true);
+        // Try once automatically with a clean session; if it happens again the
+        // user gets a clear message + manual retry rather than an endless loop.
+        if (autoRetryRef.current < 1) {
+          autoRetryRef.current += 1;
+          setStatus('CDSC blocked the request — retrying with a fresh session…');
+          setTimeout(freshSession, 400);
+        } else {
+          setStatus(
+            'CDSC security is blocking result checks right now. Tap "New session" to try again in a moment.',
+          );
+        }
+        return;
+      }
+
       if (type === 'ready') {
+        autoRetryRef.current = 0;
         setReady(true);
         setStatus('Page ready. Pick a company, then it auto-fills BOID + captcha.');
         if (selected) fillBoid(selected.boid);
@@ -260,11 +303,24 @@ export function CheckResultWebScreen() {
         {status}
       </Text>
 
+      {blocked ? (
+        <View style={styles.blockBanner}>
+          <Ionicons name="shield-half" size={rs(16)} color={colors.danger} />
+          <Text style={styles.blockText} numberOfLines={2}>
+            CDSC security blocked this request.
+          </Text>
+          <Pressable style={styles.blockBtn} onPress={freshSession} hitSlop={8}>
+            <Ionicons name="refresh" size={rs(14)} color="#fff" />
+            <Text style={styles.blockBtnText}>New session</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       <View style={styles.webWrap}>
         <WebView
+          key={webKey}
           ref={webRef}
           source={{ uri: `${IPORESULT_BASE}/` }}
-          userAgent={CHROME_UA}
           originWhitelist={['*']}
           javaScriptEnabled
           domStorageEnabled
@@ -387,6 +443,35 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(6),
       backgroundColor: c.surface,
     },
+    blockBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      marginHorizontal: rs(12),
+      marginBottom: rs(8),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
+      borderRadius: rs(12),
+      backgroundColor: 'rgba(229,72,77,0.10)',
+      borderWidth: 1,
+      borderColor: 'rgba(229,72,77,0.35)',
+    },
+    blockText: {
+      flex: 1,
+      color: c.text,
+      fontSize: rs(12),
+      fontWeight: '600',
+    },
+    blockBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(4),
+      backgroundColor: '#E5484D',
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(6),
+      borderRadius: rs(16),
+    },
+    blockBtnText: { color: '#fff', fontWeight: '800', fontSize: rs(12) },
     webWrap: { flex: 1 },
     webview: { flex: 1, backgroundColor: '#fff' },
     loadingOverlay: {

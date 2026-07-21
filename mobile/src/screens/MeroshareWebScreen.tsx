@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -60,6 +59,13 @@ export function MeroshareWebScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [webKey, setWebKey] = useState('idle');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  // Tracks the account id we've already auto-attempted, so the effect never
+  // loops (it used to re-fire on every render because `sensitive` is a fresh
+  // object each render, hammering CDSC and flickering the error).
+  const attemptedRef = useRef<string | null>(null);
+  const sensitiveRef = useRef(sensitive);
+  sensitiveRef.current = sensitive;
 
   const selected = accounts[selectedIdx] ?? null;
 
@@ -70,13 +76,14 @@ export function MeroshareWebScreen() {
       setSignInLabel(`Logging in as ${account.name}…`);
       setLoading(true);
       setSessionToken(null);
+      setLoginError(null);
 
       try {
         const secrets = await loadSecrets(account.id);
         if (!secrets?.password) {
-          Alert.alert(
-            'Password missing',
-            'Re-add this account from Apply → Add capital with the MeroShare password saved.',
+          if (seq !== loginSeqRef.current) return;
+          setLoginError(
+            'Password not saved for this account. Re-add it from Apply → Add capital with the MeroShare password.',
           );
           setSigningIn(false);
           setLoading(false);
@@ -90,9 +97,14 @@ export function MeroshareWebScreen() {
         setWebKey(`${account.id}-${loginGenRef.current}`);
       } catch (e) {
         if (seq !== loginSeqRef.current) return;
-        const msg =
+        const raw =
           e instanceof Error ? e.message : 'Could not log in to MeroShare';
-        Alert.alert('Login failed', msg);
+        const friendly = /unable to process|too many|busy|timeout|network/i.test(
+          raw,
+        )
+          ? 'MeroShare (CDSC) is busy right now. Wait a few seconds and tap Retry.'
+          : raw;
+        setLoginError(friendly);
         setSessionToken(null);
         setWebKey(`failed-${account.id}-${Date.now()}`);
       } finally {
@@ -104,19 +116,36 @@ export function MeroshareWebScreen() {
     [loadSecrets],
   );
 
+  const retryLogin = useCallback(() => {
+    if (!selected) return;
+    attemptedRef.current = selected.id;
+    void sensitiveRef.current.requestSensitiveAction(async () => {
+      await signInAccount(selected, selectedIdx);
+    });
+  }, [selected, selectedIdx, signInAccount]);
+
   useEffect(() => {
     if (!accounts.length) {
       setSessionToken(null);
       setWebKey('no-accounts');
       setLoading(false);
+      attemptedRef.current = null;
       return;
     }
     const idx = Math.min(selectedIdx, accounts.length - 1);
-    if (idx !== selectedIdx) setSelectedIdx(idx);
-    void sensitive.requestSensitiveAction(async () => {
-      await signInAccount(accounts[idx], idx);
+    if (idx !== selectedIdx) {
+      setSelectedIdx(idx);
+      return;
+    }
+    const account = accounts[idx];
+    // Only auto-login once per account — never loop on failure.
+    if (attemptedRef.current === account.id) return;
+    attemptedRef.current = account.id;
+    void sensitiveRef.current.requestSensitiveAction(async () => {
+      await signInAccount(account, idx);
     });
-  }, [accounts, selectedIdx, signInAccount, sensitive]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts, selectedIdx, signInAccount]);
 
   const onSelectAccount = (index: number) => {
     setSelectedIdx(index);
@@ -171,9 +200,7 @@ export function MeroshareWebScreen() {
             />
           </Pressable>
           <Pressable
-            onPress={() => {
-              if (selected) void signInAccount(selected, selectedIdx);
-            }}
+            onPress={retryLogin}
             hitSlop={10}
             style={styles.iconBtn}
           >
@@ -205,6 +232,21 @@ export function MeroshareWebScreen() {
 
       {signInLabel ? (
         <Text style={styles.signInHint}>{signInLabel}</Text>
+      ) : null}
+
+      {loginError && !signingIn ? (
+        <View style={styles.errorBanner}>
+          <Ionicons
+            name="alert-circle"
+            size={rs(18)}
+            color={colors.danger}
+          />
+          <Text style={styles.errorText}>{loginError}</Text>
+          <Pressable onPress={retryLogin} style={styles.retryBtn} hitSlop={8}>
+            <Ionicons name="refresh" size={rs(14)} color="#fff" />
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        </View>
       ) : null}
 
       {pickerOpen && accounts.length > 0 ? (
@@ -300,6 +342,36 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: rs(16),
       paddingBottom: rs(6),
     },
+    errorBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      marginHorizontal: rs(16),
+      marginBottom: rs(8),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
+      borderRadius: rs(12),
+      backgroundColor: 'rgba(229,72,77,0.10)',
+      borderWidth: 1,
+      borderColor: 'rgba(229,72,77,0.35)',
+    },
+    errorText: {
+      flex: 1,
+      color: c.text,
+      fontSize: rs(12),
+      fontWeight: '600',
+      lineHeight: rs(16),
+    },
+    retryBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(4),
+      backgroundColor: '#E5484D',
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(6),
+      borderRadius: rs(16),
+    },
+    retryText: { color: '#fff', fontWeight: '800', fontSize: rs(12) },
     accountChip: {
       flexDirection: 'row',
       alignItems: 'center',
