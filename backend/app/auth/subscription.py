@@ -9,16 +9,26 @@ from sqlalchemy.orm import selectinload
 from ..db.models import PremiumEntitlement, SubscriptionRequest, User
 from .schemas import PendingRequestOut, PremiumOut, premium_from_row
 
+# Free tier: 10 MeroShare accounts. Paid plans unlock 50 accounts.
 PLAN_CATALOG: dict[str, dict[str, object]] = {
-    'premium_monthly': {
-        'title': 'Premium Monthly',
-        'days': 30,
-        'amountNpr': 299,
+    'premium_6month': {
+        'title': 'Premium 6 Months',
+        'days': 180,
+        'amountNpr': 300,
+        'maxAccounts': 50,
     },
     'premium_yearly': {
         'title': 'Premium Yearly',
         'days': 365,
-        'amountNpr': 2499,
+        'amountNpr': 500,
+        'maxAccounts': 50,
+    },
+    # Legacy aliases (pending requests / old clients)
+    'premium_monthly': {
+        'title': 'Premium 6 Months',
+        'days': 180,
+        'amountNpr': 300,
+        'maxAccounts': 50,
     },
 }
 

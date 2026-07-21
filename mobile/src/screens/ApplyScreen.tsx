@@ -16,8 +16,10 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
+import { PromoBanner } from '../components/PromoBanner';
 import { useAccounts } from '../context/AccountsContext';
 import { useAuth } from '../context/AuthContext';
+import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
 import {
   formatRs,
@@ -26,6 +28,7 @@ import {
 } from '../services/nepse/premiumAnalytics';
 import type { ThemeColors } from '../theme/colors';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
+import { guardAddAccount } from '../utils/accountLimits';
 import {
   loadOpenIssuesForUi,
   runBulkApply,
@@ -49,9 +52,23 @@ export function ApplyScreen() {
   const openDrawer = useOpenDrawer();
   const { accounts, updateAccountMeta } = useAccounts();
   const { user } = useAuth();
+  const { isPremium } = useSubscription();
   const { colors } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  const goAddCapital = useCallback(() => {
+    if (
+      !guardAddAccount({
+        currentCount: accounts.length,
+        isPremium,
+        onUpgrade: () => navigation.navigate('Subscription'),
+      })
+    ) {
+      return;
+    }
+    navigation.navigate('AddCapital');
+  }, [accounts.length, isPremium, navigation]);
   const [mode, setMode] = useState<'Bulk' | 'Single'>('Bulk');
   const [hideValues, setHideValues] = useState(false);
   const [accountsModalOpen, setAccountsModalOpen] = useState(false);
@@ -76,7 +93,14 @@ export function ApplyScreen() {
   const companyShareId = selected?.companyShareId;
 
   const displayName = useMemo(() => {
-    const raw = user?.name?.trim() || accounts[0]?.name?.trim() || 'User';
+    const raw =
+      user?.name?.trim() ||
+      accounts[0]?.name?.trim() ||
+      (accounts.length > 1
+        ? `${accounts.length} Accounts`
+        : accounts.length === 1
+          ? accounts[0].name
+          : 'Guest');
     return raw.toUpperCase();
   }, [accounts, user?.name]);
 
@@ -380,6 +404,7 @@ export function ApplyScreen() {
         showLogo={false}
         right={headerActions}
       />
+      <PromoBanner onPress={() => navigation.navigate('Subscription')} />
 
       {accounts.length === 0 ? (
         <View style={styles.emptyWrap}>
@@ -401,7 +426,7 @@ export function ApplyScreen() {
           </Text>
           <Pressable
             style={styles.addDataBtn}
-            onPress={() => navigation.navigate('AddCapital')}
+            onPress={goAddCapital}
           >
             <Text style={styles.addDataText}>Add account</Text>
           </Pressable>
@@ -427,18 +452,17 @@ export function ApplyScreen() {
               <View style={styles.summarySide}>
                 <View style={styles.plPill}>
                   <Text style={styles.plPillText}>{plText}</Text>
+                  <Pressable
+                    onPress={() => setHideValues((v) => !v)}
+                    hitSlop={8}
+                  >
+                    <Ionicons
+                      name={hideValues ? 'eye-off-outline' : 'eye-outline'}
+                      size={rs(16)}
+                      color={colors.text}
+                    />
+                  </Pressable>
                 </View>
-                <Pressable
-                  onPress={() => setHideValues((v) => !v)}
-                  hitSlop={8}
-                  style={styles.eyeBtn}
-                >
-                  <Ionicons
-                    name={hideValues ? 'eye-off-outline' : 'eye-outline'}
-                    size={rs(18)}
-                    color={colors.textMuted}
-                  />
-                </Pressable>
               </View>
             </View>
             <Pressable
@@ -453,7 +477,7 @@ export function ApplyScreen() {
             <Pressable
               onPress={() => {
                 if (mode === 'Bulk') setAccountsModalOpen(true);
-                else navigation.navigate('AddCapital');
+                else goAddCapital();
               }}
               hitSlop={8}
               style={styles.modeSideBtn}
@@ -500,6 +524,23 @@ export function ApplyScreen() {
             </Pressable>
           </View>
 
+          {mode === 'Bulk' ? (
+            <Pressable
+              style={styles.dropdown}
+              onPress={() => setAccountsModalOpen(true)}
+            >
+              <Text style={styles.dropdownText} numberOfLines={1}>
+                {checkedEligible.length === accounts.length ||
+                checkedEligible.length === eligibleCount
+                  ? 'Select Category (All Accounts)'
+                  : checkedEligible.length === 1
+                    ? `${checkedEligible[0].name.toUpperCase()} - ${checkedEligible[0].username}`
+                    : `Select Category (${checkedEligible.length} accounts)`}
+              </Text>
+              <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
+            </Pressable>
+          ) : null}
+
           <View style={styles.fieldBlock}>
             <View style={styles.labelRow}>
               <MaterialCommunityIcons
@@ -529,23 +570,6 @@ export function ApplyScreen() {
                 <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
               )}
             </Pressable>
-            {!loadingIssues && !hasRealOpening ? (
-              <View style={styles.emptyOpenBox}>
-                <Text style={styles.emptyOpenTitle}>No IPO is open</Text>
-                <Text style={styles.emptyOpenText}>
-                  Live apply needs an open issue. Meanwhile you can check past
-                  application / allotment status on the Check tab.
-                </Text>
-                <Pressable
-                  style={styles.emptyOpenBtn}
-                  onPress={() =>
-                    navigation.navigate('MainTabs', { screen: 'Check' })
-                  }
-                >
-                  <Text style={styles.emptyOpenBtnText}>Go to Check</Text>
-                </Pressable>
-              </View>
-            ) : null}
           </View>
 
           <View style={styles.fieldBlock}>
@@ -566,31 +590,17 @@ export function ApplyScreen() {
           </View>
 
           {mode === 'Bulk' ? (
-            <>
-              <Pressable
-                style={styles.selectedRow}
-                onPress={() => setAccountsModalOpen(true)}
-              >
-                <Ionicons name="people-outline" size={rs(18)} color={colors.primary} />
-                <Text style={styles.selectedRowText}>
-                  {checkedEligible.length} of {eligibleCount} account
-                  {eligibleCount === 1 ? '' : 's'} selected
-                </Text>
-                <Ionicons name="chevron-forward" size={rs(16)} color={colors.textMuted} />
-              </Pressable>
-
-              <Pressable
-                style={[styles.autoApply, running && styles.autoApplyDisabled]}
-                onPress={confirmBulkApply}
-                disabled={running}
-              >
-                {running ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.autoApplyText}>Auto Apply</Text>
-                )}
-              </Pressable>
-            </>
+            <Pressable
+              style={[styles.autoApply, running && styles.autoApplyDisabled]}
+              onPress={confirmBulkApply}
+              disabled={running}
+            >
+              {running ? (
+                <ActivityIndicator color="#1B1B1B" />
+              ) : (
+                <Text style={styles.autoApplyText}>Auto Apply</Text>
+              )}
+            </Pressable>
           ) : (
             accounts.map((acc, idx) => {
               const applied = alreadyApplied(acc.id);
@@ -897,15 +907,18 @@ function makeStyles(c: ThemeColors) {
       paddingBottom: rs(4),
     },
     plPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(6),
       backgroundColor: c.surfaceAlt,
-      borderRadius: rs(14),
+      borderRadius: rs(16),
       paddingHorizontal: rs(10),
-      paddingVertical: rs(5),
+      paddingVertical: rs(6),
     },
     plPillText: {
-      color: c.textSecondary,
-      fontSize: rs(11),
+      color: c.text,
       fontWeight: '600',
+      fontSize: rs(12),
     },
     eyeBtn: {
       padding: rs(4),
@@ -955,34 +968,9 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
     },
     modeBtnActive: { backgroundColor: c.primary },
-    modeText: { color: c.text, fontWeight: '700', fontSize: rs(14) },
-    modeTextActive: { color: '#FFFFFF' },
+    modeText: { color: c.primary, fontWeight: '700', fontSize: rs(14) },
+    modeTextActive: { color: '#1B1B1B' },
     fieldBlock: { marginBottom: rs(16) },
-    emptyOpenBox: {
-      marginTop: rs(10),
-      padding: rs(12),
-      borderRadius: rs(12),
-      borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: c.surface,
-      gap: rs(8),
-    },
-    emptyOpenTitle: { color: c.text, fontWeight: '800', fontSize: rs(14) },
-    emptyOpenText: {
-      color: c.textSecondary,
-      fontSize: rs(12),
-      lineHeight: rs(17),
-    },
-    emptyOpenBtn: {
-      alignSelf: 'flex-start',
-      marginTop: rs(4),
-      borderWidth: 1,
-      borderColor: c.primary,
-      borderRadius: rs(20),
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(8),
-    },
-    emptyOpenBtnText: { color: c.primary, fontWeight: '700', fontSize: rs(13) },
     labelRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1001,6 +989,7 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'space-between',
       backgroundColor: c.surface,
+      marginBottom: rs(12),
     },
     dropdownText: {
       flex: 1,
@@ -1026,25 +1015,6 @@ function makeStyles(c: ThemeColors) {
       marginBottom: rs(8),
     },
     linkAction: { color: c.primary, fontWeight: '700', fontSize: rs(13) },
-    selectedRow: {
-      marginTop: rs(4),
-      marginBottom: rs(16),
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(8),
-      borderRadius: rs(12),
-      borderWidth: 1,
-      borderColor: c.border,
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(12),
-      backgroundColor: c.surface,
-    },
-    selectedRowText: {
-      flex: 1,
-      color: c.text,
-      fontWeight: '600',
-      fontSize: rs(13),
-    },
     autoApply: {
       marginTop: rs(4),
       backgroundColor: c.primary,
@@ -1056,7 +1026,7 @@ function makeStyles(c: ThemeColors) {
     },
     autoApplyDisabled: { opacity: 0.7 },
     autoApplyText: {
-      color: '#FFFFFF',
+      color: '#1B1B1B',
       fontWeight: '800',
       fontSize: rs(16),
     },

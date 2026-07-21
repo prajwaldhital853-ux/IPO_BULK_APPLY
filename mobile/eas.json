@@ -39,7 +39,17 @@
     },
     "production": {
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "image": "latest"
+      },
+      "env": {
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+        "EXPO_PUBLIC_AUTH_ENABLED": "true",
+        "EXPO_PUBLIC_AUTH_API_URL": "https://ipo-bulk-apply-jhuj.onrender.com",
+        "EXPO_PUBLIC_CDSC_BACKEND_URL": "https://ipo-bulk-apply-jhuj.onrender.com",
+        "EXPO_PUBLIC_CDSC_BACKEND_KEY": "nepse-ghar-prod-api-key-CHANGE-THIS-32chars",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "395699990420-bemq1vajtbdqv27aplhpdj1gskreveog.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "395699990420-sdcpsm5ucjbn89um1hqd33v3mqssithb.apps.googleusercontent.com"
       }
     }
   },

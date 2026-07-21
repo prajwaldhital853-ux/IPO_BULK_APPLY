@@ -14,12 +14,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormField } from '../components/FormField';
 import { LocalDisclaimer } from '../components/LocalDisclaimer';
 import { useAccounts } from '../context/AccountsContext';
+import { useSubscription } from '../context/SubscriptionContext';
 import {
   MeroshareClient,
   verifyAccountForSave,
   type VerifyField,
 } from '../services/meroshare';
 import { colors } from '../theme/colors';
+import { guardAddAccount } from '../utils/accountLimits';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
@@ -50,7 +52,8 @@ export function BankDetailScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { draft, addAccount } = useAccounts();
+  const { draft, addAccount, accounts } = useAccounts();
+  const { isPremium } = useSubscription();
   const sensitive = useSensitiveAction();
 
   const [linkedBank, setLinkedBank] = useState('');
@@ -168,8 +171,23 @@ export function BankDetailScreen() {
           return;
         }
 
+        if (
+          !guardAddAccount({
+            currentCount: accounts.length,
+            isPremium,
+            onUpgrade: () => navigation.navigate('Subscription'),
+          })
+        ) {
+          return;
+        }
+
         await addAccount({
-          name: draft.username.toUpperCase(),
+          name: (
+            verify.accountHolderName ||
+            draft.username
+          )
+            .trim()
+            .toUpperCase(),
           dpId: draft.dpId,
           dpCode: draft.dpCode,
           dpName: draft.dpName,

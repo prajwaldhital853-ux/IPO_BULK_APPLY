@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -24,7 +24,13 @@ export function PremiumGate({
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <View style={[styles.wrap, { backgroundColor: colors.bg }]}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
   if (isPremium) return <>{children}</>;
 
   if (isPending) {

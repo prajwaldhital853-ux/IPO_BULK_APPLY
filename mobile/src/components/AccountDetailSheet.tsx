@@ -1,11 +1,13 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   Modal,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
@@ -36,11 +38,25 @@ export function AccountDetailSheet({
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [copied, setCopied] = useState(false);
 
   if (!account) return null;
 
-  const boid = resolveBoidSync(account) ?? account.demat ?? null;
+  const boid = resolveBoidSync(account) ?? account.demat?.trim() ?? null;
   const boidDisplay = boid ? maskBoid(boid) : 'Not available yet';
+
+  const copyBoid = async () => {
+    if (!boid) {
+      Alert.alert(
+        'BOID unavailable',
+        'This account has no 16-digit BOID yet. Re-save the account with DP code, or open MeroShare once.',
+      );
+      return;
+    }
+    await Clipboard.setStringAsync(boid);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -53,7 +69,7 @@ export function AccountDetailSheet({
           </View>
           <View style={styles.headBody}>
             <View style={styles.nameRow}>
-              <Text style={styles.name}>{account.name}</Text>
+              <Text style={styles.name}>{account.name.toUpperCase()}</Text>
               {account.verified ? (
                 <Ionicons
                   name="checkmark-circle"
@@ -68,10 +84,24 @@ export function AccountDetailSheet({
 
         <View style={styles.fieldBlock}>
           <Text style={styles.fieldLabel}>BOID</Text>
-          <View style={styles.fieldValueRow}>
+          <Pressable style={styles.fieldValueRow} onPress={() => void copyBoid()}>
             <Text style={styles.fieldValue}>{boidDisplay}</Text>
-            <Ionicons name="copy-outline" size={rs(18)} color={colors.textMuted} />
-          </View>
+            <View style={styles.copyBtn}>
+              <Ionicons
+                name={copied ? 'checkmark-circle' : 'copy-outline'}
+                size={rs(18)}
+                color={copied ? colors.accentGreen : colors.primary}
+              />
+              <Text
+                style={[
+                  styles.copyLabel,
+                  copied && { color: colors.accentGreen },
+                ]}
+              >
+                {copied ? 'Copied' : 'Copy BOID'}
+              </Text>
+            </View>
+          </Pressable>
         </View>
 
         <View style={styles.fieldBlock}>
@@ -181,6 +211,18 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(14),
       fontWeight: '600',
       flex: 1,
+    },
+    copyBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(4),
+      paddingVertical: rs(6),
+      paddingHorizontal: rs(8),
+    },
+    copyLabel: {
+      color: c.primary,
+      fontSize: rs(12),
+      fontWeight: '700',
     },
     actions: {
       flexDirection: 'row',

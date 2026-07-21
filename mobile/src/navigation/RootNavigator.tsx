@@ -17,6 +17,9 @@ import { ProfileScreen } from '../screens/ProfileScreen';
 import { AddCapitalScreen } from '../screens/AddCapitalScreen';
 import { BankDetailScreen } from '../screens/BankDetailScreen';
 import { CurrentIpoStatusScreen } from '../screens/CurrentIpoStatusScreen';
+import { IpoBulkStatusScreen } from '../screens/IpoBulkStatusScreen';
+import { AllIpoStatusScreen } from '../screens/AllIpoStatusScreen';
+import { IpoStatusDetailScreen } from '../screens/IpoStatusDetailScreen';
 import { PublicIpoResultScreen } from '../screens/PublicIpoResultScreen';
 import { NepseDataScreen } from '../screens/NepseDataScreen';
 import { NepseCalendarScreen } from '../screens/NepseCalendarScreen';
@@ -36,10 +39,15 @@ import { BulkPortfolioScreen } from '../screens/BulkPortfolioScreen';
 import { IpoIssuesScreen } from '../screens/IpoIssuesScreen';
 import { MeroshareWebScreen } from '../screens/MeroshareWebScreen';
 import { AccountExpiryScreen } from '../screens/AccountExpiryScreen';
+import { ChangePasswordScreen } from '../screens/ChangePasswordScreen';
 import { SubscriptionScreen } from '../screens/SubscriptionScreen';
+import { AboutCompanyScreen } from '../screens/AboutCompanyScreen';
+import { TeamMembersScreen } from '../screens/TeamMembersScreen';
+import { LegalScreen } from '../screens/LegalScreen';
 import { AdminLoginScreen } from '../screens/AdminLoginScreen';
 import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
 import { AdminSettingsScreen } from '../screens/AdminSettingsScreen';
+import { AdminTeamScreen } from '../screens/AdminTeamScreen';
 import { AdminForgotPasswordScreen } from '../screens/AdminForgotPasswordScreen';
 import { AppSettingsScreen } from '../screens/AppSettingsScreen';
 import { FeedbackFormScreen } from '../screens/FeedbackFormScreen';
@@ -137,6 +145,9 @@ function RootStack() {
       <Stack.Screen name="AddCapital" component={AddCapitalScreen} />
       <Stack.Screen name="BankDetail" component={BankDetailScreen} />
       <Stack.Screen name="CurrentIpoStatus" component={CurrentIpoStatusScreen} />
+      <Stack.Screen name="IpoBulkStatus" component={IpoBulkStatusScreen} />
+      <Stack.Screen name="AllIpoStatus" component={AllIpoStatusScreen} />
+      <Stack.Screen name="IpoStatusDetail" component={IpoStatusDetailScreen} />
       <Stack.Screen name="PublicIpoResult" component={PublicIpoResultScreen} />
       <Stack.Screen name="NepseData" component={NepseDataScreen} />
       <Stack.Screen name="NepseCalendar" component={NepseCalendarScreen} />
@@ -156,10 +167,15 @@ function RootStack() {
       <Stack.Screen name="IpoIssues" component={IpoIssuesScreen} />
       <Stack.Screen name="MeroshareWeb" component={MeroshareWebScreen} />
       <Stack.Screen name="AccountExpiry" component={AccountExpiryScreen} />
+      <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
       <Stack.Screen name="Subscription" component={SubscriptionScreen} />
+      <Stack.Screen name="AboutCompany" component={AboutCompanyScreen} />
+      <Stack.Screen name="TeamMembers" component={TeamMembersScreen} />
+      <Stack.Screen name="Legal" component={LegalScreen} />
       <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
       <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
       <Stack.Screen name="AdminSettings" component={AdminSettingsScreen} />
+      <Stack.Screen name="AdminTeam" component={AdminTeamScreen} />
       <Stack.Screen name="AdminForgotPassword" component={AdminForgotPasswordScreen} />
       <Stack.Screen name="AppSettings" component={AppSettingsScreen} />
       <Stack.Screen name="FeedbackForm" component={FeedbackFormScreen} />

@@ -11,80 +11,78 @@ import {
   View,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
 import {
-  loadCheckableIssuesForUi,
+  humanizeApplicationStatus,
+  loadOpenIssuesForUi,
   runBulkResultCheck,
-  type BulkResultSummary,
   type OpenIssue,
+  type ResultAccountStatus,
 } from '../services/meroshare';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
-import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 
-type IssueSource = 'mixed' | 'reports' | 'open' | 'empty';
+const ACCENT = '#A3C78B';
+const GREEN = '#66BB6A';
+const RED = '#EF5350';
+
+function classify(row: ResultAccountStatus): 'allotted' | 'not' | 'rejected' {
+  if (!row.ok) return 'rejected';
+  const { code } = humanizeApplicationStatus(row.status, row.allotmentStatus);
+  if (code === 'ALLOTTED') return 'allotted';
+  if (code === 'NOT_ALLOTTED' || /NOT.?ALLOT/i.test(row.message)) return 'not';
+  if (/REJECT|FAIL|ERROR|CANCEL/i.test(row.status + row.message)) return 'rejected';
+  return 'not';
+}
+
+function statusLine(row: ResultAccountStatus): string {
+  const kind = classify(row);
+  const qty = row.appliedKitta;
+  if (kind === 'allotted') {
+    return qty != null ? `Allotted ( quantity : ${qty} )` : 'Allotted';
+  }
+  if (kind === 'rejected') return row.message || 'Rejected';
+  return qty != null ? `Not Allotted ( quantity : ${qty} )` : 'Not Allotted';
+}
 
 export function CurrentIpoStatusScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const route = useRoute<RouteProp<RootStackParamList, 'CurrentIpoStatus'>>();
-  const mode = route.params?.mode ?? 'status';
   const insets = useSafeAreaInsets();
   const { accounts } = useAccounts();
   const { colors } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [sourceAccountId, setSourceAccountId] = useState<string | null>(null);
   const [checkAccountIds, setCheckAccountIds] = useState<string[]>([]);
-  const [issues, setIssues] = useState<OpenIssue[]>([]);
-  const [issueSource, setIssueSource] = useState<IssueSource>('empty');
-  const [selected, setSelected] = useState<OpenIssue | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [accountPickerOpen, setAccountPickerOpen] = useState(false);
   const [checkPickerOpen, setCheckPickerOpen] = useState(false);
-  const [loadingIssues, setLoadingIssues] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [issues, setIssues] = useState<OpenIssue[]>([]);
+  const [selected, setSelected] = useState<OpenIssue | null>(null);
+  const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState('');
-  const [summary, setSummary] = useState<BulkResultSummary | null>(null);
-  const [liveMode, setLiveMode] = useState(true);
-
-  const title =
-    mode === 'result' ? 'IPO Bulk Result' : 'Current IPO Status';
-  const buttonLabel =
-    mode === 'result' ? 'Check Bulk Result' : 'Check Bulk Status';
-
-  const sourceAccount = useMemo(
-    () =>
-      accounts.find((a) => a.id === sourceAccountId) ?? accounts[0] ?? null,
-    [accounts, sourceAccountId],
-  );
+  const [results, setResults] = useState<ResultAccountStatus[]>([]);
 
   const checkAccounts = useMemo(() => {
-    const selectedSet = new Set(
+    const set = new Set(
       checkAccountIds.length ? checkAccountIds : accounts.map((a) => a.id),
     );
-    return accounts.filter((a) => selectedSet.has(a.id));
+    return accounts.filter((a) => set.has(a.id));
   }, [accounts, checkAccountIds]);
 
   useEffect(() => {
     if (!accounts.length) {
-      setSourceAccountId(null);
       setCheckAccountIds([]);
       return;
     }
-    setSourceAccountId((prev) =>
-      prev && accounts.some((a) => a.id === prev) ? prev : accounts[0].id,
-    );
     setCheckAccountIds((prev) => {
       const valid = prev.filter((id) => accounts.some((a) => a.id === id));
       return valid.length ? valid : accounts.map((a) => a.id);
@@ -92,100 +90,32 @@ export function CurrentIpoStatusScreen() {
   }, [accounts]);
 
   const refreshIssues = useCallback(async () => {
-    if (!sourceAccount) {
-      setIssues([]);
-      setIssueSource('empty');
-      setSelected(null);
-      return;
-    }
-    setLoadingIssues(true);
+    setLoading(true);
     try {
-      const { issues: list, source } =
-        await loadCheckableIssuesForUi(sourceAccount);
-      setIssues(list);
-      setIssueSource(source);
+      const list = await loadOpenIssuesForUi(accounts);
+      const real = list.filter((i) => i.companyShareId !== 9001);
+      setIssues(real);
       setSelected((prev) => {
-        if (!list.length) return null;
+        if (!real.length) return null;
         const still = prev
-          ? list.find((i) => i.companyShareId === prev.companyShareId)
+          ? real.find((i) => i.companyShareId === prev.companyShareId)
           : null;
-        return still ?? list[0];
+        return still ?? real[0];
       });
     } finally {
-      setLoadingIssues(false);
+      setLoading(false);
     }
-  }, [sourceAccount]);
+  }, [accounts]);
 
   useEffect(() => {
     void refreshIssues();
   }, [refreshIssues]);
 
-  const onCheck = useCallback(() => {
-    if (!selected) {
-      Alert.alert(
-        'Nothing to check',
-        issueSource === 'empty'
-          ? 'No applications found for this account on MeroShare Application Report.'
-          : 'Select an IPO first.',
-      );
-      return;
-    }
-    if (checkAccounts.length === 0) {
-      Alert.alert('No accounts', 'Select at least one account to check.');
-      return;
-    }
+  useEffect(() => {
+    setResults([]);
+  }, [selected?.companyShareId]);
 
-    const run = () => {
-      void (async () => {
-        setRunning(true);
-        setProgress('Starting…');
-        setSummary(null);
-        try {
-          const result = await runBulkResultCheck({
-            accounts: checkAccounts,
-            issue: selected,
-            dryRun: !liveMode,
-            simulateLogin: !liveMode,
-            onProgress: (msg) => setProgress(msg),
-          });
-          setSummary(result);
-        } catch (e) {
-          Alert.alert(
-            'Check failed',
-            e instanceof Error ? e.message : 'Unknown error',
-          );
-        } finally {
-          setRunning(false);
-          setProgress('');
-        }
-      })();
-    };
-
-    if (!liveMode) {
-      run();
-      return;
-    }
-
-    Alert.alert(
-      'Live status check',
-      `Log into MeroShare for ${checkAccounts.length} account(s) and read application status for:\n\n${selected.companyName}\n\nCredentials stay on this device.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Check Live',
-          onPress: () =>
-            void sensitive.requestSensitiveAction(run, { pinPolicy: 'skipIfUnlocked' }),
-        },
-      ],
-    );
-  }, [checkAccounts, issueSource, liveMode, selected, sensitive]);
-
-  const sourceHint =
-    issueSource === 'empty'
-      ? 'No applications loaded for this account. Try another saved account or refresh.'
-      : `Showing ${issues.length} IPO(s) from MeroShare Application Report · ${sourceAccount?.name ?? 'account'}`;
-
-  const toggleCheckAccount = (account: AccountMeta) => {
+  const toggleAccount = (account: AccountMeta) => {
     setCheckAccountIds((prev) => {
       const base = prev.length ? prev : accounts.map((a) => a.id);
       if (base.includes(account.id)) {
@@ -198,299 +128,211 @@ export function CurrentIpoStatusScreen() {
 
   const checkLabel =
     checkAccounts.length === accounts.length
-      ? `All ${accounts.length} accounts`
+      ? 'Select Category (All Accounts)'
       : checkAccounts.length === 1
-        ? checkAccounts[0].name
-        : `${checkAccounts.length} of ${accounts.length} accounts`;
+        ? `${checkAccounts[0].name.toUpperCase()} - ${checkAccounts[0].username}`
+        : `Select Category (${checkAccounts.length} accounts)`;
+
+  const openingLabel = loading
+    ? 'Loading openings…'
+    : selected
+      ? `${selected.companyName}${selected.scrip ? ` (${selected.scrip})` : ''}`
+      : 'No Any Opening';
+
+  const runCheck = () => {
+    if (!selected) {
+      Alert.alert('No Any Opening', 'There is no current opening IPO/FPO/Right.');
+      return;
+    }
+    if (!checkAccounts.length) {
+      Alert.alert('No accounts', 'Select at least one account.');
+      return;
+    }
+    void sensitive.requestSensitiveAction(
+      async () => {
+        setRunning(true);
+        try {
+          const summary = await runBulkResultCheck({
+            accounts: checkAccounts,
+            issue: selected,
+          });
+          setResults(summary.results);
+        } catch (e) {
+          Alert.alert(
+            'Check failed',
+            e instanceof Error ? e.message : 'Unknown error',
+          );
+        } finally {
+          setRunning(false);
+        }
+      },
+      { pinPolicy: 'skipIfUnlocked' },
+    );
+  };
 
   return (
-    <ProtectedPersonalScreen title="Sign in to check IPO status">
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
-        <Text style={styles.title}>{title}</Text>
-        <Pressable onPress={() => void refreshIssues()} hitSlop={10}>
-          {loadingIssues ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <Ionicons name="refresh" size={rs(22)} color={colors.primary} />
-          )}
+        <Text style={styles.title}>Current IPO Status</Text>
+        <Pressable
+          hitSlop={10}
+          onPress={() =>
+            Alert.alert(
+              'Current IPO Status',
+              'Checks application status only for currently open IPO/FPO/Right issues.',
+            )
+          }
+        >
+          <Ionicons
+            name="information-circle-outline"
+            size={rs(22)}
+            color={ACCENT}
+          />
         </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
-        <View style={styles.modeRow}>
-          <View style={styles.modeToggle}>
-            {(
-              [
-                { key: true, label: 'Live' },
-                { key: false, label: 'Dry-run' },
-              ] as const
-            ).map((m) => (
-              <Pressable
-                key={String(m.key)}
-                onPress={() => setLiveMode(m.key)}
-                style={[
-                  styles.modeBtn,
-                  liveMode === m.key && styles.modeBtnActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.modeText,
-                    liveMode === m.key && styles.modeTextActive,
-                  ]}
-                >
-                  {m.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        <Text style={styles.banner}>{sourceHint}</Text>
-
-        <View style={styles.labelRow}>
-          <MaterialCommunityIcons
-            name="account"
-            size={rs(16)}
-            color={colors.textSecondary}
-          />
-          <Text style={styles.label}>Load IPO list from account</Text>
-        </View>
-        <Pressable
-          style={styles.dropdown}
-          onPress={() => setAccountPickerOpen(true)}
-          disabled={!accounts.length}
-        >
-          <Text
-            style={[
-              styles.dropdownText,
-              sourceAccount ? { color: colors.text } : null,
-            ]}
-            numberOfLines={1}
-          >
-            {sourceAccount
-              ? `${sourceAccount.name} (${sourceAccount.username})`
-              : 'No account'}
-          </Text>
-          <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
-        </Pressable>
-
-        <View style={[styles.labelRow, { marginTop: rs(16) }]}>
-          <MaterialCommunityIcons
-            name="account-multiple-check"
-            size={rs(16)}
-            color={colors.textSecondary}
-          />
-          <Text style={styles.label}>Accounts to check</Text>
-        </View>
         <Pressable
           style={styles.dropdown}
           onPress={() => setCheckPickerOpen(true)}
-          disabled={!accounts.length}
         >
-          <Text
-            style={[styles.dropdownText, { color: colors.text }]}
-            numberOfLines={1}
-          >
+          <Text style={styles.dropdownText} numberOfLines={1}>
             {checkLabel}
           </Text>
           <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
         </Pressable>
 
-        <View style={[styles.labelRow, { marginTop: rs(16) }]}>
+        <View style={styles.labelRow}>
           <MaterialCommunityIcons
-            name="bank"
+            name="bank-outline"
             size={rs(16)}
             color={colors.textSecondary}
           />
-          <Text style={styles.label}>
-            Applied / open IPO ({issues.length})
-          </Text>
+          <Text style={styles.label}>Current Opening IPO/FPO/Right</Text>
         </View>
+
         <Pressable
           style={styles.dropdown}
           onPress={() => setPickerOpen(true)}
-          disabled={!issues.length}
+          disabled={loading}
         >
-          <Text
-            style={[
-              styles.dropdownText,
-              selected ? { color: colors.text } : null,
-            ]}
-            numberOfLines={1}
-          >
-            {selected
-              ? `${selected.companyName}${selected.scrip ? ` (${selected.scrip})` : ''}`
-              : 'No issues available'}
+          <Text style={styles.dropdownText} numberOfLines={1}>
+            {openingLabel}
           </Text>
-          <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
-        </Pressable>
-        <Text style={styles.hint}>
-          {liveMode ? 'Live' : 'Dry-run'} · full apply history from selected
-          account · credentials stay on device
-        </Text>
-
-        <Pressable
-          style={[styles.checkBtn, running && styles.checkBtnDisabled]}
-          onPress={onCheck}
-          disabled={running || loadingIssues}
-        >
-          {running ? (
-            <ActivityIndicator color={colors.primary} />
+          {loading ? (
+            <ActivityIndicator size="small" color={ACCENT} />
           ) : (
-            <Text style={styles.checkText}>
-              {liveMode ? `Live ${buttonLabel}` : buttonLabel}
-            </Text>
+            <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
           )}
         </Pressable>
 
-        {progress ? <Text style={styles.progress}>{progress}</Text> : null}
+        <Pressable
+          style={[styles.actionBtn, running && { opacity: 0.6 }]}
+          onPress={runCheck}
+          disabled={running || !selected}
+        >
+          {running ? (
+            <ActivityIndicator color={ACCENT} />
+          ) : (
+            <Text style={styles.actionText}>Check Bulk Status</Text>
+          )}
+        </Pressable>
 
-        {summary ? (
-          <View style={styles.resultCard}>
-            <Text style={styles.resultTitle}>
-              {summary.dryRun ? 'Dry-run status' : 'Live status'} ·{' '}
-              {summary.results.filter((r) => r.ok).length}/
-              {summary.results.length}
-              {summary.stoppedEarly ? ' · stopped early' : ''}
-            </Text>
-            <Text style={styles.resultSub}>{summary.companyName}</Text>
-            {summary.results.map((r) => (
-              <View key={r.accountId} style={styles.resultRow}>
+        {results.map((row, idx) => {
+          const kind = classify(row);
+          const color = kind === 'allotted' ? GREEN : RED;
+          return (
+            <View
+              key={row.accountId}
+              style={[styles.resultCard, { borderColor: color }]}
+            >
+              <View style={[styles.resultIcon, { backgroundColor: color }]}>
                 <Ionicons
-                  name={
-                    r.status === 'ALLOTTED'
-                      ? 'checkmark-done-circle'
-                      : r.ok
-                        ? 'checkmark-circle'
-                        : 'close-circle'
-                  }
-                  size={rs(18)}
-                  color={
-                    r.status === 'NOT_ALLOTTED' || !r.ok
-                      ? colors.danger
-                      : r.status === 'ALLOTTED'
-                        ? colors.accentGreen
-                        : colors.primary
-                  }
+                  name={kind === 'allotted' ? 'checkmark' : 'close'}
+                  size={rs(20)}
+                  color="#1B1B1B"
                 />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.accName}>{r.accountName}</Text>
-                  <Text style={styles.statusChip}>{r.status}</Text>
-                  <Text style={styles.resultMsg}>{r.message}</Text>
-                </View>
               </View>
-            ))}
-          </View>
-        ) : null}
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.resultName, { color }]}>
+                  {idx + 1}. {row.accountName.toUpperCase()}
+                </Text>
+                <Text style={[styles.resultStatus, { color }]}>
+                  {statusLine(row)}
+                </Text>
+              </View>
+            </View>
+          );
+        })}
       </ScrollView>
 
-      <Modal visible={accountPickerOpen} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: colors.surface }]}>
-            <Text style={styles.modalTitle}>Load IPO list from</Text>
-            <FlatList
-              data={accounts}
-              keyExtractor={(item) => item.id}
-              ListEmptyComponent={
-                <Text style={styles.resultMsg}>No saved accounts</Text>
-              }
-              renderItem={({ item }) => (
-                <Pressable
-                  style={styles.modalRow}
-                  onPress={() => {
-                    setSourceAccountId(item.id);
-                    setAccountPickerOpen(false);
-                    setSummary(null);
-                  }}
-                >
-                  <View style={styles.modalRowHeader}>
-                    <Text style={styles.accName}>{item.name}</Text>
-                    {sourceAccount?.id === item.id ? (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={rs(18)}
-                        color={colors.primary}
-                      />
-                    ) : null}
-                  </View>
-                  <Text style={styles.resultMsg}>
-                    {item.username}
-                    {item.dpName ? ` · ${item.dpName}` : ''}
-                  </Text>
-                </Pressable>
-              )}
-            />
-            <Pressable
-              style={styles.modalClose}
-              onPress={() => setAccountPickerOpen(false)}
-            >
-              <Text style={styles.checkText}>Close</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
-
       <Modal visible={checkPickerOpen} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: colors.surface }]}>
-            <Text style={styles.modalTitle}>Accounts to check</Text>
+        <View style={styles.modalBackdrop}>
+          <View
+            style={[
+              styles.modalSheet,
+              { paddingBottom: Math.max(insets.bottom, rs(12)) },
+            ]}
+          >
+            <Text style={styles.modalTitle}>Select Category</Text>
             <Pressable
               style={styles.modalRow}
-              onPress={() => setCheckAccountIds(accounts.map((a) => a.id))}
+              onPress={() => {
+                setCheckAccountIds(accounts.map((a) => a.id));
+                setCheckPickerOpen(false);
+              }}
             >
-              <Text style={styles.accName}>Select all</Text>
+              <Text style={styles.modalRowTitle}>All Accounts</Text>
             </Pressable>
             <FlatList
               data={accounts}
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => {
-                const on =
-                  checkAccountIds.length === 0 ||
-                  checkAccountIds.includes(item.id);
+                const on = checkAccounts.some((a) => a.id === item.id);
                 return (
                   <Pressable
                     style={styles.modalRow}
-                    onPress={() => toggleCheckAccount(item)}
+                    onPress={() => toggleAccount(item)}
                   >
-                    <View style={styles.modalRowHeader}>
-                      <Text style={styles.accName}>{item.name}</Text>
-                      <Ionicons
-                        name={on ? 'checkbox' : 'square-outline'}
-                        size={rs(20)}
-                        color={on ? colors.primary : colors.textMuted}
-                      />
-                    </View>
-                    <Text style={styles.resultMsg}>{item.username}</Text>
+                    <Text style={styles.modalRowTitle}>
+                      {item.name.toUpperCase()}
+                    </Text>
+                    <Ionicons
+                      name={on ? 'checkbox' : 'square-outline'}
+                      size={rs(22)}
+                      color={on ? ACCENT : colors.textMuted}
+                    />
                   </Pressable>
                 );
               }}
             />
             <Pressable
-              style={styles.modalClose}
+              style={styles.modalDone}
               onPress={() => setCheckPickerOpen(false)}
             >
-              <Text style={styles.checkText}>Done</Text>
+              <Text style={styles.actionText}>Done</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
 
       <Modal visible={pickerOpen} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: colors.surface }]}>
-            <Text style={styles.modalTitle}>
-              Select IPO ({issues.length})
-            </Text>
+        <View style={styles.modalBackdrop}>
+          <View
+            style={[
+              styles.modalSheet,
+              { paddingBottom: Math.max(insets.bottom, rs(12)) },
+            ]}
+          >
+            <Text style={styles.modalTitle}>Current Opening</Text>
             <FlatList
               data={issues}
               keyExtractor={(item) => String(item.companyShareId)}
               ListEmptyComponent={
-                <Text style={styles.resultMsg}>No issues loaded</Text>
+                <Text style={styles.empty}>No Any Opening</Text>
               }
               renderItem={({ item }) => (
                 <Pressable
@@ -498,31 +340,24 @@ export function CurrentIpoStatusScreen() {
                   onPress={() => {
                     setSelected(item);
                     setPickerOpen(false);
-                    setSummary(null);
                   }}
                 >
-                  <Text style={styles.accName}>{item.companyName}</Text>
-                  <Text style={styles.resultMsg}>
-                    {item.shareTypeName}
-                    {item.scrip ? ` · ${item.scrip}` : ''}
-                    {item.alreadyApplied ? ' · applied' : ''}
-                    {item.issueOpenDate ? ` · ${item.issueOpenDate}` : ''}
-                  </Text>
+                  <Text style={styles.modalRowTitle}>{item.companyName}</Text>
                 </Pressable>
               )}
             />
             <Pressable
-              style={styles.modalClose}
+              style={styles.modalDone}
               onPress={() => setPickerOpen(false)}
             >
-              <Text style={styles.checkText}>Close</Text>
+              <Text style={styles.actionText}>Close</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
+
       <SensitiveActionModals action={sensitive} />
     </View>
-    </ProtectedPersonalScreen>
   );
 }
 
@@ -532,146 +367,101 @@ function makeStyles(c: ThemeColors) {
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: rs(12),
+      justifyContent: 'space-between',
+      paddingHorizontal: rs(14),
       paddingVertical: rs(12),
-      gap: rs(10),
       backgroundColor: c.bgElevated,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.borderMuted,
+      borderBottomColor: c.border,
     },
-    title: { flex: 1, color: c.text, fontSize: rs(17), fontWeight: '600' },
-    body: {
-      paddingHorizontal: rs(16),
-      paddingTop: rs(16),
-      paddingBottom: rs(40),
+    title: {
+      color: c.text,
+      fontSize: rs(16),
+      fontWeight: '700',
+      flex: 1,
+      textAlign: 'center',
     },
-    modeRow: {
+    body: { padding: rs(16), paddingBottom: rs(40) },
+    dropdown: {
       flexDirection: 'row',
-      justifyContent: 'center',
-      marginBottom: rs(12),
-    },
-    modeToggle: {
-      flexDirection: 'row',
-      backgroundColor: c.surface,
-      borderRadius: rs(20),
-      padding: rs(3),
+      alignItems: 'center',
       borderWidth: 1,
       borderColor: c.border,
+      borderRadius: rs(22),
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(14),
+      backgroundColor: c.surface,
+      marginBottom: rs(16),
+      gap: rs(8),
     },
-    modeBtn: {
-      paddingHorizontal: rs(22),
-      paddingVertical: rs(8),
-      borderRadius: rs(16),
-    },
-    modeBtnActive: { backgroundColor: c.primary },
-    modeText: { color: c.text, fontWeight: '600', fontSize: rs(13) },
-    modeTextActive: { color: '#FFFFFF' },
-    banner: {
-      color: c.textSecondary,
-      fontSize: rs(12),
-      lineHeight: rs(17),
-      marginBottom: rs(14),
-    },
+    dropdownText: { flex: 1, color: c.textMuted, fontSize: rs(14) },
     labelRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(6),
-      marginBottom: rs(10),
+      marginBottom: rs(8),
     },
     label: { color: c.textSecondary, fontSize: rs(13) },
-    dropdown: {
-      minHeight: rs(48),
-      borderRadius: rs(24),
-      borderWidth: 1,
-      borderColor: c.border,
-      paddingHorizontal: rs(16),
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      backgroundColor: c.surface,
-    },
-    dropdownText: {
-      flex: 1,
-      color: c.textMuted,
-      fontSize: rs(14),
-      marginRight: rs(8),
-    },
-    hint: { color: c.textMuted, fontSize: rs(11), marginTop: rs(8) },
-    checkBtn: {
+    actionBtn: {
       alignSelf: 'center',
-      marginTop: rs(28),
       borderWidth: 1,
-      borderColor: c.primary,
+      borderColor: ACCENT,
       borderRadius: rs(24),
       paddingHorizontal: rs(28),
       paddingVertical: rs(12),
+      marginTop: rs(8),
+      marginBottom: rs(16),
       minWidth: rs(180),
       alignItems: 'center',
     },
-    checkBtnDisabled: { opacity: 0.7 },
-    checkText: { color: c.primary, fontWeight: '700', fontSize: rs(14) },
-    progress: {
-      marginTop: rs(16),
-      textAlign: 'center',
-      color: c.textSecondary,
-      fontSize: rs(13),
-    },
+    actionText: { color: ACCENT, fontWeight: '700', fontSize: rs(14) },
     resultCard: {
-      marginTop: rs(20),
-      borderRadius: rs(14),
-      borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: c.surface,
-      padding: rs(14),
+      flexDirection: 'row',
       gap: rs(10),
+      borderWidth: 1,
+      borderRadius: rs(12),
+      padding: rs(12),
+      marginBottom: rs(10),
+      backgroundColor: c.surface,
     },
-    resultTitle: { color: c.text, fontWeight: '800', fontSize: rs(14) },
-    resultSub: {
-      color: c.textSecondary,
-      fontSize: rs(12),
-      marginBottom: rs(4),
+    resultIcon: {
+      width: rs(40),
+      height: rs(40),
+      borderRadius: rs(20),
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    resultRow: { flexDirection: 'row', gap: rs(10), alignItems: 'flex-start' },
-    accName: { color: c.text, fontWeight: '700', fontSize: rs(14) },
-    statusChip: {
-      color: c.primary,
-      fontWeight: '700',
-      fontSize: rs(11),
-      marginTop: rs(2),
-    },
-    resultMsg: { color: c.textSecondary, fontSize: rs(12), marginTop: rs(2) },
-    modalOverlay: {
+    resultName: { fontWeight: '800', fontSize: rs(13) },
+    resultStatus: { fontSize: rs(12), fontWeight: '600', marginTop: rs(2) },
+    empty: { color: c.textMuted, textAlign: 'center', padding: rs(20) },
+    modalBackdrop: {
       flex: 1,
       backgroundColor: c.overlay,
       justifyContent: 'flex-end',
     },
     modalSheet: {
-      maxHeight: '70%',
+      maxHeight: '75%',
+      backgroundColor: c.bgElevated,
       borderTopLeftRadius: rs(18),
       borderTopRightRadius: rs(18),
-      padding: rs(16),
+      paddingHorizontal: rs(16),
+      paddingTop: rs(14),
     },
     modalTitle: {
       color: c.text,
       fontWeight: '800',
       fontSize: rs(16),
-      marginBottom: rs(12),
+      marginBottom: rs(10),
     },
     modalRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
       paddingVertical: rs(12),
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.borderMuted,
+      gap: rs(10),
     },
-    modalRowHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: rs(8),
-    },
-    modalClose: {
-      marginTop: rs(12),
-      alignItems: 'center',
-      paddingVertical: rs(12),
-    },
+    modalRowTitle: { flex: 1, color: c.text, fontWeight: '600', fontSize: rs(13) },
+    modalDone: { alignItems: 'center', paddingVertical: rs(14) },
   });
 }

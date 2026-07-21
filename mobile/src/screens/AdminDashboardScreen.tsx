@@ -603,6 +603,23 @@ export function AdminDashboardScreen() {
         <Ionicons name="chevron-forward" size={rs(20)} color={colors.textMuted} />
       </Pressable>
 
+      <Pressable
+        style={styles.paymentCard}
+        onPress={() => navigation.navigate('AdminTeam')}
+      >
+        <View style={styles.paymentCardIcon}>
+          <Ionicons name="people-outline" size={rs(28)} color={colors.primary} />
+        </View>
+        <View style={styles.paymentCardBody}>
+          <Text style={styles.paymentCardTitle}>Team members</Text>
+          <Text style={styles.paymentCardSub}>
+            Add or edit team profiles and photos shown in the app's Team Members
+            section
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={rs(20)} color={colors.textMuted} />
+      </Pressable>
+
       <View style={styles.tabs}>
         {(['users', 'subscriptions', 'feedback'] as Tab[]).map((t) => (
           <Pressable

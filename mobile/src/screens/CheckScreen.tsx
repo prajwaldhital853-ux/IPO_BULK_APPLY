@@ -1,18 +1,17 @@
 import React, { useMemo } from 'react';
 import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppHeader } from '../components/AppHeader';
 import { PromoBanner } from '../components/PromoBanner';
-import { BrandLogo } from '../components/BrandLogo';
+import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { useAccounts } from '../context/AccountsContext';
-import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import { useTheme } from '../context/ThemeContext';
+import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
-import { isCdscBackendConfigured } from '../services/issuemanager/backendConfig';
-import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import type { RootStackParamList } from '../navigation/types';
 
 const MEROSHARE_WEB = 'https://meroshare.cdsc.com.np';
@@ -21,32 +20,24 @@ export function CheckScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const openDrawer = useOpenDrawer();
+  const insets = useSafeAreaInsets();
   const { accounts } = useAccounts();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
+  const needAccounts = (go: () => void) => {
+    if (accounts.length === 0) {
+      Alert.alert('No accounts', 'Add capital detail first from Apply.');
+      return;
+    }
+    go();
+  };
+
   const cards = [
     {
-      title: 'Same-day IPO Result',
-      desc: isCdscBackendConfigured()
-        ? '11 issue managers + CDSC listed companies · bulk BOID check'
-        : '11 live issue managers · bulk BOID (CDSC backend not linked)',
-      tint: '#FFE0B2',
-      iconColor: '#E65100',
-      icon: 'trophy-outline' as const,
-      onPress: () => {
-        if (accounts.length === 0) {
-          Alert.alert('No accounts', 'Add capital detail first from Apply.');
-          return;
-        }
-        navigation.navigate('PublicIpoResult');
-      },
-    },
-    {
       title: 'Check From MeroShare',
-      desc: 'Open the official MeroShare portal in browser.',
-      tint: '#FFECB3',
-      iconColor: '#EF6C00',
+      desc: 'Verify your allocation directly through the official MeroShare portal.',
+      tint: '#A1887F',
       icon: 'file-document-outline' as const,
       onPress: () => {
         void Linking.openURL(MEROSHARE_WEB);
@@ -54,45 +45,27 @@ export function CheckScreen() {
     },
     {
       title: 'IPO Bulk Result',
-      desc: 'Application Report list · pick account · live allotment check',
-      tint: '#C8E6C9',
-      iconColor: '#2E7D32',
-      icon: 'clipboard-check-outline' as const,
-      onPress: () => {
-        if (accounts.length === 0) {
-          Alert.alert('No accounts', 'Add capital detail first from Apply.');
-          return;
-        }
-        navigation.navigate('CurrentIpoStatus', { mode: 'result' });
-      },
+      desc: 'View IPO results in bulk',
+      tint: '#2E7D32',
+      icon: 'format-list-checks' as const,
+      onPress: () =>
+        needAccounts(() => navigation.navigate('PublicIpoResult')),
     },
     {
       title: 'IPO Bulk Status',
-      desc: 'Application Report IPOs · choose account · check across selected accounts',
-      tint: '#BBDEFB',
-      iconColor: '#1565C0',
-      icon: 'timer-outline' as const,
-      onPress: () => {
-        if (accounts.length === 0) {
-          Alert.alert('No accounts', 'Add capital detail first from Apply.');
-          return;
-        }
-        navigation.navigate('CurrentIpoStatus', { mode: 'status' });
-      },
+      desc: 'View your all application status in bulk',
+      tint: '#1565C0',
+      icon: 'clock-outline' as const,
+      onPress: () =>
+        needAccounts(() => navigation.navigate('IpoBulkStatus')),
     },
     {
       title: 'Current IPO Status',
-      desc: 'Open IPOs + Application Report for any saved account',
-      tint: '#E1BEE7',
-      iconColor: '#7B1FA2',
-      icon: 'eye-outline' as const,
-      onPress: () => {
-        if (accounts.length === 0) {
-          Alert.alert('No accounts', 'Add capital detail first from Apply.');
-          return;
-        }
-        navigation.navigate('CurrentIpoStatus', { mode: 'status' });
-      },
+      desc: 'Check only current Opening Status',
+      tint: '#6A1B9A',
+      icon: 'chart-donut' as const,
+      onPress: () =>
+        needAccounts(() => navigation.navigate('CurrentIpoStatus')),
     },
   ];
 
@@ -101,40 +74,63 @@ export function CheckScreen() {
       title="Sign in to check IPO results"
       subtitle="Bulk result and status checks require Google sign-in. MeroShare credentials stay on this device."
     >
-    <View style={styles.root}>
-      <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
-      {isDark ? <PromoBanner /> : null}
+      <View style={styles.root}>
+        <AppHeader
+          onMenuPress={openDrawer}
+          title="Check"
+          showLogo={false}
+          showActions={false}
+        />
+        {isDark ? (
+          <PromoBanner onPress={() => navigation.navigate('Subscription')} />
+        ) : null}
 
-      <View style={styles.brandBlock}>
-        <View style={styles.logoCard}>
-          <BrandLogo variant="full" height={rs(64)} />
-        </View>
-        <Text style={styles.brandTitle}>
-          <Text style={{ color: colors.text }}>MERO </Text>
-          <Text style={{ color: colors.meroRed }}>SHARE</Text>
-        </Text>
-        <Text style={styles.subtitle}>IPO Allotment Result</Text>
-      </View>
-
-      <View style={styles.list}>
-        {cards.map((card) => (
-          <Pressable key={card.title} style={styles.card} onPress={card.onPress}>
-            <View style={[styles.iconCircle, { backgroundColor: card.tint }]}>
+        <View
+          style={[
+            styles.centerWrap,
+            { paddingBottom: insets.bottom + rs(12) },
+          ]}
+        >
+          <View style={styles.brandBlock}>
+            <View style={styles.brandIconBox}>
               <MaterialCommunityIcons
-                name={card.icon}
-                size={rs(22)}
-                color={card.iconColor}
+                name="bank"
+                size={rs(30)}
+                color="#E53935"
               />
             </View>
-            <View style={styles.cardText}>
-              <Text style={styles.cardTitle}>{card.title}</Text>
-              <Text style={styles.cardDesc}>{card.desc}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={rs(18)} color={colors.textDim} />
-          </Pressable>
-        ))}
+            <Text style={styles.brandTitle}>
+              <Text style={{ color: colors.text }}>MERO </Text>
+              <Text style={{ color: '#E53935' }}>SHARE</Text>
+            </Text>
+            <Text style={styles.subtitle}>IPO Allotment Result</Text>
+          </View>
+
+          <View style={styles.list}>
+            {cards.map((card) => (
+              <Pressable
+                key={card.title}
+                style={styles.card}
+                onPress={card.onPress}
+              >
+                <View
+                  style={[styles.iconCircle, { backgroundColor: card.tint }]}
+                >
+                  <MaterialCommunityIcons
+                    name={card.icon}
+                    size={rs(22)}
+                    color="#FFFFFF"
+                  />
+                </View>
+                <View style={styles.cardText}>
+                  <Text style={styles.cardTitle}>{card.title}</Text>
+                  <Text style={styles.cardDesc}>{card.desc}</Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       </View>
-    </View>
     </ProtectedPersonalScreen>
   );
 }
@@ -142,42 +138,51 @@ export function CheckScreen() {
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
+    centerWrap: {
+      flex: 1,
+      justifyContent: 'center',
+      paddingHorizontal: rs(16),
+    },
     brandBlock: {
       alignItems: 'center',
-      marginTop: rs(16),
-      marginBottom: rs(16),
-      paddingHorizontal: rs(16),
+      marginBottom: rs(20),
     },
-    logoCard: {
-      backgroundColor: '#FFFFFF',
+    brandIconBox: {
+      width: rs(58),
+      height: rs(58),
       borderRadius: rs(14),
-      paddingVertical: rs(12),
-      paddingHorizontal: rs(16),
-      width: '100%',
+      backgroundColor: '#FDECEA',
       alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: rs(10),
+    },
+    brandRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
     },
     brandTitle: {
-      marginTop: rs(12),
-      fontSize: rs(18),
+      fontSize: rs(20),
       fontWeight: '800',
-      letterSpacing: 0.5,
+      letterSpacing: 1,
     },
     subtitle: {
       textAlign: 'center',
       color: c.textSecondary,
       marginTop: rs(4),
-      fontSize: rs(13),
+      fontSize: rs(12),
     },
-    list: { paddingHorizontal: rs(16), gap: rs(10) },
+    list: { gap: rs(12) },
     card: {
       flexDirection: 'row',
       alignItems: 'center',
       borderWidth: 1,
       borderColor: c.borderMuted,
       borderRadius: rs(16),
-      padding: rs(14),
+      paddingVertical: rs(16),
+      paddingHorizontal: rs(14),
       backgroundColor: c.surface,
-      gap: rs(12),
+      gap: rs(14),
     },
     iconCircle: {
       width: rs(48),
@@ -187,11 +192,11 @@ function makeStyles(c: ThemeColors) {
       justifyContent: 'center',
     },
     cardText: { flex: 1 },
-    cardTitle: { color: c.text, fontWeight: '700', fontSize: rs(14) },
+    cardTitle: { color: c.text, fontWeight: '700', fontSize: rs(15) },
     cardDesc: {
       color: c.textSecondary,
       fontSize: rs(12),
-      marginTop: rs(3),
+      marginTop: rs(4),
       lineHeight: rs(16),
     },
   });

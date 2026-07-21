@@ -17,8 +17,20 @@ export type RootStackParamList = {
   AddCapital: undefined;
   BankDetail: undefined;
   CurrentIpoStatus: { mode?: 'status' | 'result' } | undefined;
+  IpoBulkStatus: undefined;
+  AllIpoStatus: undefined;
+  IpoStatusDetail: {
+    accountId: string;
+    report: import('../services/meroshare/types').ApplicationReportRow;
+  };
   PublicIpoResult: undefined;
-  NepseData: undefined;
+  NepseData:
+    | {
+        tab?: 'summary' | 'live' | 'movers' | 'today';
+        query?: string;
+        openSearch?: boolean;
+      }
+    | undefined;
   NepseCalendar: undefined;
   Portfolio: undefined;
   PortfolioDetail: { portfolioId: string };
@@ -36,10 +48,15 @@ export type RootStackParamList = {
   IpoIssues: { mode: 'current' | 'upcoming' };
   MeroshareWeb: undefined;
   AccountExpiry: undefined;
+  ChangePassword: undefined;
   Subscription: undefined;
+  AboutCompany: undefined;
+  TeamMembers: undefined;
+  Legal: { kind: 'terms' | 'privacy' };
   AdminLogin: undefined;
   AdminDashboard: undefined;
   AdminSettings: undefined;
+  AdminTeam: undefined;
   AdminForgotPassword: undefined;
   AppSettings: undefined;
   FeedbackForm: { kind: 'feedback' | 'feature_request' };

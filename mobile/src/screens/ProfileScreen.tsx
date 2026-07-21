@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   Share,
@@ -19,8 +21,16 @@ import { ChangePinModal } from '../components/ChangePinModal';
 import { DeleteAccountModal } from '../components/DeleteAccountModal';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import { useSubscription } from '../context/SubscriptionContext';
+import { useAccounts } from '../context/AccountsContext';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { accountLimitForPlan } from '../storage/subscriptionStorage';
+import {
+  exportAccountsFile,
+  parseImportedAccounts,
+  pickAccountsFile,
+  toLinkedDraft,
+} from '../services/accounts/backup';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
@@ -132,12 +142,15 @@ export function ProfileScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { isPremium, daysLeft, isPending } = useSubscription();
+  const { accounts, addAccount } = useAccounts();
   const auth = useAuth();
   const { colors, isDark, toggle } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [changePinOpen, setChangePinOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [publicSettings, setPublicSettings] = useState<PublicAppSettings | null>(null);
 
   useEffect(() => {
@@ -170,6 +183,120 @@ export function ProfileScreen() {
     navigation.navigate('FeedbackForm', { kind: 'feature_request' });
   };
 
+  const handleImport = async () => {
+    setOptionsOpen(false);
+    try {
+      setBusy('Reading file…');
+      const file = await pickAccountsFile();
+      if (!file) {
+        setBusy(null);
+        return;
+      }
+      const parsed = parseImportedAccounts(file.content);
+      if (!parsed.length) {
+        Alert.alert(
+          'Nothing to import',
+          'No accounts were found in that file. Use columns: Name, DP, Username.',
+        );
+        setBusy(null);
+        return;
+      }
+
+      const existing = new Set(
+        accounts.map(
+          (a) => `${(a.dpCode ?? a.dpId ?? '').trim()}:${a.username.trim().toLowerCase()}`,
+        ),
+      );
+      const max = accountLimitForPlan(isPremium);
+      let added = 0;
+      let skippedDup = 0;
+      let skippedLimit = 0;
+
+      for (const acc of parsed) {
+        const key = `${(acc.dpCode ?? acc.dpId).trim()}:${acc.username.trim().toLowerCase()}`;
+        if (existing.has(key)) {
+          skippedDup++;
+          continue;
+        }
+        if (accounts.length + added >= max) {
+          skippedLimit++;
+          continue;
+        }
+        setBusy(`Importing ${acc.name}…`);
+        await addAccount(toLinkedDraft(acc));
+        existing.add(key);
+        added++;
+      }
+
+      setBusy(null);
+      const parts = [`${added} account${added === 1 ? '' : 's'} imported.`];
+      if (skippedDup) parts.push(`${skippedDup} already existed.`);
+      if (skippedLimit)
+        parts.push(
+          `${skippedLimit} skipped — plan limit of ${max} reached.`,
+        );
+      parts.push(
+        '\nAdd the password, CRN and PIN for each account before applying.',
+      );
+      Alert.alert('Import complete', parts.join(' '));
+    } catch (e) {
+      setBusy(null);
+      Alert.alert(
+        'Import failed',
+        e instanceof Error ? e.message : 'Could not import that file.',
+      );
+    }
+  };
+
+  const handleExport = async () => {
+    setOptionsOpen(false);
+    if (!accounts.length) {
+      Alert.alert('Nothing to export', 'You have no saved accounts yet.');
+      return;
+    }
+    try {
+      setBusy('Preparing backup…');
+      await exportAccountsFile(accounts, 'json');
+    } catch (e) {
+      Alert.alert(
+        'Export failed',
+        e instanceof Error ? e.message : 'Could not export accounts.',
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const optionItems: {
+    label: string;
+    hint: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    color: string;
+    onPress: () => void;
+  }[] = [
+    {
+      label: 'Import from Excel',
+      hint: 'Add accounts from a .csv / Excel file',
+      icon: 'grid-outline',
+      color: '#2E7D32',
+      onPress: () => void handleImport(),
+    },
+    {
+      label: 'Import',
+      hint: 'Restore accounts from a backup file',
+      icon: 'download-outline',
+      color: '#1565C0',
+      onPress: () => void handleImport(),
+    },
+    {
+      label: 'Export',
+      hint: 'Save your accounts to a backup file',
+      icon: 'share-outline',
+      color: '#EF6C00',
+      onPress: () => void handleExport(),
+    },
+  ];
+
   return (
     <View style={styles.root}>
       <AppHeader
@@ -177,6 +304,7 @@ export function ProfileScreen() {
         title="NEPSE GHAR"
         showLogo={false}
         showActions
+        onOptionsPress={() => setOptionsOpen(true)}
       />
       {isDark ? <PromoBanner /> : null}
 
@@ -312,6 +440,53 @@ export function ProfileScreen() {
           ))}
         </View>
 
+        <Text style={styles.sectionOutside}>About</Text>
+        <View style={styles.card}>
+          <Pressable
+            style={styles.row}
+            onPress={() => navigation.navigate('AboutCompany')}
+          >
+            <View style={[styles.rowIcon, { backgroundColor: '#B2DFDB' }]}>
+              <Ionicons name="business-outline" size={rs(18)} color="#00695C" />
+            </View>
+            <Text style={styles.rowLabel}>About Company</Text>
+            <Ionicons name="chevron-forward" size={rs(16)} color={colors.textDim} />
+          </Pressable>
+          <View style={[styles.divider, { backgroundColor: colors.borderMuted }]} />
+          <Pressable
+            style={styles.row}
+            onPress={() => navigation.navigate('TeamMembers')}
+          >
+            <View style={[styles.rowIcon, { backgroundColor: '#FFE0B2' }]}>
+              <Ionicons name="people-outline" size={rs(18)} color="#EF6C00" />
+            </View>
+            <Text style={styles.rowLabel}>Team Member Profile</Text>
+            <Ionicons name="chevron-forward" size={rs(16)} color={colors.textDim} />
+          </Pressable>
+          <View style={[styles.divider, { backgroundColor: colors.borderMuted }]} />
+          <Pressable
+            style={styles.row}
+            onPress={() => navigation.navigate('Legal', { kind: 'terms' })}
+          >
+            <View style={[styles.rowIcon, { backgroundColor: '#C5CAE9' }]}>
+              <Ionicons name="document-text-outline" size={rs(18)} color="#283593" />
+            </View>
+            <Text style={styles.rowLabel}>Terms & Conditions</Text>
+            <Ionicons name="chevron-forward" size={rs(16)} color={colors.textDim} />
+          </Pressable>
+          <View style={[styles.divider, { backgroundColor: colors.borderMuted }]} />
+          <Pressable
+            style={styles.row}
+            onPress={() => navigation.navigate('Legal', { kind: 'privacy' })}
+          >
+            <View style={[styles.rowIcon, { backgroundColor: '#B2EBF2' }]}>
+              <Ionicons name="shield-checkmark-outline" size={rs(18)} color="#00838F" />
+            </View>
+            <Text style={styles.rowLabel}>Privacy Policy</Text>
+            <Ionicons name="chevron-forward" size={rs(16)} color={colors.textDim} />
+          </Pressable>
+        </View>
+
         <Text style={styles.sectionOutside}>Connect With Us</Text>
         <Text style={styles.sectionHint}>{contact.companyName}</Text>
         <View style={styles.card}>
@@ -353,6 +528,54 @@ export function ProfileScreen() {
           </>
         ) : null}
       </ScrollView>
+
+      <Modal
+        visible={optionsOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOptionsOpen(false)}
+      >
+        <Pressable
+          style={styles.menuBackdrop}
+          onPress={() => setOptionsOpen(false)}
+        >
+          <View style={styles.menuSheet}>
+            <Text style={styles.menuTitle}>Accounts</Text>
+            {optionItems.map((item, index) => (
+              <View key={item.label}>
+                <Pressable style={styles.menuRow} onPress={item.onPress}>
+                  <View
+                    style={[styles.rowIcon, { backgroundColor: `${item.color}22` }]}
+                  >
+                    <Ionicons name={item.icon} size={rs(18)} color={item.color} />
+                  </View>
+                  <View style={styles.rowTextWrap}>
+                    <Text style={styles.rowLabel}>{item.label}</Text>
+                    <Text style={styles.rowDetail}>{item.hint}</Text>
+                  </View>
+                </Pressable>
+                {index < optionItems.length - 1 ? (
+                  <View
+                    style={[styles.divider, { backgroundColor: colors.borderMuted }]}
+                  />
+                ) : null}
+              </View>
+            ))}
+            <Text style={styles.menuNote}>
+              Backups never include your password, CRN or PIN.
+            </Text>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {busy ? (
+        <View style={styles.busyOverlay}>
+          <View style={styles.busyCard}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={styles.busyText}>{busy}</Text>
+          </View>
+        </View>
+      ) : null}
 
       <ChangePinModal
         visible={changePinOpen}
@@ -490,5 +713,59 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(12),
       marginTop: rs(2),
     },
+    menuBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'flex-start',
+      alignItems: 'flex-end',
+      paddingTop: rs(64),
+      paddingHorizontal: rs(12),
+    },
+    menuSheet: {
+      width: rs(280),
+      backgroundColor: c.surface,
+      borderRadius: rs(16),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(10),
+    },
+    menuTitle: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      fontWeight: '800',
+      letterSpacing: 0.6,
+      marginBottom: rs(4),
+      textTransform: 'uppercase',
+    },
+    menuRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(12),
+      paddingVertical: rs(12),
+    },
+    menuNote: {
+      color: c.textMuted,
+      fontSize: rs(10),
+      lineHeight: rs(14),
+      marginTop: rs(8),
+      marginBottom: rs(4),
+    },
+    busyOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    busyCard: {
+      backgroundColor: c.surface,
+      borderRadius: rs(14),
+      paddingHorizontal: rs(24),
+      paddingVertical: rs(20),
+      alignItems: 'center',
+      gap: rs(10),
+      minWidth: rs(180),
+    },
+    busyText: { color: c.text, fontSize: rs(13), fontWeight: '600' },
   });
 }

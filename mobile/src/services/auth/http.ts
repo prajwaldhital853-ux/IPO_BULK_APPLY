@@ -19,6 +19,28 @@ import { setActiveUserId } from '../../storage/userScope';
 export const SESSION_EXPIRED_MESSAGE =
   'Session expired. Please sign in with Google again.';
 
+/** Default network timeout — Render free tier can cold-start slowly. */
+const REQUEST_TIMEOUT_MS = 20_000;
+
+/**
+ * fetch() with a hard timeout. React Native's fetch never times out on its
+ * own, so a stalled socket (e.g. backend cold start) would hang forever and
+ * leave loading flags stuck. This guarantees the promise always settles.
+ */
+export async function fetchWithTimeout(
+  input: string,
+  init: RequestInit = {},
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 let refreshPromise: Promise<AuthSession | null> | null = null;
 
 function unauthorizedResponse(detail = SESSION_EXPIRED_MESSAGE): Response {
@@ -71,13 +93,13 @@ export async function authFetch(
   const headers = new Headers(init.headers);
   headers.set('Authorization', `Bearer ${token}`);
   headers.set('Accept', 'application/json');
-  let res = await fetch(`${AUTH_API_BASE}${path}`, { ...init, headers });
+  let res = await fetchWithTimeout(`${AUTH_API_BASE}${path}`, { ...init, headers });
   if (res.status === 401) {
     clearAccessToken();
     const session = await refreshSessionIfNeeded();
     if (!session?.accessToken) return unauthorizedResponse();
     headers.set('Authorization', `Bearer ${session.accessToken}`);
-    res = await fetch(`${AUTH_API_BASE}${path}`, { ...init, headers });
+    res = await fetchWithTimeout(`${AUTH_API_BASE}${path}`, { ...init, headers });
   }
   return res;
 }

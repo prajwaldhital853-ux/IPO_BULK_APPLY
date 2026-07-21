@@ -76,6 +76,8 @@ export type ResultAccountStatus = {
   appliedKitta?: number;
   /** Allotment outcome when available */
   allotmentStatus?: string;
+  /** Block amount / remarks from report detail */
+  remarks?: string;
 };
 
 export type PortfolioHoldingRow = {
@@ -96,6 +98,27 @@ export type ApplicationReportRow = {
   applicantFormId?: number;
   appliedKitta?: number;
   appliedDate?: string;
+};
+
+/** Full Application Report detail (MeroShare report/detail). */
+export type ApplicationReportDetail = {
+  companyShareId: number;
+  companyName: string;
+  scrip: string;
+  shareTypeName: string;
+  statusName: string;
+  applicantFormId?: number;
+  appliedKitta?: number;
+  /** Units actually allotted (only meaningful when allotted). */
+  allottedKitta?: number;
+  amount?: number | null;
+  bankName?: string;
+  branchName?: string;
+  accountNumber?: string;
+  /** 16-digit demat / BOID of the applicant. */
+  boid?: string;
+  appliedDate?: string;
+  remarks?: string;
 };
 
 export type BulkResultSummary = {

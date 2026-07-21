@@ -19,11 +19,32 @@ export type VerifyAccountResult = {
   boid?: string;
   demat?: string;
   bankName?: string;
+  /** Account holder name from MeroShare ownDetail */
+  accountHolderName?: string;
   /** How far verification got */
   stage?: 'login' | 'profile' | 'bank' | 'crn_pin' | 'complete';
   /** True when login/bank OK but CRN/PIN could not be live-checked (no open IPO) */
   crnPinDeferred?: boolean;
 };
+
+function pickAccountHolderName(me: Record<string, unknown>): string | undefined {
+  const keys = [
+    'name',
+    'accountName',
+    'clientName',
+    'fullName',
+    'accountHolderName',
+    'customerName',
+    'dematAccountName',
+  ];
+  for (const key of keys) {
+    const v = me[key];
+    if (typeof v === 'string' && v.trim().length >= 2) {
+      return v.trim();
+    }
+  }
+  return undefined;
+}
 
 function classifyLoginMessage(msg: string): VerifyField {
   const m = msg.toLowerCase();
@@ -185,6 +206,15 @@ export async function verifyAccountForSave(args: {
       };
     }
 
+    // Profile name from ownDetail (for display on Accounts list)
+    let accountHolderName: string | undefined;
+    try {
+      const me = await client.fetchOwnDetailRaw();
+      accountHolderName = pickAccountHolderName(me);
+    } catch {
+      // optional
+    }
+
     // 2) Profile / bank — MeroShare bank API is often flaky
     let bankName: string | undefined;
     let bankDeferred = false;
@@ -199,6 +229,7 @@ export async function verifyAccountForSave(args: {
           stage: 'bank',
           boid: session.boid,
           demat: session.demat,
+          accountHolderName,
         };
       }
       bankName = banks[0].name;
@@ -213,16 +244,19 @@ export async function verifyAccountForSave(args: {
           stage: 'bank',
           boid: session.boid,
           demat: session.demat,
+          accountHolderName,
         };
       }
       // Transient CDSC outage — still allow save; confirm CRN/PIN on first live apply
       bankDeferred = true;
       try {
         const me = await client.fetchOwnDetailRaw();
+        if (!accountHolderName) {
+          accountHolderName = pickAccountHolderName(me);
+        }
         const fromProfile =
           (typeof me.bankName === 'string' && me.bankName) ||
           (typeof me.bank === 'string' && me.bank) ||
-          (typeof me.accountName === 'string' && me.accountName) ||
           null;
         if (fromProfile) bankName = fromProfile;
       } catch {
@@ -240,6 +274,7 @@ export async function verifyAccountForSave(args: {
         boid: session.boid,
         demat: session.demat,
         bankName,
+        accountHolderName,
         crnPinDeferred: true,
       };
     }
@@ -261,6 +296,7 @@ export async function verifyAccountForSave(args: {
         boid: session.boid,
         demat: session.demat,
         bankName,
+        accountHolderName,
       };
     }
     if (probe.kind === 'crn') {
@@ -272,6 +308,7 @@ export async function verifyAccountForSave(args: {
         boid: session.boid,
         demat: session.demat,
         bankName,
+        accountHolderName,
       };
     }
     if (probe.kind === 'impossible') {
@@ -283,6 +320,7 @@ export async function verifyAccountForSave(args: {
         boid: session.boid,
         demat: session.demat,
         bankName,
+        accountHolderName,
       };
     }
     if (probe.kind === 'skipped' || probe.kind === 'no_window') {
@@ -294,6 +332,7 @@ export async function verifyAccountForSave(args: {
         boid: session.boid,
         demat: session.demat,
         bankName,
+        accountHolderName,
         crnPinDeferred: true,
       };
     }
@@ -307,6 +346,7 @@ export async function verifyAccountForSave(args: {
       boid: session.boid,
       demat: session.demat,
       bankName,
+      accountHolderName,
       crnPinDeferred: false,
     };
   } finally {

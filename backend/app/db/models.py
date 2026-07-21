@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -119,6 +119,32 @@ class SiteSettings(Base):
     contact_facebook_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     contact_tiktok_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class TeamMember(Base):
+    """Team member profile shown in the app, managed from the admin panel."""
+
+    __tablename__ = 'team_members'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256), default='')
+    role: Mapped[str] = mapped_column(String(128), default='')
+    bio: Mapped[str] = mapped_column(Text, default='')
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    whatsapp: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    accent: Mapped[str] = mapped_column(String(16), default='#42A5F5')
+    photo_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    photo_mime: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

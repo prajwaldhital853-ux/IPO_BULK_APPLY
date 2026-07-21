@@ -28,6 +28,8 @@ export const PATHS = {
   navigation: '/api/meroShare/navigation/',
   reportDetail: (applicantFormId: number | string) =>
     `/api/meroShare/applicantForm/report/detail/${applicantFormId}`,
+  /** POST { oldPassword, newPassword, confirmPassword } */
+  changePassword: '/api/meroShare/changePassword/',
 } as const;
 
 /**

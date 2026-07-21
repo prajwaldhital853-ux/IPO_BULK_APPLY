@@ -81,15 +81,15 @@ function buildSections(): Section[] {
       title: 'MeroShare Services',
       variant: 'mero',
       items: [
-        { id: 'bulk-portfolio', label: 'Bulk Portfolio', iconSet: 'ion', iconName: 'albums-outline', accent: '#42A5F5', route: 'BulkPortfolio' },
-        { id: 'bulk-status', label: 'Bulk IPO Status', badge: 'UPDATED', iconSet: 'ion', iconName: 'time-outline', accent: '#42A5F5', route: 'CurrentIpoStatus' },
+        { id: 'bulk-portfolio', label: 'Bulk Portfolio Check', iconSet: 'ion', iconName: 'albums-outline', accent: '#42A5F5', route: 'BulkPortfolio' },
+        { id: 'bulk-status', label: 'Bulk IPO Status', badge: 'UPDATED', iconSet: 'ion', iconName: 'time-outline', accent: '#42A5F5', route: 'IpoBulkStatus' },
         { id: 'current-status', label: 'Current IPO Status', badge: 'UPDATED', iconSet: 'ion', iconName: 'search', accent: '#7E57C2', route: 'CurrentIpoStatus' },
         { id: 'auto-ipo', label: 'Auto IPO', badge: 'NEW', iconSet: 'ion', iconName: 'flash', accent: '#FDD835', route: 'ApplyTab' },
         { id: 'current-issues', label: 'Current Issues', iconSet: 'mci', iconName: 'file-document-outline', accent: '#66BB6A', route: 'IpoIssuesCurrent' },
         { id: 'upcoming', label: 'Upcoming Issues', badge: 'UPDATED', iconSet: 'ion', iconName: 'calendar-outline', accent: '#F48FB1', route: 'IpoIssuesUpcoming' },
         { id: 'meroshare-web', label: 'MeroShare Web', iconSet: 'ion', iconName: 'globe-outline', accent: '#26A69A', route: 'MeroshareWeb' },
         { id: 'bulk-result', label: 'Bulk IPO Result', iconSet: 'ion', iconName: 'checkmark-done-circle-outline', accent: '#66BB6A', route: 'CheckTab' },
-        { id: 'change-password', label: 'Change Password', iconSet: 'ion', iconName: 'key-outline', accent: '#FF7043' },
+        { id: 'change-password', label: 'Change Password', iconSet: 'ion', iconName: 'key-outline', accent: '#FF7043', route: 'ChangePassword' },
         { id: 'account-expiry', label: 'Account Expiry Status', iconSet: 'ion', iconName: 'hourglass-outline', accent: '#EC407A', route: 'AccountExpiry' },
       ],
     },
@@ -138,7 +138,7 @@ function buildSections(): Section[] {
         { id: 'forex', label: 'Forex Data', iconSet: 'mci', iconName: 'currency-usd', accent: '#66BB6A', route: 'ExtraTool', extraKind: 'forex' },
         { id: 'fuel', label: 'Fuel Price', badge: 'NEW', iconSet: 'ion', iconName: 'flash', accent: '#FFA726', route: 'ExtraTool', extraKind: 'fuel' },
         { id: 'gold-silver', label: 'Gold & Silver Price', badge: 'NEW', iconSet: 'mci', iconName: 'gold', accent: '#EC407A', route: 'ExtraTool', extraKind: 'gold-silver' },
-        { id: 'calculator', label: 'Calculator', badge: 'NEW', iconSet: 'ion', iconName: 'calculator-outline', accent: '#7E57C2', route: 'Calculator' },
+        { id: 'calculator', label: 'Share Calculator', badge: 'NEW', iconSet: 'ion', iconName: 'calculator-outline', accent: '#7E57C2', route: 'Calculator' },
       ],
     },
   ];
@@ -342,6 +342,10 @@ export function ServicesScreen() {
       navigation.navigate('CurrentIpoStatus');
       return;
     }
+    if (item.route === 'IpoBulkStatus') {
+      navigation.navigate('IpoBulkStatus');
+      return;
+    }
     if (item.route === 'NepseData') {
       navigation.navigate('NepseData');
       return;
@@ -396,6 +400,10 @@ export function ServicesScreen() {
     }
     if (item.route === 'AccountExpiry') {
       navigation.navigate('AccountExpiry');
+      return;
+    }
+    if (item.route === 'ChangePassword') {
+      navigation.navigate('ChangePassword');
       return;
     }
     if (item.route === 'InvestmentSummary') {

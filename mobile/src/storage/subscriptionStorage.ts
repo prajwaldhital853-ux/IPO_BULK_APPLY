@@ -52,7 +52,7 @@ export function subscriptionDaysLeft(
 /** Demo / manual activation until Play Store billing is wired. */
 export async function activatePremiumDays(
   days: number,
-  productId = 'premium_monthly',
+  productId = 'premium_6month',
 ): Promise<SubscriptionState> {
   const now = new Date();
   const expires = new Date(now.getTime() + days * 86_400_000);
@@ -128,14 +128,25 @@ export async function clearPremiumCache(): Promise<void> {
   await AsyncStorage.removeItem(CACHE_KEY);
 }
 
+/** Free plan account cap. Paid plans unlock more. */
+export const FREE_ACCOUNT_LIMIT = 10;
+export const PREMIUM_ACCOUNT_LIMIT = 50;
+
+export function accountLimitForPlan(isPremium: boolean): number {
+  return isPremium ? PREMIUM_ACCOUNT_LIMIT : FREE_ACCOUNT_LIMIT;
+}
+
 export const PREMIUM_PLANS = [
   {
-    id: 'premium_monthly',
-    title: 'Premium Monthly',
-    price: 'Rs 299',
-    period: '30 days',
-    days: 30,
+    id: 'premium_6month',
+    title: 'Premium 6 Months',
+    price: 'Rs 300',
+    period: '6 months',
+    days: 180,
+    maxAccounts: PREMIUM_ACCOUNT_LIMIT,
     perks: [
+      `Add up to ${PREMIUM_ACCOUNT_LIMIT} MeroShare accounts`,
+      'Bulk IPO apply & result check',
       'Investment Summary across portfolios',
       'Aggressive Holders & smart-money signals',
       'Live Market Pulse dashboard',
@@ -143,23 +154,20 @@ export const PREMIUM_PLANS = [
       'Top Buyers, Sellers, Holders & Releases',
       'Broker Favorites & Top Buy/Sell intel',
       '52 Week High / Low advanced screener',
-      'Small Caps, Rising Stocks & Price Droppers',
-      'Value Pick, Unlock Period & sector leaders',
-      'Hydropower, Microfinance, Dev & Finance leaders',
-      'Strong Reserves, High Earners & Stock Filter',
       'Financial Reports, Floor Sheet & Market Depth',
-      'Live 20s refresh on all premium screeners',
     ],
   },
   {
     id: 'premium_yearly',
     title: 'Premium Yearly',
-    price: 'Rs 2,499',
-    period: '365 days',
+    price: 'Rs 500',
+    period: '1 year',
     days: 365,
+    maxAccounts: PREMIUM_ACCOUNT_LIMIT,
     perks: [
-      'Everything in Monthly',
-      'Best value — save ~30%',
+      `Add up to ${PREMIUM_ACCOUNT_LIMIT} MeroShare accounts`,
+      'Everything in 6 Months plan',
+      'Best value — only Rs 500 / year',
       'Priority data refresh',
     ],
   },

@@ -20,6 +20,8 @@ type Props = {
   showLogo?: boolean;
   onCalendarPress?: () => void;
   onNewsPress?: () => void;
+  /** When set, shows a 3-dot options button in the actions row. */
+  onOptionsPress?: () => void;
 };
 
 export function AppHeader({
@@ -32,6 +34,7 @@ export function AppHeader({
   showLogo = false,
   onCalendarPress,
   onNewsPress,
+  onOptionsPress,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -93,6 +96,34 @@ export function AppHeader({
         {right ??
           (showActions ? (
             <View style={styles.actions}>
+              {onOptionsPress ? (
+                <Pressable
+                  onPress={onOptionsPress}
+                  hitSlop={8}
+                  style={styles.actionItem}
+                  accessibilityRole="button"
+                  accessibilityLabel="More options"
+                >
+                  <View
+                    style={[
+                      styles.newsWrap,
+                      {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="ellipsis-vertical"
+                      size={rs(18)}
+                      color={colors.text}
+                    />
+                  </View>
+                  <Text style={[styles.actionLabel, { color: colors.textMuted }]}>
+                    More
+                  </Text>
+                </Pressable>
+              ) : null}
               <Pressable
                 onPress={openCalendar}
                 hitSlop={8}

@@ -3,6 +3,8 @@ import { getSecrets } from '../../storage/accountsStorage';
 import { MeroshareClient } from './client';
 import { MeroshareError } from './errors';
 import type {
+  ApplicationReportDetail,
+  ApplicationReportRow,
   BulkResultSummary,
   OpenIssue,
   ResultAccountStatus,
@@ -86,6 +88,7 @@ export async function runBulkResultCheck(
         companyName: opts.issue.companyName,
         appliedKitta: res.appliedKitta,
         allotmentStatus: res.allotmentStatus,
+        remarks: res.remarks,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
@@ -133,14 +136,15 @@ export async function loadCheckableIssuesForUi(
   issues: OpenIssue[];
   source: 'mixed' | 'reports' | 'open' | 'empty';
   reportCount: number;
+  reports: ApplicationReportRow[];
 }> {
   if (!account) {
-    return { issues: [], source: 'empty', reportCount: 0 };
+    return { issues: [], source: 'empty', reportCount: 0, reports: [] };
   }
 
   const secrets = await getSecrets(account.id);
   if (!secrets?.password) {
-    return { issues: [], source: 'empty', reportCount: 0 };
+    return { issues: [], source: 'empty', reportCount: 0, reports: [] };
   }
 
   const client = new MeroshareClient();
@@ -193,9 +197,62 @@ export async function loadCheckableIssuesForUi(
             ? 'open'
             : 'reports';
 
-    return { issues, source, reportCount: reports.length };
+    return { issues, source, reportCount: reports.length, reports };
   } catch {
-    return { issues: [], source: 'empty', reportCount: 0 };
+    return { issues: [], source: 'empty', reportCount: 0, reports: [] };
+  } finally {
+    client.clearSession();
+  }
+}
+
+/**
+ * Load Application Report detail for IPO Status details screen.
+ */
+export async function loadApplicationReportDetailForUi(
+  account: AccountMeta,
+  report: ApplicationReportRow,
+): Promise<ApplicationReportDetail> {
+  const secrets = await getSecrets(account.id);
+  if (!secrets?.password) {
+    throw new MeroshareError('AUTH', 'Account password missing');
+  }
+
+  const client = new MeroshareClient();
+  try {
+    await client.login({
+      clientId: account.dpId,
+      dpCode: account.dpCode,
+      username: account.username,
+      password: secrets.password,
+    });
+
+    if (report.applicantFormId != null) {
+      const detail = await client.getApplicationReportDetail(
+        report.applicantFormId,
+        report,
+      );
+      // Fall back to the saved account info when CDSC omits bank / BOID.
+      return {
+        ...detail,
+        bankName: detail.bankName || account.bankName,
+        boid: detail.boid || account.demat,
+      };
+    }
+
+    return {
+      companyShareId: report.companyShareId,
+      companyName: report.companyName,
+      scrip: report.scrip,
+      shareTypeName: report.shareTypeName,
+      statusName: report.statusName,
+      applicantFormId: report.applicantFormId,
+      appliedKitta: report.appliedKitta,
+      amount:
+        report.appliedKitta != null ? report.appliedKitta * 100 : null,
+      bankName: account.bankName,
+      boid: account.demat,
+      appliedDate: report.appliedDate,
+    };
   } finally {
     client.clearSession();
   }

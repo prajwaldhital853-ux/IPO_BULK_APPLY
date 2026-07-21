@@ -13,6 +13,7 @@ import {
   loadAccountMeta,
   patchAccountMeta,
   removeAccountFully,
+  reorderAccountMeta,
 } from '../storage/accountsStorage';
 import type { AccountMeta, DraftCapital, LinkedAccount } from '../types/account';
 import { useAuth } from './AuthContext';
@@ -26,6 +27,7 @@ type AccountsContextValue = {
   addAccount: (account: Omit<LinkedAccount, 'id'>) => Promise<void>;
   removeAccount: (id: string) => Promise<void>;
   clearAll: () => Promise<void>;
+  reorderAccounts: (orderedIds: string[]) => Promise<void>;
   updateAccountMeta: (
     id: string,
     patch: Partial<Omit<AccountMeta, 'id'>>,
@@ -74,6 +76,10 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     setAccounts([]);
   }, []);
 
+  const reorderAccounts = useCallback(async (orderedIds: string[]) => {
+    setAccounts(await reorderAccountMeta(orderedIds));
+  }, []);
+
   const updateAccountMeta = useCallback(
     async (id: string, patch: Partial<Omit<AccountMeta, 'id'>>) => {
       setAccounts(await patchAccountMeta(id, patch));
@@ -95,6 +101,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       addAccount,
       removeAccount,
       clearAll,
+      reorderAccounts,
       updateAccountMeta,
       loadSecrets,
     }),
@@ -106,6 +113,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       addAccount,
       removeAccount,
       clearAll,
+      reorderAccounts,
       updateAccountMeta,
       loadSecrets,
     ],

@@ -11,6 +11,7 @@ export type ImportedHolding = {
   /** MeroShare has no WACC/cost price — seeded from last transaction price. */
   wacc: number;
   ltp: number | null;
+  previousClosingPrice: number | null;
 };
 
 export type ImportResult = {
@@ -63,6 +64,7 @@ export async function importPortfolioFromMeroshare(
       qty: r.quantity,
       wacc: price,
       ltp: r.lastTransactionPrice,
+      previousClosingPrice: r.previousClosingPrice,
     };
   });
 

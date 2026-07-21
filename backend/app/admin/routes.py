@@ -37,9 +37,18 @@ from .schemas import (
     AdminUserRow,
     FeedbackRowOut,
     FeedbackStatusIn,
+    TeamMemberIn,
+    TeamMemberOut,
 )
 from ..emailer import EmailNotConfiguredError
 from ..feedback import list_feedback, update_feedback_status
+from ..team import (
+    create_team_member,
+    delete_team_member,
+    list_team_members,
+    photo_public_path,
+    update_team_member,
+)
 from ..public_settings import _contact_out, _payment_out
 from ..site_settings import (
     get_or_create_settings,
@@ -355,6 +364,100 @@ async def admin_update_feedback(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return FeedbackRowOut.model_validate(row)
+
+
+def _team_out(row) -> TeamMemberOut:  # noqa: ANN001
+    return TeamMemberOut(
+        id=row.id,
+        name=row.name,
+        role=row.role,
+        bio=row.bio,
+        email=row.email or None,
+        whatsapp=row.whatsapp or None,
+        accent=row.accent,
+        photoUrl=photo_public_path(row),
+        sortOrder=row.sort_order,
+    )
+
+
+@router.get('/team', response_model=list[TeamMemberOut])
+async def admin_list_team(
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[TeamMemberOut]:
+    rows = await list_team_members(db)
+    return [_team_out(r) for r in rows]
+
+
+@router.post('/team', response_model=TeamMemberOut)
+async def admin_create_team(
+    body: TeamMemberIn,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> TeamMemberOut:
+    try:
+        row = await create_team_member(
+            db,
+            name=body.name,
+            role=body.role,
+            bio=body.bio,
+            email=body.email,
+            whatsapp=body.whatsapp,
+            accent=body.accent,
+            sort_order=body.sort_order,
+            photo_base64=body.photo_base64,
+            photo_mime=None,
+        )
+        await db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await db.refresh(row)
+    return _team_out(row)
+
+
+@router.put('/team/{member_id}', response_model=TeamMemberOut)
+async def admin_update_team(
+    member_id: str,
+    body: TeamMemberIn,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> TeamMemberOut:
+    try:
+        row = await update_team_member(
+            db,
+            member_id,
+            name=body.name,
+            role=body.role,
+            bio=body.bio,
+            email=body.email,
+            whatsapp=body.whatsapp,
+            accent=body.accent,
+            sort_order=body.sort_order,
+            photo_base64=body.photo_base64,
+            photo_mime=None,
+            clear_photo=body.clear_photo,
+        )
+        await db.commit()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await db.refresh(row)
+    return _team_out(row)
+
+
+@router.delete('/team/{member_id}')
+async def admin_delete_team(
+    member_id: str,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    try:
+        await delete_team_member(db, member_id)
+        await db.commit()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {'ok': True}
 
 
 @router.get('/stats', response_model=AdminDashboardStats)

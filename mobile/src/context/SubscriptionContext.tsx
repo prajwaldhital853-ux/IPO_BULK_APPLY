@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useAuth } from './AuthContext';
 import {
+  accountLimitForPlan,
   cachePremiumFromServer,
   isPremiumActive,
   loadSubscription,
@@ -22,6 +23,8 @@ type SubscriptionContextValue = {
   isPremium: boolean;
   isPending: boolean;
   daysLeft: number | null;
+  /** Max MeroShare accounts allowed for current plan (10 free / 50 premium). */
+  maxAccounts: number;
   refresh: () => Promise<void>;
   requestPlan: (planId: string, paymentNote?: string) => Promise<void>;
   cancelPending: () => Promise<void>;
@@ -68,6 +71,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   });
   const [serverStatus, setServerStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  // True once the very first status load has completed. After that, refreshes
+  // run silently so returning to foreground never blanks premium screens
+  // (PremiumGate only shows nothing while loading is true).
+  const initializedRef = useRef(false);
 
   const applyServerStatus = useCallback(async (status: SubscriptionStatus) => {
     setServerStatus(status);
@@ -80,7 +87,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    // Only gate the UI on the initial load. Later refreshes (foreground,
+    // expiry timer) stay silent so already-rendered screens don't blank if
+    // the network is slow.
+    if (!initializedRef.current) setLoading(true);
     try {
       if (auth.enabled && auth.isAuthenticated) {
         const me = await auth.refreshProfile();
@@ -116,6 +126,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         setState(local);
       }
     } finally {
+      initializedRef.current = true;
       setLoading(false);
     }
   }, [
@@ -259,6 +270,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       isPremium,
       isPending,
       daysLeft: subscriptionDaysLeft(state),
+      maxAccounts: accountLimitForPlan(isPremium),
       refresh,
       requestPlan,
       cancelPending,

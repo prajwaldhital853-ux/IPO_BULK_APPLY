@@ -19,7 +19,7 @@ async function loadGoogleSignIn(): Promise<GoogleSignInModule> {
   if (googleModule) return googleModule;
   if (isExpoGo()) {
     throw new Error(
-      'Google sign-in does not work in Expo Go. Install the preview APK or run: npx expo run:android',
+      'Native Google sign-in needs a preview APK. In Expo Go the browser sign-in path is used instead — run: npm run start:go',
     );
   }
   googleModule = await import('@react-native-google-signin/google-signin');
@@ -40,7 +40,7 @@ export async function ensureGoogleSignInConfigured(): Promise<void> {
 export async function signInWithGoogleNative(): Promise<string> {
   if (isExpoGo()) {
     throw new Error(
-      'Google sign-in does not work in Expo Go. Install the preview APK or run: npx expo run:android',
+      'Native Google sign-in needs a preview APK. In Expo Go the browser sign-in path is used instead — run: npm run start:go',
     );
   }
   if (!GOOGLE_WEB_CLIENT_ID) {

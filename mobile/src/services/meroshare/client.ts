@@ -9,6 +9,7 @@ import {
   readAuthToken,
 } from './http';
 import type {
+  ApplicationReportDetail,
   ApplicationReportRow,
   ApplyRequest,
   CaptchaPayload,
@@ -316,6 +317,51 @@ export class MeroshareClient {
       auth: true,
     });
     return data ?? {};
+  }
+
+  /**
+   * Change MeroShare login password for the current session.
+   * Tries the primary path; some CDSC builds use a slight variant.
+   */
+  async changePassword(args: {
+    oldPassword: string;
+    newPassword: string;
+    confirmPassword: string;
+  }): Promise<void> {
+    if (!this.session) {
+      throw new MeroshareError('AUTH', 'Not logged in');
+    }
+    const body = JSON.stringify({
+      oldPassword: args.oldPassword,
+      newPassword: args.newPassword,
+      confirmPassword: args.confirmPassword,
+    });
+    const paths = [
+      PATHS.changePassword,
+      '/api/meroShare/auth/changePassword/',
+      '/api/meroShare/user/changePassword/',
+    ];
+    let lastErr: unknown;
+    for (const path of paths) {
+      try {
+        await this.request(path, { method: 'POST', auth: true, body });
+        return;
+      } catch (e) {
+        lastErr = e;
+        const msg = e instanceof Error ? e.message : String(e);
+        // Auth / validation errors are final — don't try alternate paths
+        if (
+          /old password|incorrect|invalid|mismatch|minimum|maximum|lowercase|length/i.test(
+            msg,
+          )
+        ) {
+          throw e;
+        }
+      }
+    }
+    throw lastErr instanceof Error
+      ? lastErr
+      : new MeroshareError('API', 'Could not change password');
   }
 
   /**
@@ -770,6 +816,7 @@ export class MeroshareClient {
     dryRun: boolean;
     appliedKitta?: number;
     allotmentStatus?: string;
+    remarks?: string;
   }> {
     if (opts.dryRun === true || this.session?.token.startsWith('sim_')) {
       return {
@@ -798,9 +845,11 @@ export class MeroshareClient {
     const statusName = String(
       match.statusName ?? match.status ?? match.applicantStage ?? 'UNKNOWN',
     );
-    const appliedKitta =
+    let kitta =
       match.appliedKitta != null ? Number(match.appliedKitta) : undefined;
+    if (kitta != null && Number.isNaN(kitta)) kitta = undefined;
     let allotmentStatus: string | undefined;
+    let remarks: string | undefined;
 
     const formId = match.applicantFormId ?? match.id;
     if (
@@ -808,33 +857,64 @@ export class MeroshareClient {
       /TRANSACTION_SUCCESS|APPROVED|ALLOT|WAIT/i.test(statusName)
     ) {
       try {
-        const detail = await this.request<{
-          statusName?: string;
-          stageName?: string;
-          reasonOrRemark?: string;
-          meroshareRemark?: string;
-        }>(PATHS.reportDetail(Number(formId)), { method: 'GET', auth: true });
-        allotmentStatus = String(
-          detail.statusName ?? detail.stageName ?? '',
-        ).trim() || undefined;
+        const detail = await this.request<Record<string, unknown>>(
+          PATHS.reportDetail(Number(formId)),
+          { method: 'GET', auth: true },
+        );
+        allotmentStatus =
+          String(detail.statusName ?? detail.stageName ?? '').trim() ||
+          undefined;
+        remarks =
+          String(
+            detail.reasonOrRemark ??
+              detail.meroshareRemark ??
+              detail.blockAmountStatus ??
+              detail.remarks ??
+              '',
+          ).trim() || undefined;
+        const detailQty = nestedNumber(
+          detail,
+          'allottedQuantity',
+          'allottedKitta',
+          'appliedKitta',
+          'quantity',
+          'kitta',
+        );
+        if (kitta == null && detailQty != null) kitta = detailQty;
       } catch {
         // detail optional
       }
     }
 
     const label = humanizeApplicationStatus(statusName, allotmentStatus);
-    const kittaBit =
-      appliedKitta != null && !Number.isNaN(appliedKitta)
-        ? ` · ${appliedKitta} kitta`
-        : '';
-    const allotBit = allotmentStatus ? ` · allotment: ${allotmentStatus}` : '';
+    let message = label.message;
+    if (label.code === 'ALLOTTED') {
+      message =
+        kitta != null ? `Alloted ( quantity : ${kitta} )` : 'Alloted';
+    } else if (label.code === 'NOT_ALLOTTED') {
+      message =
+        kitta != null
+          ? `Not Alloted ( quantity : ${kitta} )`
+          : 'Not Alloted';
+    }
+
+    if (!remarks) {
+      if (/RELEASE/i.test(allotmentStatus ?? '') || /RELEASE/i.test(statusName)) {
+        remarks = 'Block Amount Status - Amount Released';
+      } else if (/BLOCK|HOLD|LOCK/i.test(allotmentStatus ?? statusName)) {
+        remarks = 'Block Amount Status - Amount Blocked';
+      } else if (label.code === 'ALLOTTED' || label.code === 'NOT_ALLOTTED') {
+        remarks = 'Block Amount Status - Amount Released';
+      }
+    }
 
     return {
       dryRun: false,
       status: label.code,
-      message: `${label.message}${kittaBit}${allotBit}`,
-      appliedKitta,
+      message,
+      appliedKitta: kitta,
       allotmentStatus,
+      remarks,
     };
   }
 
@@ -844,6 +924,30 @@ export class MeroshareClient {
    */
   async listApplicationReports(): Promise<ApplicationReportRow[]> {
     return this.listApplicationReportsDetailed();
+  }
+
+  /**
+   * Full Application Report detail for one applicant form (bank, amount, remarks…).
+   */
+  async getApplicationReportDetail(
+    formId: number,
+    fallback?: ApplicationReportRow,
+  ): Promise<ApplicationReportDetail> {
+    if (this.session?.token.startsWith('sim_')) {
+      return normalizeReportDetail({}, fallback);
+    }
+    if (!this.session) {
+      throw new MeroshareError('AUTH', 'Not logged in');
+    }
+    try {
+      const detail = await this.request<Record<string, unknown>>(
+        PATHS.reportDetail(formId),
+        { method: 'GET', auth: true },
+      );
+      return normalizeReportDetail(detail ?? {}, fallback);
+    } catch {
+      return normalizeReportDetail({}, fallback);
+    }
   }
 
   async listApplicationReportsDetailed(): Promise<ApplicationReportRow[]> {
@@ -1037,8 +1141,123 @@ function normalizeReportRow(row: Record<string, unknown>): ApplicationReportRow 
     ),
     applicantFormId,
     appliedKitta:
-      row.appliedKitta != null ? Number(row.appliedKitta) : undefined,
+      nestedNumber(
+        row,
+        'appliedKitta',
+        'appliedQuantity',
+        'kitta',
+        'quantity',
+        'allottedQuantity',
+        'allottedKitta',
+        'appliedShare',
+      ) ?? undefined,
     appliedDate: row.appliedDate ? String(row.appliedDate) : undefined,
+  };
+}
+
+function pickStr(
+  row: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const v = row[key];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+    if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  }
+  return undefined;
+}
+
+function normalizeReportDetail(
+  row: Record<string, unknown>,
+  fallback?: ApplicationReportRow,
+): ApplicationReportDetail {
+  const base = fallback
+    ? { ...fallback }
+    : normalizeReportRow(row);
+  const kitta =
+    row.appliedKitta != null
+      ? Number(row.appliedKitta)
+      : base.appliedKitta;
+  const amountRaw =
+    toNum(row.amount) ??
+    toNum(row.appliedAmount) ??
+    toNum(row.amountReceived) ??
+    toNum(row.blockAmount) ??
+    (kitta != null && !Number.isNaN(kitta) ? kitta * 100 : null);
+
+  const bank =
+    pickStr(row, 'bankName', 'bank', 'accountBankName') ??
+    (row.bank && typeof row.bank === 'object'
+      ? pickStr(row.bank as Record<string, unknown>, 'name', 'bankName')
+      : undefined);
+  const branch =
+    pickStr(
+      row,
+      'accountBranchName',
+      'branchName',
+      'branch',
+      'bankBranchName',
+      'branchNameEn',
+    ) ??
+    (row.accountBranch && typeof row.accountBranch === 'object'
+      ? pickStr(
+          row.accountBranch as Record<string, unknown>,
+          'name',
+          'branchName',
+        )
+      : undefined);
+
+  const boid = pickStr(row, 'boid', 'demat', 'dematNumber', 'dematAccountNumber');
+  const allotted = nestedNumber(
+    row,
+    'allottedKitta',
+    'allotedKitta',
+    'allottedQuantity',
+    'allotedQuantity',
+    'allotmentKitta',
+  );
+
+  return {
+    companyShareId: base.companyShareId,
+    companyName: pickStr(row, 'companyName', 'companyShareName', 'company') ??
+      base.companyName,
+    scrip: pickStr(row, 'scrip', 'companyCode', 'script') ?? base.scrip,
+    shareTypeName:
+      pickStr(row, 'shareTypeName', 'shareType') ?? base.shareTypeName,
+    statusName:
+      pickStr(
+        row,
+        'statusName',
+        'stageName',
+        'allotmentStatus',
+        'status',
+        'applicantStage',
+      ) ?? base.statusName,
+    applicantFormId: base.applicantFormId,
+    appliedKitta: kitta,
+    allottedKitta: allotted,
+    amount: amountRaw,
+    bankName: bank,
+    branchName: branch,
+    accountNumber: pickStr(
+      row,
+      'accountNumber',
+      'bankAccountNumber',
+      'accountNo',
+    ),
+    boid,
+    appliedDate:
+      pickStr(row, 'appliedDate', 'applicationDate', 'submittedDate') ??
+      base.appliedDate,
+    remarks: pickStr(
+      row,
+      'reasonOrRemark',
+      'meroshareRemark',
+      'remarks',
+      'remark',
+      'reason',
+      'blockAmountStatus',
+    ),
   };
 }
 

@@ -95,6 +95,27 @@ export function SubscriptionScreen() {
     }
   }, [auth]);
 
+  const showAuthActionError = useCallback(
+    (title: string, e: unknown) => {
+      const message = e instanceof Error ? e.message : 'Something went wrong';
+      const needsAuth =
+        message.includes('Session expired') ||
+        message.includes('sign in') ||
+        message.includes('Sign in');
+      Alert.alert(
+        title,
+        message,
+        needsAuth
+          ? [
+              { text: 'OK', style: 'cancel' },
+              { text: 'Sign in', onPress: () => void onSignIn() },
+            ]
+          : [{ text: 'OK' }],
+      );
+    },
+    [onSignIn],
+  );
+
   const onSubmit = useCallback(
     async (planId: string, title: string, price: string) => {
       if (needsSignIn) {
@@ -155,28 +176,7 @@ export function SubscriptionScreen() {
         ],
       );
     },
-    [needsSignIn, isPending, isPremium, paymentNote, requestPlan, onSignIn, showAuthActionError],
-  );
-
-  const showAuthActionError = useCallback(
-    (title: string, e: unknown) => {
-      const message = e instanceof Error ? e.message : 'Something went wrong';
-      const needsAuth =
-        message.includes('Session expired') ||
-        message.includes('sign in') ||
-        message.includes('Sign in');
-      Alert.alert(
-        title,
-        message,
-        needsAuth
-          ? [
-              { text: 'OK', style: 'cancel' },
-              { text: 'Sign in', onPress: () => void onSignIn() },
-            ]
-          : [{ text: 'OK' }],
-      );
-    },
-    [onSignIn],
+    [needsSignIn, isPending, isPremium, paymentNote, requestPlan, onSignIn, showAuthActionError, auth],
   );
 
   const onCancelPending = useCallback(async () => {
@@ -267,7 +267,9 @@ export function SubscriptionScreen() {
             </Text>
           ) : (
             <Text style={styles.heroSub}>
-              Pay via QR/bank transfer, send screenshot on WhatsApp, then submit here.
+              Free plan: up to 10 accounts. Premium: up to 50 accounts — Rs 300 /
+              6 months or Rs 500 / year. Pay via QR, send screenshot on WhatsApp,
+              then submit here.
             </Text>
           )}
         </View>
@@ -342,13 +344,31 @@ export function SubscriptionScreen() {
         ) : null}
 
         {!isPending
-          ? PREMIUM_PLANS.map((plan) => (
+          ? (
+            <>
+              <View style={styles.planCard}>
+                <View style={styles.planHead}>
+                  <Text style={styles.planTitle}>Free</Text>
+                  <Text style={styles.planPrice}>Rs 0</Text>
+                </View>
+                <Text style={styles.planPeriod}>
+                  Forever · up to 10 accounts
+                </Text>
+                <Text style={styles.perk}>✓ Add up to 10 MeroShare accounts</Text>
+                <Text style={styles.perk}>✓ Bulk IPO apply & basic tools</Text>
+                <Text style={styles.perk}>
+                  ✓ Upgrade anytime for 50 accounts + premium analytics
+                </Text>
+              </View>
+              {PREMIUM_PLANS.map((plan) => (
               <View key={plan.id} style={styles.planCard}>
                 <View style={styles.planHead}>
                   <Text style={styles.planTitle}>{plan.title}</Text>
                   <Text style={styles.planPrice}>{plan.price}</Text>
                 </View>
-                <Text style={styles.planPeriod}>{plan.period} full access</Text>
+                <Text style={styles.planPeriod}>
+                  {plan.period} · up to {plan.maxAccounts} accounts
+                </Text>
                 {plan.perks.slice(0, 4).map((p) => (
                   <Text key={p} style={styles.perk}>
                     ✓ {p}
@@ -374,7 +394,9 @@ export function SubscriptionScreen() {
                   </Pressable>
                 ) : null}
               </View>
-            ))
+            ))}
+            </>
+          )
           : null}
       </ScrollView>
     </View>

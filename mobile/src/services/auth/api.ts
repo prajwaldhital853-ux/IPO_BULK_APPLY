@@ -36,6 +36,21 @@ export type MeResponse = {
   premium: PremiumInfo;
 };
 
+/** fetch() with a hard timeout so a stalled backend never hangs auth calls. */
+async function timedFetch(
+  input: string,
+  init: RequestInit = {},
+  timeoutMs = 20_000,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function mapUser(raw: Record<string, unknown>): AuthUser {
   return {
     id: String(raw.id),
@@ -109,7 +124,7 @@ export async function authRefresh(
   refreshToken: string,
   baseUrl: string,
 ): Promise<AuthSession> {
-  const res = await fetch(`${baseUrl}/auth/refresh`, {
+  const res = await timedFetch(`${baseUrl}/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ refreshToken }),
@@ -136,7 +151,7 @@ export async function authLogout(
 }
 
 export async function authMe(accessToken: string, baseUrl: string): Promise<MeResponse> {
-  const res = await fetch(`${baseUrl}/auth/me`, {
+  const res = await timedFetch(`${baseUrl}/auth/me`, {
     headers: {
       Accept: 'application/json',
       Authorization: `Bearer ${accessToken}`,

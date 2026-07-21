@@ -11,8 +11,9 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MarketChartSection } from '../components/nepse/MarketChartSection';
 import { useTheme } from '../context/ThemeContext';
@@ -34,10 +35,10 @@ type MainTab = 'summary' | 'live' | 'movers' | 'today';
 type MoverTab = 'gainers' | 'losers' | 'turnovers' | 'transactions';
 
 const MAIN_TABS: { id: MainTab; label: string }[] = [
-  { id: 'summary', label: 'Overview' },
+  { id: 'summary', label: 'Summary' },
   { id: 'live', label: 'Live Market' },
   { id: 'movers', label: 'Market Movers' },
-  { id: 'today', label: "Today's Price" },
+  { id: 'today', label: "Today's Share Price" },
 ];
 
 const MOVER_TABS: { id: MoverTab; label: string }[] = [
@@ -106,20 +107,25 @@ function IndexPill({
   const pct = quote.pct;
   const tint = changeColor(ch, colors).color;
   const up = (ch ?? 0) >= 0;
-  const pillTint = up ? colors.accentGreen : colors.danger;
   return (
     <View style={styles.indexPill}>
-      <Text style={[styles.pillLabel, { color: pillTint }]}>{quote.name}</Text>
-      <Text style={[styles.pillSep, { color: pillTint }]}>|</Text>
-      <Text style={[styles.pillValue, { color: pillTint }]}>
-        {fmtNum(quote.current)}
-      </Text>
-      <Text style={[styles.pillChange, { color: tint }]}>
-        {ch != null ? `${ch >= 0 ? '+' : ''}${fmtNum(ch)}` : '—'}
-      </Text>
-      <Text style={[styles.pillPct, { color: tint }]}>
-        {pct != null ? `${pct >= 0 ? '+' : ''}${fmtNum(pct)}%` : ''}
-      </Text>
+      <Text style={styles.pillLabel}>{quote.name}</Text>
+      <Text style={styles.pillValue}>{fmtNum(quote.current)}</Text>
+      <View style={styles.pillChangeWrap}>
+        <Ionicons
+          name={up ? 'caret-up' : 'caret-down'}
+          size={rs(12)}
+          color={tint}
+        />
+        <Text style={[styles.pillChange, { color: tint }]}>
+          {ch != null ? `${ch >= 0 ? '+ ' : ''}${fmtNum(Math.abs(ch))}` : '—'}
+        </Text>
+        <Text style={[styles.pillPct, { color: tint }]}>
+          {pct != null
+            ? `${pct >= 0 ? '+ ' : ''}${fmtNum(Math.abs(pct))}%`
+            : ''}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -166,21 +172,31 @@ function ChangeCell({
   styles: ReturnType<typeof makeStyles>;
   pct?: boolean;
 }) {
-  const { color, icon } = changeColor(value, colors);
+  const { color } = changeColor(value, colors);
+  const up = (value ?? 0) > 0;
+  const down = (value ?? 0) < 0;
   const text =
     value == null
       ? '—'
       : `${value >= 0 ? '+' : ''}${fmtNum(value, pct ? 2 : 2)}${pct ? '%' : ''}`;
   return (
-    <Text style={[styles.changeCell, { color }]}>
-      {text} {icon}
-    </Text>
+    <View style={styles.changeCellRow}>
+      {up || down ? (
+        <Ionicons
+          name={up ? 'caret-up' : 'caret-down'}
+          size={rs(11)}
+          color={color}
+        />
+      ) : null}
+      <Text style={[styles.changeCell, { color }]}>{text}</Text>
+    </View>
   );
 }
 
 export function NepseDataScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'NepseData'>>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -189,10 +205,12 @@ export function NepseDataScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<MainTab>('summary');
+  const [tab, setTab] = useState<MainTab>(route.params?.tab ?? 'summary');
   const [moverTab, setMoverTab] = useState<MoverTab>('gainers');
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(
+    Boolean(route.params?.openSearch || route.params?.query),
+  );
+  const [query, setQuery] = useState(route.params?.query ?? '');
   const [selectedIndex, setSelectedIndex] = useState<IndexQuote | null>(null);
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -214,6 +232,27 @@ export function NepseDataScreen() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const params = route.params;
+    if (!params) return;
+    if (params.tab) setTab(params.tab);
+    if (params.query != null) {
+      setQuery(params.query);
+      setSearchOpen(true);
+      if (!params.tab) setTab('live');
+    }
+    if (params.openSearch) {
+      setSearchOpen(true);
+      if (!params.tab && !params.query) setTab('live');
+    }
+  }, [route.params]);
+
+  useEffect(() => {
+    if (query.trim() && tab === 'summary') {
+      setTab('live');
+    }
+  }, [query, tab]);
 
   usePollingRefresh(refresh);
 
@@ -510,11 +549,6 @@ export function NepseDataScreen() {
       {data ? (
         <View style={styles.pillPad}>
           <IndexPill data={data} colors={colors} styles={styles} />
-          <Text style={styles.stockCount}>
-            {query.trim()
-              ? `${rows.length} of ${data.securities.length} stocks`
-              : `${data.securities.length} stocks`}
-          </Text>
         </View>
       ) : null}
       <TableHeader
@@ -839,18 +873,34 @@ function makeStyles(c: ThemeColors) {
     indexPill: {
       flexDirection: 'row',
       alignItems: 'center',
-      flexWrap: 'wrap',
-      gap: rs(6),
+      justifyContent: 'space-between',
+      gap: rs(8),
       borderWidth: 1,
       borderColor: c.accentGreen,
-      borderRadius: rs(20),
+      borderRadius: rs(22),
       paddingHorizontal: rs(14),
-      paddingVertical: rs(8),
-      alignSelf: 'flex-start',
+      paddingVertical: rs(10),
+      width: '100%',
+      backgroundColor: c.surface,
     },
-    pillLabel: { color: c.text, fontWeight: '800', fontSize: rs(12) },
-    pillSep: { color: c.textMuted, fontSize: rs(12) },
-    pillValue: { color: c.text, fontWeight: '800', fontSize: rs(13) },
+    pillLabel: {
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(13),
+      minWidth: rs(52),
+    },
+    pillValue: {
+      flex: 1,
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(16),
+      textAlign: 'center',
+    },
+    pillChangeWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(4),
+    },
     pillChange: { fontWeight: '700', fontSize: rs(12) },
     pillPct: { fontWeight: '700', fontSize: rs(12) },
     dropdownRow: {
@@ -957,6 +1007,12 @@ function makeStyles(c: ThemeColors) {
       fontWeight: '700',
     },
     changeCell: { fontSize: rs(10), fontWeight: '700', textAlign: 'right' },
+    changeCellRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      gap: rs(2),
+    },
     listWrap: { flex: 1 },
     pillPad: { paddingHorizontal: rs(12), paddingTop: rs(10), paddingBottom: rs(4), gap: rs(6) },
     stockCount: { color: c.textMuted, fontSize: rs(11), fontWeight: '600' },

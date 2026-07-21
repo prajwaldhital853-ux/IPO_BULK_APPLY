@@ -20,9 +20,11 @@ import {
 import {
   canUseNativeGoogleSignIn,
   ensureGoogleSignInConfigured,
+  isExpoGo,
   signInWithGoogleNative,
   signOutGoogleNative,
 } from '../services/auth/googleSignInNative';
+import { signInWithGoogleExpoGo } from '../services/auth/googleSignInExpoGo';
 import {
   clearAccessToken,
   clearAllTokens,
@@ -163,7 +165,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (Platform.OS === 'web') {
       throw new Error('Google sign-in on web is not configured yet.');
     }
-    const idToken = await signInWithGoogleNative();
+    const idToken = isExpoGo()
+      ? await signInWithGoogleExpoGo()
+      : await signInWithGoogleNative();
     const session = await authGoogle(idToken, AUTH_API_BASE);
     await applySession(session);
   }, [applySession]);

@@ -16,12 +16,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormField } from '../components/FormField';
 import { LocalDisclaimer } from '../components/LocalDisclaimer';
 import { useAccounts } from '../context/AccountsContext';
+import { useSubscription } from '../context/SubscriptionContext';
 import {
   fetchCapitalList,
   verifyMeroshareLogin,
   type CapitalDp,
 } from '../services/meroshare';
 import { colors } from '../theme/colors';
+import { guardAddAccount } from '../utils/accountLimits';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -47,7 +49,8 @@ export function AddCapitalScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { setDraft } = useAccounts();
+  const { setDraft, accounts } = useAccounts();
+  const { isPremium } = useSubscription();
 
   const [dps, setDps] = useState<DpOption[]>(FALLBACK_DPS);
   const [loadingDps, setLoadingDps] = useState(true);
@@ -92,6 +95,15 @@ export function AddCapitalScreen() {
 
   const onNext = async () => {
     if (!username.trim() || !password.trim() || checkingLogin) return;
+    if (
+      !guardAddAccount({
+        currentCount: accounts.length,
+        isPremium,
+        onUpgrade: () => navigation.navigate('Subscription'),
+      })
+    ) {
+      return;
+    }
     setCheckingLogin(true);
     setLoginError('');
     try {

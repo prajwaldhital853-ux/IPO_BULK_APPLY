@@ -10,7 +10,7 @@ export type PinPolicy = 'skipIfUnlocked' | 'always';
 
 export function useSensitiveAction() {
   const { enabled, isAuthenticated } = useAuthGate();
-  const { sessionUnlocked } = useAppLock();
+  const { sessionUnlocked, unlockSession } = useAppLock();
   const [setupVisible, setSetupVisible] = useState(false);
   const [promptVisible, setPromptVisible] = useState(false);
   const [pinError, setPinError] = useState('');
@@ -29,16 +29,16 @@ export function useSensitiveAction() {
 
   const afterPinVerified = useCallback(
     async (action: PendingAction) => {
+      unlockSession();
       setPromptVisible(false);
       setPinError('');
       await runPending(action);
     },
-    [runPending],
+    [runPending, unlockSession],
   );
 
   const requestSensitiveAction = useCallback(
-    async (action: PendingAction, options?: { pinPolicy?: PinPolicy }) => {
-      const pinPolicy = options?.pinPolicy ?? 'always';
+    async (action: PendingAction, _options?: { pinPolicy?: PinPolicy }) => {
       // Guest users can save/manage MeroShare accounts locally without Google login.
       if (enabled && !isAuthenticated) {
         await action();
@@ -48,7 +48,8 @@ export function useSensitiveAction() {
         await action();
         return;
       }
-      if (pinPolicy === 'skipIfUnlocked' && sessionUnlocked) {
+      // App already unlocked with PIN this session → never ask again.
+      if (sessionUnlocked) {
         await action();
         return;
       }
@@ -68,12 +69,13 @@ export function useSensitiveAction() {
   const onSetupComplete = useCallback(
     async (pin: string) => {
       await setupPin(pin);
+      unlockSession();
       setSetupVisible(false);
       if (pending) {
-        setPromptVisible(true);
+        await runPending(pending);
       }
     },
-    [pending],
+    [pending, runPending, unlockSession],
   );
 
   const onSetupCancel = useCallback(() => {

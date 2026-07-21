@@ -18,6 +18,14 @@ async function saveSecrets(id: string, secrets: AccountSecrets): Promise<void> {
   await SecureStore.setItemAsync(scopedSecretKey(id), JSON.stringify(secrets));
 }
 
+export async function updateAccountSecrets(
+  id: string,
+  patch: Partial<AccountSecrets>,
+): Promise<void> {
+  const cur = (await getSecrets(id)) ?? { password: '', crn: '', pin: '' };
+  await saveSecrets(id, { ...cur, ...patch });
+}
+
 export async function getSecrets(id: string): Promise<AccountSecrets | null> {
   try {
     let raw = await SecureStore.getItemAsync(scopedSecretKey(id));
@@ -53,6 +61,24 @@ export async function loadAccountMeta(): Promise<AccountMeta[]> {
 
 export async function saveAccountMeta(list: AccountMeta[]): Promise<void> {
   await AsyncStorage.setItem(metaKey(), JSON.stringify(list));
+}
+
+export async function reorderAccountMeta(
+  orderedIds: string[],
+): Promise<AccountMeta[]> {
+  const list = await loadAccountMeta();
+  const byId = new Map(list.map((a) => [a.id, a]));
+  const next: AccountMeta[] = [];
+  for (const id of orderedIds) {
+    const row = byId.get(id);
+    if (row) {
+      next.push(row);
+      byId.delete(id);
+    }
+  }
+  for (const leftover of byId.values()) next.push(leftover);
+  await saveAccountMeta(next);
+  return next;
 }
 
 export async function addAccountWithSecrets(

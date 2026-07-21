@@ -20,11 +20,14 @@ type AppLockContextValue = {
   /** True after app PIN verified this foreground session. */
   sessionUnlocked: boolean;
   isAppLocked: boolean;
+  /** Mark session unlocked after a successful PIN (e.g. sensitive action). */
+  unlockSession: () => void;
 };
 
 const AppLockContext = createContext<AppLockContextValue>({
   sessionUnlocked: false,
   isAppLocked: false,
+  unlockSession: () => undefined,
 });
 
 export function AppLockProvider({ children }: { children: React.ReactNode }) {
@@ -57,9 +60,19 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!authLockActive) return;
+    let backgroundAt: number | null = null;
+    const LOCK_AFTER_MS = 30 * 60 * 1000; // only re-lock after 30 min in background
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'background') {
-        setPhase((current) => (current === 'unlocked' ? 'locked' : current));
+      if (next === 'background' || next === 'inactive') {
+        backgroundAt = Date.now();
+        return;
+      }
+      if (next === 'active' && backgroundAt != null) {
+        const away = Date.now() - backgroundAt;
+        backgroundAt = null;
+        if (away >= LOCK_AFTER_MS) {
+          setPhase((current) => (current === 'unlocked' ? 'locked' : current));
+        }
       }
     });
     return () => sub.remove();
@@ -112,8 +125,9 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     () => ({
       sessionUnlocked: phase === 'unlocked',
       isAppLocked: phase === 'locked' || phase === 'setup',
+      unlockSession: unlock,
     }),
-    [phase],
+    [phase, unlock],
   );
 
   const showBlocker = authLockActive && phase !== 'unlocked' && phase !== 'idle';

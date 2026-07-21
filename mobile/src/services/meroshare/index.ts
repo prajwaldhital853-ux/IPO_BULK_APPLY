@@ -3,6 +3,7 @@ export { runBulkApply, loadOpenIssuesForUi, loadAllOpenIssuesForUi } from './app
 export {
   runBulkResultCheck,
   loadCheckableIssuesForUi,
+  loadApplicationReportDetailForUi,
 } from './resultEngine';
 export {
   verifyMeroshareLogin,
@@ -25,6 +26,7 @@ export type {
   ResultAccountStatus,
   BulkResultSummary,
   ApplicationReportRow,
+  ApplicationReportDetail,
   PortfolioHoldingRow,
 } from './types';
 export type { CapitalDp } from './capital';

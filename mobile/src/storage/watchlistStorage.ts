@@ -56,6 +56,23 @@ export async function removeFromWatchlist(
   return next;
 }
 
+export async function reorderWatchlist(symbols: string[]): Promise<WatchItem[]> {
+  const list = await listWatchlist();
+  const bySym = new Map(list.map((w) => [w.symbol.toUpperCase(), w]));
+  const next: WatchItem[] = [];
+  for (const s of symbols) {
+    const row = bySym.get(s.toUpperCase());
+    if (row) next.push(row);
+  }
+  for (const w of list) {
+    if (!next.some((x) => x.symbol.toUpperCase() === w.symbol.toUpperCase())) {
+      next.push(w);
+    }
+  }
+  await saveAll(next);
+  return next;
+}
+
 export async function toggleWatchlist(
   symbol: string,
   name: string,

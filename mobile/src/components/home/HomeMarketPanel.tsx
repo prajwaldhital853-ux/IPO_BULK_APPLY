@@ -347,7 +347,9 @@ export function HomeMarketPanel({ active }: Props) {
           intradayPoints={data.chartPoints}
           isDark={isDark}
           colors={colors}
-          onSearchPress={() => navigation.navigate('NepseData')}
+          onSearchPress={() =>
+            navigation.navigate('NepseData', { tab: 'live', openSearch: true })
+          }
         />
       ) : null}
 
@@ -451,7 +453,10 @@ export function HomeMarketPanel({ active }: Props) {
 
       {renderListBody()}
 
-      <Pressable style={styles.moreLink} onPress={() => navigation.navigate('NepseData')}>
+      <Pressable
+        style={styles.moreLink}
+        onPress={() => navigation.navigate('NepseData', { tab: 'live' })}
+      >
         <Text style={styles.moreLinkText}>See full market data →</Text>
       </Pressable>
     </ScrollView>

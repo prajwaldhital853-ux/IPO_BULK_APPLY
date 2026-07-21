@@ -199,3 +199,31 @@ class FeedbackRowOut(BaseModel):
 
 class FeedbackStatusIn(BaseModel):
     status: str
+
+
+class TeamMemberOut(BaseModel):
+    id: str
+    name: str
+    role: str
+    bio: str
+    email: str | None = None
+    whatsapp: str | None = None
+    accent: str
+    photo_url: str | None = Field(default=None, alias='photoUrl')
+    sort_order: int = Field(alias='sortOrder')
+
+    model_config = {'populate_by_name': True}
+
+
+class TeamMemberIn(BaseModel):
+    name: str
+    role: str = ''
+    bio: str = ''
+    email: str | None = None
+    whatsapp: str | None = None
+    accent: str = '#42A5F5'
+    sort_order: int = Field(default=0, alias='sortOrder')
+    photo_base64: str | None = Field(default=None, alias='photoBase64')
+    clear_photo: bool = Field(default=False, alias='clearPhoto')
+
+    model_config = {'populate_by_name': True}
