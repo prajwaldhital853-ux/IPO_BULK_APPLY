@@ -101,6 +101,27 @@ async def require_cdsc_access(
     return "api_key"
 
 
+async def allow_captcha_solve(
+    x_api_key: str = Header(default=""),
+    user: CurrentUser | None = Depends(get_optional_user),
+) -> str:
+    """Permissive auth for the captcha-solve OCR helper.
+
+    This endpoint only turns a captcha image into digits (no portal access, no
+    user data), so we never hard-401 it — the in-app result checker must be able
+    to auto-solve even when a JWT isn't attached. Still rate-limited to prevent
+    abuse.
+    """
+    ident = (
+        f"user:{user.id}"
+        if user is not None
+        else (f"key:{x_api_key[:8]}" if x_api_key else "anon-captcha")
+    )
+    if not await cdsc_user_limiter.check(ident):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    return ident
+
+
 @app.get("/health")
 async def health() -> dict[str, object]:
     return {
@@ -170,7 +191,7 @@ class SolveCaptchaResponse(BaseModel):
 @app.post("/cdsc/solve-captcha", response_model=SolveCaptchaResponse)
 async def solve_captcha(
     req: SolveCaptchaRequest,
-    _: str = Depends(require_cdsc_access),
+    _: str = Depends(allow_captcha_solve),
 ) -> SolveCaptchaResponse:
     """Solve a CDSC numeric captcha image using the trained ONNX model.
 
