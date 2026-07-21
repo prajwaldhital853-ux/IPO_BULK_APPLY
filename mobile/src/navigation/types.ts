@@ -49,7 +49,7 @@ export type RootStackParamList = {
   BulkPortfolio: undefined;
   IpoIssues: { mode: 'current' | 'upcoming' };
   MeroshareWeb: undefined;
-  AccountExpiry: undefined;
+  TrackAccountExpiry: undefined;
   BankTracker: undefined;
   BankTrackerDetail: { accountId: string };
   ChangePassword: undefined;

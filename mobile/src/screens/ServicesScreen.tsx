@@ -91,7 +91,7 @@ function buildSections(): Section[] {
         { id: 'meroshare-web', label: 'MeroShare Web', iconSet: 'ion', iconName: 'globe-outline', accent: '#26A69A', route: 'MeroshareWeb' },
         { id: 'bulk-result', label: 'Bulk IPO Result', iconSet: 'ion', iconName: 'checkmark-done-circle-outline', accent: '#66BB6A', route: 'CheckTab' },
         { id: 'change-password', label: 'Change Password', iconSet: 'ion', iconName: 'key-outline', accent: '#FF7043', route: 'ChangePassword' },
-        { id: 'account-expiry', label: 'Account Expiry Status', iconSet: 'ion', iconName: 'hourglass-outline', accent: '#EC407A', route: 'AccountExpiry' },
+        { id: 'track-account-expiry', label: 'Track Account Expiry', badge: 'NEW', iconSet: 'ion', iconName: 'hourglass-outline', accent: '#EC407A', route: 'TrackAccountExpiry' },
       ],
     },
     {
@@ -399,8 +399,8 @@ export function ServicesScreen() {
       navigation.navigate('MeroshareWeb');
       return;
     }
-    if (item.route === 'AccountExpiry') {
-      navigation.navigate('AccountExpiry');
+    if (item.route === 'TrackAccountExpiry') {
+      navigation.navigate('TrackAccountExpiry');
       return;
     }
     if (item.route === 'BankTracker') {
