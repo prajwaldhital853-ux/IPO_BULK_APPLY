@@ -195,8 +195,11 @@ function buildPills(info: {
   ];
   return defs.map((d) => {
     const days = daysUntil(d.date);
+    // Trust CDSC's explicit expired flag when present; only infer from the
+    // date when no flag was returned. (The date field alone was marking valid
+    // demats as "expired" when the portal reported them active.)
     let isExpired = d.expired;
-    if (days != null) {
+    if (isExpired == null && days != null) {
       isExpired = days < 0;
     }
     return {
@@ -268,9 +271,11 @@ function classifyExpiry(opts: {
 }
 
 function expiredFromDate(date: string | null, flag: boolean | null): boolean | null {
+  // Explicit CDSC flag wins; fall back to date math only when flag is absent.
+  if (flag != null) return flag;
   const days = daysUntil(date);
   if (days != null) return days < 0;
-  return flag;
+  return null;
 }
 
 export async function fetchAccountExpiryInfo(

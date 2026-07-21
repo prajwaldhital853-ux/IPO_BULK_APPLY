@@ -16,6 +16,54 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Deterministic fake result for a demo account, cycling through outcomes. */
+function makeDemoResult(
+  account: AccountMeta,
+  index: number,
+  issue: OpenIssue,
+): ResultAccountStatus {
+  const base = {
+    accountId: account.id,
+    accountName: account.name,
+    username: account.username,
+    dryRun: true,
+    companyName: issue.companyName,
+    appliedKitta: 10,
+  };
+  const bucket = index % 5;
+  if (bucket === 0 || bucket === 3) {
+    // Allotted
+    return {
+      ...base,
+      ok: true,
+      status: 'ALLOTTED',
+      allotmentStatus: 'Alloted',
+      message: 'Alloted ( quantity : 10 )',
+      remarks: 'Block Amount Status - Amount Released',
+    };
+  }
+  if (bucket === 4) {
+    // Rejected — insufficient balance (most common real rejection reason)
+    return {
+      ...base,
+      ok: false,
+      status: 'REJECTED',
+      allotmentStatus: 'Rejected',
+      message: 'Rejected ( quantity : 10 ) - Insufficient balance',
+      remarks: 'Insufficient balance in linked bank account',
+    };
+  }
+  // Not allotted
+  return {
+    ...base,
+    ok: true,
+    status: 'NOT_ALLOTTED',
+    allotmentStatus: 'Not Alloted',
+    message: 'Not Alloted ( quantity : 10 )',
+    remarks: 'Block Amount Status - Amount Released',
+  };
+}
+
 export type BulkResultOptions = {
   accounts: AccountMeta[];
   issue: OpenIssue;
@@ -56,6 +104,15 @@ export async function runBulkResultCheck(
       i,
       opts.accounts.length,
     );
+
+    // Demo accounts (added via the dev "dry run" tool) don't have real
+    // MeroShare logins — synthesize a realistic mix of outcomes so the UI can
+    // be exercised without live credentials.
+    if (account.id.startsWith('demo_')) {
+      await sleep(350);
+      emit(makeDemoResult(account, i, opts.issue), i);
+      continue;
+    }
 
     const secrets = await getSecrets(account.id);
     if (!secrets?.password) {

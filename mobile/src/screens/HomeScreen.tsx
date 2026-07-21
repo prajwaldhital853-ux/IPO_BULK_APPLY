@@ -360,7 +360,7 @@ function makeStyles(c: ThemeColors) {
       paddingTop: rs(12),
       paddingBottom: rs(10),
       alignItems: 'center',
-      marginLeft: rs(250),
+      marginLeft: rs(240),
     },
     tabText: {
       color: c.textMuted,

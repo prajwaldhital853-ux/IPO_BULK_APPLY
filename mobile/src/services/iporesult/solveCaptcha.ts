@@ -103,32 +103,47 @@ export async function solveCaptchaViaBackend(
   const { CDSC_BACKEND_URL, cdscBackendHeaders } = await import(
     '../issuemanager/backendConfig'
   );
+  const { clearAccessToken } = await import('../auth/tokenStorage');
+  const { refreshSessionIfNeeded } = await import('../auth/http');
   if (!CDSC_BACKEND_URL) {
     throw new Error('CDSC backend not configured');
   }
   const clean = imageBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20_000);
-  try {
-    const res = await fetch(`${CDSC_BACKEND_URL}/cdsc/solve-captcha`, {
-      method: 'POST',
-      headers: await cdscBackendHeaders(),
-      credentials: 'omit',
-      signal: controller.signal,
-      body: JSON.stringify({ image_base64: clean }),
-    });
-    if (!res.ok) {
-      throw new Error(`backend HTTP ${res.status}`);
+  const body = JSON.stringify({ image_base64: clean });
+
+  const send = async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    try {
+      return await fetch(`${CDSC_BACKEND_URL}/cdsc/solve-captcha`, {
+        method: 'POST',
+        headers: await cdscBackendHeaders(),
+        credentials: 'omit',
+        signal: controller.signal,
+        body,
+      });
+    } finally {
+      clearTimeout(timer);
     }
-    const json = (await res.json()) as { text?: string };
-    const digits = normalizeCaptchaDigits(json.text ?? '');
-    if (digits.length < 4) {
-      throw new Error(`backend weak result "${digits}"`);
-    }
-    return digits.length === 5 ? digits : digits.slice(0, 5);
-  } finally {
-    clearTimeout(timer);
+  };
+
+  let res = await send();
+  // A stale in-memory access token yields 401 — force a refresh and retry once,
+  // mirroring authFetch's behaviour.
+  if (res.status === 401) {
+    clearAccessToken();
+    await refreshSessionIfNeeded();
+    res = await send();
   }
+  if (!res.ok) {
+    throw new Error(`backend HTTP ${res.status}`);
+  }
+  const json = (await res.json()) as { text?: string };
+  const digits = normalizeCaptchaDigits(json.text ?? '');
+  if (digits.length < 4) {
+    throw new Error(`backend weak result "${digits}"`);
+  }
+  return digits.length === 5 ? digits : digits.slice(0, 5);
 }
 
 /**

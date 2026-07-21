@@ -589,6 +589,7 @@ export function NepseDataScreen() {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          style={styles.moverTabsBar}
           contentContainerStyle={styles.moverTabs}
         >
           {MOVER_TABS.map((t) => {
@@ -1017,15 +1018,22 @@ function makeStyles(c: ThemeColors) {
     listWrap: { flex: 1 },
     pillPad: { paddingHorizontal: rs(12), paddingTop: rs(10), paddingBottom: rs(4), gap: rs(6) },
     stockCount: { color: c.textMuted, fontSize: rs(11), fontWeight: '600' },
+    moverTabsBar: {
+      flexGrow: 0,
+      flexShrink: 0,
+      alignSelf: 'stretch',
+    },
     moverTabs: {
       paddingHorizontal: rs(10),
       paddingVertical: rs(8),
       gap: rs(8),
+      alignItems: 'center',
     },
     moverTab: {
+      alignSelf: 'center',
       borderRadius: rs(14),
-      paddingHorizontal: rs(12),
-      paddingVertical: rs(6),
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(7),
       borderWidth: 1,
       borderColor: c.borderMuted,
     },

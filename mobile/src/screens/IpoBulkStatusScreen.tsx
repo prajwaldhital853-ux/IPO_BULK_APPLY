@@ -146,7 +146,10 @@ export function IpoBulkStatusScreen() {
     setLoadingList(true);
     try {
       const map = new Map<number, ApplicationReportRow>();
-      for (const acc of checkAccounts.slice(0, 3)) {
+      const realAccounts = checkAccounts.filter(
+        (a) => !a.id.startsWith('demo_'),
+      );
+      for (const acc of realAccounts.slice(0, 3)) {
         const { reports } = await loadCheckableIssuesForUi(acc);
         for (const r of reports) {
           if (!map.has(r.companyShareId)) map.set(r.companyShareId, r);
@@ -155,6 +158,16 @@ export function IpoBulkStatusScreen() {
       const list = Array.from(map.values()).sort((a, b) =>
         a.companyName.localeCompare(b.companyName),
       );
+      // Offer a demo IPO to exercise the UI when demo accounts are selected.
+      if (checkAccounts.some((a) => a.id.startsWith('demo_'))) {
+        list.unshift({
+          companyShareId: 999001,
+          companyName: 'DEMO CEMENT INDUSTRIES LIMITED',
+          scrip: 'DEMO',
+          shareTypeName: 'IPO',
+          statusName: 'CREATE_APPROVE',
+        });
+      }
       setCompanies(list);
       setSelected((prev) =>
         prev && list.some((c) => c.companyShareId === prev.companyShareId)
@@ -725,31 +738,31 @@ function makeStyles(c: ThemeColors) {
     clearText: { color: c.textMuted, fontSize: rs(12) },
     resultCard: {
       flexDirection: 'row',
-      gap: rs(12),
+      gap: rs(14),
       borderWidth: 1.5,
-      borderRadius: rs(12),
-      padding: rs(14),
-      marginBottom: rs(10),
+      borderRadius: rs(14),
+      padding: rs(18),
+      marginBottom: rs(12),
       backgroundColor: c.surface,
       alignItems: 'flex-start',
     },
     resultIcon: {
-      width: rs(42),
-      height: rs(42),
-      borderRadius: rs(21),
+      width: rs(48),
+      height: rs(48),
+      borderRadius: rs(24),
       alignItems: 'center',
       justifyContent: 'center',
       marginTop: rs(2),
     },
-    resultName: { fontWeight: '800', fontSize: rs(13), marginBottom: rs(3) },
-    resultStatus: { fontSize: rs(12), fontWeight: '600', marginBottom: rs(8) },
+    resultName: { fontWeight: '800', fontSize: rs(15), marginBottom: rs(5) },
+    resultStatus: { fontSize: rs(13.5), fontWeight: '600', marginBottom: rs(10) },
     remarkPill: {
       alignSelf: 'flex-start',
       borderRadius: rs(14),
-      paddingHorizontal: rs(10),
-      paddingVertical: rs(5),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(7),
     },
-    remarkText: { fontSize: rs(11), fontWeight: '600' },
+    remarkText: { fontSize: rs(12), fontWeight: '600' },
     empty: { color: c.textMuted, textAlign: 'center', padding: rs(20) },
     modalBackdrop: {
       flex: 1,
