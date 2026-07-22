@@ -33,16 +33,16 @@ type TabId = 'users' | 'expiry';
  * (white header, mint cards, green "valid" / red "expired" pills).
  */
 const C = {
-  bg: '#F4F8F4',
-  headerBg: '#FFFFFF',
+  bg: '#E4EAD9',
+  headerBg: '#E7ECE0',
   text: '#153A24',
   textMuted: '#7E8C7E',
-  border: '#E3EDE4',
+  border: '#C5D0B5',
 
   accent: '#1F9D57',
 
-  cardBg: '#FFFFFF',
-  cardBorder: '#D6EADC',
+  cardBg: '#EEF2E6',
+  cardBorder: '#C5D0B5',
 
   okBg: '#E9F7EE',
   okBorder: '#C3E7CD',

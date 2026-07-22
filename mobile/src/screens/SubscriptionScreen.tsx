@@ -53,6 +53,7 @@ export function SubscriptionScreen() {
     requestPlan,
     cancelPending,
     refresh,
+    unlockLocalPremium,
   } = useSubscription();
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
   const [paymentNote, setPaymentNote] = useState('');
@@ -118,29 +119,6 @@ export function SubscriptionScreen() {
 
   const onSubmit = useCallback(
     async (planId: string, title: string, price: string) => {
-      if (needsSignIn) {
-        Alert.alert(
-          'Login required',
-          'Please sign in with Google before submitting payment.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Sign in', onPress: () => void onSignIn() },
-          ],
-        );
-        return;
-      }
-      const me = await auth.refreshProfile();
-      if (!me) {
-        Alert.alert(
-          'Session expired',
-          'Please sign in with Google again to submit payment.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Sign in', onPress: () => void onSignIn() },
-          ],
-        );
-        return;
-      }
       if (isPending) {
         Alert.alert(
           'Pending verification',
@@ -150,6 +128,51 @@ export function SubscriptionScreen() {
       }
       if (isPremium) {
         Alert.alert('Premium active', 'Your subscription is already active.');
+        return;
+      }
+
+      // Google Sign-In is optional for now — unlock on-device when not signed in
+      // (Expo Go / local). Signed-in users still go through payment verification.
+      if (needsSignIn) {
+        Alert.alert(
+          'Activate Premium',
+          `${title} (${price})\n\nGoogle Sign-In is not required right now. Activate premium on this device?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Activate',
+              onPress: () => {
+                setSubmitting(true);
+                void requestPlan(planId, paymentNote.trim() || undefined)
+                  .then(() => {
+                    Alert.alert(
+                      'Premium unlocked',
+                      'Premium is active on this device. You can use Investment Summary and other premium tools.',
+                    );
+                    setPaymentNote('');
+                  })
+                  .catch((e: unknown) => showAuthActionError('Could not activate', e))
+                  .finally(() => setSubmitting(false));
+              },
+            },
+          ],
+        );
+        return;
+      }
+
+      const me = await auth.refreshProfile();
+      if (!me) {
+        // Fall back to local unlock if session is broken.
+        setSubmitting(true);
+        void unlockLocalPremium(planId.includes('year') ? 365 : 183, planId)
+          .then(() =>
+            Alert.alert(
+              'Premium unlocked',
+              'Session expired, so premium was activated on this device without Google.',
+            ),
+          )
+          .catch((e: unknown) => showAuthActionError('Could not activate', e))
+          .finally(() => setSubmitting(false));
         return;
       }
       Alert.alert(
@@ -176,7 +199,16 @@ export function SubscriptionScreen() {
         ],
       );
     },
-    [needsSignIn, isPending, isPremium, paymentNote, requestPlan, onSignIn, showAuthActionError, auth],
+    [
+      needsSignIn,
+      isPending,
+      isPremium,
+      paymentNote,
+      requestPlan,
+      unlockLocalPremium,
+      showAuthActionError,
+      auth,
+    ],
   );
 
   const onCancelPending = useCallback(async () => {
@@ -274,22 +306,47 @@ export function SubscriptionScreen() {
           )}
         </View>
 
-        {needsSignIn ? (
+        {needsSignIn && !isPremium ? (
           <View style={styles.signInCard}>
-            <Ionicons name="logo-google" size={rs(24)} color={colors.text} />
-            <Text style={styles.signInTitle}>Sign in required</Text>
+            <Ionicons name="diamond-outline" size={rs(24)} color={colors.tealHeader} />
+            <Text style={styles.signInTitle}>Google Sign-In optional</Text>
             <Text style={styles.signInText}>
-              {isPending
-                ? 'Sign in with Google to manage or cancel your pending subscription.'
-                : 'Sign in with Google to submit your payment for verification.'}
+              You can unlock premium on this device without Google (needed for Expo
+              Go / local testing). Google Sign-In is only required later for
+              payment verification on the APK.
             </Text>
             <Pressable
-              style={[styles.signInBtn, signingIn && styles.buyBtnDisabled]}
+              style={[styles.signInBtn, submitting && styles.buyBtnDisabled]}
+              disabled={submitting}
+              onPress={() => {
+                setSubmitting(true);
+                void unlockLocalPremium(365, 'premium_local')
+                  .then(() =>
+                    Alert.alert(
+                      'Premium unlocked',
+                      'Premium is active. Open Investment Summary or other premium tools.',
+                    ),
+                  )
+                  .catch((e: unknown) =>
+                    Alert.alert(
+                      'Could not unlock',
+                      e instanceof Error ? e.message : 'Try again',
+                    ),
+                  )
+                  .finally(() => setSubmitting(false));
+              }}
+            >
+              <Text style={styles.signInBtnText}>
+                {submitting ? 'Unlocking…' : 'Unlock premium without Google'}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.cancelBtn, { marginTop: rs(8) }]}
               disabled={signingIn}
               onPress={() => void onSignIn()}
             >
-              <Text style={styles.signInBtnText}>
-                {signingIn ? 'Signing in…' : 'Sign in with Google'}
+              <Text style={styles.cancelText}>
+                {signingIn ? 'Signing in…' : 'Or sign in with Google'}
               </Text>
             </Pressable>
           </View>

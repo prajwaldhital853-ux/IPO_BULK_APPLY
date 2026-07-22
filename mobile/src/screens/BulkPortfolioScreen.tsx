@@ -17,6 +17,10 @@ import { useTheme } from '../context/ThemeContext';
 import { lightColors, type ThemeColors } from '../theme/colors';
 import { importPortfolioFromMeroshare } from '../services/meroshare';
 import type { AccountMeta } from '../types/account';
+import {
+  saveBulkPortfolioSnapshot,
+  type BulkHoldingSnap,
+} from '../storage/bulkPortfolioStorage';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -128,6 +132,7 @@ export function BulkPortfolioScreen() {
     );
 
     let done = 0;
+    const snapRows: BulkHoldingSnap[] = [];
     for (const account of list) {
       setRows((prev) =>
         prev.map((r) =>
@@ -144,6 +149,20 @@ export function BulkPortfolioScreen() {
           (sum, h) => sum + holdingChange(h),
           0,
         );
+        for (const h of result.holdings) {
+          snapRows.push({
+            accountId: account.id,
+            accountName: account.name,
+            symbol: h.symbol,
+            name: h.name,
+            qty: h.qty,
+            wacc: h.wacc,
+            ltp: h.ltp,
+            previousClosingPrice: h.previousClosingPrice ?? null,
+            value: holdingValue(h),
+            dayChange: holdingChange(h),
+          });
+        }
         setRows((prev) =>
           prev.map((r) =>
             r.account.id === account.id
@@ -178,6 +197,16 @@ export function BulkPortfolioScreen() {
       done += 1;
       setFetched(done);
     }
+    const totalValue = snapRows.reduce((s, r) => s + r.value, 0);
+    const dayChange = snapRows.reduce((s, r) => s + r.dayChange, 0);
+    await saveBulkPortfolioSnapshot({
+      updatedAt: new Date().toISOString(),
+      totalValue,
+      dayChange,
+      accounts: list.length,
+      holdings: snapRows.length,
+      rows: snapRows,
+    });
     setRunning(false);
   }, []);
 

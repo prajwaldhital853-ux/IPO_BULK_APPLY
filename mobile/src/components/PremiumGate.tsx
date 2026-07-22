@@ -19,10 +19,11 @@ export function PremiumGate({
   subtitle?: string;
   children: React.ReactNode;
 }) {
-  const { isPremium, isPending, loading } = useSubscription();
+  const { isPremium, isPending, loading, unlockLocalPremium } = useSubscription();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
+  const [unlocking, setUnlocking] = React.useState(false);
 
   if (loading) {
     return (
@@ -48,7 +49,14 @@ export function PremiumGate({
       colors={colors}
       title={title}
       subtitle={subtitle}
+      unlocking={unlocking}
       onSubscribe={() => navigation.navigate('Subscription')}
+      onUnlockLocal={() => {
+        setUnlocking(true);
+        void unlockLocalPremium(365, 'premium_local')
+          .catch(() => undefined)
+          .finally(() => setUnlocking(false));
+      }}
     />
   );
 }
@@ -91,12 +99,16 @@ function Paywall({
   colors,
   title,
   subtitle,
+  unlocking,
   onSubscribe,
+  onUnlockLocal,
 }: {
   colors: ThemeColors;
   title: string;
   subtitle?: string;
+  unlocking?: boolean;
   onSubscribe: () => void;
+  onUnlockLocal: () => void;
 }) {
   const plan = PREMIUM_PLANS[0];
   return (
@@ -120,8 +132,21 @@ function Paywall({
             </Text>
           ))}
         </View>
-        <Pressable style={[styles.btn, { backgroundColor: colors.fab }]} onPress={onSubscribe}>
-          <Text style={styles.btnText}>View plans · from {plan.price}</Text>
+        <Pressable
+          style={[styles.btn, { backgroundColor: colors.fab }, unlocking && { opacity: 0.6 }]}
+          disabled={unlocking}
+          onPress={onUnlockLocal}
+        >
+          {unlocking ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.btnText}>Unlock premium (no Google needed)</Text>
+          )}
+        </Pressable>
+        <Pressable onPress={onSubscribe} hitSlop={8}>
+          <Text style={[styles.perk, { color: colors.teal, textAlign: 'center' }]}>
+            Or view plans / payment
+          </Text>
         </Pressable>
       </View>
     </View>

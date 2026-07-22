@@ -1,4 +1,5 @@
 import type { AccountMeta } from '../../types/account';
+import { isMockAccountId } from '../../data/mockAccounts';
 import { getSecrets } from '../../storage/accountsStorage';
 import { MeroshareClient } from './client';
 import { MeroshareError } from './errors';
@@ -16,7 +17,7 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Deterministic fake result for a demo account, cycling through outcomes. */
+/** Deterministic fake result for a mock/demo account, cycling through outcomes. */
 function makeDemoResult(
   account: AccountMeta,
   index: number,
@@ -108,7 +109,7 @@ export async function runBulkResultCheck(
     // Demo accounts (added via the dev "dry run" tool) don't have real
     // MeroShare logins — synthesize a realistic mix of outcomes so the UI can
     // be exercised without live credentials.
-    if (account.id.startsWith('demo_')) {
+    if (account.id.startsWith('demo_') || isMockAccountId(account.id)) {
       await sleep(350);
       emit(makeDemoResult(account, i, opts.issue), i);
       continue;

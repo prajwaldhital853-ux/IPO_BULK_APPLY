@@ -5,15 +5,20 @@ import {
   loadHighDemand,
   loadHighSupply,
   loadMiniScreener,
+  type FloorsheetPage,
   type FloorsheetRow,
   type MiniScreenerRow,
 } from './screener';
 import { formatRs } from './premiumAnalytics';
+import { loadMerolaganiFloorsheetProgressive } from './merolaganiFloorsheet';
 
 const DATA_BASE = 'https://sharehubnepal.com/data/api/v1';
 const LIVE_V2 = 'https://sharehubnepal.com/live/api/v2/nepselive';
 
 const CACHE_MS = 120_000;
+/** Fewer / larger pages = much faster first paint. */
+const FLOOR_PAGE_SIZE = 200;
+const FLOOR_MAX_PAGES = 10;
 
 export function invalidateBrokerAnalyticsCache(): void {
   brokerCache = null;
@@ -32,6 +37,10 @@ export type PremiumIntelRow = {
   name: string;
   brokerCode: string | null;
   brokerName: string | null;
+  /** Company logo from mini-screener / floorsheet when available. */
+  iconUrl: string | null;
+  /** Buy or sell share of that broker's activity on the symbol (0–100). */
+  sharePct: number | null;
   ltp: number | null;
   changePct: number | null;
   quantity: number | null;
@@ -99,7 +108,13 @@ type SideAgg = {
   trades: number;
 };
 
-type NetAgg = SideAgg & { buyQty: number; sellQty: number; buyAmt: number; sellAmt: number };
+type NetAgg = SideAgg & {
+  buyQty: number;
+  sellQty: number;
+  buyAmt: number;
+  sellAmt: number;
+  iconUrl: string | null;
+};
 
 type BrokerNet = {
   broker: string;
@@ -156,11 +171,30 @@ async function loadSessionFloorsheet(force = false): Promise<FloorsheetRow[]> {
   if (!force && floorsheetCache && Date.now() - floorsheetCacheAt < CACHE_MS) {
     return floorsheetCache;
   }
+
+  try {
+    const { rows, asOf } = await loadMerolaganiFloorsheetProgressive(
+      () => undefined,
+      FLOOR_MAX_PAGES,
+    );
+    if (hasBrokerData(rows) && rows.length > 0) {
+      floorsheetCache = rows;
+      floorsheetCacheAt = Date.now();
+      floorsheetMeta = {
+        trades: rows.length,
+        date: asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
+      };
+      return rows;
+    }
+  } catch {
+    // ShareHub fallback below.
+  }
+
   const all: FloorsheetRow[] = [];
   let page = 1;
   let hasNext = true;
-  while (hasNext && page <= 30) {
-    const res = await loadFloorsheet(page, 100);
+  while (hasNext && page <= FLOOR_MAX_PAGES) {
+    const res = await loadFloorsheet(page, FLOOR_PAGE_SIZE);
     all.push(...res.rows);
     hasNext = res.hasNext;
     page += 1;
@@ -175,12 +209,118 @@ async function loadSessionFloorsheet(force = false): Promise<FloorsheetRow[]> {
   return all;
 }
 
+/**
+ * Stream floorsheet pages so UI can paint early.
+ * Prefers Merolagani (real buyer/seller broker nos + names). ShareHub is fallback.
+ */
+async function loadSessionFloorsheetProgressive(
+  onPartial: (rows: FloorsheetRow[], meta: { page: number; done: boolean }) => void,
+  force = false,
+): Promise<FloorsheetRow[]> {
+  if (!force && floorsheetCache && Date.now() - floorsheetCacheAt < CACHE_MS) {
+    onPartial(floorsheetCache, { page: 0, done: true });
+    return floorsheetCache;
+  }
+
+  // 1) Merolagani — public HTML with real broker codes + firm names.
+  try {
+    const { rows, asOf } = await loadMerolaganiFloorsheetProgressive(
+      (partial, meta) => {
+        onPartial(partial, { page: meta.page, done: meta.done });
+      },
+      FLOOR_MAX_PAGES,
+    );
+    if (hasBrokerData(rows) && rows.length > 0) {
+      floorsheetCache = rows;
+      floorsheetCacheAt = Date.now();
+      floorsheetMeta = {
+        trades: rows.length,
+        date: asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
+      };
+      onPartial(rows, { page: FLOOR_MAX_PAGES, done: true });
+      return rows;
+    }
+  } catch {
+    // Fall through to ShareHub.
+  }
+
+  // 2) ShareHub live floorsheet (often strips broker IDs on public feed).
+  const all: FloorsheetRow[] = [];
+  const first = await loadFloorsheet(1, FLOOR_PAGE_SIZE);
+  all.push(...first.rows);
+  onPartial(all.slice(), { page: 1, done: !first.hasNext || !first.rows.length });
+
+  if (!first.hasNext || !first.rows.length) {
+    floorsheetCache = all;
+    floorsheetCacheAt = Date.now();
+    floorsheetMeta = {
+      trades: all.length,
+      date: all[0]?.tradeTime?.slice(0, 10) ?? null,
+    };
+    onPartial(all, { page: 1, done: true });
+    return all;
+  }
+
+  let page = 2;
+  let hasNext = true;
+  while (hasNext && page <= FLOOR_MAX_PAGES) {
+    const batchPages = [page, page + 1, page + 2].filter(
+      (p) => p <= FLOOR_MAX_PAGES,
+    );
+    const batch = await Promise.all(
+      batchPages.map((p) => loadFloorsheet(p, FLOOR_PAGE_SIZE)),
+    );
+    for (const res of batch) {
+      all.push(...res.rows);
+      hasNext = res.hasNext;
+      if (!res.rows.length) {
+        hasNext = false;
+        break;
+      }
+    }
+    page += batchPages.length;
+    onPartial(all.slice(), {
+      page: page - 1,
+      done: !hasNext || page > FLOOR_MAX_PAGES,
+    });
+    if (!hasNext) break;
+  }
+
+  floorsheetCache = all;
+  floorsheetCacheAt = Date.now();
+  floorsheetMeta = {
+    trades: all.length,
+    date: all[0]?.tradeTime?.slice(0, 10) ?? null,
+  };
+  onPartial(all, { page: page - 1, done: true });
+  return all;
+}
+
+function mergeBrokerNamesFromRows(
+  directory: Map<string, string>,
+  rows: FloorsheetRow[],
+): void {
+  for (const r of rows) {
+    const buy = brokerKey(r.buyerBroker);
+    const sell = brokerKey(r.sellerBroker);
+    if (buy && r.buyerBrokerName?.trim()) {
+      directory.set(buy, r.buyerBrokerName.trim());
+    }
+    if (sell && r.sellerBrokerName?.trim()) {
+      directory.set(sell, r.sellerBrokerName.trim());
+    }
+  }
+}
+
 function hasBrokerData(rows: FloorsheetRow[]): boolean {
   return rows.some((r) => brokerKey(r.buyerBroker) || brokerKey(r.sellerBroker));
 }
 
 function enrichRow(
-  base: Omit<PremiumIntelRow, 'rank' | 'metrics' | 'tags'>,
+  base: Omit<PremiumIntelRow, 'rank' | 'metrics' | 'tags' | 'iconUrl' | 'sharePct'> & {
+    iconUrl?: string | null;
+    sharePct?: number | null;
+  },
   screener: Map<string, MiniScreenerRow>,
   extraMetrics: IntelMetric[] = [],
   extraTags: string[] = [],
@@ -220,6 +360,8 @@ function enrichRow(
   return {
     ...base,
     name: s?.name ?? base.name,
+    iconUrl: base.iconUrl ?? s?.iconUrl ?? null,
+    sharePct: base.sharePct ?? null,
     ltp,
     changePct: s?.changePercent ?? base.changePct,
     turnover: s?.turnover ?? base.turnover,
@@ -295,7 +437,9 @@ function buildNetAgg(rows: FloorsheetRow[]): Map<AggKey, NetAgg> {
         sellQty: 0,
         buyAmt: 0,
         sellAmt: 0,
+        iconUrl: r.iconUrl ?? null,
       };
+      if (!cur.iconUrl && r.iconUrl) cur.iconUrl = r.iconUrl;
       if (isBuy) {
         cur.buyQty += qty;
         cur.buyAmt += amt;
@@ -392,6 +536,7 @@ async function loadFromFloorsheetSide(
     loadBrokers(),
   ]);
   const directory = new Map(brokers.map((b) => [b.code, b.name]));
+  mergeBrokerNamesFromRows(directory, rows);
   const brokerMode = hasBrokerData(rows);
   const title = side === 'buy' ? 'Top Buyers' : 'Top Sellers';
   const subtitle = brokerMode
@@ -466,16 +611,45 @@ async function loadFromFloorsheetSide(
   };
 }
 
+type BoardSets = { demand: Set<string>; supply: Set<string> };
+
+async function loadBoardSets(): Promise<BoardSets> {
+  const [demand, supply] = await Promise.all([
+    loadHighDemand(),
+    loadHighSupply(),
+  ]);
+  return {
+    demand: new Set(demand.map((d) => d.symbol.toUpperCase())),
+    supply: new Set(supply.map((d) => d.symbol.toUpperCase())),
+  };
+}
+
 async function loadNetIntel(
   mode: 'holders' | 'releases',
   limit: number,
+  preloadedRows?: FloorsheetRow[],
 ): Promise<PremiumIntelSnapshot> {
-  const [rows, screener, brokers] = await Promise.all([
-    loadSessionFloorsheet(),
+  const [rows, screener, brokers, boards] = await Promise.all([
+    preloadedRows
+      ? Promise.resolve(preloadedRows)
+      : loadSessionFloorsheet(),
     screenerMap(),
     loadBrokers(),
+    loadBoardSets(),
   ]);
+  return buildNetIntelSnapshot(mode, limit, rows, screener, brokers, boards);
+}
+
+function buildNetIntelSnapshot(
+  mode: 'holders' | 'releases',
+  limit: number,
+  rows: FloorsheetRow[],
+  screener: Map<string, MiniScreenerRow>,
+  brokers: BrokerInfo[],
+  boards: BoardSets = { demand: new Set(), supply: new Set() },
+): PremiumIntelSnapshot {
   const directory = new Map(brokers.map((b) => [b.code, b.name]));
+  mergeBrokerNamesFromRows(directory, rows);
   const brokerMode = hasBrokerData(rows);
   const title = mode === 'holders' ? 'Top Holders' : 'Top Releases';
   const subtitle = brokerMode
@@ -483,8 +657,8 @@ async function loadNetIntel(
       ? 'Net buyers still holding — buy qty minus sell qty on session floorsheet'
       : 'Net sellers releasing — sell qty minus buy qty on session floorsheet'
     : mode === 'holders'
-      ? 'Accumulation candidates · demand + price strength proxy'
-      : 'Distribution candidates · supply + price weakness proxy';
+      ? 'Symbol proxy · rising / demand board (broker IDs not in public feed)'
+      : 'Symbol proxy · falling / supply board (broker IDs not in public feed)';
 
   if (brokerMode) {
     const net = buildNetAgg(rows);
@@ -496,12 +670,21 @@ async function loadNetIntel(
       const avgRate = n.trades > 0 ? n.rateSum / n.trades : null;
       const netQty = Math.abs(n.qty);
       const netAmt = Math.abs(n.amount);
+      const sideTotal = n.buyQty + n.sellQty;
+      const sharePct =
+        sideTotal > 0
+          ? Math.round(
+              ((mode === 'holders' ? n.buyQty : n.sellQty) / sideTotal) * 100,
+            )
+          : 100;
       return enrichRow(
         {
           symbol: n.symbol,
           name: n.name,
-          brokerCode: n.broker,
+          brokerCode: brokerKey(n.broker) || n.broker,
           brokerName: brokerLabel(n.broker, directory),
+          iconUrl: s?.iconUrl ?? n.iconUrl ?? null,
+          sharePct,
           ltp: s?.ltp ?? null,
           changePct: s?.changePercent ?? null,
           quantity: netQty,
@@ -533,167 +716,234 @@ async function loadNetIntel(
     return {
       title,
       subtitle,
-      sessionDate: floorsheetMeta.date,
-      tradesScanned: floorsheetMeta.trades,
+      sessionDate: floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
+      tradesScanned: rows.length,
       brokerBreakdown: true,
       summary: [
         { label: 'Net positions', value: String(intel.length) },
-        { label: 'Trades scanned', value: String(floorsheetMeta.trades) },
+        { label: 'Trades scanned', value: String(rows.length) },
         { label: 'Mode', value: mode === 'holders' ? 'Accumulation' : 'Release' },
       ],
       rows: rankRows(intel, limit),
     };
   }
 
-  const [demand, supply] = await Promise.all([loadHighDemand(), loadHighSupply()]);
-  const demandSet = new Set(demand.map((d) => d.symbol.toUpperCase()));
-  const supplySet = new Set(supply.map((d) => d.symbol.toUpperCase()));
-  const demandQty = new Map(
-    demand.map((d) => [d.symbol.toUpperCase(), d.quantity ?? 0]),
-  );
-  const supplyQty = new Map(
-    supply.map((d) => [d.symbol.toUpperCase(), d.quantity ?? 0]),
-  );
-  const mini = await loadMiniScreener();
+  // Symbol-level proxy when floorsheet has no broker IDs.
+  // Hard-split Acc vs Dist so lists are not the same high-turnover names.
+  const session = symbolSessionAgg(rows);
+  const wantHolders = mode === 'holders';
+  const candidates = [...screener.values()]
+    .map((s) => {
+      const sym = s.symbol.toUpperCase();
+      const chg = s.changePercent ?? 0;
+      const onDemand = boards.demand.has(sym);
+      const onSupply = boards.supply.has(sym);
 
-  const buildProxyRow = (
-    s: MiniScreenerRow,
-    opts: {
-      boardQty: number;
-      boardLabel: string;
-      signal: string;
-      score: number;
-      netSign: 1 | -1;
-    },
-  ): Omit<PremiumIntelRow, 'rank'> => {
-    const vol = s.volume ?? 0;
-    const turn = s.turnover ?? 0;
+      if (wantHolders) {
+        if (chg <= 0 && !onDemand) return null;
+      } else if (chg >= 0 && !onSupply) {
+        return null;
+      }
+
+      const sess = session.get(sym);
+      const turn = sess?.amount || s.turnover || 0;
+      const vol = sess?.qty || s.volume || 0;
+      if (turn <= 0 && vol <= 0) return null;
+
+      const boardBoost = wantHolders
+        ? onDemand
+          ? 1.55
+          : 1
+        : onSupply
+          ? 1.55
+          : 1;
+      const score = wantHolders
+        ? turn * (1 + Math.max(0, chg) / 8) * boardBoost
+        : turn * (1 + Math.max(0, -chg) / 8) * boardBoost;
+
+      return {
+        s,
+        sym,
+        chg,
+        onDemand,
+        onSupply,
+        turn,
+        vol,
+        score,
+      };
+    })
+    .filter(Boolean) as Array<{
+    s: MiniScreenerRow;
+    sym: string;
+    chg: number;
+    onDemand: boolean;
+    onSupply: boolean;
+    turn: number;
+    vol: number;
+    score: number;
+  }>;
+
+  const totalTurn = candidates.reduce((sum, c) => sum + c.turn, 0) || 1;
+
+  const intel = candidates.map((c) => {
+    const sharePct = Math.round((c.turn / totalTurn) * 1000) / 10; // one decimal
     return enrichRow(
       {
-        symbol: s.symbol,
-        name: s.name,
+        symbol: c.s.symbol,
+        name: c.s.name,
+        // Only real floorsheet member IDs — never invent broker numbers.
         brokerCode: null,
         brokerName: null,
-        ltp: s.ltp,
-        changePct: s.changePercent,
-        quantity: opts.boardQty || vol,
-        amount: turn,
-        avgRate: s.ltp,
-        netQty: vol * opts.netSign,
-        netAmount: turn * opts.netSign,
-        turnover: turn,
-        volume: vol,
-        sector: s.sector,
-        fiftyTwoWeekHigh: s.fiftyTwoWeekHigh,
-        fiftyTwoWeekLow: s.fiftyTwoWeekLow,
+        iconUrl: c.s.iconUrl,
+        sharePct,
+        ltp: c.s.ltp,
+        changePct: c.s.changePercent,
+        quantity: c.vol,
+        amount: c.turn,
+        avgRate: c.s.ltp,
+        netQty: wantHolders ? c.vol : -c.vol,
+        netAmount: wantHolders ? c.turn : -c.turn,
+        turnover: c.turn,
+        volume: c.vol,
+        sector: c.s.sector,
+        fiftyTwoWeekHigh: c.s.fiftyTwoWeekHigh,
+        fiftyTwoWeekLow: c.s.fiftyTwoWeekLow,
         pctFromHigh: null,
         pctFromLow: null,
-        score: opts.score,
-        signal: opts.signal,
+        score: c.score,
+        signal: wantHolders
+          ? c.onDemand
+            ? 'Live demand board + rising'
+            : 'Live rising / session turnover'
+          : c.onSupply
+            ? 'Live supply board + falling'
+            : 'Live falling / session turnover',
       },
       screener,
       [
-        { label: opts.boardLabel, value: fmtNum(opts.boardQty, 0) },
-        { label: 'Turnover', value: turn > 0 ? formatRs(turn) : '—' },
+        {
+          label: 'Board',
+          value: wantHolders
+            ? c.onDemand
+              ? 'Demand'
+              : '—'
+            : c.onSupply
+              ? 'Supply'
+              : '—',
+        },
+        {
+          label: 'Wt %',
+          value: `${sharePct.toFixed(1)}%`,
+        },
       ],
     );
-  };
-
-  let intel: Omit<PremiumIntelRow, 'rank'>[] = [];
-
-  if (mode === 'holders') {
-    intel = mini
-      .filter((s) => demandSet.has(s.symbol.toUpperCase()))
-      .map((s) => {
-        const ch = s.changePercent ?? 0;
-        const turn = s.turnover ?? 0;
-        const boardQty = demandQty.get(s.symbol.toUpperCase()) ?? 0;
-        const score =
-          boardQty * 0.001 +
-          turn * (1 + Math.max(0, ch) / 10) +
-          Math.log10(Math.max(turn, 1000));
-        const signal =
-          ch > 0
-            ? 'Demand board + rising price · holder proxy'
-            : 'Demand board · accumulation interest (price flat/down)';
-        return buildProxyRow(s, {
-          boardQty,
-          boardLabel: 'Demand qty',
-          signal,
-          score,
-          netSign: 1,
-        });
-      });
-
-    if (!intel.length) {
-      intel = mini
-        .filter((s) => (s.changePercent ?? 0) > 0 && (s.turnover ?? 0) > 0)
-        .map((s) => {
-          const ch = s.changePercent ?? 0;
-          const turn = s.turnover ?? 0;
-          return buildProxyRow(s, {
-            boardQty: s.volume ?? 0,
-            boardLabel: 'Volume',
-            signal: 'Rising price + turnover · holder proxy (no demand board)',
-            score: turn * (1 + ch / 10),
-            netSign: 1,
-          });
-        });
-    }
-  } else {
-    intel = mini
-      .filter((s) => supplySet.has(s.symbol.toUpperCase()))
-      .map((s) => {
-        const ch = s.changePercent ?? 0;
-        const turn = s.turnover ?? 0;
-        const boardQty = supplyQty.get(s.symbol.toUpperCase()) ?? 0;
-        const score =
-          boardQty * 0.001 +
-          turn * (1 + Math.max(0, -ch) / 10) +
-          Math.log10(Math.max(turn, 1000));
-        const signal =
-          ch < 0
-            ? 'Supply board + falling price · release proxy'
-            : 'Supply board · sell-side pressure (price flat/up)';
-        return buildProxyRow(s, {
-          boardQty,
-          boardLabel: 'Supply qty',
-          signal,
-          score,
-          netSign: -1,
-        });
-      });
-
-    if (!intel.length) {
-      intel = mini
-        .filter((s) => (s.changePercent ?? 0) < 0 && (s.turnover ?? 0) > 0)
-        .map((s) => {
-          const ch = s.changePercent ?? 0;
-          const turn = s.turnover ?? 0;
-          return buildProxyRow(s, {
-            boardQty: s.volume ?? 0,
-            boardLabel: 'Volume',
-            signal: 'Falling price + turnover · release proxy (no supply board)',
-            score: turn * (1 + Math.abs(ch) / 10),
-            netSign: -1,
-          });
-        });
-    }
-  }
+  });
 
   return {
     title,
     subtitle,
-    sessionDate: floorsheetMeta.date,
-    tradesScanned: floorsheetMeta.trades,
+    sessionDate: floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
+    tradesScanned: rows.length,
     brokerBreakdown: false,
     summary: [
-      { label: 'Universe', value: String(mini.length) },
-      { label: 'Board filter', value: mode === 'holders' ? `${demand.length} demand` : `${supply.length} supply` },
-      { label: 'Mode', value: mode === 'holders' ? 'Proxy' : 'Proxy' },
+      { label: 'Symbols', value: String(intel.length) },
+      { label: 'Trades scanned', value: String(rows.length) },
+      {
+        label: 'Board',
+        value: wantHolders
+          ? `Demand ${boards.demand.size}`
+          : `Supply ${boards.supply.size}`,
+      },
     ],
     rows: rankRows(intel, limit),
   };
+}
+
+/**
+ * Progressive broker accumulation / distribution.
+ * Emits full ranked snapshots as floorsheet pages arrive (list only grows).
+ * UI handles one-by-one row reveal.
+ */
+export async function streamPremiumIntel(
+  kind: 'top-holders' | 'top-releases',
+  onUpdate: (
+    snap: PremiumIntelSnapshot,
+    meta: { partial: boolean; page: number },
+  ) => void,
+  limit = 120,
+): Promise<PremiumIntelSnapshot> {
+  const mode = kind === 'top-holders' ? 'holders' : 'releases';
+  const [screener, brokers, boards] = await Promise.all([
+    screenerMap(),
+    loadBrokers(),
+    loadBoardSets(),
+  ]);
+
+  let latest: PremiumIntelSnapshot | null = null;
+  let lastCount = 0;
+
+  await loadSessionFloorsheetProgressive((rows, meta) => {
+    const snap = buildNetIntelSnapshot(
+      mode,
+      limit,
+      rows,
+      screener,
+      brokers,
+      boards,
+    );
+    // Never shrink the emitted list mid-stream (avoids UI reset to 1 row).
+    if (!meta.done && snap.rows.length < lastCount) {
+      return;
+    }
+    lastCount = Math.max(lastCount, snap.rows.length);
+    latest = snap;
+    onUpdate(snap, { partial: !meta.done, page: meta.page });
+  });
+
+  if (!latest) {
+    latest = await loadNetIntel(mode, limit);
+    onUpdate(latest, { partial: false, page: 0 });
+  }
+  return latest;
+}
+
+/**
+ * Fetch net accumulation/distribution rows for one broker number
+ * (used when search targets a broker not yet in the streamed list).
+ */
+export async function searchBrokerNetRows(
+  kind: 'top-holders' | 'top-releases',
+  brokerCode: string,
+  limit = 40,
+): Promise<PremiumIntelRow[]> {
+  const code = brokerKey(brokerCode);
+  if (!code) return [];
+
+  const mode = kind === 'top-holders' ? 'holders' : 'releases';
+  const [buy1, sell1, screener, brokers] = await Promise.all([
+    loadFloorsheet(1, 100, { buyerMemberId: code }),
+    loadFloorsheet(1, 100, { sellerMemberId: code }),
+    screenerMap(),
+    loadBrokers(),
+  ]);
+
+  const more: Promise<FloorsheetPage>[] = [];
+  if (buy1.hasNext) more.push(loadFloorsheet(2, 100, { buyerMemberId: code }));
+  if (sell1.hasNext) more.push(loadFloorsheet(2, 100, { sellerMemberId: code }));
+  const extra = more.length ? await Promise.all(more) : [];
+
+  const rows = [
+    ...buy1.rows,
+    ...sell1.rows,
+    ...extra.flatMap((p) => p.rows),
+  ];
+  if (!rows.length) return [];
+
+  // Filtered floorsheet by member ID still often returns null broker fields
+  // on the public API — only keep real broker matches when present.
+  if (!hasBrokerData(rows)) return [];
+  const snap = buildNetIntelSnapshot(mode, limit, rows, screener, brokers);
+  return snap.rows.filter((r) => brokerKey(r.brokerCode ?? '') === code);
 }
 
 async function loadBrokerFavorites(limit: number): Promise<PremiumIntelSnapshot> {
@@ -783,6 +1033,7 @@ async function loadBrokerTopBuySell(limit: number): Promise<PremiumIntelSnapshot
     screenerMap(),
   ]);
   const directory = new Map(brokers.map((b) => [b.code, b.name]));
+  mergeBrokerNamesFromRows(directory, rows);
 
   if (hasBrokerData(rows)) {
     const netByBroker = new Map<string, BrokerNet>();

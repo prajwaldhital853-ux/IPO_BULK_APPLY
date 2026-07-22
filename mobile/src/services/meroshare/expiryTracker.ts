@@ -1,5 +1,9 @@
 import { MeroshareClient } from './client';
 import type { AccountMeta } from '../../types/account';
+import {
+  isMockAccountId,
+  mockExpiryForAccount,
+} from '../../data/mockAccounts';
 
 export type ExpiryStatus = 'ok' | 'warning' | 'expired' | 'unknown' | 'error';
 
@@ -279,6 +283,28 @@ export async function fetchAccountExpiryInfo(
   password: string,
 ): Promise<AccountExpiryInfo> {
   const base = blankInfo(account);
+
+  // Sample accounts: return seeded expiry (some demat / password expired).
+  if (isMockAccountId(account.id)) {
+    await new Promise((r) => setTimeout(r, 280));
+    const exp = mockExpiryForAccount(account.id) ?? {};
+    const fields: ExpiryFields = {
+      passwordExpiryDate: exp.passwordExpiryDate ?? null,
+      dematExpiryDate: exp.dematExpiryDate ?? null,
+      meroshareExpiryDate: exp.meroshareExpiryDate ?? null,
+      passwordExpired: resolveExpired(exp.passwordExpiryDate ?? null, null),
+      dematExpired: resolveExpired(exp.dematExpiryDate ?? null, null),
+      meroshareExpired: resolveExpired(exp.meroshareExpiryDate ?? null, null),
+    };
+    const { status, detail: summaryDetail } = summarize(fields);
+    return {
+      ...base,
+      ...fields,
+      status,
+      detail: summaryDetail,
+      pills: makePills(fields),
+    };
+  }
 
   try {
     const client = new MeroshareClient();

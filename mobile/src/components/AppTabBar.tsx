@@ -113,7 +113,7 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
     (insets.bottom > 0 ? insets.bottom : Platform.OS === 'android' ? rs(48) : 0) +
     (Platform.OS === 'android' ? rs(4) : 0);
 
-  const barBg = isDark ? colors.bgElevated : colors.primaryMid;
+  const barBg = isDark ? colors.bgElevated : '#E7ECE0';
 
   return (
     <View
@@ -196,8 +196,8 @@ const styles = StyleSheet.create({
     gap: rs(3),
   },
   iconPill: {
-    minWidth: rs(48),
-    height: rs(30),
+    minWidth: rs(52),
+    height: rs(32),
     borderRadius: rs(16),
     alignItems: 'center',
     justifyContent: 'center',
@@ -205,7 +205,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: rs(11),
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: rs(2),
   },
 });

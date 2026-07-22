@@ -41,6 +41,8 @@ export function HomeScreen() {
     accounts,
     removeAccount,
     reorderAccounts,
+    seedMockAccounts,
+    removeMockAccounts,
   } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
   const { colors } = useTheme();
@@ -227,6 +229,36 @@ export function HomeScreen() {
               Total Accounts : {accounts.length}/{maxAccounts}
             </Text>
             <View style={styles.listActions}>
+              <Pressable
+                onPress={() =>
+                  Alert.alert(
+                    'Sample accounts',
+                    'Load realistic mock accounts with portfolio holdings (gain/loss) for Expo Go testing?',
+                    [
+                      {
+                        text: 'Load sample accounts',
+                        onPress: () =>
+                          void seedMockAccounts().then(() =>
+                            Alert.alert(
+                              'Ready',
+                              '15 sample accounts loaded. Open Bulk Portfolio Check, Portfolio import, or Investment Summary to see money/gain/loss data.',
+                            ),
+                          ),
+                      },
+                      {
+                        text: 'Remove sample accounts',
+                        style: 'destructive',
+                        onPress: () => void removeMockAccounts(),
+                      },
+                      { text: 'Cancel', style: 'cancel' },
+                    ],
+                  )
+                }
+                hitSlop={8}
+                style={styles.iconBtn}
+              >
+                <Ionicons name="flask-outline" size={rs(20)} color={colors.text} />
+              </Pressable>
               <Pressable
                 onPress={() => setSearchOpen((v) => !v)}
                 hitSlop={8}

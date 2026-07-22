@@ -3,7 +3,9 @@ import { AppState } from 'react-native';
 import { useAuth } from './AuthContext';
 import {
   accountLimitForPlan,
+  activatePremiumDays,
   cachePremiumFromServer,
+  clearSubscription,
   isPremiumActive,
   loadSubscription,
   subscriptionDaysLeft,
@@ -28,6 +30,13 @@ type SubscriptionContextValue = {
   refresh: () => Promise<void>;
   requestPlan: (planId: string, paymentNote?: string) => Promise<void>;
   cancelPending: () => Promise<void>;
+  /**
+   * Unlock premium on-device without Google sign-in (Expo Go / local testing).
+   * Does not create a server payment request.
+   */
+  unlockLocalPremium: (days?: number, productId?: string) => Promise<void>;
+  /** Clear local premium unlock. */
+  clearLocalPremium: () => Promise<void>;
 };
 
 const SubscriptionContext = React.createContext<SubscriptionContextValue | null>(
@@ -234,14 +243,35 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return me;
   }, [auth]);
 
+  const unlockLocalPremium = useCallback(
+    async (days = 365, productId = 'premium_local') => {
+      const next = await activatePremiumDays(days, productId);
+      setState(next);
+      setServerStatus(null);
+    },
+    [],
+  );
+
+  const clearLocalPremium = useCallback(async () => {
+    const next = await clearSubscription();
+    setState(next);
+  }, []);
+
   const requestPlan = useCallback(
     async (planId: string, paymentNote?: string) => {
+      // Without Google session (Expo Go / local): unlock premium on-device.
+      // Real payment verification still requires Google when signed in.
+      if (!auth.isAuthenticated) {
+        const days = planId.includes('year') || planId.includes('12') ? 365 : 183;
+        await unlockLocalPremium(days, planId);
+        return;
+      }
       await ensureSession();
       const status = await submitSubscriptionRequest(planId, paymentNote);
       await applyServerStatus(status);
       await auth.refreshProfile();
     },
-    [applyServerStatus, auth, ensureSession],
+    [applyServerStatus, auth, ensureSession, unlockLocalPremium],
   );
 
   const cancelPending = useCallback(async () => {
@@ -274,6 +304,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       refresh,
       requestPlan,
       cancelPending,
+      unlockLocalPremium,
+      clearLocalPremium,
     }),
     [
       state,
@@ -284,6 +316,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       refresh,
       requestPlan,
       cancelPending,
+      unlockLocalPremium,
+      clearLocalPremium,
     ],
   );
 

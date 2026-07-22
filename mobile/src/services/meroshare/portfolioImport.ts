@@ -1,4 +1,5 @@
 import type { AccountMeta } from '../../types/account';
+import { isMockAccountId, mockHoldingsForAccount } from '../../data/mockAccounts';
 import { getSecrets } from '../../storage/accountsStorage';
 import { MeroshareClient } from './client';
 import { MeroshareError } from './errors';
@@ -25,10 +26,24 @@ export type ImportResult = {
  * live "My Portfolio" holdings. MeroShare exposes quantity + last/previous
  * price only (no purchase price), so WACC is seeded from LTP and can be
  * edited by the user afterwards.
+ *
+ * Mock accounts (`mock_*`) return seeded holdings so Expo Go demos work
+ * offline without hitting CDSC.
  */
 export async function importPortfolioFromMeroshare(
   account: AccountMeta,
 ): Promise<ImportResult> {
+  if (isMockAccountId(account.id)) {
+    const holdings = mockHoldingsForAccount(account.id) ?? [];
+    // Tiny delay so the UI progress state is visible during bulk import.
+    await new Promise((r) => setTimeout(r, 350));
+    return {
+      accountId: account.id,
+      accountName: account.name,
+      holdings,
+    };
+  }
+
   const secrets = await getSecrets(account.id);
   if (!secrets?.password) {
     throw new MeroshareError(

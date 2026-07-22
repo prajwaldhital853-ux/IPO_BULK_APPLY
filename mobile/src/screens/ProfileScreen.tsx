@@ -12,12 +12,12 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
 import { PromoBanner } from '../components/PromoBanner';
 import { BrandLogo } from '../components/BrandLogo';
-import { ChangePinModal } from '../components/ChangePinModal';
 import { DeleteAccountModal } from '../components/DeleteAccountModal';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import { useSubscription } from '../context/SubscriptionContext';
@@ -57,6 +57,17 @@ const FALLBACK_CONTACT: ContactSettings = {
   facebookUrl: null,
   tiktokUrl: 'https://www.tiktok.com/@unique_share_market',
 };
+
+function formatExpiresOn(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
 
 async function openExternal(url: string, failLabel: string): Promise<void> {
   try {
@@ -141,17 +152,18 @@ export function ProfileScreen() {
   const openDrawer = useOpenDrawer();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { isPremium, daysLeft, isPending } = useSubscription();
+  const { isPremium, daysLeft, isPending, maxAccounts, state } =
+    useSubscription();
   const { accounts, addAccount } = useAccounts();
   const auth = useAuth();
   const { colors, isDark, toggle } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [changePinOpen, setChangePinOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [publicSettings, setPublicSettings] = useState<PublicAppSettings | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     void fetchPublicAppSettings().then(setPublicSettings);
@@ -159,6 +171,31 @@ export function ProfileScreen() {
 
   const contact = publicSettings?.contact ?? FALLBACK_CONTACT;
   const contactItems = useMemo(() => buildContactItems(contact), [contact]);
+
+  const displayName = auth.isAuthenticated
+    ? auth.user?.name ?? auth.user?.email ?? 'Signed in'
+    : 'Guest';
+  const email = auth.isAuthenticated ? auth.user?.email ?? null : null;
+  const expiresLabel = formatExpiresOn(
+    state.expiresAt ?? auth.premium?.expiresAt ?? null,
+  );
+  const statusLabel = isPremium
+    ? 'SUBSCRIBED'
+    : isPending
+      ? 'PENDING'
+      : 'FREE';
+  const statusColor = isPremium
+    ? '#2E7D32'
+    : isPending
+      ? '#F9A825'
+      : '#0277BD';
+
+  const copyEmail = async () => {
+    if (!email) return;
+    await Clipboard.setStringAsync(email);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   const onGeneralPress = async (action: (typeof GENERAL)[number]['action']) => {
     if (action === 'settings' || action === 'notifications') {
@@ -303,54 +340,95 @@ export function ProfileScreen() {
         onMenuPress={openDrawer}
         title="NEPSE GHAR"
         showLogo={false}
-        showActions
-        onOptionsPress={() => setOptionsOpen(true)}
+        showActions={false}
+        right={
+          <View style={styles.headerRight}>
+            <Pressable
+              onPress={toggle}
+              hitSlop={8}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: isDark }}
+              accessibilityLabel="Toggle theme"
+              style={[
+                styles.headerToggle,
+                { backgroundColor: isDark ? colors.primary : '#B0BEC5' },
+              ]}
+            >
+              <View
+                style={[
+                  styles.headerToggleThumb,
+                  { alignSelf: isDark ? 'flex-end' : 'flex-start' },
+                ]}
+              />
+            </Pressable>
+            <Pressable
+              onPress={() => setOptionsOpen(true)}
+              hitSlop={8}
+              style={styles.headerMore}
+              accessibilityRole="button"
+              accessibilityLabel="More options"
+            >
+              <Ionicons
+                name="ellipsis-vertical"
+                size={rs(20)}
+                color={colors.text}
+              />
+            </Pressable>
+          </View>
+        }
       />
       {isDark ? <PromoBanner /> : null}
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
-          <View style={styles.logoCard}>
-            <BrandLogo variant="full" height={rs(70)} />
+        <View style={styles.heroCard}>
+          <View style={styles.heroGlow} />
+          <View style={styles.logoCircle}>
+            <BrandLogo variant="mark" height={rs(58)} />
           </View>
-          <Text style={styles.guest}>
-            {auth.isAuthenticated ? auth.user?.name ?? auth.user?.email ?? 'Signed in' : 'Guest'}
+          <Text style={styles.heroName}>{displayName}</Text>
+          {email ? (
+            <Pressable style={styles.emailRow} onPress={() => void copyEmail()}>
+              <Text style={styles.heroEmail} numberOfLines={1}>
+                {email}
+              </Text>
+              <Ionicons
+                name={copied ? 'checkmark' : 'copy-outline'}
+                size={rs(15)}
+                color="#1565C0"
+              />
+            </Pressable>
+          ) : (
+            <Text style={styles.heroEmail}>Sign in to sync premium</Text>
+          )}
+          <Text style={[styles.heroStatus, { color: statusColor }]}>
+            {statusLabel}
           </Text>
-          {auth.isAuthenticated && auth.user?.email ? (
-            <Text style={styles.premiumDays}>{auth.user.email}</Text>
-          ) : null}
-          <Text style={styles.free}>
-            {isPremium ? 'PREMIUM' : isPending ? 'PENDING VERIFICATION' : 'FREE'}
-          </Text>
-          {isPending ? (
-            <Text style={styles.premiumDays}>
-              Payment submitted — waiting for admin approval
-            </Text>
-          ) : null}
-          {isPremium && daysLeft != null ? (
-            <Text style={styles.premiumDays}>{daysLeft} days left</Text>
-          ) : null}
+          {isPremium && expiresLabel ? (
+            <Text style={styles.heroMeta}>Expires On {expiresLabel}</Text>
+          ) : isPremium && daysLeft != null ? (
+            <Text style={styles.heroMeta}>{daysLeft} days left</Text>
+          ) : isPending ? (
+            <Text style={styles.heroMeta}>Waiting for admin approval</Text>
+          ) : (
+            <Text style={styles.heroMeta}>Free plan</Text>
+          )}
+          <Text style={styles.heroMeta}>Account Limit: {maxAccounts}</Text>
+
           {auth.isAuthenticated ? (
-            <View style={styles.authRow}>
-              <Pressable
-                style={[styles.loginBtn, styles.authBtnHalf]}
-                onPress={() => setChangePinOpen(true)}
-              >
-                <Text style={styles.loginText}>Change PIN</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.loginBtn, styles.authBtnHalf]}
-                onPress={() => void auth.signOut()}
-              >
-                <Text style={styles.loginText}>Log Out</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              style={styles.logoutPill}
+              onPress={() => void auth.signOut()}
+            >
+              <Text style={styles.logoutText}>Log Out</Text>
+            </Pressable>
           ) : (
             <Pressable
-              style={styles.loginBtn}
+              style={styles.logoutPill}
               onPress={() => void auth.signInWithGoogle().catch(() => undefined)}
             >
-              <Text style={styles.loginText}>Log In</Text>
+              <Text style={[styles.logoutText, { color: '#1565C0' }]}>
+                Log In
+              </Text>
             </Pressable>
           )}
         </View>
@@ -366,42 +444,6 @@ export function ProfileScreen() {
             </View>
             <Text style={styles.rowLabel}>Subscription</Text>
             <Ionicons name="refresh-circle" size={rs(22)} color={colors.teal} />
-          </Pressable>
-        </View>
-
-        <Text style={styles.sectionOutside}>Appearance</Text>
-        <View style={styles.card}>
-          <Pressable style={styles.row} onPress={toggle}>
-            <View
-              style={[
-                styles.rowIcon,
-                { backgroundColor: isDark ? '#424242' : '#E3F2FD' },
-              ]}
-            >
-              <Ionicons
-                name={isDark ? 'moon' : 'sunny-outline'}
-                size={rs(18)}
-                color={isDark ? '#FFD54F' : '#1565C0'}
-              />
-            </View>
-            <Text style={styles.rowLabel}>
-              {isDark ? 'Dark Mode' : 'White Mode'}
-            </Text>
-            <View
-              style={[
-                styles.toggleTrackSmall,
-                {
-                  backgroundColor: isDark ? colors.primary : colors.primarySoft,
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.toggleThumbSmall,
-                  { alignSelf: isDark ? 'flex-end' : 'flex-start' },
-                ]}
-              />
-            </View>
           </Pressable>
         </View>
 
@@ -577,14 +619,6 @@ export function ProfileScreen() {
         </View>
       ) : null}
 
-      <ChangePinModal
-        visible={changePinOpen}
-        onClose={() => setChangePinOpen(false)}
-        onChanged={() => {
-          setChangePinOpen(false);
-          Alert.alert('PIN updated', 'Your new PIN is ready to use.');
-        }}
-      />
       <DeleteAccountModal
         visible={deleteOpen}
         busy={deleting}
@@ -607,63 +641,107 @@ export function ProfileScreen() {
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
-    toggleTrackSmall: {
-      width: rs(40),
-      height: rs(22),
-      borderRadius: rs(11),
-      paddingHorizontal: rs(2),
+    headerRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      paddingRight: rs(4),
+    },
+    headerToggle: {
+      width: rs(42),
+      height: rs(24),
+      borderRadius: rs(12),
+      paddingHorizontal: rs(3),
       justifyContent: 'center',
     },
-    toggleThumbSmall: {
+    headerToggleThumb: {
       width: rs(18),
       height: rs(18),
       borderRadius: rs(9),
       backgroundColor: '#FFFFFF',
     },
-    content: { paddingBottom: rs(40) },
-    hero: { alignItems: 'center', paddingVertical: rs(24) },
-    logoCard: {
-      backgroundColor: '#FFFFFF',
-      borderRadius: rs(16),
-      paddingVertical: rs(14),
-      paddingHorizontal: rs(18),
-      marginBottom: rs(8),
+    headerMore: {
+      width: rs(32),
+      height: rs(32),
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    guest: {
-      color: c.text,
+    content: { paddingBottom: rs(40) },
+    heroCard: {
+      marginHorizontal: rs(12),
+      marginTop: rs(10),
+      marginBottom: rs(18),
+      borderRadius: rs(18),
+      backgroundColor: '#81D4FA',
+      alignItems: 'center',
+      paddingTop: rs(22),
+      paddingBottom: rs(22),
+      paddingHorizontal: rs(18),
+      overflow: 'hidden',
+    },
+    heroGlow: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: '#B3E5FC',
+      opacity: 0.65,
+    },
+    logoCircle: {
+      width: rs(92),
+      height: rs(92),
+      borderRadius: rs(46),
+      backgroundColor: '#FFFFFF',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: rs(14),
+      zIndex: 1,
+    },
+    heroName: {
+      color: '#0D47A1',
       fontSize: rs(20),
       fontWeight: '800',
-      marginTop: rs(12),
+      textAlign: 'center',
+      zIndex: 1,
     },
-    free: {
-      color: '#4FC3F7',
-      fontWeight: '700',
-      marginTop: rs(4),
-      marginBottom: rs(4),
-    },
-    premiumDays: {
-      color: c.textSecondary,
-      fontSize: rs(12),
-      marginBottom: rs(12),
-    },
-    loginBtn: {
-      borderWidth: 1,
-      borderColor: c.border,
-      borderRadius: rs(10),
-      paddingHorizontal: rs(28),
-      paddingVertical: rs(10),
-      backgroundColor: c.surface,
-    },
-    authRow: {
+    emailRow: {
       flexDirection: 'row',
-      gap: rs(10),
+      alignItems: 'center',
+      gap: rs(8),
+      marginTop: rs(6),
+      maxWidth: '100%',
+      zIndex: 1,
+    },
+    heroEmail: {
+      color: '#1565C0',
+      fontSize: rs(12),
+      fontWeight: '500',
+      zIndex: 1,
+    },
+    heroStatus: {
+      fontWeight: '800',
+      fontSize: rs(15),
+      letterSpacing: 0.8,
+      marginTop: rs(12),
+      zIndex: 1,
+    },
+    heroMeta: {
+      color: '#1976D2',
+      fontSize: rs(13),
+      fontWeight: '600',
       marginTop: rs(4),
+      zIndex: 1,
     },
-    authBtnHalf: {
-      paddingHorizontal: rs(16),
-      minWidth: rs(130),
+    logoutPill: {
+      marginTop: rs(18),
+      backgroundColor: '#FFFFFF',
+      borderRadius: rs(24),
+      paddingHorizontal: rs(36),
+      paddingVertical: rs(11),
+      zIndex: 1,
     },
-    loginText: { color: c.text, fontWeight: '600' },
+    logoutText: {
+      color: '#C62828',
+      fontWeight: '800',
+      fontSize: rs(14),
+    },
     sectionOutside: {
       color: c.text,
       fontSize: rs(15),

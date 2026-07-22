@@ -38,18 +38,18 @@ export function PromoBanner({ onPress }: Props) {
 
 const styles = StyleSheet.create({
   banner: {
-    backgroundColor: '#1B5E20',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: rs(8),
-    paddingHorizontal: rs(12),
     gap: rs(10),
+    backgroundColor: '#1B5E20',
+    paddingHorizontal: rs(14),
+    paddingVertical: rs(11),
   },
   logo: {
     width: rs(28),
     height: rs(28),
     borderRadius: rs(14),
-    backgroundColor: '#4CAF50',
+    backgroundColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -57,6 +57,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: '#FFFFFF',
     fontSize: rs(12),
+    fontWeight: '700',
     lineHeight: rs(16),
   },
 });

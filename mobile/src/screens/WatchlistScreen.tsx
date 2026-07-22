@@ -63,9 +63,9 @@ function makePalette(c: ThemeColors, isDark: boolean): WatchPalette {
   }
   return {
     screen: c.bg,
-    header: '#E8F5E9',
-    card: '#FFFFFF',
-    cardBorder: '#C8E6C9',
+    header: '#E4EDE0',
+    card: c.surface,
+    cardBorder: '#D0DCCE',
     onDark: c.text,
     onDarkMuted: c.textSecondary,
     onHeader: c.text,

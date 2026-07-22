@@ -26,6 +26,7 @@ import { PublicIpoResultScreen } from '../screens/PublicIpoResultScreen';
 import { NepseDataScreen } from '../screens/NepseDataScreen';
 import { NepseCalendarScreen } from '../screens/NepseCalendarScreen';
 import { PortfolioScreen } from '../screens/PortfolioScreen';
+import { UserPortfolioScreen } from '../screens/UserPortfolioScreen';
 import { PortfolioDetailScreen } from '../screens/PortfolioDetailScreen';
 import { StockListScreen } from '../screens/StockListScreen';
 import { HighDemandScreen } from '../screens/HighDemandScreen';
@@ -158,6 +159,7 @@ function RootStack() {
       <Stack.Screen name="NepseData" component={NepseDataScreen} />
       <Stack.Screen name="NepseCalendar" component={NepseCalendarScreen} />
       <Stack.Screen name="Portfolio" component={PortfolioScreen} />
+      <Stack.Screen name="UserPortfolio" component={UserPortfolioScreen} />
       <Stack.Screen name="PortfolioDetail" component={PortfolioDetailScreen} />
       <Stack.Screen name="StockList" component={StockListScreen} />
       <Stack.Screen name="HighDemand" component={HighDemandScreen} />

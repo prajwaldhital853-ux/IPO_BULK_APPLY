@@ -21,6 +21,7 @@ import {
   loadDistributionRows,
   type SmartMoneyRow,
 } from '../../services/nepse/premiumAnalytics';
+import { BrokerFlowScreen } from './BrokerFlowScreen';
 import { fmtNum } from '../../services/nepse/screener';
 import { rs } from '../../utils/responsive';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
@@ -147,11 +148,11 @@ export function PremiumScannerScreen({ kind }: { kind: PremiumScannerKind }) {
 }
 
 export function AccumulationScreen() {
-  return <PremiumScannerScreen kind="accumulation" />;
+  return <BrokerFlowScreen mode="accumulation" />;
 }
 
 export function DistributionScreen() {
-  return <PremiumScannerScreen kind="distribution" />;
+  return <BrokerFlowScreen mode="distribution" />;
 }
 
 export function AggressiveHoldersScreen() {

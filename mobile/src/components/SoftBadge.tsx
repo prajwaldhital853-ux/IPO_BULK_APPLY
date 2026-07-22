@@ -15,14 +15,14 @@ export function SoftBadge({ label }: Props) {
 
 const styles = StyleSheet.create({
   badge: {
-    paddingHorizontal: rs(5),
-    paddingVertical: rs(1),
-    borderRadius: rs(3),
+    paddingHorizontal: rs(6),
+    paddingVertical: rs(2),
+    borderRadius: rs(4),
   },
   text: {
     color: '#FFFFFF',
-    fontSize: rs(8),
-    fontWeight: '800',
-    letterSpacing: 0.2,
+    fontSize: rs(9),
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
 });

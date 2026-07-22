@@ -245,11 +245,19 @@ export async function loadMiniScreener(
       '/security/mini-screener',
       force,
     );
-    screenerBaseCache = unwrapList(raw);
+    // Normalize icon paths to absolute CDN URLs so Image can load them.
+    screenerBaseCache = unwrapList(raw).map((r) => ({
+      ...r,
+      symbol: str(r.symbol).toUpperCase(),
+      iconUrl: iconUri(r.iconUrl),
+    }));
     screenerBaseCacheAt = Date.now();
   }
   const live = await fetchTodaysPriceMap();
-  return applyLivePriceOverlay(screenerBaseCache ?? [], live);
+  return applyLivePriceOverlay(screenerBaseCache ?? [], live).map((r) => ({
+    ...r,
+    iconUrl: iconUri(r.iconUrl),
+  }));
 }
 
 /** Live LTP for one symbol — uses todays-price overlay (ShareHub website parity). */
@@ -469,6 +477,9 @@ export type FloorsheetRow = {
   name: string;
   buyerBroker: string;
   sellerBroker: string;
+  /** Real broker firm name when the source provides it (e.g. Merolagani title). */
+  buyerBrokerName?: string | null;
+  sellerBrokerName?: string | null;
   rate: number | null;
   quantity: number | null;
   amount: number | null;

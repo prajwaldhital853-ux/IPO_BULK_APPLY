@@ -13,6 +13,8 @@ export type Portfolio = {
   name: string;
   holdings: PortfolioHolding[];
   createdAt: string;
+  /** MeroShare account id when imported — used to upsert on re-import. */
+  sourceAccountId?: string;
 };
 
 const KEY = () => scopedAsyncKey(PORTFOLIO_BASE);
@@ -124,10 +126,68 @@ export async function importHoldings(
 export async function createPortfolioWithHoldings(
   name: string,
   holdings: Array<Omit<PortfolioHolding, 'name'> & { name?: string }>,
+  sourceAccountId?: string,
 ): Promise<Portfolio> {
-  const portfolio = await createPortfolio(name);
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Portfolio name is required');
+  const portfolio: Portfolio = {
+    id: uid(),
+    name: trimmed,
+    holdings: [],
+    createdAt: new Date().toISOString(),
+    sourceAccountId,
+  };
+  const list = await listPortfolios();
+  list.unshift(portfolio);
+  await saveAll(list);
   await importHoldings(portfolio.id, holdings);
   return (await listPortfolios()).find((p) => p.id === portfolio.id) ?? portfolio;
+}
+
+/**
+ * Import (or refresh) a portfolio tied to a MeroShare account.
+ * Re-importing the same account updates holdings instead of duplicating.
+ */
+export async function upsertImportedPortfolio(
+  accountId: string,
+  name: string,
+  holdings: Array<Omit<PortfolioHolding, 'name'> & { name?: string }>,
+): Promise<{ portfolio: Portfolio; created: boolean; added: number; updated: number }> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Portfolio name is required');
+  const list = await listPortfolios();
+  let idx = list.findIndex((p) => p.sourceAccountId === accountId);
+  if (idx < 0) {
+    // Legacy imports had no sourceAccountId — match by exact name.
+    idx = list.findIndex((p) => p.name === trimmed);
+  }
+
+  if (idx >= 0) {
+    const existing = list[idx]!;
+    existing.name = trimmed;
+    existing.sourceAccountId = accountId;
+    list[idx] = existing;
+    await saveAll(list);
+    const merged = await importHoldings(existing.id, holdings);
+    return {
+      portfolio: merged?.portfolio ?? existing,
+      created: false,
+      added: merged?.added ?? 0,
+      updated: merged?.updated ?? 0,
+    };
+  }
+
+  const portfolio = await createPortfolioWithHoldings(
+    trimmed,
+    holdings,
+    accountId,
+  );
+  return {
+    portfolio,
+    created: true,
+    added: holdings.length,
+    updated: 0,
+  };
 }
 
 export async function removeHolding(

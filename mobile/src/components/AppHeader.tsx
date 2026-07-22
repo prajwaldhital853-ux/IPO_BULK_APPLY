@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     marginBottom: rs(2),
   },
   logoWrap: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#EEF2E6',
     borderRadius: rs(8),
     paddingHorizontal: rs(4),
     paddingVertical: rs(2),

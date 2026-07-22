@@ -7,6 +7,10 @@ import React, {
   useState,
 } from 'react';
 import {
+  isMockAccountId,
+  MOCK_ACCOUNT_SEEDS,
+} from '../data/mockAccounts';
+import {
   addAccountWithSecrets,
   clearAllAccounts,
   getSecrets,
@@ -53,6 +57,10 @@ type AccountsContextValue = {
     crn: string;
     pin: string;
   } | null>;
+  /** Seed realistic mock accounts for Expo Go / offline demos. */
+  seedMockAccounts: () => Promise<void>;
+  /** Remove all mock_* accounts. */
+  removeMockAccounts: () => Promise<void>;
 };
 
 const AccountsContext = createContext<AccountsContextValue | null>(null);
@@ -67,7 +75,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       const list = await loadAccountMeta();
-      // One-time cleanup: drop any leftover demo accounts from earlier builds.
+      // Drop leftover old demo_* accounts; keep mock_* sample accounts.
       const cleaned = list.filter((a) => !a.id.startsWith('demo_'));
       if (cleaned.length !== list.length) {
         await saveAccountMeta(cleaned);
@@ -93,6 +101,101 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
 
   const removeAccount = useCallback(async (id: string) => {
     setAccounts(await removeAccountFully(id));
+  }, []);
+
+  const seedMockAccounts = useCallback(async () => {
+    const list = await loadAccountMeta();
+    for (const m of list.filter((a) => isMockAccountId(a.id))) {
+      await removeAccountFully(m.id);
+    }
+    for (const seed of MOCK_ACCOUNT_SEEDS) {
+      await addAccountWithSecrets(
+        { ...seed.meta, id: seed.meta.id },
+        seed.secrets,
+      );
+    }
+
+    // Seed saved portfolios + bulk snapshot so Investment Summary / Portfolio
+    // work immediately in Expo Go without a live MeroShare login.
+    const { createPortfolioWithHoldings, listPortfolios, deletePortfolio } =
+      await import('../storage/portfolioStorage');
+    const {
+      saveBulkPortfolioSnapshot,
+    } = await import('../storage/bulkPortfolioStorage');
+
+    const existing = await listPortfolios();
+    for (const p of existing.filter((x) =>
+      x.name.includes('(MeroShare)') || x.name.includes('(Sample)'),
+    )) {
+      await deletePortfolio(p.id);
+    }
+
+    const snapRows: Array<{
+      accountId: string;
+      accountName: string;
+      symbol: string;
+      name?: string;
+      qty: number;
+      wacc: number;
+      ltp: number | null;
+      previousClosingPrice: number | null;
+      value: number;
+      dayChange: number;
+    }> = [];
+
+    for (const seed of MOCK_ACCOUNT_SEEDS) {
+      await createPortfolioWithHoldings(
+        `${seed.meta.name} (Sample)`,
+        seed.holdings.map((h) => ({
+          symbol: h.symbol,
+          name: h.name,
+          qty: h.qty,
+          wacc: h.wacc,
+        })),
+        seed.meta.id,
+      );
+      for (const h of seed.holdings) {
+        const value =
+          h.qty *
+          (h.ltp ?? h.previousClosingPrice ?? h.wacc ?? 0);
+        const dayChange =
+          h.ltp != null && h.previousClosingPrice != null
+            ? h.qty * (h.ltp - h.previousClosingPrice)
+            : 0;
+        snapRows.push({
+          accountId: seed.meta.id,
+          accountName: seed.meta.name,
+          symbol: h.symbol,
+          name: h.name,
+          qty: h.qty,
+          wacc: h.wacc,
+          ltp: h.ltp,
+          previousClosingPrice: h.previousClosingPrice,
+          value,
+          dayChange,
+        });
+      }
+    }
+
+    await saveBulkPortfolioSnapshot({
+      updatedAt: new Date().toISOString(),
+      totalValue: snapRows.reduce((s, r) => s + r.value, 0),
+      dayChange: snapRows.reduce((s, r) => s + r.dayChange, 0),
+      accounts: MOCK_ACCOUNT_SEEDS.length,
+      holdings: snapRows.length,
+      rows: snapRows,
+    });
+
+    setAccounts(await loadAccountMeta());
+  }, []);
+
+  const removeMockAccounts = useCallback(async () => {
+    const list = await loadAccountMeta();
+    const mocks = list.filter((a) => isMockAccountId(a.id));
+    for (const m of mocks) {
+      await removeAccountFully(m.id);
+    }
+    setAccounts(await loadAccountMeta());
   }, []);
 
   const clearAll = useCallback(async () => {
@@ -143,6 +246,8 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       updateAccountMeta,
       updateAccount,
       loadSecrets,
+      seedMockAccounts,
+      removeMockAccounts,
     }),
     [
       accounts,
@@ -156,6 +261,8 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       updateAccountMeta,
       updateAccount,
       loadSecrets,
+      seedMockAccounts,
+      removeMockAccounts,
     ],
   );
 

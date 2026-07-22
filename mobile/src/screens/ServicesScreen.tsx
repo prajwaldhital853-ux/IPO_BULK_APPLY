@@ -11,6 +11,7 @@ import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
+import { PromoBanner } from '../components/PromoBanner';
 import { SoftBadge } from '../components/SoftBadge';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import type { RootStackParamList } from '../navigation/types';
@@ -43,14 +44,66 @@ type Section = {
   items: ServiceItem[];
 };
 
-const H_PAD = rs(12);
-const GAP = rs(8);
+const H_PAD = rs(14);
+const GAP = rs(14);
 const COLS = 4;
 const TILE_W = Math.floor((screenWidth - H_PAD * 2 - GAP * (COLS - 1)) / COLS);
+/** Compact tiles so Free Services fits ~3.5 rows on screen. */
+const TILE_H = Math.max(Math.floor(TILE_W * 0.98), rs(86));
 
+/** Brighter pastels so icons read crisp against white cards. */
 function pastel(hex: string, isDark: boolean) {
-  return isDark ? `${hex}33` : `${hex}28`;
+  if (isDark) return `${hex}40`;
+  const map: Record<string, string> = {
+    '#42A5F5': '#E3F2FD',
+    '#66BB6A': '#E8F5E9',
+    '#EF5350': '#FFEBEE',
+    '#FFA726': '#FFF3E0',
+    '#FFCA28': '#FFF8E1',
+    '#90A4AE': '#ECEFF1',
+    '#AB47BC': '#F3E5F5',
+    '#29B6F6': '#E1F5FE',
+    '#26A69A': '#E0F2F1',
+    '#7E57C2': '#EDE7F6',
+    '#FDD835': '#FFFDE7',
+    '#F48FB1': '#FCE4EC',
+    '#EC407A': '#FCE4EC',
+    '#FF7043': '#FBE9E7',
+    '#5C6BC0': '#E8EAF6',
+    '#81C784': '#E8F5E9',
+  };
+  return map[hex] ?? `${hex}28`;
 }
+
+/** Darker icon ink so glyphs read bold on light pastels. */
+function darkIcon(hex: string): string {
+  const map: Record<string, string> = {
+    '#42A5F5': '#0D47A1',
+    '#66BB6A': '#1B5E20',
+    '#EF5350': '#B71C1C',
+    '#FFA726': '#E65100',
+    '#FFCA28': '#F57F17',
+    '#90A4AE': '#37474F',
+    '#AB47BC': '#6A1B9A',
+    '#29B6F6': '#01579B',
+    '#26A69A': '#004D40',
+    '#7E57C2': '#4527A0',
+    '#FDD835': '#F57F17',
+    '#F48FB1': '#AD1457',
+    '#EC407A': '#880E4F',
+    '#FF7043': '#BF360C',
+    '#5C6BC0': '#1A237E',
+    '#81C784': '#1B5E20',
+  };
+  return map[hex] ?? '#212121';
+}
+
+const FEATURED_IDS = new Set([
+  'share-portfolio',
+  'bank-tracker',
+  'price-alert',
+  'watchlist',
+]);
 
 function buildSections(): Section[] {
   return [
@@ -61,7 +114,8 @@ function buildSections(): Section[] {
       items: [
         { id: 'nepse-data', label: 'NEPSE Data', iconSet: 'feather', iconName: 'bar-chart-2', accent: '#42A5F5', route: 'NepseData' },
         { id: 'nepse-cal', label: 'NEPSE Calendar', iconSet: 'ion', iconName: 'calendar-outline', accent: '#66BB6A', route: 'NepseCalendar' },
-        { id: 'share-portfolio', label: 'Share Portfolio', iconSet: 'ion', iconName: 'briefcase-outline', accent: '#EF5350', route: 'Portfolio' },
+        { id: 'share-portfolio', label: 'Share Portfolio', badge: 'NEW', iconSet: 'mci', iconName: 'chart-pie', accent: '#EF5350', route: 'Portfolio' },
+        { id: 'user-portfolio', label: 'My Portfolio', iconSet: 'ion', iconName: 'person-circle-outline', accent: '#FFCA28', route: 'UserPortfolio' },
         { id: 'price-alert', label: 'Price Alert', badge: 'NEW', iconSet: 'ion', iconName: 'notifications-outline', accent: '#FFA726', route: 'PriceAlert' },
         { id: 'commercial', label: 'Commercial Leaders', iconSet: 'mci', iconName: 'office-building', accent: '#66BB6A', route: 'StockList', stockKind: 'commercial-leaders' },
         { id: 'large-caps', label: 'Large Caps', iconSet: 'mci', iconName: 'finance', accent: '#42A5F5', route: 'StockList', stockKind: 'large-caps' },
@@ -69,12 +123,12 @@ function buildSections(): Section[] {
         { id: 'high-div', label: 'High Dividend', iconSet: 'mci', iconName: 'cash-multiple', accent: '#42A5F5', route: 'StockList', stockKind: 'high-dividend' },
         { id: 'high-demand', label: 'High Demand', iconSet: 'mci', iconName: 'arrow-up-bold-circle-outline', accent: '#EF5350', route: 'HighDemand' },
         { id: 'bulk-txn', label: 'Bulk Transactions', iconSet: 'mci', iconName: 'swap-horizontal', accent: '#FFA726', route: 'BulkTransactions' },
-        { id: 'nepse-history', label: 'NEPSE History', iconSet: 'mci', iconName: 'history', accent: '#90A4AE', route: 'NepseHistory' },
+        { id: 'nepse-history', label: 'Nepse History', iconSet: 'mci', iconName: 'history', accent: '#90A4AE', route: 'NepseHistory' },
         { id: 'proposed-div', label: 'Proposed Dividend', iconSet: 'mci', iconName: 'cash', accent: '#66BB6A', route: 'ProposedDividend' },
         { id: 'charts', label: 'Charts', iconSet: 'mci', iconName: 'chart-areaspline', accent: '#AB47BC', route: 'Charts' },
         { id: 'announcements', label: 'Announcements', iconSet: 'ion', iconName: 'megaphone-outline', accent: '#FFA726', route: 'Announcements' },
         { id: 'watchlist', label: 'Watchlist', badge: 'NEW', iconSet: 'ion', iconName: 'eye-outline', accent: '#29B6F6', route: 'Watchlist' },
-        { id: 'bank-tracker', label: 'Bank Tracker', badge: 'NEW', iconSet: 'mci', iconName: 'bank-outline', accent: '#26A69A', route: 'BankTracker' },
+        { id: 'bank-tracker', label: 'Bank Tracker', badge: 'NEW', iconSet: 'mci', iconName: 'wallet-outline', accent: '#26A69A', route: 'BankTracker' },
       ],
     },
     {
@@ -82,8 +136,8 @@ function buildSections(): Section[] {
       title: 'MeroShare Services',
       variant: 'mero',
       items: [
-        { id: 'bulk-portfolio', label: 'Bulk Portfolio Check', iconSet: 'ion', iconName: 'albums-outline', accent: '#42A5F5', route: 'BulkPortfolio' },
-        { id: 'bulk-status', label: 'Bulk IPO Status', badge: 'UPDATED', iconSet: 'ion', iconName: 'time-outline', accent: '#42A5F5', route: 'IpoBulkStatus' },
+        { id: 'bulk-portfolio', label: 'Bulk Portfolio', badge: 'UPDATED', iconSet: 'mci', iconName: 'wallet-outline', accent: '#42A5F5', route: 'BulkPortfolio' },
+        { id: 'bulk-status', label: 'Bulk IPO Status', badge: 'UPDATED', iconSet: 'ion', iconName: 'checkbox-outline', accent: '#42A5F5', route: 'IpoBulkStatus' },
         { id: 'current-status', label: 'Current IPO Status', badge: 'UPDATED', iconSet: 'ion', iconName: 'search', accent: '#7E57C2', route: 'CurrentIpoStatus' },
         { id: 'auto-ipo', label: 'Auto IPO', badge: 'NEW', iconSet: 'ion', iconName: 'flash', accent: '#FDD835', route: 'ApplyTab' },
         { id: 'current-issues', label: 'Current Issues', iconSet: 'mci', iconName: 'file-document-outline', accent: '#66BB6A', route: 'IpoIssuesCurrent' },
@@ -102,8 +156,8 @@ function buildSections(): Section[] {
         { id: 'investment-summary', label: 'Investment Summary', badge: 'UPDATED', iconSet: 'mci', iconName: 'clipboard-text-outline', accent: '#66BB6A', route: 'InvestmentSummary' },
         { id: 'aggressive-holders', label: 'Aggressive Holders', iconSet: 'ion', iconName: 'people-outline', accent: '#42A5F5', route: 'AggressiveHolders' },
         { id: 'live-pulse', label: 'Live Market Pulse', badge: 'NEW', iconSet: 'mci', iconName: 'pulse', accent: '#EF5350', route: 'LiveMarketPulse' },
-        { id: 'accumulation', label: 'Accumulation', iconSet: 'feather', iconName: 'trending-up', accent: '#66BB6A', route: 'Accumulation' },
-        { id: 'distribution', label: 'Distribution', iconSet: 'feather', iconName: 'trending-down', accent: '#EF5350', route: 'Distribution' },
+        { id: 'accumulation', label: 'Broker Accumulation', iconSet: 'feather', iconName: 'trending-up', accent: '#66BB6A', route: 'Accumulation' },
+        { id: 'distribution', label: 'Broker Distribution', iconSet: 'feather', iconName: 'trending-down', accent: '#EF5350', route: 'Distribution' },
         { id: 'broker-top', label: 'Broker Top Buy Sell', badge: 'UPDATED', iconSet: 'ion', iconName: 'star', accent: '#EF5350', route: 'BrokerTopBuySell' },
         { id: 'top-buyers', label: 'Top Buyers', badge: 'UPDATED', iconSet: 'feather', iconName: 'trending-up', accent: '#66BB6A', route: 'TopBuyers' },
         { id: 'top-sellers', label: 'Top Sellers', badge: 'UPDATED', iconSet: 'feather', iconName: 'trending-down', accent: '#EF5350', route: 'TopSellers' },
@@ -138,7 +192,7 @@ function buildSections(): Section[] {
         { id: 'indicators', label: 'Indicators', iconSet: 'mci', iconName: 'chart-timeline-variant', accent: '#AB47BC', route: 'ExtraTool', extraKind: 'indicators' },
         { id: 'forex', label: 'Forex Data', iconSet: 'mci', iconName: 'currency-usd', accent: '#66BB6A', route: 'ExtraTool', extraKind: 'forex' },
         { id: 'fuel', label: 'Fuel Price', badge: 'NEW', iconSet: 'ion', iconName: 'flash', accent: '#FFA726', route: 'ExtraTool', extraKind: 'fuel' },
-        { id: 'gold-silver', label: 'Gold & Silver Price', badge: 'NEW', iconSet: 'mci', iconName: 'gold', accent: '#EC407A', route: 'ExtraTool', extraKind: 'gold-silver' },
+        { id: 'gold-silver', label: 'Gold/Silver Price', badge: 'NEW', iconSet: 'mci', iconName: 'gold', accent: '#EC407A', route: 'ExtraTool', extraKind: 'gold-silver' },
         { id: 'calculator', label: 'Share Calculator', badge: 'NEW', iconSet: 'ion', iconName: 'calculator-outline', accent: '#7E57C2', route: 'Calculator' },
       ],
     },
@@ -146,8 +200,8 @@ function buildSections(): Section[] {
 }
 
 function ServiceIcon({ item }: { item: ServiceItem }) {
-  const size = rs(18);
-  const color = item.accent;
+  const size = rs(29);
+  const color = darkIcon(item.accent);
   if (item.iconSet === 'mci') {
     return (
       <MaterialCommunityIcons
@@ -196,9 +250,15 @@ function ServiceTile({
   isDark: boolean;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const featured = FEATURED_IDS.has(item.id);
   return (
     <Pressable
-      style={({ pressed }) => [styles.tile, pressed && styles.tilePressed]}
+      style={({ pressed }) => [
+        styles.tile,
+        !isDark && styles.tileLight,
+        featured && !isDark && styles.tileFeatured,
+        pressed && styles.tilePressed,
+      ]}
       onPress={onPress}
     >
       {item.badge ? (
@@ -214,7 +274,10 @@ function ServiceTile({
       >
         <ServiceIcon item={item} />
       </View>
-      <Text style={[styles.tileLabel, { color: colors.text }]} numberOfLines={2}>
+      <Text
+        style={[styles.tileLabel, { color: isDark ? colors.text : '#1A1A1A' }]}
+        numberOfLines={2}
+      >
         {item.label}
       </Text>
     </Pressable>
@@ -359,6 +422,10 @@ export function ServicesScreen() {
       navigation.navigate('Portfolio');
       return;
     }
+    if (item.route === 'UserPortfolio') {
+      navigation.navigate('UserPortfolio');
+      return;
+    }
     if (item.route === 'HighDemand') {
       navigation.navigate('HighDemand');
       return;
@@ -493,20 +560,25 @@ export function ServicesScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+    <View style={[styles.root, { backgroundColor: isDark ? colors.bg : '#E4EAD9' }]}>
       <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
+      {!isDark ? (
+        <PromoBanner
+          onPress={() => navigation.navigate('MainTabs', { screen: 'Apply' })}
+        />
+      ) : null}
 
       <View style={styles.searchWrap}>
         <View
           style={[
             styles.searchInner,
             {
-              backgroundColor: colors.searchBg,
-              borderColor: colors.borderMuted,
+              backgroundColor: isDark ? colors.searchBg : '#EEF2E6',
+              borderColor: isDark ? colors.borderMuted : '#C5D0B5',
             },
           ]}
         >
-          <Ionicons name="search" size={rs(16)} color={colors.textMuted} />
+          <Ionicons name="search" size={rs(17)} color={colors.textMuted} />
           <TextInput
             style={[styles.searchInput, { color: colors.text }]}
             placeholder="Search services..."
@@ -554,35 +626,41 @@ function makeStyles(c: ThemeColors) {
     searchWrap: {
       paddingHorizontal: H_PAD,
       paddingTop: rs(10),
-      paddingBottom: rs(4),
+      paddingBottom: rs(6),
     },
     searchInner: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      borderRadius: rs(12),
+      borderRadius: rs(14),
       borderWidth: 1,
-      paddingHorizontal: rs(12),
-      minHeight: rs(40),
+      paddingHorizontal: rs(14),
+      minHeight: rs(44),
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.04,
+      shadowRadius: 2,
+      elevation: 1,
     },
     searchInput: {
       flex: 1,
-      fontSize: rs(13),
+      fontSize: rs(14),
+      fontWeight: '500',
       paddingVertical: rs(8),
     },
     scroll: {
       paddingHorizontal: H_PAD,
       paddingBottom: rs(28),
-      paddingTop: rs(8),
+      paddingTop: rs(10),
     },
     section: {
-      marginBottom: rs(10),
+      marginBottom: rs(16),
     },
     sectionHead: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      marginBottom: rs(12),
+      marginBottom: rs(14),
       marginTop: rs(4),
     },
     headLine: {
@@ -590,13 +668,13 @@ function makeStyles(c: ThemeColors) {
       height: StyleSheet.hairlineWidth,
     },
     pill: {
-      paddingHorizontal: rs(12),
-      paddingVertical: rs(5),
-      borderRadius: rs(14),
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(6),
+      borderRadius: rs(16),
     },
     pillText: {
-      fontWeight: '700',
-      fontSize: rs(11),
+      fontWeight: '800',
+      fontSize: rs(12),
       letterSpacing: 0.2,
     },
     row: {
@@ -607,30 +685,45 @@ function makeStyles(c: ThemeColors) {
     },
     tile: {
       width: TILE_W,
-      minHeight: rs(88),
+      height: TILE_H,
       backgroundColor: c.surface,
-      borderRadius: rs(12),
-      borderWidth: 1,
+      borderRadius: rs(19),
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.borderMuted,
-      paddingTop: rs(14),
-      paddingBottom: rs(8),
-      paddingHorizontal: rs(4),
+      paddingTop: rs(10),
+      paddingBottom: rs(6),
+      paddingHorizontal: rs(3),
       alignItems: 'center',
+      justifyContent: 'flex-start',
       overflow: 'visible',
     },
+    tileLight: {
+      backgroundColor: '#EEF2E6',
+      borderColor: 'rgba(45,90,39,0.08)',
+      borderWidth: 1,
+      shadowColor: '#1B1B1B',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.07,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    tileFeatured: {
+      borderColor: '#FFB300',
+      borderWidth: 1.5,
+    },
     tilePressed: {
-      opacity: 0.88,
+      opacity: 0.94,
       transform: [{ scale: 0.97 }],
     },
     tileGhost: {
       width: TILE_W,
-      minHeight: rs(88),
+      height: TILE_H,
       opacity: 0,
     },
     badgeAbs: {
       position: 'absolute',
-      top: rs(-4),
-      right: rs(-2),
+      top: rs(-5),
+      right: rs(-3),
       zIndex: 2,
     },
     tileIcon: {
@@ -639,14 +732,16 @@ function makeStyles(c: ThemeColors) {
       borderRadius: rs(9),
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: rs(6),
+      marginBottom: rs(5),
+      marginTop: rs(2),
     },
     tileLabel: {
       fontSize: rs(10),
-      fontWeight: '700',
+      fontWeight: '800',
       textAlign: 'center',
-      lineHeight: rs(13),
+      lineHeight: rs(12),
       paddingHorizontal: rs(1),
+      letterSpacing: 0.1,
     },
     empty: {
       textAlign: 'center',

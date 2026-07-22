@@ -36,6 +36,11 @@ export type ForexRow = {
   buy: number;
   sell: number;
   mid: number;
+  /** Mid change vs previous NRB day (when history available). */
+  change: number | null;
+  changePct: number | null;
+  /** Recent mid history for spark charts (oldest → newest). */
+  history: number[];
 };
 
 export type FuelRegionPrice = {
@@ -148,19 +153,33 @@ export async function loadGoldSilver(): Promise<{
       }>
     >
   >(`${ECONOMY_BASE}/gold-silver`);
-  const rows = (raw?.data ?? []).map((r) => ({
-    name: r.name.trim(),
-    symbol: r.symbol,
-    price: num(r.price),
-    unit: r.unit,
-    change: num(r.change),
-    changePercent: num(r.changePercent),
-    icon: r.icon ?? null,
-    lastUpdated: r.lastUpdated ?? new Date().toISOString(),
-  }));
+  const rows = (raw?.data ?? [])
+    .map((r) => ({
+      name: String(r.name ?? '').trim(),
+      symbol: r.symbol,
+      price: num(r.price),
+      unit: r.unit,
+      change: num(r.change),
+      changePercent: num(r.changePercent),
+      icon: r.icon ?? null,
+      lastUpdated: r.lastUpdated ?? new Date().toISOString(),
+    }))
+    // Drop empty / zero-price duplicates (e.g. TEJABI GOLD @ 0).
+    .filter((r) => r.price > 0 && r.name.length > 0);
+
+  // API can repeat symbol+unit for different metal grades — keep unique keys.
+  const seen = new Set<string>();
+  const deduped: typeof rows = [];
+  for (const r of rows) {
+    const key = `${r.symbol}|${r.unit}|${r.name}`.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(r);
+  }
+
   const asOf =
-    rows.map((r) => r.lastUpdated).sort().pop() ?? new Date().toISOString();
-  return { rows, asOf };
+    deduped.map((r) => r.lastUpdated).sort().pop() ?? new Date().toISOString();
+  return { rows: deduped, asOf };
 }
 
 export async function loadForexRates(): Promise<{
@@ -170,9 +189,9 @@ export async function loadForexRates(): Promise<{
 }> {
   const to = new Date();
   const from = new Date();
-  from.setDate(from.getDate() - 14);
+  from.setDate(from.getDate() - 21);
   const url =
-    `${NRB_FOREX}?from=${fmtDate(from)}&to=${fmtDate(to)}&page=1&per_page=1`;
+    `${NRB_FOREX}?from=${fmtDate(from)}&to=${fmtDate(to)}&page=1&per_page=21`;
   const raw = await fetchJson<{
     status?: { code?: number };
     data?: {
@@ -187,20 +206,74 @@ export async function loadForexRates(): Promise<{
     };
   }>(url);
 
-  const latest = raw?.data?.payload?.[0];
+  const payload = [...(raw?.data?.payload ?? [])].sort((a, b) =>
+    String(a.date ?? '').localeCompare(String(b.date ?? '')),
+  );
+  const latest = payload[payload.length - 1];
   const date = latest?.date ?? fmtDate(to);
-  const rows: ForexRow[] = (latest?.rates ?? []).map((r) => {
+
+  const histByIso = new Map<string, number[]>();
+  const metaByIso = new Map<
+    string,
+    { name: string; unit: number; buy: number; sell: number; mid: number }
+  >();
+
+  for (const day of payload) {
+    for (const r of day.rates ?? []) {
+      const iso = r.currency?.iso3 ?? '';
+      if (!iso) continue;
+      const buy = num(r.buy);
+      const sell = num(r.sell);
+      const mid = (buy + sell) / 2;
+      const hist = histByIso.get(iso) ?? [];
+      hist.push(mid);
+      histByIso.set(iso, hist);
+      metaByIso.set(iso, {
+        name: r.currency?.name ?? iso,
+        unit: num(r.currency?.unit) || 1,
+        buy,
+        sell,
+        mid,
+      });
+    }
+  }
+
+  // Latest day wins for buy/sell display.
+  for (const r of latest?.rates ?? []) {
+    const iso = r.currency?.iso3 ?? '';
+    if (!iso) continue;
     const buy = num(r.buy);
     const sell = num(r.sell);
-    return {
-      iso3: r.currency?.iso3 ?? '',
-      name: r.currency?.name ?? '',
-      unit: num(r.currency?.unit) || 1,
+    const prev = metaByIso.get(iso);
+    metaByIso.set(iso, {
+      name: r.currency?.name ?? prev?.name ?? iso,
+      unit: num(r.currency?.unit) || prev?.unit || 1,
       buy,
       sell,
       mid: (buy + sell) / 2,
+    });
+  }
+
+  const rows: ForexRow[] = [...metaByIso.entries()].map(([iso3, m]) => {
+    const history = histByIso.get(iso3) ?? [m.mid];
+    const prev = history.length >= 2 ? history[history.length - 2]! : null;
+    const change = prev != null ? m.mid - prev : null;
+    const changePct =
+      prev != null && prev !== 0 ? ((m.mid - prev) / prev) * 100 : null;
+    return {
+      iso3,
+      name: m.name,
+      unit: m.unit,
+      buy: m.buy,
+      sell: m.sell,
+      mid: m.mid,
+      change,
+      changePct,
+      history,
     };
   });
+
+  rows.sort((a, b) => a.iso3.localeCompare(b.iso3));
   return { rows, date, asOf: new Date().toISOString() };
 }
 
@@ -209,6 +282,7 @@ export async function loadFuelPrices(): Promise<{
   regions: FuelRegionPrice[];
   effectiveDate: string | null;
   asOf: string;
+  source: 'noc' | 'fallback';
 }> {
   try {
     const res = await fetch(NOC_RETAIL, {
@@ -236,7 +310,12 @@ export async function loadFuelPrices(): Promise<{
     if (regions.length === 0) {
       throw new Error('parse failed');
     }
-    return { regions, effectiveDate, asOf: new Date().toISOString() };
+    return {
+      regions,
+      effectiveDate,
+      asOf: new Date().toISOString(),
+      source: 'noc',
+    };
   } catch {
     return {
       regions: [
@@ -264,6 +343,7 @@ export async function loadFuelPrices(): Promise<{
       ],
       effectiveDate: null,
       asOf: new Date().toISOString(),
+      source: 'fallback',
     };
   }
 }
@@ -374,7 +454,7 @@ export const EXTRA_TOOL_COPY: Record<
     subtitle: 'Nepal Oil Corporation retail prices by region.',
   },
   'gold-silver': {
-    title: 'Gold & Silver Price',
+    title: 'Gold/Silver Price',
     subtitle: 'Daily bullion rates in Nepal with change tracking.',
   },
 };

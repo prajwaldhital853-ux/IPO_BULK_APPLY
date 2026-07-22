@@ -118,7 +118,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     {
       label: 'My Portfolio',
       icon: <Ionicons name="person-circle-outline" size={rs(18)} color="#FFCA28" />,
-      onPress: () => goStack('Portfolio'),
+      onPress: () => goStack('UserPortfolio'),
     },
     {
       label: 'Watchlist',

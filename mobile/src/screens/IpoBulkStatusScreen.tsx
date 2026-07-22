@@ -5,7 +5,6 @@ import {
   FlatList,
   Modal,
   Pressable,
-  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -19,6 +18,7 @@ import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
+import { isMockAccountId } from '../data/mockAccounts';
 import {
   humanizeApplicationStatus,
   loadCheckableIssuesForUi,
@@ -147,7 +147,7 @@ export function IpoBulkStatusScreen() {
     try {
       const map = new Map<number, ApplicationReportRow>();
       const realAccounts = checkAccounts.filter(
-        (a) => !a.id.startsWith('demo_'),
+        (a) => !a.id.startsWith('demo_') && !isMockAccountId(a.id),
       );
       for (const acc of realAccounts.slice(0, 3)) {
         const { reports } = await loadCheckableIssuesForUi(acc);
@@ -158,8 +158,12 @@ export function IpoBulkStatusScreen() {
       const list = Array.from(map.values()).sort((a, b) =>
         a.companyName.localeCompare(b.companyName),
       );
-      // Offer a demo IPO to exercise the UI when demo accounts are selected.
-      if (checkAccounts.some((a) => a.id.startsWith('demo_'))) {
+      // Offer a demo IPO to exercise the UI when mock/demo accounts are selected.
+      if (
+        checkAccounts.some(
+          (a) => a.id.startsWith('demo_') || isMockAccountId(a.id),
+        )
+      ) {
         list.unshift({
           companyShareId: 999001,
           companyName: 'DEMO CEMENT INDUSTRIES LIMITED',
@@ -333,7 +337,7 @@ export function IpoBulkStatusScreen() {
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.body}>
+      <View style={styles.controls}>
         <Pressable
           style={styles.dropdown}
           onPress={() => setCheckPickerOpen(true)}
@@ -402,8 +406,10 @@ export function IpoBulkStatusScreen() {
             </Text>
           </View>
         ) : null}
+      </View>
 
-        {results.length > 0 ? (
+      {results.length > 0 ? (
+        <View style={styles.resultsPane}>
           <View style={styles.updatesBox}>
             <View style={styles.updatesHead}>
               <Text style={styles.updatesTitle}>
@@ -459,49 +465,51 @@ export function IpoBulkStatusScreen() {
               })}
             </View>
 
-            {visibleResults.length === 0 ? (
-              <Text style={styles.empty}>No accounts in this category.</Text>
-            ) : null}
-
-            {visibleResults.map((row) => {
-              const idx = results.indexOf(row);
-              const kind = classify(row);
-              const color =
-                kind === 'allotted' ? GREEN : kind === 'rejected' ? '#FB8C00' : RED;
-              const icon =
-                kind === 'allotted' ? 'checkmark' : kind === 'rejected' ? 'alert' : 'close';
-              return (
-                <View
-                  key={row.accountId}
-                  style={[styles.resultCard, { borderColor: color }]}
-                >
-                  <View style={[styles.resultIcon, { backgroundColor: color }]}>
-                    <Ionicons name={icon} size={rs(20)} color="#FFFFFF" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.resultName, { color }]}>
-                      {idx + 1}. {row.accountName.toUpperCase()}
-                    </Text>
-                    <Text style={[styles.resultStatus, { color }]}>
-                      {statusLine(row)}
-                    </Text>
-                    <View
-                      style={[
-                        styles.remarkPill,
-                        { backgroundColor: `${color}22` },
-                      ]}
-                    >
-                      <Text style={[styles.remarkText, { color }]}>
-                        {amountStatusLine(row)}
+            <FlatList
+              style={styles.resultsList}
+              data={visibleResults}
+              keyExtractor={(row) => row.accountId}
+              contentContainerStyle={styles.resultsListBody}
+              ListEmptyComponent={
+                <Text style={styles.empty}>No accounts in this category.</Text>
+              }
+              renderItem={({ item: row }) => {
+                const idx = results.indexOf(row);
+                const kind = classify(row);
+                const color =
+                  kind === 'allotted' ? GREEN : kind === 'rejected' ? '#FB8C00' : RED;
+                const icon =
+                  kind === 'allotted' ? 'checkmark' : kind === 'rejected' ? 'alert' : 'close';
+                return (
+                  <View style={[styles.resultCard, { borderColor: color }]}>
+                    <View style={[styles.resultIcon, { backgroundColor: color }]}>
+                      <Ionicons name={icon} size={rs(20)} color="#FFFFFF" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.resultName, { color }]}>
+                        {idx + 1}. {row.accountName.toUpperCase()}
                       </Text>
+                      <Text style={[styles.resultStatus, { color }]}>
+                        {statusLine(row)}
+                      </Text>
+                      <View
+                        style={[
+                          styles.remarkPill,
+                          { backgroundColor: `${color}22` },
+                        ]}
+                      >
+                        <Text style={[styles.remarkText, { color }]}>
+                          {amountStatusLine(row)}
+                        </Text>
+                      </View>
                     </View>
                   </View>
-                </View>
-              );
-            })}
+                );
+              }}
+            />
           </View>
-        ) : null}
-      </ScrollView>
+        </View>
+      ) : null}
 
       <Modal
         visible={checkPickerOpen}
@@ -638,7 +646,19 @@ function makeStyles(c: ThemeColors) {
       flex: 1,
       textAlign: 'center',
     },
-    body: { padding: rs(16), paddingBottom: rs(40) },
+    controls: {
+      paddingHorizontal: rs(16),
+      paddingTop: rs(14),
+      paddingBottom: rs(4),
+    },
+    resultsPane: {
+      flex: 1,
+      paddingHorizontal: rs(16),
+      paddingBottom: rs(12),
+      minHeight: 0,
+    },
+    resultsList: { flex: 1 },
+    resultsListBody: { paddingBottom: rs(16) },
     dropdown: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -681,7 +701,7 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: rs(28),
       paddingVertical: rs(12),
       marginTop: rs(4),
-      marginBottom: rs(16),
+      marginBottom: rs(10),
       minWidth: rs(160),
       alignItems: 'center',
     },
@@ -691,8 +711,8 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: rs(8),
-      paddingVertical: rs(10),
-      marginBottom: rs(6),
+      paddingVertical: rs(8),
+      marginBottom: rs(4),
     },
     progressText: { color: c.textSecondary, fontSize: rs(12), fontWeight: '600' },
     chipRow: {
@@ -711,10 +731,12 @@ function makeStyles(c: ThemeColors) {
     },
     chipText: { fontSize: rs(11), fontWeight: '700' },
     updatesBox: {
+      flex: 1,
       borderWidth: 1,
       borderColor: c.border,
       borderRadius: rs(14),
       padding: rs(12),
+      minHeight: 0,
     },
     updatesHead: {
       flexDirection: 'row',

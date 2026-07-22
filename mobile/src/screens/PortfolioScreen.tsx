@@ -19,14 +19,13 @@ import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import {
   createPortfolio,
-  createPortfolioWithHoldings,
+  upsertImportedPortfolio,
   deletePortfolio,
   listPortfolios,
   type Portfolio,
 } from '../storage/portfolioStorage';
 import { useAccounts } from '../context/AccountsContext';
 import { importPortfolioFromMeroshare } from '../services/meroshare';
-import type { AccountMeta } from '../types/account';
 import { rs } from '../utils/responsive';
 import { usePollingRefresh } from '../utils/usePollingRefresh';
 import type { RootStackParamList } from '../navigation/types';
@@ -43,7 +42,13 @@ export function PortfolioScreen() {
   const [name, setName] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [importingId, setImportingId] = useState<string | null>(null);
+  const [importProgress, setImportProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const [sortAsc, setSortAsc] = useState(true);
 
   const reload = useCallback(async () => {
     setPortfolios(await listPortfolios());
@@ -56,6 +61,16 @@ export function PortfolioScreen() {
   );
 
   usePollingRefresh(reload);
+
+  const sortedPortfolios = useMemo(() => {
+    const list = [...portfolios];
+    list.sort((a, b) =>
+      sortAsc
+        ? a.name.localeCompare(b.name)
+        : b.name.localeCompare(a.name),
+    );
+    return list;
+  }, [portfolios, sortAsc]);
 
   const onCreate = async () => {
     try {
@@ -79,56 +94,81 @@ export function PortfolioScreen() {
       );
       return;
     }
-    if (accounts.length === 1) {
-      void runImport(accounts[0]!);
-      return;
-    }
+    setSelectedIds(new Set(accounts.map((a) => a.id)));
     setPickerOpen(true);
   };
 
-  const runImport = async (account: AccountMeta) => {
+  const togglePick = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const runImportSelected = async () => {
+    const targets = accounts.filter((a) => selectedIds.has(a.id));
+    if (!targets.length) {
+      Alert.alert('Select accounts', 'Pick at least one account to import.');
+      return;
+    }
     setPickerOpen(false);
-    setImportingId(account.id);
+    setImportingId('bulk');
+    setImportProgress({ done: 0, total: targets.length });
+    let ok = 0;
+    let refreshed = 0;
+    let empty = 0;
+    let failed = 0;
+    const errors: string[] = [];
     try {
-      const result = await importPortfolioFromMeroshare(account);
-      if (result.holdings.length === 0) {
-        Alert.alert(
-          'No holdings found',
-          `MeroShare returned no shares for ${account.name}. This account currently holds no shares.`,
-        );
-        return;
+      for (let i = 0; i < targets.length; i++) {
+        const account = targets[i]!;
+        setImportProgress({ done: i, total: targets.length });
+        try {
+          const result = await importPortfolioFromMeroshare(account);
+          if (result.holdings.length === 0) {
+            empty += 1;
+            continue;
+          }
+          const saved = await upsertImportedPortfolio(
+            account.id,
+            `${account.name} (MeroShare)`,
+            result.holdings.map((h) => ({
+              symbol: h.symbol,
+              name: h.name,
+              qty: h.qty,
+              wacc: h.wacc,
+            })),
+          );
+          if (saved.created) ok += 1;
+          else refreshed += 1;
+        } catch (e) {
+          failed += 1;
+          errors.push(
+            `${account.name}: ${e instanceof Error ? e.message : 'failed'}`,
+          );
+        }
+        setImportProgress({ done: i + 1, total: targets.length });
       }
-      const portfolio = await createPortfolioWithHoldings(
-        `${account.name} (MeroShare)`,
-        result.holdings.map((h) => ({
-          symbol: h.symbol,
-          name: h.name,
-          qty: h.qty,
-          wacc: h.wacc,
-        })),
-      );
       await reload();
+      const parts = [
+        ok ? `${ok} imported` : null,
+        refreshed ? `${refreshed} updated` : null,
+        empty ? `${empty} empty` : null,
+        failed ? `${failed} failed` : null,
+      ].filter(Boolean);
       Alert.alert(
-        'Imported',
-        `${result.holdings.length} holding${result.holdings.length === 1 ? '' : 's'} imported from ${account.name}. WACC is seeded from last price — edit it to your real buy price for accurate profit/loss.`,
-        [
-          {
-            text: 'View',
-            onPress: () =>
-              navigation.navigate('PortfolioDetail', {
-                portfolioId: portfolio.id,
-              }),
-          },
-          { text: 'OK' },
-        ],
-      );
-    } catch (e) {
-      Alert.alert(
-        'Import failed',
-        e instanceof Error ? e.message : 'Could not reach MeroShare.',
+        'Import finished',
+        `${parts.join(' · ') || 'Nothing imported.'}${
+          errors.length
+            ? `\n\n${errors.slice(0, 3).join('\n')}${errors.length > 3 ? '\n…' : ''}`
+            : ''
+        }\n\nWACC is seeded from last price — edit it for accurate P/L.`,
       );
     } finally {
       setImportingId(null);
+      setImportProgress(null);
     }
   };
 
@@ -146,6 +186,7 @@ export function PortfolioScreen() {
   };
 
   function renderPicker() {
+    const allOn = accounts.length > 0 && selectedIds.size === accounts.length;
     return (
       <Modal
         visible={pickerOpen}
@@ -158,36 +199,71 @@ export function PortfolioScreen() {
           onPress={() => setPickerOpen(false)}
         >
           <Pressable style={styles.sheet} onPress={() => {}}>
-            <Text style={styles.sheetTitle}>Import from which account?</Text>
+            <Text style={styles.sheetTitle}>Import from MeroShare</Text>
             <Text style={styles.sheetSub}>
-              We&apos;ll log into MeroShare and pull your current holdings.
+              Select one or more accounts — we&apos;ll pull holdings for all
+              selected at once.
             </Text>
-            {accounts.map((a) => (
+            <View style={styles.selectRow}>
               <Pressable
-                key={a.id}
-                style={styles.acctRow}
-                onPress={() => void runImport(a)}
+                onPress={() =>
+                  setSelectedIds(
+                    allOn
+                      ? new Set()
+                      : new Set(accounts.map((a) => a.id)),
+                  )
+                }
+                hitSlop={8}
               >
-                <View style={styles.acctIcon}>
-                  <Ionicons
-                    name="person"
-                    size={rs(16)}
-                    color={colors.accentGreen}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.acctName}>{a.name}</Text>
-                  <Text style={styles.acctSub}>
-                    {a.dpName} · {a.username}
-                  </Text>
-                </View>
-                <Ionicons
-                  name="chevron-forward"
-                  size={rs(16)}
-                  color={colors.textMuted}
-                />
+                <Text style={styles.selectAction}>
+                  {allOn ? 'Clear' : 'Select all'}
+                </Text>
               </Pressable>
-            ))}
+              <Text style={styles.selectCount}>{selectedIds.size} selected</Text>
+            </View>
+            <ScrollView style={{ maxHeight: rs(340) }}>
+              {accounts.map((a) => {
+                const on = selectedIds.has(a.id);
+                return (
+                  <Pressable
+                    key={a.id}
+                    style={styles.acctRow}
+                    onPress={() => togglePick(a.id)}
+                  >
+                    <View style={styles.acctIcon}>
+                      <Ionicons
+                        name="person"
+                        size={rs(16)}
+                        color={colors.accentGreen}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.acctName}>{a.name}</Text>
+                      <Text style={styles.acctSub}>
+                        {a.dpName} · {a.username}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name={on ? 'checkbox' : 'square-outline'}
+                      size={rs(22)}
+                      color={on ? colors.accentGreen : colors.textMuted}
+                    />
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <Pressable
+              style={[
+                styles.importSelectedBtn,
+                selectedIds.size === 0 && { opacity: 0.45 },
+              ]}
+              disabled={selectedIds.size === 0}
+              onPress={() => void runImportSelected()}
+            >
+              <Text style={styles.importSelectedText}>
+                Import selected ({selectedIds.size})
+              </Text>
+            </Pressable>
             <Pressable
               style={styles.cancelBtn}
               onPress={() => setPickerOpen(false)}
@@ -208,8 +284,12 @@ export function PortfolioScreen() {
           <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
             <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
           </Pressable>
-          <Text style={styles.title}>Portfolio</Text>
-          <Pressable hitSlop={10}>
+          <Text style={styles.title}>Share Portfolio</Text>
+          <Pressable
+            hitSlop={10}
+            onPress={() => setSortAsc((v) => !v)}
+            accessibilityLabel="Sort portfolios"
+          >
             <Ionicons
               name="swap-vertical"
               size={rs(20)}
@@ -266,7 +346,11 @@ export function PortfolioScreen() {
               />
             )}
             <Text style={styles.outlineBtnText}>
-              {importingId ? 'Importing…' : 'Import from MeroShare'}
+              {importProgress
+                ? `Importing ${importProgress.done}/${importProgress.total}…`
+                : importingId
+                  ? 'Importing…'
+                  : 'Import from MeroShare'}
             </Text>
           </Pressable>
         </ScrollView>
@@ -292,10 +376,27 @@ export function PortfolioScreen() {
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
-        <Text style={styles.title}>Portfolio</Text>
-        <Pressable onPress={() => setShowForm((v) => !v)} hitSlop={10}>
-          <Ionicons name="add-circle-outline" size={rs(22)} color={colors.accentGreen} />
-        </Pressable>
+        <Text style={styles.title}>Share Portfolio</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: rs(8) }}>
+          <Pressable
+            onPress={() => setSortAsc((v) => !v)}
+            hitSlop={10}
+            accessibilityLabel="Sort portfolios"
+          >
+            <Ionicons
+              name="swap-vertical"
+              size={rs(22)}
+              color={colors.textMuted}
+            />
+          </Pressable>
+          <Pressable onPress={() => setShowForm((v) => !v)} hitSlop={10}>
+            <Ionicons
+              name="add-circle-outline"
+              size={rs(22)}
+              color={colors.accentGreen}
+            />
+          </Pressable>
+        </View>
       </View>
 
       <Pressable
@@ -313,7 +414,11 @@ export function PortfolioScreen() {
           />
         )}
         <Text style={styles.importBarText}>
-          {importingId ? 'Importing from MeroShare…' : 'Import from MeroShare'}
+          {importProgress
+            ? `Importing ${importProgress.done}/${importProgress.total}…`
+            : importingId
+              ? 'Importing from MeroShare…'
+              : 'Import from MeroShare'}
         </Text>
       </Pressable>
 
@@ -333,7 +438,7 @@ export function PortfolioScreen() {
       ) : null}
 
       <FlatList
-        data={portfolios}
+        data={sortedPortfolios}
         keyExtractor={(p) => p.id}
         contentContainerStyle={styles.listBody}
         renderItem={({ item }) => (
@@ -549,6 +654,14 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(12),
       marginBottom: rs(8),
     },
+    selectRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: rs(4),
+    },
+    selectAction: { color: c.accentGreen, fontWeight: '800', fontSize: rs(13) },
+    selectCount: { color: c.textMuted, fontWeight: '600', fontSize: rs(12) },
     acctRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -570,10 +683,18 @@ function makeStyles(c: ThemeColors) {
     },
     acctName: { color: c.text, fontWeight: '700', fontSize: rs(13) },
     acctSub: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
+    importSelectedBtn: {
+      marginTop: rs(14),
+      backgroundColor: c.primary,
+      borderRadius: rs(24),
+      paddingVertical: rs(13),
+      alignItems: 'center',
+    },
+    importSelectedText: { color: '#FFF', fontWeight: '800', fontSize: rs(14) },
     cancelBtn: {
       alignItems: 'center',
       paddingVertical: rs(13),
-      marginTop: rs(10),
+      marginTop: rs(4),
     },
     cancelBtnText: { color: c.textSecondary, fontWeight: '700', fontSize: rs(13) },
   });

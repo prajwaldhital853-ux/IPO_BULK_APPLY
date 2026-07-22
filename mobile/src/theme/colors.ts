@@ -101,23 +101,23 @@ export const darkColors: ThemeColors = {
   pillText: '#0A0A0A',
 };
 
-/** Light palette — exact match to client white-mode screenshots */
+/** Soft sage-green light palette (~#E4EAD9) — easier on eyes, matches client SS. */
 export const lightColors: ThemeColors = {
-  bg: '#F7F9F7',
-  bgElevated: '#FFFFFF',
-  surface: '#FFFFFF',
-  surfaceAlt: '#EEF5EE',
-  border: '#E3E8E3',
-  borderMuted: '#EDF0ED',
+  bg: '#E4EAD9',
+  bgElevated: '#E7ECE0',
+  surface: '#EEF2E6',
+  surfaceAlt: '#DCE5D0',
+  border: '#C5D0B5',
+  borderMuted: '#D5DEC8',
 
   text: '#1B1B1B',
   textSecondary: '#5F6B5F',
-  textMuted: '#8A948A',
-  textDim: '#B0B8B0',
+  textMuted: '#7A8570',
+  textDim: '#9AA390',
 
   primary: '#2D5A27',
-  primarySoft: '#D1EAD3',
-  primaryMid: '#E8F5E9',
+  primarySoft: '#D0DDBF',
+  primaryMid: '#D8E2C8',
   accentGreen: '#3D7A36',
   sage: '#81C784',
   teal: '#26A69A',
@@ -138,14 +138,14 @@ export const lightColors: ThemeColors = {
   meroRed: '#E53935',
   danger: '#C62828',
 
-  tabInactive: '#7A847A',
+  tabInactive: '#6F7A65',
   tabActive: '#2D5A27',
-  tabActiveBg: '#D1EAD3',
+  tabActiveBg: '#D0DDBF',
 
-  inputBg: '#F0F3F0',
+  inputBg: '#DCE5D0',
   overlay: 'rgba(0,0,0,0.35)',
 
-  searchBg: '#F0F3F0',
+  searchBg: '#EEF2E6',
   pillFree: '#81D4FA',
   pillMero: '#80CBC4',
   pillPremiumStart: '#64B5F6',

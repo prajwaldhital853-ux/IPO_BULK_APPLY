@@ -35,6 +35,7 @@ export type RootStackParamList = {
     | undefined;
   NepseCalendar: undefined;
   Portfolio: undefined;
+  UserPortfolio: undefined;
   PortfolioDetail: { portfolioId: string };
   StockList: { kind: StockListKind };
   HighDemand: undefined;
