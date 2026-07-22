@@ -33,8 +33,9 @@ import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 
 const ACCENT = '#A3C78B';
-const GREEN = '#66BB6A';
-const RED = '#EF5350';
+/** Pure status colors — high contrast on light (and dark) backgrounds */
+const GREEN = '#00C853';
+const RED = '#E53935';
 
 function badgeType(shareTypeName: string): string {
   const s = (shareTypeName || 'IPO').toUpperCase();

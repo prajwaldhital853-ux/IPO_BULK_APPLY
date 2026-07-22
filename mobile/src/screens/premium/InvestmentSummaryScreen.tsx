@@ -286,8 +286,8 @@ export function InvestmentSummaryScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const [data, setData] = useState<InvestmentSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -960,16 +960,16 @@ export function InvestmentSummaryScreen() {
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: '#E4EAD9' },
+    root: { flex: 1, backgroundColor: c.bg },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: rs(16),
       paddingVertical: rs(12),
-      backgroundColor: '#E4EAD9',
+      backgroundColor: c.bgElevated,
     },
     title: { color: c.text, fontWeight: '800', fontSize: rs(16) },
     scroll: { padding: rs(14), paddingBottom: rs(40) },
@@ -1004,7 +1004,7 @@ function makeStyles(c: ThemeColors) {
       backgroundColor: c.primary,
     },
     emptyBtnPrimaryText: {
-      color: '#041018',
+      color: '#FFFFFF',
       fontWeight: '800',
       fontSize: rs(14),
     },
@@ -1021,11 +1021,11 @@ function makeStyles(c: ThemeColors) {
     hero: {
       padding: rs(16),
       borderRadius: rs(16),
-      backgroundColor: '#E3F2FD',
+      backgroundColor: isDark ? c.surface : '#E3F2FD',
       marginBottom: rs(12),
       gap: rs(14),
       borderWidth: 1,
-      borderColor: '#BBDEFB',
+      borderColor: isDark ? c.border : '#BBDEFB',
     },
     heroTop: {
       flexDirection: 'row',
@@ -1033,12 +1033,12 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'flex-start',
     },
     heroLabel: {
-      color: '#546E7A',
+      color: isDark ? c.textMuted : '#546E7A',
       fontSize: rs(11),
       fontWeight: '600',
     },
     heroVal: {
-      color: '#0D47A1',
+      color: isDark ? c.text : '#0D47A1',
       fontWeight: '900',
       fontSize: rs(28),
       marginTop: rs(2),
@@ -1047,12 +1047,12 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(6),
-      backgroundColor: '#FFFFFF',
+      backgroundColor: isDark ? c.surfaceAlt : '#FFFFFF',
       paddingHorizontal: rs(10),
       paddingVertical: rs(5),
       borderRadius: rs(20),
       borderWidth: 1,
-      borderColor: '#BBDEFB',
+      borderColor: isDark ? c.border : '#BBDEFB',
     },
     sourceDot: { width: rs(7), height: rs(7), borderRadius: rs(4) },
     sourceText: { color: '#1565C0', fontSize: rs(10), fontWeight: '700' },
@@ -1065,11 +1065,11 @@ function makeStyles(c: ThemeColors) {
       marginHorizontal: rs(12),
     },
     heroPlLabel: {
-      color: '#546E7A',
+      color: isDark ? c.textMuted : '#546E7A',
       fontSize: rs(10),
       fontWeight: '600',
     },
-    heroPlVal: { fontWeight: '800', fontSize: rs(15), marginTop: rs(2), color: '#0D47A1' },
+    heroPlVal: { fontWeight: '800', fontSize: rs(15), marginTop: rs(2), color: isDark ? c.text : '#0D47A1' },
     heroPlPct: { fontWeight: '700', fontSize: rs(11), marginTop: rs(2) },
     kpiGrid: {
       flexDirection: 'row',
@@ -1080,7 +1080,7 @@ function makeStyles(c: ThemeColors) {
     kpiCard: {
       width: '48%',
       flexGrow: 1,
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderRadius: rs(12),
       padding: rs(12),
       borderWidth: 1,
@@ -1097,7 +1097,7 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: rs(12),
       paddingVertical: rs(8),
       borderRadius: rs(20),
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderWidth: 1,
       borderColor: '#C5D0B5',
     },
@@ -1110,10 +1110,10 @@ function makeStyles(c: ThemeColors) {
       fontWeight: '700',
       fontSize: rs(12),
     },
-    tabTextOn: { color: '#0D47A1' },
+    tabTextOn: { color: isDark ? c.accentGreen : '#0D47A1' },
     sectionBlock: { gap: rs(12) },
     card: {
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderRadius: rs(14),
       padding: rs(14),
       borderWidth: 1,
@@ -1143,7 +1143,7 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(5),
-      backgroundColor: '#E4EAD9',
+      backgroundColor: c.bg,
       paddingHorizontal: rs(8),
       paddingVertical: rs(5),
       borderRadius: rs(8),
@@ -1180,7 +1180,7 @@ function makeStyles(c: ThemeColors) {
       gap: rs(4),
       paddingVertical: rs(12),
       borderRadius: rs(12),
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderWidth: 1,
       borderColor: '#C5D0B5',
     },
@@ -1193,7 +1193,7 @@ function makeStyles(c: ThemeColors) {
     },
     modeToggle: {
       flexDirection: 'row',
-      backgroundColor: '#E4EAD9',
+      backgroundColor: c.bg,
       borderRadius: rs(8),
       padding: rs(2),
     },
@@ -1204,9 +1204,9 @@ function makeStyles(c: ThemeColors) {
     },
     modeBtnOn: { backgroundColor: '#90CAF9' },
     modeText: { color: c.textSecondary, fontWeight: '700', fontSize: rs(11) },
-    modeTextOn: { color: '#0D47A1' },
+    modeTextOn: { color: isDark ? c.accentGreen : '#0D47A1' },
     holdingCard: {
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderRadius: rs(12),
       padding: rs(12),
       borderWidth: 1,
@@ -1231,7 +1231,7 @@ function makeStyles(c: ThemeColors) {
       color: c.textSecondary,
       fontSize: rs(10),
       fontWeight: '600',
-      backgroundColor: '#E4EAD9',
+      backgroundColor: c.bg,
       paddingHorizontal: rs(7),
       paddingVertical: rs(3),
       borderRadius: rs(6),
@@ -1261,7 +1261,7 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderRadius: rs(12),
       padding: rs(12),
       borderWidth: 1,
@@ -1288,14 +1288,14 @@ function makeStyles(c: ThemeColors) {
     miniBarTrack: {
       width: rs(56),
       height: rs(5),
-      backgroundColor: '#E4EAD9',
+      backgroundColor: c.bg,
       borderRadius: rs(3),
       marginTop: rs(4),
       overflow: 'hidden',
     },
     miniBarFill: { height: '100%', borderRadius: rs(3) },
     insightCard: {
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderRadius: rs(12),
       padding: rs(14),
       borderWidth: 1,

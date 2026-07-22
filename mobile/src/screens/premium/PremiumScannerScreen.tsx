@@ -17,7 +17,6 @@ import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
 import {
   loadAccumulationRows,
-  loadAggressiveHolderRows,
   loadDistributionRows,
   type SmartMoneyRow,
 } from '../../services/nepse/premiumAnalytics';
@@ -29,8 +28,7 @@ import type { RootStackParamList } from '../../navigation/types';
 
 export type PremiumScannerKind =
   | 'accumulation'
-  | 'distribution'
-  | 'aggressive-holders';
+  | 'distribution';
 
 const COPY: Record<
   PremiumScannerKind,
@@ -45,11 +43,6 @@ const COPY: Record<
     title: 'Distribution',
     subtitle: 'Stocks with sell-side pressure and falling prices — distribution / exit signals.',
     load: loadDistributionRows,
-  },
-  'aggressive-holders': {
-    title: 'Aggressive Holders',
-    subtitle: 'High turnover momentum names — where aggressive players are active today.',
-    load: loadAggressiveHolderRows,
   },
 };
 
@@ -155,9 +148,7 @@ export function DistributionScreen() {
   return <BrokerFlowScreen mode="distribution" />;
 }
 
-export function AggressiveHoldersScreen() {
-  return <PremiumScannerScreen kind="aggressive-holders" />;
-}
+export { AggressiveHoldersScreen } from './AggressiveHoldersScreen';
 
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({

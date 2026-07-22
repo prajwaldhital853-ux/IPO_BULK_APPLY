@@ -20,6 +20,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AccountDetailSheet } from '../components/AccountDetailSheet';
 import { AppHeader } from '../components/AppHeader';
 import { HomeMarketPanel } from '../components/home/HomeMarketPanel';
+import { HOME_CARD_GAP, HOME_H_PAD } from '../components/home/homeLayout';
 import { PromoBanner } from '../components/PromoBanner';
 import { useAccounts } from '../context/AccountsContext';
 import { useSubscription } from '../context/SubscriptionContext';
@@ -32,6 +33,7 @@ import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 import type { AccountMeta } from '../types/account';
 import { MEROSHARE_WEB_HOME } from '../services/meroshare/webSession';
+
 
 export function HomeScreen() {
   const navigation =
@@ -163,7 +165,7 @@ export function HomeScreen() {
               disabled={searching}
             >
               <Ionicons
-                name="menu"
+                name="reorder-three"
                 size={rs(22)}
                 color={searching ? colors.textDim : colors.textSecondary}
               />
@@ -181,7 +183,10 @@ export function HomeScreen() {
       <PromoBanner onPress={goAddCapital} />
 
       <View style={styles.tabs}>
-        <Pressable onPress={() => setTab('Accounts')} style={styles.tabBtn}>
+        <Pressable
+          onPress={() => setTab('Accounts')}
+          style={[styles.tabBtn, tab === 'Accounts' && styles.tabBtnOn]}
+        >
           <Text
             style={[styles.tabText, tab === 'Accounts' && styles.tabActive]}
           >
@@ -189,7 +194,10 @@ export function HomeScreen() {
           </Text>
           {tab === 'Accounts' ? <View style={styles.tabUnderline} /> : null}
         </Pressable>
-        <Pressable onPress={() => setTab('Market')} style={styles.tabBtnMarket}>
+        <Pressable
+          onPress={() => setTab('Market')}
+          style={[styles.tabBtn, tab === 'Market' && styles.tabBtnOn]}
+        >
           <Text style={[styles.tabText, tab === 'Market' && styles.tabActive]}>
             Market
           </Text>
@@ -352,23 +360,20 @@ function makeStyles(c: ThemeColors) {
     root: { flex: 1, backgroundColor: c.bg },
     tabs: {
       flexDirection: 'row',
-      alignItems: 'flex-end',
-      paddingHorizontal: rs(16),
-      gap: rs(0),
+      alignItems: 'stretch',
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.border,
       backgroundColor: c.bgElevated,
     },
     tabBtn: {
+      flex: 1,
       paddingTop: rs(12),
       paddingBottom: rs(10),
       alignItems: 'center',
+      justifyContent: 'center',
     },
-    tabBtnMarket: {
-      paddingTop: rs(12),
-      paddingBottom: rs(10),
-      alignItems: 'center',
-      marginLeft: rs(240),
+    tabBtnOn: {
+      backgroundColor: c.primarySoft,
     },
     tabText: {
       color: c.textMuted,
@@ -376,19 +381,19 @@ function makeStyles(c: ThemeColors) {
       fontWeight: '600',
       lineHeight: rs(20),
     },
-    tabActive: { color: c.primary },
+    tabActive: { color: c.primary, fontWeight: '800' },
     tabUnderline: {
       marginTop: rs(8),
       height: rs(3),
+      width: '42%',
       borderRadius: 2,
       backgroundColor: c.primary,
-      alignSelf: 'stretch',
     },
     searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      marginHorizontal: rs(16),
+      marginHorizontal: HOME_H_PAD,
       marginTop: rs(10),
       paddingHorizontal: rs(12),
       paddingVertical: rs(10),
@@ -407,23 +412,29 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: rs(16),
-      paddingVertical: rs(14),
+      paddingHorizontal: HOME_H_PAD,
+      paddingTop: rs(12),
+      paddingBottom: rs(10),
     },
     total: { color: c.text, fontSize: rs(14), fontWeight: '700' },
-    listActions: { flexDirection: 'row', alignItems: 'center', gap: rs(4) },
+    listActions: { flexDirection: 'row', alignItems: 'center', gap: rs(2) },
     iconBtn: { padding: rs(6) },
     listFlex: { flex: 1 },
-    list: { paddingHorizontal: rs(16), paddingBottom: rs(100) },
+    list: {
+      paddingHorizontal: HOME_H_PAD,
+      paddingBottom: rs(100),
+      paddingTop: rs(2),
+    },
     listEmpty: { flexGrow: 1, paddingBottom: rs(100) },
     card: {
       flexDirection: 'row',
       alignItems: 'center',
       borderWidth: 1,
-      borderColor: c.border,
+      borderColor: c.borderMuted,
       borderRadius: rs(14),
-      padding: rs(15),
-      marginBottom: rs(11),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(12),
+      marginBottom: HOME_CARD_GAP,
       backgroundColor: c.surface,
       gap: rs(10),
     },
@@ -433,32 +444,32 @@ function makeStyles(c: ThemeColors) {
       elevation: 4,
     },
     indexBadge: {
-      width: rs(34),
-      height: rs(34),
-      borderRadius: rs(9),
+      width: rs(32),
+      height: rs(32),
+      borderRadius: rs(8),
       backgroundColor: c.surfaceAlt,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    indexText: { color: c.text, fontWeight: '700', fontSize: rs(14) },
+    indexText: { color: c.text, fontWeight: '700', fontSize: rs(13) },
     cardBody: { flex: 1 },
     nameRow: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
     name: {
       flexShrink: 1,
       color: c.text,
       fontWeight: '800',
-      fontSize: rs(15),
+      fontSize: rs(14),
       letterSpacing: 0.2,
     },
-    username: { color: c.textSecondary, fontSize: rs(12.5), marginTop: rs(3) },
+    username: { color: c.textSecondary, fontSize: rs(12), marginTop: rs(3) },
     dragHandle: { padding: rs(4) },
     fab: {
       position: 'absolute',
-      right: rs(20),
+      right: HOME_H_PAD,
       bottom: rs(20),
-      width: rs(56),
-      height: rs(56),
-      borderRadius: rs(28),
+      width: rs(52),
+      height: rs(52),
+      borderRadius: rs(16),
       backgroundColor: c.fab,
       alignItems: 'center',
       justifyContent: 'center',
@@ -472,7 +483,7 @@ function makeStyles(c: ThemeColors) {
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: rs(36),
+      paddingHorizontal: HOME_H_PAD + rs(20),
       paddingVertical: rs(40),
     },
     emptyIcon: {
@@ -487,10 +498,10 @@ function makeStyles(c: ThemeColors) {
     emptyTitle: { color: c.text, fontSize: rs(18), fontWeight: '700' },
     emptySub: {
       color: c.textSecondary,
-      marginTop: rs(8),
       textAlign: 'center',
+      marginTop: rs(8),
       fontSize: rs(13),
-      lineHeight: rs(20),
+      lineHeight: rs(19),
     },
   });
 }

@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { nepseFetchJson } from './http';
 
 const DATA_BASE = 'https://sharehubnepal.com/data/api/v1';
@@ -57,6 +58,14 @@ export type DemandRow = {
   quantity: number | null;
   orders: number | null;
   iconUrl: string | null;
+};
+
+export type DemandBoardResult = {
+  demand: DemandRow[];
+  supply: DemandRow[];
+  /** Fresh from API while boards have rows; otherwise last saved session. */
+  source: 'live' | 'cached';
+  savedAt: string | null;
 };
 
 export type IndexHistoryRow = {
@@ -318,6 +327,14 @@ type HomeDemandApi = {
   supply?: Array<Record<string, unknown>>;
 };
 
+const DEMAND_BOARD_CACHE_KEY = '@nepse/high_demand_supply_v1';
+
+type DemandBoardDisk = {
+  demand: DemandRow[];
+  supply: DemandRow[];
+  savedAt: string;
+};
+
 function parseDemand(row: Record<string, unknown>): DemandRow {
   const icon = str(row.icon ?? row.iconUrl);
   return {
@@ -332,22 +349,88 @@ function parseDemand(row: Record<string, unknown>): DemandRow {
   };
 }
 
-export async function loadHighDemand(): Promise<DemandRow[]> {
-  const raw = await liveV2Fetch<HomeDemandApi>('/home-page-data', true);
-  const list = raw?.demand ?? [];
-  return list
+function parseDemandList(
+  list: Array<Record<string, unknown>> | undefined,
+): DemandRow[] {
+  return (list ?? [])
     .filter((r) => r && typeof r === 'object')
-    .map((r) => parseDemand(r as Record<string, unknown>))
+    .map((r) => parseDemand(r))
     .filter((r) => r.symbol);
 }
 
+async function readDemandBoardCache(): Promise<DemandBoardDisk | null> {
+  try {
+    const raw = await AsyncStorage.getItem(DEMAND_BOARD_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DemandBoardDisk;
+    if (!parsed || !Array.isArray(parsed.demand) || !Array.isArray(parsed.supply)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeDemandBoardCache(
+  demand: DemandRow[],
+  supply: DemandRow[],
+): Promise<string> {
+  const savedAt = new Date().toISOString();
+  const payload: DemandBoardDisk = { demand, supply, savedAt };
+  try {
+    await AsyncStorage.setItem(DEMAND_BOARD_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore disk errors — in-memory still works for this session
+  }
+  return savedAt;
+}
+
+let demandBoardInflight: Promise<DemandBoardResult> | null = null;
+
+/**
+ * Top demand / supply boards. Live API clears these when NEPSE is closed,
+ * so we persist the last non-empty snapshot and fall back to it after hours.
+ */
+export async function loadHighDemandBoard(): Promise<DemandBoardResult> {
+  if (demandBoardInflight) return demandBoardInflight;
+
+  demandBoardInflight = (async (): Promise<DemandBoardResult> => {
+    const raw = await liveV2Fetch<HomeDemandApi>('/home-page-data', true);
+    const demand = parseDemandList(raw?.demand);
+    const supply = parseDemandList(raw?.supply);
+
+    if (demand.length > 0 || supply.length > 0) {
+      const savedAt = await writeDemandBoardCache(demand, supply);
+      return { demand, supply, source: 'live', savedAt };
+    }
+
+    const cached = await readDemandBoardCache();
+    if (cached && (cached.demand.length > 0 || cached.supply.length > 0)) {
+      return {
+        demand: cached.demand,
+        supply: cached.supply,
+        source: 'cached',
+        savedAt: cached.savedAt,
+      };
+    }
+
+    return { demand: [], supply: [], source: 'live', savedAt: null };
+  })().finally(() => {
+    demandBoardInflight = null;
+  });
+
+  return demandBoardInflight;
+}
+
+export async function loadHighDemand(): Promise<DemandRow[]> {
+  const board = await loadHighDemandBoard();
+  return board.demand;
+}
+
 export async function loadHighSupply(): Promise<DemandRow[]> {
-  const raw = await liveV2Fetch<HomeDemandApi>('/home-page-data', true);
-  const list = raw?.supply ?? [];
-  return list
-    .filter((r) => r && typeof r === 'object')
-    .map((r) => parseDemand(r as Record<string, unknown>))
-    .filter((r) => r.symbol);
+  const board = await loadHighDemandBoard();
+  return board.supply;
 }
 
 function parseHistoryRow(row: Record<string, unknown>): IndexHistoryRow | null {

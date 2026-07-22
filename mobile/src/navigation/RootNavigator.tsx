@@ -66,11 +66,15 @@ import {
 import {
   BrokerFavoritesScreen,
   BrokerTopBuySellScreen,
+} from '../screens/premium/PremiumIntelScreen';
+import {
   TopBuyersScreen,
+  TopSellersScreen,
+} from '../screens/premium/TopBuySellTableScreen';
+import {
   TopHoldersScreen,
   TopReleasesScreen,
-  TopSellersScreen,
-} from '../screens/premium/PremiumIntelScreen';
+} from '../screens/premium/TopHoldReleaseTableScreen';
 import {
   FiftyTwoWeekHighScreen,
   FiftyTwoWeekLowScreen,
@@ -214,7 +218,7 @@ function RootStack() {
 
 export function RootNavigator() {
   const { colors, isDark } = useTheme();
-  const drawerWidth = isTablet ? Math.min(wp(45), 400) : wp(82);
+  const drawerWidth = isTablet ? Math.min(wp(48), 420) : wp(86);
 
   const navTheme = useMemo(
     () => ({

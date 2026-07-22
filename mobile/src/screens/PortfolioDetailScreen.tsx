@@ -20,6 +20,7 @@ import {
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../context/ThemeContext';
 import type { RootStackParamList } from '../navigation/types';
 import {
   fmtNpr,
@@ -39,16 +40,15 @@ import {
   renamePortfolio,
   type Portfolio,
 } from '../storage/portfolioStorage';
+import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import { usePollingRefresh } from '../utils/usePollingRefresh';
 
-const PAGE_BG = '#E4EAD9';
-const TAB_GREEN = '#2D5A27';
 const FAB_GREEN = '#B8DFB9';
-const RECEIVABLE = '#5BA3D9';
 const PNL_BLUE = '#5B9FD4';
 const PILL_BG = 'rgba(120,130,120,0.18)';
 
+type Styles = ReturnType<typeof makeStyles>;
 type MainTab = 'summary' | 'holdings' | 'distribution';
 type HoldSort = 'qty' | 'ltp' | 'today';
 
@@ -57,6 +57,8 @@ export function PortfolioDetailScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'PortfolioDetail'>>();
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [quotes, setQuotes] = useState<QuoteMap>({});
   const [tab, setTab] = useState<MainTab>('summary');
@@ -225,13 +227,13 @@ export function PortfolioDetailScreen() {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={rs(22)} color="#111" />
+          <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
           {portfolio.name}
         </Text>
         <Pressable hitSlop={12} onPress={() => setSettingsOpen(true)}>
-          <Ionicons name="settings-outline" size={rs(20)} color="#111" />
+          <Ionicons name="settings-outline" size={rs(20)} color={colors.text} />
         </Pressable>
       </View>
 
@@ -286,31 +288,37 @@ export function PortfolioDetailScreen() {
           </View>
 
           <MetricRow
+            styles={styles}
             label="Total Investment"
             value={fmtNpr(metrics.invested)}
             extra={`${fmtNpr(metrics.units)} Units`}
           />
           <MetricRow
+            styles={styles}
             label="Today Profit and Loss"
             value={fmtNpr(metrics.todayPnl)}
             valueColor={PNL_BLUE}
           />
           <MetricRow
+            styles={styles}
             label="All Time Profit and Loss"
             value={fmtNpr(metrics.overallPnl)}
             valueColor={PNL_BLUE}
           />
           <MetricRow
+            styles={styles}
             label="Realized Profit and Loss"
             value={fmtNpr(metrics.realizedPnl)}
             valueColor={PNL_BLUE}
           />
           <MetricRow
+            styles={styles}
             label="Unrealized Profit and Loss"
             value={fmtNpr(metrics.unrealizedPnl)}
             valueColor={PNL_BLUE}
           />
           <MetricRow
+            styles={styles}
             label="Receivable Amount"
             value={fmtNpr(metrics.receivable)}
             last
@@ -323,7 +331,7 @@ export function PortfolioDetailScreen() {
             </Pressable>
           </View>
           {topHoldings.map((h) => (
-            <HoldingCard key={h.symbol} h={h} />
+            <HoldingCard key={h.symbol} h={h} styles={styles} />
           ))}
           {!topHoldings.length ? (
             <Text style={styles.muted}>No holdings yet — tap + to add</Text>
@@ -337,7 +345,11 @@ export function PortfolioDetailScreen() {
             <Text style={styles.sectionTitle}>All Holdings</Text>
             <View style={styles.holdActions}>
               <Pressable hitSlop={8} onPress={() => setSearchOpen((v) => !v)}>
-                <Ionicons name="search" size={rs(18)} color="#444" />
+                <Ionicons
+                  name="search"
+                  size={rs(18)}
+                  color={colors.textSecondary}
+                />
               </Pressable>
               <Pressable
                 hitSlop={8}
@@ -345,7 +357,11 @@ export function PortfolioDetailScreen() {
                   Alert.alert('Filter', 'Sort using the column headers below.')
                 }
               >
-                <Ionicons name="options-outline" size={rs(18)} color="#444" />
+                <Ionicons
+                  name="options-outline"
+                  size={rs(18)}
+                  color={colors.textSecondary}
+                />
               </Pressable>
               <Pressable
                 hitSlop={8}
@@ -356,7 +372,11 @@ export function PortfolioDetailScreen() {
                   )
                 }
               >
-                <Ionicons name="pricetag-outline" size={rs(18)} color="#444" />
+                <Ionicons
+                  name="pricetag-outline"
+                  size={rs(18)}
+                  color={colors.textSecondary}
+                />
               </Pressable>
             </View>
           </View>
@@ -365,7 +385,7 @@ export function PortfolioDetailScreen() {
               value={query}
               onChangeText={setQuery}
               placeholder="Search symbol…"
-              placeholderTextColor="#888"
+              placeholderTextColor={colors.textMuted}
               style={styles.searchInput}
               autoCapitalize="characters"
             />
@@ -376,21 +396,33 @@ export function PortfolioDetailScreen() {
               onPress={() => toggleHoldSort('qty')}
             >
               <Text style={styles.colLabel}>Quantity</Text>
-              <SortIcon active={holdSort === 'qty'} desc={holdDesc} />
+              <SortIcon
+                active={holdSort === 'qty'}
+                desc={holdDesc}
+                color={colors.textMuted}
+              />
             </Pressable>
             <Pressable
               style={styles.colLtp}
               onPress={() => toggleHoldSort('ltp')}
             >
               <Text style={styles.colLabel}>LTP</Text>
-              <SortIcon active={holdSort === 'ltp'} desc={holdDesc} />
+              <SortIcon
+                active={holdSort === 'ltp'}
+                desc={holdDesc}
+                color={colors.textMuted}
+              />
             </Pressable>
             <Pressable
               style={styles.colPnl}
               onPress={() => toggleHoldSort('today')}
             >
               <Text style={styles.colLabel}>Today PNL</Text>
-              <SortIcon active={holdSort === 'today'} desc={holdDesc} />
+              <SortIcon
+                active={holdSort === 'today'}
+                desc={holdDesc}
+                color={colors.textMuted}
+              />
             </Pressable>
           </View>
           <FlatList
@@ -425,7 +457,11 @@ export function PortfolioDetailScreen() {
                 }}
               >
                 <View style={styles.holdLeft}>
-                  <SymAvatar symbol={item.symbol} iconUrl={item.iconUrl} />
+                  <SymAvatar
+                    symbol={item.symbol}
+                    iconUrl={item.iconUrl}
+                    styles={styles}
+                  />
                   <View style={{ flex: 1 }}>
                     <View style={styles.symRow}>
                       <Text style={styles.sym}>{item.symbol}</Text>
@@ -504,7 +540,12 @@ export function PortfolioDetailScreen() {
 
           <View style={styles.distBar}>
             {sectors.length === 0 ? (
-              <View style={[styles.distSeg, { flex: 1, backgroundColor: '#DDD' }]} />
+              <View
+                style={[
+                  styles.distSeg,
+                  { flex: 1, backgroundColor: colors.border },
+                ]}
+              />
             ) : (
               sectors.map((s) => (
                 <View
@@ -551,7 +592,7 @@ export function PortfolioDetailScreen() {
         style={[styles.fab, { bottom: insets.bottom + rs(16) }]}
         onPress={() => setAddOpen(true)}
       >
-        <Ionicons name="add" size={rs(28)} color="#111" />
+        <Ionicons name="add" size={rs(28)} color={colors.text} />
       </Pressable>
 
       {/* Settings sheet */}
@@ -575,16 +616,24 @@ export function PortfolioDetailScreen() {
                 setEditOpen(true);
               }}
             >
-              <Ionicons name="pencil" size={rs(20)} color="#333" />
+              <Ionicons
+                name="pencil"
+                size={rs(20)}
+                color={colors.textSecondary}
+              />
               <View style={{ flex: 1 }}>
                 <Text style={styles.sheetRowTitle}>Edit Portfolio</Text>
                 <Text style={styles.sheetRowSub}>Change portfolio name</Text>
               </View>
             </Pressable>
             <Pressable style={styles.sheetRow} onPress={onDelete}>
-              <Ionicons name="trash-outline" size={rs(20)} color="#D32F2F" />
+              <Ionicons
+                name="trash-outline"
+                size={rs(20)}
+                color={colors.danger}
+              />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.sheetRowTitle, { color: '#D32F2F' }]}>
+                <Text style={[styles.sheetRowTitle, { color: colors.danger }]}>
                   Delete Portfolio
                 </Text>
                 <Text style={styles.sheetRowSub}>
@@ -611,6 +660,7 @@ export function PortfolioDetailScreen() {
               onChangeText={setEditName}
               style={styles.input}
               autoFocus
+              placeholderTextColor={colors.textMuted}
             />
             <Pressable style={styles.primaryBtn} onPress={() => void onRename()}>
               <Text style={styles.primaryBtnText}>Save</Text>
@@ -633,7 +683,7 @@ export function PortfolioDetailScreen() {
               value={symbol}
               onChangeText={setSymbol}
               placeholder="Symbol"
-              placeholderTextColor="#888"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="characters"
               style={styles.input}
             />
@@ -641,7 +691,7 @@ export function PortfolioDetailScreen() {
               value={qty}
               onChangeText={setQty}
               placeholder="Quantity"
-              placeholderTextColor="#888"
+              placeholderTextColor={colors.textMuted}
               keyboardType="numeric"
               style={styles.input}
             />
@@ -649,7 +699,7 @@ export function PortfolioDetailScreen() {
               value={wacc}
               onChangeText={setWacc}
               placeholder="WACC / buy price"
-              placeholderTextColor="#888"
+              placeholderTextColor={colors.textMuted}
               keyboardType="numeric"
               style={styles.input}
             />
@@ -663,12 +713,20 @@ export function PortfolioDetailScreen() {
   );
 }
 
-function SortIcon({ active, desc }: { active: boolean; desc: boolean }) {
+function SortIcon({
+  active,
+  desc,
+  color,
+}: {
+  active: boolean;
+  desc: boolean;
+  color: string;
+}) {
   return (
     <Ionicons
       name={active ? (desc ? 'caret-down' : 'caret-up') : 'swap-vertical'}
       size={rs(10)}
-      color="#888"
+      color={color}
     />
   );
 }
@@ -679,18 +737,22 @@ function MetricRow({
   extra,
   valueColor,
   last,
+  styles,
 }: {
   label: string;
   value: string;
   extra?: string;
   valueColor?: string;
   last?: boolean;
+  styles: Styles;
 }) {
   return (
     <View style={[styles.metricRow, last && { borderBottomWidth: 0 }]}>
       <Text style={styles.metricLabel}>{label}</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: rs(8) }}>
-        <Text style={[styles.metricValue, valueColor ? { color: valueColor } : null]}>
+        <Text
+          style={[styles.metricValue, valueColor ? { color: valueColor } : null]}
+        >
           {value}
         </Text>
         {extra ? <Text style={styles.metricExtra}>{extra}</Text> : null}
@@ -699,10 +761,10 @@ function MetricRow({
   );
 }
 
-function HoldingCard({ h }: { h: HoldingMetrics }) {
+function HoldingCard({ h, styles }: { h: HoldingMetrics; styles: Styles }) {
   return (
     <View style={styles.holdCard}>
-      <SymAvatar symbol={h.symbol} iconUrl={h.iconUrl} />
+      <SymAvatar symbol={h.symbol} iconUrl={h.iconUrl} styles={styles} />
       <View style={{ flex: 1 }}>
         <Text style={styles.sym}>{h.symbol}</Text>
         <Text style={styles.cardUnits}>{fmtNpr(h.qty)} units</Text>
@@ -727,9 +789,11 @@ function HoldingCard({ h }: { h: HoldingMetrics }) {
 function SymAvatar({
   symbol,
   iconUrl,
+  styles,
 }: {
   symbol: string;
   iconUrl: string | null;
+  styles: Styles;
 }) {
   const [failed, setFailed] = useState(false);
   const uri = iconUri(iconUrl) ?? iconUrl;
@@ -749,330 +813,340 @@ function SymAvatar({
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: PAGE_BG },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: rs(14),
-    paddingVertical: rs(10),
-  },
-  title: {
-    color: '#111',
-    fontSize: rs(17),
-    fontWeight: '800',
-    flex: 1,
-    textAlign: 'center',
-    marginHorizontal: rs(8),
-  },
-  tabs: {
-    flexDirection: 'row',
-    marginHorizontal: rs(14),
-    backgroundColor: 'rgba(0,0,0,0.06)',
-    borderRadius: rs(22),
-    padding: rs(3),
-    marginBottom: rs(10),
-  },
-  tab: {
-    flex: 1,
-    borderRadius: rs(18),
-    paddingVertical: rs(9),
-    alignItems: 'center',
-  },
-  tabOn: { backgroundColor: TAB_GREEN },
-  tabText: { color: '#333', fontSize: rs(12), fontWeight: '700' },
-  tabTextOn: { color: '#FFF' },
-  body: { paddingHorizontal: rs(14) },
-  hero: {
-    backgroundColor: '#D8E0D0',
-    borderRadius: rs(18),
-    padding: rs(18),
-    marginBottom: rs(8),
-  },
-  heroLabel: {
-    color: '#555',
-    fontSize: rs(11),
-    fontWeight: '700',
-    letterSpacing: 0.6,
-  },
-  heroValue: {
-    color: '#111',
-    fontSize: rs(28),
-    fontWeight: '800',
-    marginTop: rs(4),
-  },
-  heroSub: { color: '#666', fontSize: rs(13), marginTop: rs(4) },
-  pillRow: { flexDirection: 'row', gap: rs(8), marginTop: rs(14) },
-  pill: {
-    backgroundColor: PILL_BG,
-    borderRadius: rs(14),
-    paddingHorizontal: rs(10),
-    paddingVertical: rs(5),
-  },
-  pillText: { color: '#444', fontSize: rs(11), fontWeight: '600' },
-  metricRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: rs(14),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
-  },
-  metricLabel: { color: '#333', fontSize: rs(13), fontWeight: '500' },
-  metricValue: { color: '#111', fontSize: rs(14), fontWeight: '800' },
-  metricExtra: { color: '#888', fontSize: rs(12) },
-  sectionHead: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: rs(18),
-    marginBottom: rs(10),
-  },
-  sectionTitle: { color: '#111', fontSize: rs(16), fontWeight: '800' },
-  viewAll: { color: TAB_GREEN, fontWeight: '700', fontSize: rs(13) },
-  holdCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: rs(12),
-    backgroundColor: '#FFF',
-    borderRadius: rs(14),
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(0,0,0,0.08)',
-    padding: rs(12),
-    marginBottom: rs(8),
-  },
-  cardUnits: { color: '#777', fontSize: rs(12), marginTop: rs(2) },
-  cardValue: { color: '#111', fontWeight: '800', fontSize: rs(14) },
-  trendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: rs(3),
-    marginTop: rs(3),
-  },
-  trendText: { fontSize: rs(11), fontWeight: '600' },
-  avatar: {
-    width: rs(40),
-    height: rs(40),
-    borderRadius: rs(20),
-    backgroundColor: '#DDD',
-  },
-  avatarFallback: {
-    width: rs(40),
-    height: rs(40),
-    borderRadius: rs(20),
-    backgroundColor: '#CFD5C8',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { color: '#333', fontWeight: '800', fontSize: rs(12) },
-  muted: {
-    textAlign: 'center',
-    color: '#777',
-    marginTop: rs(24),
-    fontSize: rs(13),
-  },
-  fab: {
-    position: 'absolute',
-    right: rs(18),
-    width: rs(54),
-    height: rs(54),
-    borderRadius: rs(27),
-    backgroundColor: FAB_GREEN,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  holdHead: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: rs(14),
-    marginBottom: rs(8),
-  },
-  holdActions: { flexDirection: 'row', gap: rs(14) },
-  searchInput: {
-    marginHorizontal: rs(14),
-    marginBottom: rs(8),
-    backgroundColor: '#FFF',
-    borderRadius: rs(12),
-    paddingHorizontal: rs(12),
-    paddingVertical: rs(10),
-    color: '#111',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(0,0,0,0.1)',
-  },
-  colHead: {
-    flexDirection: 'row',
-    paddingHorizontal: rs(14),
-    paddingBottom: rs(8),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
-    marginBottom: rs(4),
-  },
-  colLabel: { color: '#888', fontSize: rs(11), fontWeight: '600' },
-  colQty: {
-    flex: 1.2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: rs(3),
-    paddingLeft: rs(52),
-  },
-  colLtp: {
-    flex: 0.9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: rs(3),
-  },
-  colPnl: {
-    flex: 0.9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: rs(3),
-  },
-  holdRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: rs(12),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
-  },
-  holdLeft: {
-    flex: 1.2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: rs(10),
-  },
-  symRow: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
-  sym: { color: '#111', fontWeight: '800', fontSize: rs(14) },
-  qtyBadge: {
-    backgroundColor: 'rgba(0,0,0,0.08)',
-    borderRadius: rs(8),
-    paddingHorizontal: rs(6),
-    paddingVertical: rs(1),
-  },
-  qtyBadgeText: { color: '#555', fontSize: rs(10), fontWeight: '700' },
-  holdInvested: { color: '#333', fontSize: rs(12), marginTop: rs(2) },
-  holdMid: { flex: 0.9, alignItems: 'center' },
-  holdLtp: { color: '#111', fontWeight: '700', fontSize: rs(13) },
-  chgRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: rs(4),
-    marginTop: rs(3),
-  },
-  chg: { fontSize: rs(11), fontWeight: '600' },
-  pctPill: {
-    backgroundColor: 'rgba(91,159,212,0.15)',
-    borderRadius: rs(8),
-    paddingHorizontal: rs(5),
-    paddingVertical: rs(1),
-  },
-  pctPillText: { color: PNL_BLUE, fontSize: rs(10), fontWeight: '700' },
-  holdRight: { flex: 0.9, alignItems: 'flex-end' },
-  holdPnl: { fontWeight: '700', fontSize: rs(13) },
-  holdPnlPct: { fontSize: rs(11), marginTop: rs(3), fontWeight: '600' },
-  subTabs: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.06)',
-    borderRadius: rs(18),
-    padding: rs(3),
-    marginBottom: rs(14),
-  },
-  subTab: {
-    flex: 1,
-    borderRadius: rs(14),
-    paddingVertical: rs(8),
-    alignItems: 'center',
-  },
-  subTabText: { color: '#333', fontSize: rs(11), fontWeight: '700' },
-  distBar: {
-    flexDirection: 'row',
-    height: rs(14),
-    borderRadius: rs(8),
-    overflow: 'hidden',
-    marginBottom: rs(18),
-  },
-  distSeg: { height: '100%' },
-  sectorRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: rs(12),
-  },
-  sectorLeft: { flexDirection: 'row', alignItems: 'center', gap: rs(10) },
-  sectorDot: {
-    width: rs(10),
-    height: rs(10),
-    borderRadius: rs(5),
-  },
-  sectorName: { color: '#111', fontWeight: '800', fontSize: rs(14) },
-  sectorSub: { color: '#777', fontSize: rs(11), marginTop: rs(2) },
-  sectorVal: { color: '#111', fontWeight: '800', fontSize: rs(13) },
-  sectorPct: { color: '#777', fontSize: rs(11), marginTop: rs(2) },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: rs(20),
-    borderTopRightRadius: rs(20),
-    padding: rs(18),
-    paddingBottom: rs(28),
-  },
-  handle: {
-    alignSelf: 'center',
-    width: rs(40),
-    height: rs(4),
-    borderRadius: 2,
-    backgroundColor: '#CCC',
-    marginBottom: rs(14),
-  },
-  sheetTitle: {
-    color: '#111',
-    fontSize: rs(17),
-    fontWeight: '800',
-    marginBottom: rs(10),
-  },
-  sheetRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: rs(12),
-    paddingVertical: rs(12),
-  },
-  sheetRowTitle: { color: '#111', fontWeight: '700', fontSize: rs(14) },
-  sheetRowSub: { color: '#777', fontSize: rs(11), marginTop: rs(2) },
-  createSheet: {
-    backgroundColor: '#FFF',
-    marginHorizontal: rs(20),
-    marginBottom: rs(100),
-    borderRadius: rs(16),
-    padding: rs(18),
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#DDD',
-    borderRadius: rs(12),
-    paddingHorizontal: rs(12),
-    paddingVertical: rs(12),
-    color: '#111',
-    fontSize: rs(14),
-    marginBottom: rs(10),
-  },
-  primaryBtn: {
-    backgroundColor: TAB_GREEN,
-    borderRadius: rs(24),
-    paddingVertical: rs(13),
-    alignItems: 'center',
-    marginTop: rs(4),
-  },
-  primaryBtnText: { color: '#FFF', fontWeight: '800', fontSize: rs(14) },
-});
+function makeStyles(c: ThemeColors, isDark: boolean) {
+  const heroBg = isDark ? c.surfaceAlt : c.primaryMid;
+  const cardBg = isDark ? c.surface : '#FFF';
+  const sheetBg = c.surface;
+  const borderSoft = isDark ? c.border : 'rgba(0,0,0,0.08)';
+  const tabTrack = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+  const handleColor = isDark ? c.border : '#CCC';
+
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: c.bg },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(10),
+    },
+    title: {
+      color: c.text,
+      fontSize: rs(17),
+      fontWeight: '800',
+      flex: 1,
+      textAlign: 'center',
+      marginHorizontal: rs(8),
+    },
+    tabs: {
+      flexDirection: 'row',
+      marginHorizontal: rs(14),
+      backgroundColor: tabTrack,
+      borderRadius: rs(22),
+      padding: rs(3),
+      marginBottom: rs(10),
+    },
+    tab: {
+      flex: 1,
+      borderRadius: rs(18),
+      paddingVertical: rs(9),
+      alignItems: 'center',
+    },
+    tabOn: { backgroundColor: c.primary },
+    tabText: { color: c.textSecondary, fontSize: rs(12), fontWeight: '700' },
+    tabTextOn: { color: '#FFF' },
+    body: { paddingHorizontal: rs(14) },
+    hero: {
+      backgroundColor: heroBg,
+      borderRadius: rs(18),
+      padding: rs(18),
+      marginBottom: rs(8),
+    },
+    heroLabel: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      fontWeight: '700',
+      letterSpacing: 0.6,
+    },
+    heroValue: {
+      color: c.text,
+      fontSize: rs(28),
+      fontWeight: '800',
+      marginTop: rs(4),
+    },
+    heroSub: { color: c.textSecondary, fontSize: rs(13), marginTop: rs(4) },
+    pillRow: { flexDirection: 'row', gap: rs(8), marginTop: rs(14) },
+    pill: {
+      backgroundColor: PILL_BG,
+      borderRadius: rs(14),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(5),
+    },
+    pillText: { color: c.textSecondary, fontSize: rs(11), fontWeight: '600' },
+    metricRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: rs(14),
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? c.border : 'rgba(0,0,0,0.1)',
+    },
+    metricLabel: { color: c.textSecondary, fontSize: rs(13), fontWeight: '500' },
+    metricValue: { color: c.text, fontSize: rs(14), fontWeight: '800' },
+    metricExtra: { color: c.textMuted, fontSize: rs(12) },
+    sectionHead: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: rs(18),
+      marginBottom: rs(10),
+    },
+    sectionTitle: { color: c.text, fontSize: rs(16), fontWeight: '800' },
+    viewAll: { color: c.primary, fontWeight: '700', fontSize: rs(13) },
+    holdCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(12),
+      backgroundColor: cardBg,
+      borderRadius: rs(14),
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: borderSoft,
+      padding: rs(12),
+      marginBottom: rs(8),
+    },
+    cardUnits: { color: c.textMuted, fontSize: rs(12), marginTop: rs(2) },
+    cardValue: { color: c.text, fontWeight: '800', fontSize: rs(14) },
+    trendRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(3),
+      marginTop: rs(3),
+    },
+    trendText: { fontSize: rs(11), fontWeight: '600' },
+    avatar: {
+      width: rs(40),
+      height: rs(40),
+      borderRadius: rs(20),
+      backgroundColor: c.border,
+    },
+    avatarFallback: {
+      width: rs(40),
+      height: rs(40),
+      borderRadius: rs(20),
+      backgroundColor: c.surfaceAlt,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarText: { color: c.textSecondary, fontWeight: '800', fontSize: rs(12) },
+    muted: {
+      textAlign: 'center',
+      color: c.textMuted,
+      marginTop: rs(24),
+      fontSize: rs(13),
+    },
+    fab: {
+      position: 'absolute',
+      right: rs(18),
+      width: rs(54),
+      height: rs(54),
+      borderRadius: rs(27),
+      backgroundColor: FAB_GREEN,
+      alignItems: 'center',
+      justifyContent: 'center',
+      elevation: 4,
+      shadowColor: '#000',
+      shadowOpacity: 0.15,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+    },
+    holdHead: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: rs(14),
+      marginBottom: rs(8),
+    },
+    holdActions: { flexDirection: 'row', gap: rs(14) },
+    searchInput: {
+      marginHorizontal: rs(14),
+      marginBottom: rs(8),
+      backgroundColor: cardBg,
+      borderRadius: rs(12),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
+      color: c.text,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? c.border : 'rgba(0,0,0,0.1)',
+    },
+    colHead: {
+      flexDirection: 'row',
+      paddingHorizontal: rs(14),
+      paddingBottom: rs(8),
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? c.border : 'rgba(0,0,0,0.1)',
+      marginBottom: rs(4),
+    },
+    colLabel: { color: c.textMuted, fontSize: rs(11), fontWeight: '600' },
+    colQty: {
+      flex: 1.2,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(3),
+      paddingLeft: rs(52),
+    },
+    colLtp: {
+      flex: 0.9,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(3),
+    },
+    colPnl: {
+      flex: 0.9,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      gap: rs(3),
+    },
+    holdRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: rs(12),
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? c.borderMuted : 'rgba(0,0,0,0.06)',
+    },
+    holdLeft: {
+      flex: 1.2,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+    },
+    symRow: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
+    sym: { color: c.text, fontWeight: '800', fontSize: rs(14) },
+    qtyBadge: {
+      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+      borderRadius: rs(8),
+      paddingHorizontal: rs(6),
+      paddingVertical: rs(1),
+    },
+    qtyBadgeText: { color: c.textMuted, fontSize: rs(10), fontWeight: '700' },
+    holdInvested: { color: c.textSecondary, fontSize: rs(12), marginTop: rs(2) },
+    holdMid: { flex: 0.9, alignItems: 'center' },
+    holdLtp: { color: c.text, fontWeight: '700', fontSize: rs(13) },
+    chgRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(4),
+      marginTop: rs(3),
+    },
+    chg: { fontSize: rs(11), fontWeight: '600' },
+    pctPill: {
+      backgroundColor: 'rgba(91,159,212,0.15)',
+      borderRadius: rs(8),
+      paddingHorizontal: rs(5),
+      paddingVertical: rs(1),
+    },
+    pctPillText: { color: PNL_BLUE, fontSize: rs(10), fontWeight: '700' },
+    holdRight: { flex: 0.9, alignItems: 'flex-end' },
+    holdPnl: { fontWeight: '700', fontSize: rs(13) },
+    holdPnlPct: { fontSize: rs(11), marginTop: rs(3), fontWeight: '600' },
+    subTabs: {
+      flexDirection: 'row',
+      backgroundColor: tabTrack,
+      borderRadius: rs(18),
+      padding: rs(3),
+      marginBottom: rs(14),
+    },
+    subTab: {
+      flex: 1,
+      borderRadius: rs(14),
+      paddingVertical: rs(8),
+      alignItems: 'center',
+    },
+    subTabText: { color: c.textSecondary, fontSize: rs(11), fontWeight: '700' },
+    distBar: {
+      flexDirection: 'row',
+      height: rs(14),
+      borderRadius: rs(8),
+      overflow: 'hidden',
+      marginBottom: rs(18),
+    },
+    distSeg: { height: '100%' },
+    sectorRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: rs(12),
+    },
+    sectorLeft: { flexDirection: 'row', alignItems: 'center', gap: rs(10) },
+    sectorDot: {
+      width: rs(10),
+      height: rs(10),
+      borderRadius: rs(5),
+    },
+    sectorName: { color: c.text, fontWeight: '800', fontSize: rs(14) },
+    sectorSub: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
+    sectorVal: { color: c.text, fontWeight: '800', fontSize: rs(13) },
+    sectorPct: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
+    backdrop: {
+      flex: 1,
+      backgroundColor: c.overlay,
+      justifyContent: 'flex-end',
+    },
+    sheet: {
+      backgroundColor: sheetBg,
+      borderTopLeftRadius: rs(20),
+      borderTopRightRadius: rs(20),
+      padding: rs(18),
+      paddingBottom: rs(28),
+    },
+    handle: {
+      alignSelf: 'center',
+      width: rs(40),
+      height: rs(4),
+      borderRadius: 2,
+      backgroundColor: handleColor,
+      marginBottom: rs(14),
+    },
+    sheetTitle: {
+      color: c.text,
+      fontSize: rs(17),
+      fontWeight: '800',
+      marginBottom: rs(10),
+    },
+    sheetRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(12),
+      paddingVertical: rs(12),
+    },
+    sheetRowTitle: { color: c.text, fontWeight: '700', fontSize: rs(14) },
+    sheetRowSub: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
+    createSheet: {
+      backgroundColor: sheetBg,
+      marginHorizontal: rs(20),
+      marginBottom: rs(100),
+      borderRadius: rs(16),
+      padding: rs(18),
+    },
+    input: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: rs(12),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(12),
+      color: c.text,
+      fontSize: rs(14),
+      marginBottom: rs(10),
+      backgroundColor: c.inputBg,
+    },
+    primaryBtn: {
+      backgroundColor: c.primary,
+      borderRadius: rs(24),
+      paddingVertical: rs(13),
+      alignItems: 'center',
+      marginTop: rs(4),
+    },
+    primaryBtnText: { color: '#FFF', fontWeight: '800', fontSize: rs(14) },
+  });
+}

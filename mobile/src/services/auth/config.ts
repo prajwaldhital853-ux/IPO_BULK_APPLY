@@ -2,7 +2,8 @@ export const AUTH_ENABLED =
   (process.env.EXPO_PUBLIC_AUTH_ENABLED ?? 'true').toLowerCase() !== 'false';
 
 export const AUTH_API_BASE = (
-  process.env.EXPO_PUBLIC_AUTH_API_URL ?? 'http://127.0.0.1:8080'
+  process.env.EXPO_PUBLIC_AUTH_API_URL ??
+  'https://ipo-bulk-apply-jhuj.onrender.com'
 ).replace(/\/$/, '');
 
 export const GOOGLE_WEB_CLIENT_ID =

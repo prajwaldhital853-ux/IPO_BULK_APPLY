@@ -110,8 +110,8 @@ export function NepseCalendarScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const todayIso = nepalTodayIso();
   const todayBs = useMemo(() => adIsoToBs(todayIso), [todayIso]);
@@ -655,7 +655,7 @@ function EventRow({
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
     header: {
@@ -785,7 +785,9 @@ function makeStyles(c: ThemeColors) {
       justifyContent: 'center',
     },
     dayWeekend: {
-      backgroundColor: 'rgba(229, 57, 53, 0.18)',
+      backgroundColor: isDark
+        ? 'rgba(229, 57, 53, 0.18)'
+        : 'rgba(198, 40, 40, 0.16)',
     },
     daySelected: {
       backgroundColor: '#2E7D32',
@@ -812,7 +814,10 @@ function makeStyles(c: ThemeColors) {
       marginTop: -rs(1),
     },
     dayMuted: { color: c.textDim, opacity: 0.45 },
-    dayWeekendText: { color: '#EF9A9A' },
+    dayWeekendText: {
+      color: isDark ? '#EF9A9A' : '#C62828',
+      fontWeight: '800',
+    },
     daySelectedText: { color: '#FFF' },
     dotsRow: {
       flexDirection: 'row',

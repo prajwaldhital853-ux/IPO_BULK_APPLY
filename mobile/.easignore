@@ -10,3 +10,7 @@ build-fail.json
 build-meta.json
 _tmp_stock.html
 node_modules/.cache/**
+*.apk
+apk-build.log
+bundle-*.js
+.expo/**

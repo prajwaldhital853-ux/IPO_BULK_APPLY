@@ -50,32 +50,36 @@ export type ThemeColors = {
   pillText: string;
 };
 
+/**
+ * Client dark palette — layered so cards read clearly (not flat/dull):
+ *   page #1E1E1E → cards #262626 → header #252724
+ */
 export const darkColors: ThemeColors = {
-  bg: '#121212',
-  bgElevated: '#1A1A1A',
-  surface: '#1E1E1E',
-  surfaceAlt: '#2A2A2A',
-  border: '#333333',
-  borderMuted: '#2C2C2C',
+  bg: '#1E1E1E',
+  bgElevated: '#252724',
+  surface: '#262626',
+  surfaceAlt: '#303030',
+  border: '#3F3F3F',
+  borderMuted: '#353535',
 
   text: '#FFFFFF',
-  textSecondary: '#A0A0A0',
-  textMuted: '#808080',
-  textDim: '#6B6B6B',
+  textSecondary: '#C8C8C8',
+  textMuted: '#9A9A9A',
+  textDim: '#757575',
 
-  primary: '#2E7D32',
-  primarySoft: '#1B3A26',
-  primaryMid: '#133318',
+  primary: '#2D8A39',
+  primarySoft: '#2A2F2A',
+  primaryMid: '#222826',
   accentGreen: '#4CAF50',
   sage: '#81C784',
   teal: '#26A69A',
   tealHeader: '#2BBBAD',
 
-  badgeNew: '#E53935',
-  badgeUpdated: '#FB8C00',
+  badgeNew: '#E74C3C',
+  badgeUpdated: '#FF9900',
 
   promoBanner: '#1B5E20',
-  fab: '#2E7D32',
+  fab: '#2D8A39',
   fabIcon: '#FFFFFF',
 
   checkIconBrown: '#6D4C41',
@@ -83,19 +87,19 @@ export const darkColors: ThemeColors = {
   checkIconBlue: '#37474F',
   checkIconPurple: '#5E35B1',
 
-  meroRed: '#E53935',
+  meroRed: '#E74C3C',
   danger: '#C62828',
 
   tabInactive: '#9E9E9E',
   tabActive: '#FFFFFF',
-  tabActiveBg: '#1B3A26',
+  tabActiveBg: '#303730',
 
-  inputBg: '#121212',
+  inputBg: '#222826',
   overlay: 'rgba(0,0,0,0.55)',
 
-  searchBg: '#1E1E1E',
-  pillFree: '#4FC3F7',
-  pillMero: '#4DB6AC',
+  searchBg: '#262626',
+  pillFree: '#6EA8D1',
+  pillMero: '#53B3AC',
   pillPremiumStart: '#64B5F6',
   pillPremiumEnd: '#42A5F5',
   pillText: '#0A0A0A',

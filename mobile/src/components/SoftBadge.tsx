@@ -17,11 +17,11 @@ const styles = StyleSheet.create({
   badge: {
     paddingHorizontal: rs(6),
     paddingVertical: rs(2),
-    borderRadius: rs(4),
+    borderRadius: rs(10),
   },
   text: {
     color: '#FFFFFF',
-    fontSize: rs(9),
+    fontSize: rs(8),
     fontWeight: '900',
     letterSpacing: 0.3,
   },

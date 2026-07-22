@@ -376,7 +376,7 @@ function GlobalIndicesBody({
               </Text>
             </View>
           </View>
-          <Text style={[styles.ixFocusVal, { color: '#0D47A1' }]}>
+          <Text style={styles.ixFocusVal}>
             {fmtNum(focus.currentValue)}
           </Text>
           <Text
@@ -1344,8 +1344,8 @@ export function ExtraToolScreen() {
   const copy = EXTRA_TOOL_COPY[kind];
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const isGold = kind === 'gold-silver';
 
   const body =
@@ -1377,7 +1377,8 @@ export function ExtraToolScreen() {
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
+  const accentBlue = isDark ? c.text : '#0D47A1';
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
     body: { flex: 1 },
@@ -1389,6 +1390,7 @@ function makeStyles(c: ThemeColors) {
       paddingBottom: rs(12),
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.border,
+      backgroundColor: c.bgElevated,
     },
     title: { color: c.text, fontWeight: '800', fontSize: rs(16) },
     hero: { paddingHorizontal: rs(16), paddingVertical: rs(10), gap: rs(6) },
@@ -1425,7 +1427,7 @@ function makeStyles(c: ThemeColors) {
     },
     cardSelected: {
       borderColor: '#64B5F6',
-      backgroundColor: '#E3F2FD',
+      backgroundColor: isDark ? c.surfaceAlt : '#E3F2FD',
     },
     cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: rs(10) },
     flag: { width: rs(28), height: rs(20), borderRadius: rs(3) },
@@ -1460,17 +1462,17 @@ function makeStyles(c: ThemeColors) {
       gap: rs(10),
     },
     ixHero: {
-      backgroundColor: '#E3F2FD',
+      backgroundColor: isDark ? c.surface : '#E3F2FD',
       borderRadius: rs(16),
       padding: rs(14),
       gap: rs(6),
       borderWidth: 1,
-      borderColor: '#BBDEFB',
+      borderColor: isDark ? c.border : '#BBDEFB',
     },
-    ixHeroTitle: { color: '#0D47A1', fontWeight: '900', fontSize: rs(16) },
+    ixHeroTitle: { color: accentBlue, fontWeight: '900', fontSize: rs(16) },
     ixHeroSub: { color: '#546E7A', fontSize: rs(11), fontWeight: '600' },
     ixFocus: {
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderRadius: rs(14),
       padding: rs(14),
       borderWidth: 1,
@@ -1479,9 +1481,9 @@ function makeStyles(c: ThemeColors) {
     },
     ixFocusTop: { flexDirection: 'row', alignItems: 'center', gap: rs(10) },
     ixFocusName: { color: c.text, fontWeight: '800', fontSize: rs(14) },
-    ixFocusVal: { color: c.text, fontWeight: '900', fontSize: rs(26), marginTop: rs(4) },
-    ixHeroVal: { color: '#0D47A1', fontWeight: '900', fontSize: rs(26), marginTop: rs(4) },
-    ixHeroName: { color: '#0D47A1', fontWeight: '800', fontSize: rs(14) },
+    ixFocusVal: { color: accentBlue, fontWeight: '900', fontSize: rs(26), marginTop: rs(4) },
+    ixHeroVal: { color: accentBlue, fontWeight: '900', fontSize: rs(26), marginTop: rs(4) },
+    ixHeroName: { color: accentBlue, fontWeight: '800', fontSize: rs(14) },
     chipRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -1492,7 +1494,7 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: rs(12),
       paddingVertical: rs(8),
       borderRadius: rs(18),
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderWidth: 1,
       borderColor: '#C5D0B5',
     },
@@ -1500,15 +1502,15 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: rs(10),
       paddingVertical: rs(6),
       borderRadius: rs(14),
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderWidth: 1,
       borderColor: '#C5D0B5',
     },
     chipOn: { backgroundColor: '#90CAF9', borderColor: '#64B5F6' },
     chipText: { color: c.textSecondary, fontWeight: '700', fontSize: rs(11) },
-    chipTextOn: { color: '#0D47A1' },
+    chipTextOn: { color: accentBlue },
     breadthCard: {
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderRadius: rs(12),
       padding: rs(12),
       borderWidth: 1,
@@ -1525,7 +1527,7 @@ function makeStyles(c: ThemeColors) {
       borderRadius: rs(8),
       overflow: 'hidden',
       flexDirection: 'row',
-      backgroundColor: '#E4EAD9',
+      backgroundColor: c.bg,
     },
     breadthLegend: {
       flexDirection: 'row',
@@ -1535,18 +1537,18 @@ function makeStyles(c: ThemeColors) {
       marginTop: rs(8),
       height: rs(6),
       borderRadius: rs(3),
-      backgroundColor: '#E4EAD9',
+      backgroundColor: c.bg,
       overflow: 'hidden',
     },
     indBarFill: { height: '100%', borderRadius: rs(3) },
     fxHeroHead: { flexDirection: 'row', alignItems: 'center', gap: rs(10) },
     fxBadgeLg: {
-      backgroundColor: '#BBDEFB',
+      backgroundColor: isDark ? c.surfaceAlt : '#BBDEFB',
       borderRadius: rs(10),
       paddingHorizontal: rs(10),
       paddingVertical: rs(8),
     },
-    fxIsoLg: { color: '#0D47A1', fontWeight: '900', fontSize: rs(14) },
+    fxIsoLg: { color: accentBlue, fontWeight: '900', fontSize: rs(14) },
     fxRateRow: { flexDirection: 'row', gap: rs(8), marginTop: rs(8) },
     fxRateBox: {
       flex: 1,
@@ -1554,11 +1556,11 @@ function makeStyles(c: ThemeColors) {
       borderRadius: rs(10),
       padding: rs(8),
       borderWidth: 1,
-      borderColor: '#BBDEFB',
+      borderColor: isDark ? c.border : '#BBDEFB',
     },
-    fxRateBig: { color: '#0D47A1', fontWeight: '900', fontSize: rs(14), marginTop: rs(2) },
+    fxRateBig: { color: accentBlue, fontWeight: '900', fontSize: rs(14), marginTop: rs(2) },
     calcCard: {
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderRadius: rs(14),
       padding: rs(12),
       borderWidth: 1,
@@ -1595,7 +1597,7 @@ function makeStyles(c: ThemeColors) {
     fuelLabel: { color: c.textMuted, fontSize: rs(10), fontWeight: '700' },
     fuelVal: { color: c.text, fontWeight: '800', fontSize: rs(13), marginTop: rs(4) },
 
-    gsRoot: { backgroundColor: '#E4EAD9' },
+    gsRoot: { backgroundColor: c.bg },
     gsWrap: {
       paddingHorizontal: rs(14),
       paddingTop: rs(8),
@@ -1603,7 +1605,7 @@ function makeStyles(c: ThemeColors) {
       gap: rs(12),
     },
     gsHero: {
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderRadius: rs(20),
       padding: rs(16),
       shadowColor: '#000',
@@ -1645,7 +1647,7 @@ function makeStyles(c: ThemeColors) {
       width: '48%',
       flexGrow: 1,
       maxWidth: '48.5%',
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderRadius: rs(18),
       padding: rs(12),
       shadowColor: '#000',
@@ -1697,7 +1699,7 @@ function makeStyles(c: ThemeColors) {
     },
     gsPillText: { fontWeight: '800', fontSize: rs(11) },
     chartCard: {
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderRadius: rs(20),
       padding: rs(14),
       shadowColor: '#000',

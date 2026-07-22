@@ -31,12 +31,13 @@ export {
 } from './holidays';
 
 export { loadNepseMarketSnapshot } from './market';
-export type { StockListKind } from './screener';
+export type { StockListKind, DemandBoardResult, DemandRow } from './screener';
 export {
   fmtMcap,
   fmtNum,
   fmtRatio,
   loadHighDemand,
+  loadHighDemandBoard,
   loadHighSupply,
   loadNepseIndexHistory,
   loadStockList,

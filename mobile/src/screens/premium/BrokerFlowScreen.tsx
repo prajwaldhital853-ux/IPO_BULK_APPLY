@@ -120,8 +120,8 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const isAcc = mode === 'accumulation';
   const title = isAcc ? 'Broker Accumulation' : 'Broker Distribution';
@@ -520,16 +520,16 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: '#E4EAD9' },
+    root: { flex: 1, backgroundColor: c.bg },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: rs(14),
       paddingVertical: rs(10),
-      backgroundColor: '#E4EAD9',
+      backgroundColor: c.bgElevated,
     },
     title: {
       color: c.text,
@@ -553,7 +553,7 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(5),
-      backgroundColor: '#DCE5D0',
+      backgroundColor: c.surfaceAlt,
       borderRadius: rs(10),
       paddingHorizontal: rs(10),
       paddingVertical: rs(9),
@@ -564,9 +564,9 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(6),
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderWidth: 1,
-      borderColor: '#C5D0B5',
+      borderColor: c.borderMuted,
       borderRadius: rs(10),
       paddingHorizontal: rs(10),
       paddingVertical: rs(7),
@@ -605,12 +605,12 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       paddingHorizontal: rs(8),
       paddingVertical: rs(11),
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: '#D5DEC8',
+      borderBottomColor: c.borderMuted,
     },
-    trAlt: { backgroundColor: '#E4EAD9' },
-    td: { color: '#1B1B1B', fontSize: rs(11.5), fontWeight: '600' },
+    trAlt: { backgroundColor: c.bg },
+    td: { color: c.text, fontSize: rs(11.5), fontWeight: '600' },
     symCell: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
     brokerCell: { justifyContent: 'center', paddingRight: rs(2) },
     logo: {
@@ -634,13 +634,13 @@ function makeStyles(c: ThemeColors) {
     },
     symText: {
       flex: 1,
-      color: '#1B1B1B',
+      color: c.text,
       fontWeight: '700',
       fontSize: rs(11.5),
     },
     brokerText: { fontWeight: '800', fontSize: rs(11) },
     brokerName: {
-      color: '#5A6B5A',
+      color: c.textMuted,
       fontSize: rs(8),
       fontWeight: '600',
       marginTop: rs(1),
@@ -665,7 +665,7 @@ function makeStyles(c: ThemeColors) {
       justifyContent: 'flex-end',
     },
     sheet: {
-      backgroundColor: '#EEF2E6',
+      backgroundColor: c.surface,
       borderTopLeftRadius: rs(16),
       borderTopRightRadius: rs(16),
       padding: rs(16),

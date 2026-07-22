@@ -10,10 +10,12 @@ import {
   type MiniScreenerRow,
 } from './screener';
 import { formatRs } from './premiumAnalytics';
-import { loadMerolaganiFloorsheetProgressive, MERO_FLOOR_FAST_PAGES } from './merolaganiFloorsheet';
+import { loadMerolaganiFloorsheetProgressive, loadMerolaganiFloorsheetForSymbol, MERO_FLOOR_FAST_PAGES } from './merolaganiFloorsheet';
+import { loadTmsBrokers } from './resources';
 
 const DATA_BASE = 'https://sharehubnepal.com/data/api/v1';
 const LIVE_V2 = 'https://sharehubnepal.com/live/api/v2/nepselive';
+const BROKER_CDN = 'https://cdn.arthakendra.com/';
 
 const CACHE_MS = 120_000;
 /** Fewer / larger pages = much faster first paint. */
@@ -21,6 +23,8 @@ const FLOOR_PAGE_SIZE = 200;
 const FLOOR_MAX_PAGES = 10;
 /** Acc/Dis only needs a few Merolagani pages for solid rankings. */
 const MERO_ACC_DIS_PAGES = MERO_FLOOR_FAST_PAGES;
+/** Aggressive Holders needs a deep floorsheet so names like SAIL are not missed. */
+const MERO_AGGRESSIVE_PAGES = 30;
 
 export function invalidateBrokerAnalyticsCache(): void {
   brokerCache = null;
@@ -29,7 +33,7 @@ export function invalidateBrokerAnalyticsCache(): void {
   floorsheetCacheAt = 0;
 }
 
-export type BrokerInfo = { code: string; name: string };
+export type BrokerInfo = { code: string; name: string; iconUrl: string | null };
 
 export type IntelMetric = { label: string; value: string; tone?: 'up' | 'down' | 'neutral' };
 
@@ -140,33 +144,114 @@ function brokerKey(raw: string): string {
   return m ? m[0] : t;
 }
 
+/** Normalize "058" / "58" / "Broker 58" → "58" for reliable directory lookup. */
+function normBrokerCode(raw: string): string {
+  const digits = brokerKey(raw);
+  if (!digits) return raw.trim();
+  const n = Number(digits);
+  return Number.isFinite(n) ? String(n) : digits;
+}
+
 function sideKey(symbol: string, broker: string): AggKey {
-  return `${symbol.toUpperCase()}|${brokerKey(broker)}`;
+  return `${symbol.toUpperCase()}|${normBrokerCode(broker)}`;
+}
+
+function brokerLogoUrl(imagePath: string | null | undefined): string | null {
+  const path = String(imagePath ?? '').trim();
+  if (!path) return null;
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${BROKER_CDN}${path.replace(/^\//, '')}`;
 }
 
 async function loadBrokers(): Promise<BrokerInfo[]> {
   if (brokerCache && Date.now() - brokerCacheAt < CACHE_MS) return brokerCache;
+
+  // Prefer TMS broker directory — same source that already shows logos in-app.
   try {
-    const res = await fetch(`${DATA_BASE}/broker?page=1&size=200`, {
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) return brokerCache ?? [];
-    const json = (await res.json()) as {
-      data?: { content?: Array<{ code?: string; name?: string }> };
-    };
-    brokerCache = (json.data?.content ?? [])
-      .map((b) => ({ code: String(b.code ?? '').trim(), name: String(b.name ?? '').trim() }))
-      .filter((b) => b.code);
-    brokerCacheAt = Date.now();
-    return brokerCache;
+    const tms = await loadTmsBrokers();
+    if (tms.length) {
+      brokerCache = tms.map((b) => ({
+        code: normBrokerCode(b.code) || b.code,
+        name: b.name,
+        iconUrl: brokerLogoUrl(b.iconUrl) ?? b.iconUrl,
+      }));
+      brokerCacheAt = Date.now();
+      return brokerCache;
+    }
+  } catch {
+    // fall through to paged ShareHub fetch
+  }
+
+  const rows: BrokerInfo[] = [];
+  let page = 1;
+  let totalPages = 1;
+  try {
+    while (page <= totalPages && page <= 20) {
+      const res = await fetch(`${DATA_BASE}/broker?page=${page}&size=100`, {
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) break;
+      const json = (await res.json()) as {
+        data?: {
+          totalPages?: number;
+          content?: Array<{
+            code?: string;
+            name?: string;
+            imageUrl?: string;
+          }>;
+        };
+      };
+      totalPages = Number(json.data?.totalPages ?? 1);
+      for (const b of json.data?.content ?? []) {
+        const code = normBrokerCode(String(b.code ?? '').trim());
+        if (!code) continue;
+        rows.push({
+          code,
+          name: String(b.name ?? '').trim(),
+          iconUrl: brokerLogoUrl(b.imageUrl),
+        });
+      }
+      page += 1;
+    }
+    if (rows.length) {
+      brokerCache = rows;
+      brokerCacheAt = Date.now();
+    }
+    return brokerCache ?? rows;
   } catch {
     return brokerCache ?? [];
   }
 }
 
+function brokerIcon(
+  code: string,
+  directory: Map<string, BrokerInfo>,
+): string | null {
+  return directory.get(normBrokerCode(code))?.iconUrl ?? null;
+}
+
+function brokerDirectoryMap(brokers: BrokerInfo[]): Map<string, BrokerInfo> {
+  const map = new Map<string, BrokerInfo>();
+  for (const b of brokers) {
+    const k = normBrokerCode(b.code);
+    if (!k) continue;
+    map.set(k, { ...b, code: k, iconUrl: brokerLogoUrl(b.iconUrl) ?? b.iconUrl });
+  }
+  return map;
+}
+
 function brokerLabel(code: string, directory: Map<string, string>): string {
-  const k = brokerKey(code);
+  const k = normBrokerCode(code);
   return directory.get(k) ?? (k ? `Broker ${k}` : 'Market');
+}
+
+function nameDirectory(brokers: BrokerInfo[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const b of brokers) {
+    const k = normBrokerCode(b.code);
+    if (k) map.set(k, b.name);
+  }
+  return map;
 }
 
 async function loadSessionFloorsheet(force = false): Promise<FloorsheetRow[]> {
@@ -298,18 +383,40 @@ async function loadSessionFloorsheetProgressive(
   return all;
 }
 
+function looksLikeBrokerFirm(name: string): boolean {
+  const n = name.trim();
+  if (!n) return false;
+  if (/securities|broker|capital\s*market|investment\s*banking/i.test(n)) {
+    return true;
+  }
+  // Reject listed-company style names that sometimes leak from floorsheet HTML.
+  if (
+    /hydropower|hydro\s*power|development\s*bank|commercial\s*bank|life\s*insurance|non[\s-]*life|microfinance|mutual\s*fund|agritech|manufacturing|hotels?\s+and\s+tourism|power\s+limited|energy\s+ltd/i.test(
+      n,
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function mergeBrokerNamesFromRows(
   directory: Map<string, string>,
   rows: FloorsheetRow[],
 ): void {
   for (const r of rows) {
-    const buy = brokerKey(r.buyerBroker);
-    const sell = brokerKey(r.sellerBroker);
-    if (buy && r.buyerBrokerName?.trim()) {
-      directory.set(buy, r.buyerBrokerName.trim());
+    const buy = normBrokerCode(r.buyerBroker);
+    const sell = normBrokerCode(r.sellerBroker);
+    // Never overwrite a known directory name; only fill gaps with firm-like titles.
+    if (buy && r.buyerBrokerName?.trim() && looksLikeBrokerFirm(r.buyerBrokerName)) {
+      if (!directory.has(buy)) directory.set(buy, r.buyerBrokerName.trim());
     }
-    if (sell && r.sellerBrokerName?.trim()) {
-      directory.set(sell, r.sellerBrokerName.trim());
+    if (
+      sell &&
+      r.sellerBrokerName?.trim() &&
+      looksLikeBrokerFirm(r.sellerBrokerName)
+    ) {
+      if (!directory.has(sell)) directory.set(sell, r.sellerBrokerName.trim());
     }
   }
 }
@@ -392,7 +499,7 @@ function buildSideAgg(
   const map = new Map<AggKey, SideAgg>();
   for (const r of rows) {
     const brokerRaw = side === 'buy' ? r.buyerBroker : r.sellerBroker;
-    const broker = brokerKey(brokerRaw);
+    const broker = normBrokerCode(brokerRaw);
     if (!broker) continue;
     const qty = r.quantity ?? 0;
     const amt = r.amount ?? qty * (r.rate ?? 0);
@@ -424,7 +531,7 @@ function buildNetAgg(rows: FloorsheetRow[]): Map<AggKey, NetAgg> {
     if (qty <= 0 && amt <= 0) continue;
 
     const apply = (brokerRaw: string, isBuy: boolean) => {
-      const broker = brokerKey(brokerRaw);
+      const broker = normBrokerCode(brokerRaw);
       if (!broker) return;
       const key = sideKey(r.symbol, broker);
       const cur = map.get(key) ?? {
@@ -1208,6 +1315,726 @@ async function loadBrokerTopBuySell(limit: number): Promise<PremiumIntelSnapshot
   };
 }
 
+export type BrokerTopBuySellCard = {
+  code: string;
+  name: string;
+  iconUrl: string | null;
+  buySymbols: string[];
+  sellSymbols: string[];
+  buyAmt: number;
+  sellAmt: number;
+  score: number;
+};
+
+export type BrokerTopBuySellBoard = {
+  brokers: BrokerTopBuySellCard[];
+  sessionDate: string | null;
+  tradesScanned: number;
+  brokerBreakdown: boolean;
+};
+
+type SymAmt = { qty: number; amt: number };
+
+function topSymbols(
+  map: Map<string, SymAmt>,
+  take = 5,
+): string[] {
+  return [...map.entries()]
+    .sort((a, b) => b[1].amt - a[1].amt || b[1].qty - a[1].qty)
+    .slice(0, take)
+    .map(([sym]) => sym);
+}
+
+function buildBrokerTopBuySellBoard(
+  rows: FloorsheetRow[],
+  brokerDir: Map<string, BrokerInfo>,
+  nameDir: Map<string, string>,
+): BrokerTopBuySellBoard {
+  const sessionDate =
+    floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null;
+
+  if (!hasBrokerData(rows)) {
+    return {
+      brokers: [],
+      sessionDate,
+      tradesScanned: rows.length,
+      brokerBreakdown: false,
+    };
+  }
+
+  type Bucket = {
+    code: string;
+    buy: Map<string, SymAmt>;
+    sell: Map<string, SymAmt>;
+    buyAmt: number;
+    sellAmt: number;
+  };
+
+  const byBroker = new Map<string, Bucket>();
+
+  const bump = (
+    raw: string,
+    symbol: string,
+    qty: number,
+    amt: number,
+    isBuy: boolean,
+  ) => {
+    const code = normBrokerCode(raw);
+    if (!code || !symbol) return;
+    let b = byBroker.get(code);
+    if (!b) {
+      b = {
+        code,
+        buy: new Map(),
+        sell: new Map(),
+        buyAmt: 0,
+        sellAmt: 0,
+      };
+      byBroker.set(code, b);
+    }
+    const side = isBuy ? b.buy : b.sell;
+    const cur = side.get(symbol) ?? { qty: 0, amt: 0 };
+    cur.qty += qty;
+    cur.amt += amt;
+    side.set(symbol, cur);
+    if (isBuy) b.buyAmt += amt;
+    else b.sellAmt += amt;
+  };
+
+  for (const r of rows) {
+    const qty = r.quantity ?? 0;
+    const amt = r.amount ?? qty * (r.rate ?? 0);
+    if (qty <= 0 && amt <= 0) continue;
+    const sym = r.symbol.toUpperCase();
+    bump(r.buyerBroker, sym, qty, amt, true);
+    bump(r.sellerBroker, sym, qty, amt, false);
+  }
+
+  const brokers: BrokerTopBuySellCard[] = [];
+  for (const b of byBroker.values()) {
+    const info = brokerDir.get(b.code);
+    const floorName = nameDir.get(b.code) ?? '';
+    const name =
+      info?.name ||
+      (looksLikeBrokerFirm(floorName) ? floorName : null) ||
+      `Broker ${b.code}`;
+    const buySymbols = topSymbols(b.buy, 5);
+    const sellSymbols = topSymbols(b.sell, 5);
+    if (!buySymbols.length && !sellSymbols.length) continue;
+    brokers.push({
+      code: b.code,
+      name,
+      iconUrl: info?.iconUrl ?? null,
+      buySymbols,
+      sellSymbols,
+      buyAmt: b.buyAmt,
+      sellAmt: b.sellAmt,
+      score: b.buyAmt + b.sellAmt,
+    });
+  }
+
+  brokers.sort((a, b) => b.score - a.score);
+
+  return {
+    brokers,
+    sessionDate,
+    tradesScanned: rows.length,
+    brokerBreakdown: true,
+  };
+}
+
+export async function loadBrokerTopBuySellBoard(): Promise<BrokerTopBuySellBoard> {
+  const [rows, brokers] = await Promise.all([
+    loadSessionFloorsheet(),
+    loadBrokers(),
+  ]);
+  const brokerDir = brokerDirectoryMap(brokers);
+  const nameDir = nameDirectory(brokers);
+  mergeBrokerNamesFromRows(nameDir, rows);
+  return buildBrokerTopBuySellBoard(rows, brokerDir, nameDir);
+}
+
+/**
+ * Progressive board for Broker Top Buy/Sell.
+ * Recomputes from all rows so far, but only publishes broker chips when the
+ * floorsheet stream finishes — so BUY/SELL symbols match the final correct set
+ * and never reshuffle mid-load. Warm cache is published immediately.
+ */
+export async function streamBrokerTopBuySellBoard(
+  onUpdate: (board: BrokerTopBuySellBoard, meta: { partial: boolean }) => void,
+): Promise<BrokerTopBuySellBoard> {
+  const brokers = await loadBrokers();
+  const brokerDir = brokerDirectoryMap(brokers);
+  const nameDir = nameDirectory(brokers);
+
+  let last: BrokerTopBuySellBoard = {
+    brokers: [],
+    sessionDate: null,
+    tradesScanned: 0,
+    brokerBreakdown: false,
+  };
+
+  const emit = (rows: FloorsheetRow[], partial: boolean) => {
+    mergeBrokerNamesFromRows(nameDir, rows);
+    const fresh = buildBrokerTopBuySellBoard(rows, brokerDir, nameDir);
+    // Keep meta updating while loading; withhold incomplete broker chips.
+    if (partial) {
+      last = {
+        brokers: last.brokers,
+        sessionDate: fresh.sessionDate,
+        tradesScanned: fresh.tradesScanned,
+        brokerBreakdown: fresh.brokerBreakdown || last.brokerBreakdown,
+      };
+      onUpdate(last, { partial: true });
+      return;
+    }
+    last = fresh;
+    onUpdate(last, { partial: false });
+  };
+
+  // Instant paint from warm cache (already a complete snapshot).
+  if (floorsheetCache?.length && Date.now() - floorsheetCacheAt < CACHE_MS) {
+    emit(floorsheetCache, false);
+  }
+
+  try {
+    await loadMerolaganiFloorsheetProgressive((rows, meta) => {
+      if (hasBrokerData(rows) && rows.length > 0) {
+        floorsheetCache = rows;
+        floorsheetCacheAt = Date.now();
+        floorsheetMeta = {
+          trades: rows.length,
+          date: meta.asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
+        };
+      }
+      emit(rows, !meta.done);
+    }, MERO_FLOOR_FAST_PAGES);
+  } catch {
+    const rows = await loadSessionFloorsheet(true);
+    emit(rows, false);
+  }
+
+  return last;
+}
+
+export type TopSideTradeRow = {
+  id: string;
+  symbol: string;
+  brokerCode: string;
+  qty: number;
+  amount: number;
+  avgRate: number | null;
+  trades: number;
+};
+
+export type TopSideBoard = {
+  rows: TopSideTradeRow[];
+  sessionDate: string | null;
+  tradesScanned: number;
+  side: 'buy' | 'sell';
+};
+
+function buildTopSideBoard(
+  rows: FloorsheetRow[],
+  side: 'buy' | 'sell',
+): TopSideBoard {
+  const sessionDate =
+    floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null;
+  const agg = buildSideAgg(rows, side);
+  const list: TopSideTradeRow[] = [...agg.values()]
+    .filter((a) => a.qty > 0)
+    .map((a) => ({
+      id: `${a.symbol}|${a.broker}`,
+      symbol: a.symbol.toUpperCase(),
+      brokerCode: a.broker,
+      qty: a.qty,
+      amount: a.amount,
+      avgRate: a.trades > 0 ? a.rateSum / a.trades : null,
+      trades: a.trades,
+    }))
+    .sort((a, b) => b.qty - a.qty || b.amount - a.amount);
+
+  return {
+    rows: list,
+    sessionDate,
+    tradesScanned: rows.length,
+    side,
+  };
+}
+
+/**
+ * Top Buyers / Top Sellers board. Publishes final ranked rows when stream ends
+ * (warm cache first). Avoids mid-load rank reshuffles.
+ */
+export async function streamTopSideBoard(
+  side: 'buy' | 'sell',
+  onUpdate: (board: TopSideBoard, meta: { partial: boolean }) => void,
+): Promise<TopSideBoard> {
+  let last: TopSideBoard = {
+    rows: [],
+    sessionDate: null,
+    tradesScanned: 0,
+    side,
+  };
+
+  const emit = (rows: FloorsheetRow[], partial: boolean) => {
+    if (!hasBrokerData(rows)) {
+      last = {
+        rows: [],
+        sessionDate: floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
+        tradesScanned: rows.length,
+        side,
+      };
+      onUpdate(last, { partial });
+      return;
+    }
+    const fresh = buildTopSideBoard(rows, side);
+    if (partial) {
+      last = {
+        rows: last.rows,
+        sessionDate: fresh.sessionDate,
+        tradesScanned: fresh.tradesScanned,
+        side,
+      };
+      onUpdate(last, { partial: true });
+      return;
+    }
+    last = fresh;
+    onUpdate(last, { partial: false });
+  };
+
+  if (floorsheetCache?.length && Date.now() - floorsheetCacheAt < CACHE_MS) {
+    emit(floorsheetCache, false);
+  }
+
+  try {
+    await loadMerolaganiFloorsheetProgressive((rows, meta) => {
+      if (hasBrokerData(rows) && rows.length > 0) {
+        floorsheetCache = rows;
+        floorsheetCacheAt = Date.now();
+        floorsheetMeta = {
+          trades: rows.length,
+          date: meta.asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
+        };
+      }
+      emit(rows, !meta.done);
+    }, MERO_FLOOR_FAST_PAGES);
+  } catch {
+    const rows = await loadSessionFloorsheet(true);
+    emit(rows, false);
+  }
+
+  return last;
+}
+
+/** Priority fetch for symbol / broker search on Top Buyers / Sellers. */
+export async function loadTopSideForQuery(
+  side: 'buy' | 'sell',
+  opts: { symbol?: string; broker?: string },
+): Promise<TopSideTradeRow[]> {
+  const sym = (opts.symbol ?? '').trim().toUpperCase();
+  const brokerQ = (opts.broker ?? '').trim();
+  if (!sym && !brokerQ) return [];
+
+  let rows = floorsheetCache ?? [];
+  if (sym) {
+    try {
+      const extra = await loadMerolaganiFloorsheetForSymbol(sym, 3);
+      if (extra.rows.length) {
+        const byId = new Map<string, FloorsheetRow>();
+        for (const r of [...rows, ...extra.rows]) {
+          const id = String(
+            r.contractId ||
+              `${r.symbol}-${r.buyerBroker}-${r.sellerBroker}-${r.quantity}`,
+          );
+          if (!byId.has(id)) byId.set(id, r);
+        }
+        rows = [...byId.values()];
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (brokerQ && rows.length < 40) {
+    const code = normBrokerCode(brokerQ);
+    if (code) {
+      try {
+        const page =
+          side === 'buy'
+            ? await loadFloorsheet(1, 100, { buyerMemberId: code })
+            : await loadFloorsheet(1, 100, { sellerMemberId: code });
+        const byId = new Map<string, FloorsheetRow>();
+        for (const r of [...rows, ...page.rows]) {
+          const id = String(
+            r.contractId ||
+              `${r.symbol}-${r.buyerBroker}-${r.sellerBroker}-${r.quantity}`,
+          );
+          if (!byId.has(id)) byId.set(id, r);
+        }
+        rows = [...byId.values()];
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  const board = buildTopSideBoard(rows, side);
+  return board.rows.filter((r) => {
+    if (sym && !r.symbol.includes(sym)) return false;
+    if (brokerQ) {
+      const q = brokerQ.toLowerCase();
+      const digits = q.replace(/\D/g, '');
+      if (digits && !r.brokerCode.includes(digits) && r.brokerCode !== normBrokerCode(q)) {
+        return false;
+      }
+      if (!digits && !r.brokerCode.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+export type NetSideMode = 'holders' | 'releases';
+
+export type NetSideTradeRow = {
+  id: string;
+  symbol: string;
+  /** Empty when aggregated by symbol (Top Holders default view). */
+  brokerCode: string;
+  qty: number;
+  amount: number;
+  avgRate: number | null;
+  ltp: number | null;
+  trades: number;
+};
+
+export type NetSideBoard = {
+  rows: NetSideTradeRow[];
+  sessionDate: string | null;
+  tradesScanned: number;
+  mode: NetSideMode;
+  /** True when rows include broker codes. */
+  brokerBreakdown: boolean;
+};
+
+/**
+ * Top Holders → net buy qty > 0 (symbol aggregate by default).
+ * Top Release → net sell qty (broker × symbol pairs).
+ */
+function buildNetSideBoard(
+  rows: FloorsheetRow[],
+  mode: NetSideMode,
+  screener?: Map<string, MiniScreenerRow>,
+): NetSideBoard {
+  const sessionDate =
+    floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null;
+
+  if (!hasBrokerData(rows)) {
+    return {
+      rows: [],
+      sessionDate,
+      tradesScanned: rows.length,
+      mode,
+      brokerBreakdown: false,
+    };
+  }
+
+  const net = buildNetAgg(rows);
+
+  if (mode === 'holders') {
+    // Screenshot: SYM · Qty · Amount (symbol-level net accumulation).
+    type SymBucket = {
+      symbol: string;
+      qty: number;
+      amount: number;
+      rateSum: number;
+      trades: number;
+    };
+    const bySym = new Map<string, SymBucket>();
+    for (const n of net.values()) {
+      if (n.qty <= 0) continue;
+      const sym = n.symbol.toUpperCase();
+      const cur = bySym.get(sym) ?? {
+        symbol: sym,
+        qty: 0,
+        amount: 0,
+        rateSum: 0,
+        trades: 0,
+      };
+      cur.qty += n.qty;
+      cur.amount += Math.abs(n.amount);
+      cur.rateSum += n.rateSum;
+      cur.trades += n.trades;
+      bySym.set(sym, cur);
+    }
+    const list: NetSideTradeRow[] = [...bySym.values()]
+      .map((a) => ({
+        id: a.symbol,
+        symbol: a.symbol,
+        brokerCode: '',
+        qty: a.qty,
+        amount: a.amount,
+        avgRate: a.trades > 0 ? a.rateSum / a.trades : null,
+        ltp: screener?.get(a.symbol)?.ltp ?? null,
+        trades: a.trades,
+      }))
+      .sort((a, b) => b.qty - a.qty || b.amount - a.amount);
+
+    return {
+      rows: list,
+      sessionDate,
+      tradesScanned: rows.length,
+      mode,
+      brokerBreakdown: false,
+    };
+  }
+
+  // Top Release: SYM · Broker · Qty · Amount
+  const list: NetSideTradeRow[] = [...net.values()]
+    .filter((n) => n.qty < 0)
+    .map((n) => {
+      const sym = n.symbol.toUpperCase();
+      return {
+        id: `${sym}|${n.broker}`,
+        symbol: sym,
+        brokerCode: n.broker,
+        qty: Math.abs(n.qty),
+        amount: Math.abs(n.amount),
+        avgRate: n.trades > 0 ? n.rateSum / n.trades : null,
+        ltp: screener?.get(sym)?.ltp ?? null,
+        trades: n.trades,
+      };
+    })
+    .sort((a, b) => b.qty - a.qty || b.amount - a.amount);
+
+  return {
+    rows: list,
+    sessionDate,
+    tradesScanned: rows.length,
+    mode,
+    brokerBreakdown: true,
+  };
+}
+
+/** Holders / Release board from live floorsheet — publish when stream completes. */
+export async function streamNetSideBoard(
+  mode: NetSideMode,
+  onUpdate: (board: NetSideBoard, meta: { partial: boolean }) => void,
+): Promise<NetSideBoard> {
+  let last: NetSideBoard = {
+    rows: [],
+    sessionDate: null,
+    tradesScanned: 0,
+    mode,
+    brokerBreakdown: false,
+  };
+  let screener: Map<string, MiniScreenerRow> | undefined;
+  void screenerMap()
+    .then((m) => {
+      screener = m;
+    })
+    .catch(() => undefined);
+
+  const emit = (rows: FloorsheetRow[], partial: boolean) => {
+    const fresh = buildNetSideBoard(rows, mode, screener);
+    if (partial) {
+      last = {
+        rows: last.rows,
+        sessionDate: fresh.sessionDate,
+        tradesScanned: fresh.tradesScanned,
+        mode,
+        brokerBreakdown: last.brokerBreakdown || fresh.brokerBreakdown,
+      };
+      onUpdate(last, { partial: true });
+      return;
+    }
+    last = fresh;
+    onUpdate(last, { partial: false });
+  };
+
+  if (floorsheetCache?.length && Date.now() - floorsheetCacheAt < CACHE_MS) {
+    emit(floorsheetCache, false);
+  }
+
+  try {
+    await loadMerolaganiFloorsheetProgressive((rows, meta) => {
+      if (hasBrokerData(rows) && rows.length > 0) {
+        floorsheetCache = rows;
+        floorsheetCacheAt = Date.now();
+        floorsheetMeta = {
+          trades: rows.length,
+          date: meta.asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
+        };
+      }
+      emit(rows, !meta.done);
+    }, MERO_FLOOR_FAST_PAGES);
+  } catch {
+    const rows = await loadSessionFloorsheet(true);
+    emit(rows, false);
+  }
+
+  return last;
+}
+
+/** Priority search for Top Holders / Top Release. */
+export async function loadNetSideForQuery(
+  mode: NetSideMode,
+  opts: { symbol?: string; broker?: string },
+): Promise<NetSideTradeRow[]> {
+  const sym = (opts.symbol ?? '').trim().toUpperCase();
+  const brokerQ = (opts.broker ?? '').trim();
+  if (!sym && !brokerQ) return [];
+
+  let rows = floorsheetCache ?? [];
+  if (sym) {
+    try {
+      const extra = await loadMerolaganiFloorsheetForSymbol(sym, 3);
+      if (extra.rows.length) {
+        const byId = new Map<string, FloorsheetRow>();
+        for (const r of [...rows, ...extra.rows]) {
+          const id = String(
+            r.contractId ||
+              `${r.symbol}-${r.buyerBroker}-${r.sellerBroker}-${r.quantity}`,
+          );
+          if (!byId.has(id)) byId.set(id, r);
+        }
+        rows = [...byId.values()];
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (brokerQ && rows.length < 40) {
+    const code = normBrokerCode(brokerQ);
+    if (code) {
+      try {
+        const [buy1, sell1] = await Promise.all([
+          loadFloorsheet(1, 100, { buyerMemberId: code }),
+          loadFloorsheet(1, 100, { sellerMemberId: code }),
+        ]);
+        const byId = new Map<string, FloorsheetRow>();
+        for (const r of [...rows, ...buy1.rows, ...sell1.rows]) {
+          const id = String(
+            r.contractId ||
+              `${r.symbol}-${r.buyerBroker}-${r.sellerBroker}-${r.quantity}`,
+          );
+          if (!byId.has(id)) byId.set(id, r);
+        }
+        rows = [...byId.values()];
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  // Buyer/Seller search on holders: show broker×symbol net rows for that party.
+  if (mode === 'holders' && brokerQ) {
+    const net = buildNetAgg(rows);
+    const digits = brokerQ.replace(/\D/g, '');
+    const code = normBrokerCode(brokerQ);
+    return [...net.values()]
+      .filter((n) => {
+        if (n.qty <= 0) return false;
+        if (sym && !n.symbol.toUpperCase().includes(sym)) return false;
+        if (digits) return n.broker.includes(digits) || n.broker === code;
+        return n.broker.toLowerCase().includes(brokerQ.toLowerCase());
+      })
+      .map((n) => ({
+        id: `${n.symbol.toUpperCase()}|${n.broker}`,
+        symbol: n.symbol.toUpperCase(),
+        brokerCode: n.broker,
+        qty: n.qty,
+        amount: Math.abs(n.amount),
+        avgRate: n.trades > 0 ? n.rateSum / n.trades : null,
+        ltp: null,
+        trades: n.trades,
+      }))
+      .sort((a, b) => b.qty - a.qty);
+  }
+
+  const board = buildNetSideBoard(rows, mode);
+  return board.rows.filter((r) => {
+    if (sym && !r.symbol.includes(sym)) return false;
+    if (brokerQ && r.brokerCode) {
+      const q = brokerQ.toLowerCase();
+      const digits = q.replace(/\D/g, '');
+      if (digits && !r.brokerCode.includes(digits) && r.brokerCode !== normBrokerCode(q)) {
+        return false;
+      }
+      if (!digits && !r.brokerCode.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+/** Priority fetch when user searches a broker code/name not loaded yet. */
+export async function loadBrokerTopBuySellForQuery(
+  query: string,
+): Promise<BrokerTopBuySellCard[]> {
+  const q = query.trim().toLowerCase();
+  if (q.length < 1) return [];
+
+  const brokers = await loadBrokers();
+  const brokerDir = brokerDirectoryMap(brokers);
+  const nameDir = nameDirectory(brokers);
+
+  const matchedCodes = brokers
+    .filter(
+      (b) =>
+        b.code.includes(q.replace(/\D/g, '')) ||
+        b.name.toLowerCase().includes(q) ||
+        normBrokerCode(b.code) === normBrokerCode(q),
+    )
+    .map((b) => normBrokerCode(b.code))
+    .filter(Boolean)
+    .slice(0, 5);
+
+  if (!matchedCodes.length) {
+    // Raw numeric code typed
+    const code = normBrokerCode(q);
+    if (code) matchedCodes.push(code);
+  }
+  if (!matchedCodes.length) return [];
+
+  // Prefer session cache filtered by broker; else ShareHub member filter
+  let rows = (floorsheetCache ?? []).filter((r) => {
+    const buy = normBrokerCode(r.buyerBroker);
+    const sell = normBrokerCode(r.sellerBroker);
+    return matchedCodes.includes(buy) || matchedCodes.includes(sell);
+  });
+
+  if (rows.length < 30) {
+    const extra: FloorsheetRow[] = [];
+    for (const code of matchedCodes.slice(0, 3)) {
+      try {
+        const [buy1, sell1] = await Promise.all([
+          loadFloorsheet(1, 100, { buyerMemberId: code }),
+          loadFloorsheet(1, 100, { sellerMemberId: code }),
+        ]);
+        extra.push(...buy1.rows, ...sell1.rows);
+      } catch {
+        // ignore
+      }
+    }
+    if (extra.length) {
+      const byId = new Map<string, FloorsheetRow>();
+      for (const r of [...rows, ...extra]) {
+        const id = String(
+          r.contractId ||
+            `${r.symbol}-${r.buyerBroker}-${r.sellerBroker}-${r.quantity}`,
+        );
+        if (!byId.has(id)) byId.set(id, r);
+      }
+      rows = [...byId.values()];
+    }
+  }
+
+  mergeBrokerNamesFromRows(nameDir, rows);
+  const board = buildBrokerTopBuySellBoard(rows, brokerDir, nameDir);
+  return board.brokers.filter((b) => matchedCodes.includes(b.code));
+}
+
 export async function loadPremiumIntel(
   kind: PremiumIntelKind,
   limit = 50,
@@ -1316,3 +2143,399 @@ export async function loadFiftyTwoWeekRows(
 }
 
 export { formatRs, fmtNum, fmtMcap };
+
+export type AggressiveBrokerCard = {
+  code: string;
+  name: string;
+  iconUrl: string | null;
+  holdQty: number;
+  holdPct: number;
+  buyQty: number;
+};
+
+export type AggressiveHolderStock = {
+  symbol: string;
+  name: string;
+  iconUrl: string | null;
+  ltp: number | null;
+  change: number | null;
+  changePct: number | null;
+  /** Approx. volume / listed shares (% of equity traded). */
+  publicTradePct: number | null;
+  brokersInvolved: number;
+  top3HoldingPct: number;
+  totalTradedQty: number;
+  topBrokers: AggressiveBrokerCard[];
+  score: number;
+};
+
+export type AggressiveHolderBoard = {
+  stocks: AggressiveHolderStock[];
+  sessionDate: string | null;
+  brokerBreakdown: boolean;
+  tradesScanned: number;
+};
+
+function countBrokersOnSymbol(rows: FloorsheetRow[], symbol: string): number {
+  const set = new Set<string>();
+  const sym = symbol.toUpperCase();
+  for (const r of rows) {
+    if (r.symbol.toUpperCase() !== sym) continue;
+    const buy = normBrokerCode(r.buyerBroker ?? '');
+    const sell = normBrokerCode(r.sellerBroker ?? '');
+    if (buy) set.add(buy);
+    if (sell) set.add(sell);
+  }
+  return set.size;
+}
+
+/**
+ * Stock-centric "Broker Aggressive Holders" board:
+ * symbols where top brokers show concentrated net buying on the session floorsheet.
+ */
+function buildAggressiveBoard(
+  rows: FloorsheetRow[],
+  screener: Map<string, MiniScreenerRow>,
+  brokerDir: Map<string, BrokerInfo>,
+  nameDir: Map<string, string>,
+  limit: number,
+): AggressiveHolderBoard {
+  const sessionDate =
+    floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null;
+
+  if (!hasBrokerData(rows)) {
+    const stocks = [...screener.values()]
+      .filter((s) => (s.changePercent ?? 0) > 1 && (s.volume ?? 0) > 0)
+      .map((s) => {
+        const vol = s.volume ?? 0;
+        const listed = s.listedShares ?? 0;
+        const publicTradePct =
+          listed > 0 ? Math.round((vol / listed) * 10000) / 100 : null;
+        const change =
+          s.ltp != null && s.previousClose != null
+            ? s.ltp - s.previousClose
+            : s.change;
+        return {
+          symbol: s.symbol,
+          name: s.name,
+          iconUrl: s.iconUrl,
+          ltp: s.ltp,
+          change,
+          changePct: s.changePercent,
+          publicTradePct,
+          brokersInvolved: 0,
+          top3HoldingPct: 0,
+          totalTradedQty: vol,
+          topBrokers: [] as AggressiveBrokerCard[],
+          score:
+            Math.abs(s.changePercent ?? 0) *
+            Math.log10((s.turnover ?? 0) + 10),
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    return {
+      stocks: limit > 0 ? stocks.slice(0, limit) : stocks,
+      sessionDate,
+      brokerBreakdown: false,
+      tradesScanned: rows.length,
+    };
+  }
+
+  const net = buildNetAgg(rows);
+  type SymBucket = {
+    symbol: string;
+    name: string;
+    iconUrl: string | null;
+    brokers: Array<{
+      code: string;
+      holdQty: number;
+      buyQty: number;
+    }>;
+    totalHold: number;
+    totalBuy: number;
+  };
+
+  const bySym = new Map<string, SymBucket>();
+  for (const n of net.values()) {
+    if (n.qty <= 0) continue;
+    const sym = n.symbol.toUpperCase();
+    const s = screener.get(sym);
+    let bucket = bySym.get(sym);
+    if (!bucket) {
+      bucket = {
+        symbol: n.symbol,
+        name: s?.name ?? n.name,
+        iconUrl: s?.iconUrl ?? n.iconUrl,
+        brokers: [],
+        totalHold: 0,
+        totalBuy: 0,
+      };
+      bySym.set(sym, bucket);
+    }
+    const holdQty = Math.abs(n.qty);
+    const code = normBrokerCode(n.broker);
+    if (!code) continue;
+    bucket.brokers.push({
+      code,
+      holdQty,
+      buyQty: n.buyQty,
+    });
+    bucket.totalHold += holdQty;
+    bucket.totalBuy += n.buyQty;
+  }
+
+  const stocks: AggressiveHolderStock[] = [];
+  for (const bucket of bySym.values()) {
+    if (bucket.totalHold <= 0) continue;
+    const s = screener.get(bucket.symbol.toUpperCase());
+    bucket.brokers.sort((a, b) => b.holdQty - a.holdQty);
+    const top3 = bucket.brokers.slice(0, 3);
+    const top3Hold = top3.reduce((sum, b) => sum + b.holdQty, 0);
+    const top3HoldingPct =
+      bucket.totalHold > 0
+        ? Math.round((top3Hold / bucket.totalHold) * 10000) / 100
+        : 0;
+
+    const vol = s?.volume ?? bucket.totalBuy;
+    const listed = s?.listedShares ?? 0;
+    const publicTradePct =
+      listed > 0 ? Math.round((vol / listed) * 10000) / 100 : null;
+    const change =
+      s?.ltp != null && s?.previousClose != null
+        ? s.ltp - s.previousClose
+        : s?.change ?? null;
+    const changePct = s?.changePercent ?? null;
+
+    const topBrokers: AggressiveBrokerCard[] = top3.map((b) => {
+      const key = normBrokerCode(b.code);
+      const info = brokerDir.get(key);
+      const floorName = nameDir.get(key) ?? '';
+      const name =
+        info?.name ||
+        (looksLikeBrokerFirm(floorName) ? floorName : null) ||
+        `Broker ${key}`;
+      return {
+        code: key,
+        name,
+        iconUrl: info?.iconUrl ?? brokerIcon(key, brokerDir),
+        holdQty: b.holdQty,
+        holdPct:
+          bucket.totalHold > 0
+            ? Math.round((b.holdQty / bucket.totalHold) * 10000) / 100
+            : 0,
+        buyQty: b.buyQty,
+      };
+    });
+
+    const brokersInvolved = countBrokersOnSymbol(rows, bucket.symbol);
+
+    stocks.push({
+      symbol: bucket.symbol,
+      name: bucket.name,
+      iconUrl: bucket.iconUrl,
+      ltp: s?.ltp ?? null,
+      change,
+      changePct,
+      publicTradePct,
+      brokersInvolved: brokersInvolved || bucket.brokers.length,
+      top3HoldingPct,
+      totalTradedQty: vol,
+      topBrokers,
+      score:
+        (top3HoldingPct || 1) *
+        Math.log10(bucket.totalHold + 10) *
+        (1 + Math.max(0, changePct ?? 0) / 10),
+    });
+  }
+
+  stocks.sort((a, b) => b.score - a.score);
+
+  return {
+    stocks: limit > 0 ? stocks.slice(0, limit) : stocks,
+    sessionDate,
+    brokerBreakdown: true,
+    tradesScanned: rows.length,
+  };
+}
+
+export async function loadAggressiveHolderStocks(
+  limit = 0,
+): Promise<AggressiveHolderBoard> {
+  const [rows, screener, brokers] = await Promise.all([
+    loadSessionFloorsheet(),
+    screenerMap(),
+    loadBrokers(),
+  ]);
+  const brokerDir = brokerDirectoryMap(brokers);
+  const directory = nameDirectory(brokers);
+  mergeBrokerNamesFromRows(directory, rows);
+  return buildAggressiveBoard(rows, screener, brokerDir, directory, limit);
+}
+
+/** Progressive load — paints the first stock cards as floorsheet pages arrive. */
+export async function streamAggressiveHolderStocks(
+  onUpdate: (
+    board: AggressiveHolderBoard,
+    meta: { partial: boolean },
+  ) => void,
+  limit = 0,
+): Promise<AggressiveHolderBoard> {
+  // Always reload broker directory so logos are present (TMS list with CDN urls).
+  brokerCache = null;
+  brokerCacheAt = 0;
+
+  const [screener, brokers] = await Promise.all([
+    screenerMap(),
+    loadBrokers(),
+  ]);
+  const brokerDir = brokerDirectoryMap(brokers);
+  const directory = nameDirectory(brokers);
+
+  let last: AggressiveHolderBoard = {
+    stocks: [],
+    sessionDate: null,
+    brokerBreakdown: false,
+    tradesScanned: 0,
+  };
+
+  const emit = (rows: FloorsheetRow[], partial: boolean) => {
+    mergeBrokerNamesFromRows(directory, rows);
+    last = buildAggressiveBoard(rows, screener, brokerDir, directory, limit);
+    onUpdate(last, { partial });
+  };
+
+  // Deep floorsheet load — Acc/Dis thin cache (4 pages) often misses SAIL-like names.
+  try {
+    await loadMerolaganiFloorsheetProgressive((rows, meta) => {
+      if (hasBrokerData(rows) && rows.length > 0) {
+        floorsheetCache = rows;
+        floorsheetCacheAt = Date.now();
+        floorsheetMeta = {
+          trades: rows.length,
+          date: meta.asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
+        };
+      }
+      emit(rows, !meta.done);
+    }, MERO_AGGRESSIVE_PAGES);
+  } catch {
+    const rows = await loadSessionFloorsheet(true);
+    emit(rows, false);
+  }
+
+  return last;
+}
+
+/**
+ * Priority fetch for a single searched symbol (e.g. SAIL) before the full
+ * progressive board has reached it.
+ */
+export async function loadAggressiveHolderForSymbol(
+  symbol: string,
+): Promise<AggressiveHolderStock | null> {
+  const sym = symbol.toUpperCase().replace(/[^A-Z0-9.]/g, '');
+  if (sym.length < 2) return null;
+
+  const [screener, brokers] = await Promise.all([
+    screenerMap(),
+    loadBrokers(),
+  ]);
+  const brokerDir = brokerDirectoryMap(brokers);
+  const directory = nameDirectory(brokers);
+  const s = screener.get(sym);
+
+  // 1) Rows already downloaded in the progressive session cache
+  let rows = (floorsheetCache ?? []).filter(
+    (r) => r.symbol.toUpperCase() === sym,
+  );
+
+  // 2) Merolagani filtered by company (real broker codes) — highest priority source
+  try {
+    const { rows: mero, asOf } = await loadMerolaganiFloorsheetForSymbol(sym, 5);
+    if (mero.length) {
+      rows = mero;
+      if (asOf && !floorsheetMeta.date) {
+        floorsheetMeta = { ...floorsheetMeta, date: asOf };
+      }
+    }
+  } catch {
+    // continue with ShareHub / cache
+  }
+
+  // 3) ShareHub floorsheet by symbol as fallback / supplement
+  if (rows.length < 10 || !hasBrokerData(rows)) {
+    try {
+      const extra: FloorsheetRow[] = [];
+      for (let p = 1; p <= 4; p++) {
+        const page = await loadFloorsheet(p, 200, { symbol: sym });
+        extra.push(...page.rows);
+        if (!page.hasNext) break;
+      }
+      if (extra.length) {
+        const byId = new Map<string, FloorsheetRow>();
+        for (const r of [...rows, ...extra]) {
+          const id = String(r.contractId || `${r.symbol}-${r.quantity}-${r.rate}-${r.buyerBroker}`);
+          if (!byId.has(id)) byId.set(id, r);
+        }
+        rows = [...byId.values()];
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!rows.length) {
+    if (!s) return null;
+    return {
+      symbol: s.symbol,
+      name: s.name,
+      iconUrl: s.iconUrl,
+      ltp: s.ltp,
+      change:
+        s.ltp != null && s.previousClose != null
+          ? s.ltp - s.previousClose
+          : s.change,
+      changePct: s.changePercent,
+      publicTradePct:
+        s.listedShares && s.volume
+          ? Math.round((s.volume / s.listedShares) * 10000) / 100
+          : null,
+      brokersInvolved: 0,
+      top3HoldingPct: 0,
+      totalTradedQty: s.volume ?? 0,
+      topBrokers: [],
+      score: 0,
+    };
+  }
+
+  mergeBrokerNamesFromRows(directory, rows);
+  const board = buildAggressiveBoard(rows, screener, brokerDir, directory, 0);
+  const hit =
+    board.stocks.find((x) => x.symbol.toUpperCase() === sym) ?? null;
+  if (hit) return hit;
+
+  // buildAggressiveBoard may drop symbols with no net holders — synthesize from rows
+  if (!s && !rows.length) return null;
+  return {
+    symbol: sym,
+    name: s?.name ?? rows[0]?.name ?? sym,
+    iconUrl: s?.iconUrl ?? rows[0]?.iconUrl ?? null,
+    ltp: s?.ltp ?? null,
+    change:
+      s?.ltp != null && s?.previousClose != null
+        ? s.ltp - s.previousClose
+        : s?.change ?? null,
+    changePct: s?.changePercent ?? null,
+    publicTradePct:
+      s?.listedShares && s?.volume
+        ? Math.round((s.volume / s.listedShares) * 10000) / 100
+        : null,
+    brokersInvolved: countBrokersOnSymbol(rows, sym),
+    top3HoldingPct: 0,
+    totalTradedQty:
+      s?.volume ?? rows.reduce((sum, r) => sum + (r.quantity ?? 0), 0),
+    topBrokers: [],
+    score: 1,
+  };
+}
+

@@ -29,6 +29,7 @@ import type { ThemeColors } from '../../theme/colors';
 import { rs } from '../../utils/responsive';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
+import { HOME_H_PAD } from './homeLayout';
 
 type Props = {
   active: boolean;
@@ -466,7 +467,11 @@ export function HomeMarketPanel({ active }: Props) {
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
     root: { flex: 1 },
-    scroll: { paddingHorizontal: rs(16), paddingBottom: rs(100), paddingTop: rs(8) },
+    scroll: {
+      paddingHorizontal: HOME_H_PAD,
+      paddingBottom: rs(100),
+      paddingTop: rs(8),
+    },
     center: {
       flex: 1,
       alignItems: 'center',

@@ -1,8 +1,8 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
-  KeyboardAvoidingView,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -655,20 +655,74 @@ function SheetModal({
   colors: ThemeColors;
   insets: { bottom: number };
 }) {
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    if (!visible) {
+      setKeyboardHeight(0);
+      return;
+    }
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const onHide = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, [visible]);
+
+  const keyboardOpen = keyboardHeight > 0;
+  /** Android already resizes the window — only iOS needs an explicit lift. */
+  const lift =
+    Platform.OS === 'ios' && keyboardOpen
+      ? Math.max(0, keyboardHeight - insets.bottom)
+      : 0;
+  const bottomPad = keyboardOpen
+    ? rs(10)
+    : Math.max(insets.bottom, rs(16));
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.sheetWrap}
-      >
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, rs(16)) }]}>
-          <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>{title}</Text>
-          {subtitle ? <Text style={styles.sheetSubtitle}>{subtitle}</Text> : null}
-          {children}
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View style={styles.sheetRoot}>
+        <Pressable style={styles.sheetBackdrop} onPress={onClose} />
+        <View
+          style={[
+            styles.sheet,
+            {
+              paddingBottom: bottomPad,
+              marginBottom: lift,
+            },
+          ]}
+        >
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+            contentContainerStyle={styles.sheetScroll}
+          >
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>{title}</Text>
+            {subtitle ? (
+              <Text style={styles.sheetSubtitle}>{subtitle}</Text>
+            ) : null}
+            {children}
+          </ScrollView>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -860,14 +914,25 @@ function makeStyles(c: ThemeColors) {
     menuItem: { paddingHorizontal: rs(16), paddingVertical: rs(12) },
     menuText: { color: c.text, fontSize: rs(14), fontWeight: '600' },
     // Sheet modal
-    sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
-    sheetWrap: { justifyContent: 'flex-end' },
+    sheetRoot: {
+      flex: 1,
+      justifyContent: 'flex-end',
+    },
+    sheetBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+    },
     sheet: {
       backgroundColor: c.bgElevated,
       borderTopLeftRadius: rs(20),
       borderTopRightRadius: rs(20),
       paddingHorizontal: rs(18),
       paddingTop: rs(10),
+      maxHeight: '92%',
+    },
+    sheetScroll: {
+      paddingBottom: rs(8),
+      flexGrow: 1,
     },
     sheetHandle: {
       alignSelf: 'center',

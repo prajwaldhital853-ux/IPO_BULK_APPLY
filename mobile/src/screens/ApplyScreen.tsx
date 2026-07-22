@@ -458,7 +458,7 @@ export function ApplyScreen() {
                   >
                     <Ionicons
                       name={hideValues ? 'eye-off-outline' : 'eye-outline'}
-                      size={rs(16)}
+                      size={rs(14)}
                       color={colors.text}
                     />
                   </Pressable>
@@ -871,54 +871,56 @@ function makeStyles(c: ThemeColors) {
     summaryCard: {
       borderWidth: 1,
       borderColor: c.border,
-      borderRadius: rs(16),
-      padding: rs(16),
+      borderRadius: rs(14),
+      paddingHorizontal: rs(14),
+      paddingTop: rs(12),
+      paddingBottom: rs(12),
       backgroundColor: c.surface,
-      marginBottom: rs(16),
+      marginBottom: rs(12),
     },
     summaryName: {
       color: c.text,
       fontWeight: '800',
-      fontSize: rs(15),
-      letterSpacing: 0.5,
-      marginBottom: rs(12),
+      fontSize: rs(13),
+      letterSpacing: 0.4,
+      marginBottom: rs(8),
     },
     summaryValueRow: {
       flexDirection: 'row',
       alignItems: 'flex-end',
-      gap: rs(10),
-      marginBottom: rs(14),
+      gap: rs(8),
+      marginBottom: rs(10),
     },
     summaryLabel: {
       color: c.textSecondary,
-      fontSize: rs(12),
-      marginBottom: rs(4),
+      fontSize: rs(11),
+      marginBottom: rs(2),
     },
     summaryValue: {
       color: c.text,
       fontWeight: '800',
-      fontSize: rs(28),
-      letterSpacing: -0.5,
+      fontSize: rs(22),
+      letterSpacing: -0.3,
     },
     summarySide: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      paddingBottom: rs(4),
+      paddingBottom: rs(2),
     },
     plPill: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(6),
+      gap: rs(5),
       backgroundColor: c.surfaceAlt,
-      borderRadius: rs(16),
-      paddingHorizontal: rs(10),
-      paddingVertical: rs(6),
+      borderRadius: rs(14),
+      paddingHorizontal: rs(8),
+      paddingVertical: rs(4),
     },
     plPillText: {
       color: c.text,
       fontWeight: '600',
-      fontSize: rs(12),
+      fontSize: rs(11),
     },
     eyeBtn: {
       padding: rs(4),
@@ -926,15 +928,19 @@ function makeStyles(c: ThemeColors) {
     summaryBtn: {
       borderWidth: 1,
       borderColor: c.primary,
-      borderRadius: rs(24),
-      paddingVertical: rs(12),
+      borderRadius: rs(20),
+      paddingVertical: rs(9),
+      paddingHorizontal: rs(14),
       alignItems: 'center',
+      justifyContent: 'center',
       backgroundColor: c.bg,
     },
     summaryBtnText: {
       color: c.primary,
       fontWeight: '700',
-      fontSize: rs(14),
+      fontSize: rs(12),
+      textAlign: 'center',
+      includeFontPadding: false,
     },
     modeBar: {
       flexDirection: 'row',

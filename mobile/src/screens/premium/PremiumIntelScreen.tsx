@@ -207,29 +207,11 @@ export function PremiumIntelScreen({ kind }: { kind: PremiumIntelKind }) {
   );
 }
 
-export function TopBuyersScreen() {
-  return <PremiumIntelScreen kind="top-buyers" />;
-}
-
-export function TopSellersScreen() {
-  return <PremiumIntelScreen kind="top-sellers" />;
-}
-
-export function TopHoldersScreen() {
-  return <PremiumIntelScreen kind="top-holders" />;
-}
-
-export function TopReleasesScreen() {
-  return <PremiumIntelScreen kind="top-releases" />;
-}
-
 export function BrokerFavoritesScreen() {
   return <PremiumIntelScreen kind="broker-favorites" />;
 }
 
-export function BrokerTopBuySellScreen() {
-  return <PremiumIntelScreen kind="broker-top-buy-sell" />;
-}
+export { BrokerTopBuySellScreen } from './BrokerTopBuySellScreen';
 
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({

@@ -17,6 +17,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { useAccounts } from '../context/AccountsContext';
+import { useTheme } from '../context/ThemeContext';
 import type { RootStackParamList } from '../navigation/types';
 import {
   exportPortfoliosBackup,
@@ -36,19 +37,22 @@ import {
   upsertImportedPortfolio,
   type Portfolio,
 } from '../storage/portfolioStorage';
+import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import { usePollingRefresh } from '../utils/usePollingRefresh';
 
-const PAGE_BG = '#E4EAD9';
-const TAB_GREEN = '#2D5A27';
 const FAB_GREEN = '#B8DFB9';
 const RECEIVABLE = '#5BA3D9';
 const PILL_BG = 'rgba(120,130,120,0.18)';
+
+type Styles = ReturnType<typeof makeStyles>;
 
 export function PortfolioScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const { accounts } = useAccounts();
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [quotes, setQuotes] = useState<QuoteMap>({});
@@ -191,15 +195,23 @@ export function PortfolioScreen() {
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-            <Ionicons name="arrow-back" size={rs(22)} color="#111" />
+            <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
           </Pressable>
           <Text style={styles.title}>Portfolio</Text>
           <View style={styles.headerActions}>
             <Pressable hitSlop={10} onPress={() => setBackupOpen(true)}>
-              <Ionicons name="folder-open-outline" size={rs(20)} color="#333" />
+              <Ionicons
+                name="folder-open-outline"
+                size={rs(20)}
+                color={colors.textSecondary}
+              />
             </Pressable>
             <Pressable hitSlop={10} onPress={() => setSortAsc((v) => !v)}>
-              <Ionicons name="swap-vertical" size={rs(20)} color="#333" />
+              <Ionicons
+                name="swap-vertical"
+                size={rs(20)}
+                color={colors.textSecondary}
+              />
             </Pressable>
           </View>
         </View>
@@ -317,6 +329,8 @@ export function PortfolioScreen() {
               <View style={styles.handle} />
               <Text style={styles.sheetTitle}>Backup & Import</Text>
               <SheetRow
+                styles={styles}
+                primary={colors.primary}
                 icon="cloud-upload-outline"
                 title="Export Portfolios"
                 sub="Save a backup file you can restore after reinstalling"
@@ -331,6 +345,8 @@ export function PortfolioScreen() {
                 }}
               />
               <SheetRow
+                styles={styles}
+                primary={colors.primary}
                 icon="time-outline"
                 title="Import Portfolios"
                 sub="Restore from a backup file exported earlier"
@@ -360,6 +376,8 @@ export function PortfolioScreen() {
                 }}
               />
               <SheetRow
+                styles={styles}
+                primary={colors.primary}
                 icon="grid-outline"
                 title="Import from Excel"
                 sub="Import transactions from a custom .xlsx / CSV file"
@@ -389,6 +407,8 @@ export function PortfolioScreen() {
                 }}
               />
               <SheetRow
+                styles={styles}
+                primary={colors.primary}
                 icon="business-outline"
                 title="Import from MeroShare"
                 sub="Pull holdings from a saved account"
@@ -415,7 +435,7 @@ export function PortfolioScreen() {
                 value={name}
                 onChangeText={setName}
                 placeholder="Portfolio name"
-                placeholderTextColor="#888"
+                placeholderTextColor={colors.textMuted}
                 style={styles.input}
                 autoFocus
                 editable={!creating}
@@ -477,7 +497,7 @@ export function PortfolioScreen() {
                       <Ionicons
                         name={on ? 'checkbox' : 'square-outline'}
                         size={rs(22)}
-                        color={on ? TAB_GREEN : '#999'}
+                        color={on ? colors.primary : colors.textMuted}
                       />
                     </Pressable>
                   );
@@ -497,7 +517,7 @@ export function PortfolioScreen() {
 
         {busy ? (
           <View style={styles.busyOverlay}>
-            <ActivityIndicator color={TAB_GREEN} />
+            <ActivityIndicator color={colors.primary} />
             <Text style={styles.busyText}>{busy}</Text>
           </View>
         ) : null}
@@ -511,16 +531,20 @@ function SheetRow({
   title,
   sub,
   onPress,
+  styles,
+  primary,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   sub: string;
   onPress: () => void;
+  styles: Styles;
+  primary: string;
 }) {
   return (
     <Pressable style={styles.sheetRow} onPress={onPress}>
       <View style={styles.sheetIcon}>
-        <Ionicons name={icon} size={rs(20)} color={TAB_GREEN} />
+        <Ionicons name={icon} size={rs(20)} color={primary} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.sheetRowTitle}>{title}</Text>
@@ -530,183 +554,192 @@ function SheetRow({
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: PAGE_BG },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: rs(14),
-    paddingVertical: rs(10),
-  },
-  title: { color: '#111', fontSize: rs(17), fontWeight: '800' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: rs(14) },
-  list: { paddingHorizontal: rs(14), gap: rs(12) },
-  hero: {
-    backgroundColor: '#D8E0D0',
-    borderRadius: rs(18),
-    padding: rs(18),
-    marginBottom: rs(4),
-  },
-  heroLabel: {
-    color: '#555',
-    fontSize: rs(11),
-    fontWeight: '700',
-    letterSpacing: 0.6,
-  },
-  heroValue: {
-    color: '#111',
-    fontSize: rs(28),
-    fontWeight: '800',
-    marginTop: rs(4),
-  },
-  heroSub: { color: '#666', fontSize: rs(13), marginTop: rs(4) },
-  pillRow: { flexDirection: 'row', gap: rs(8), marginTop: rs(14) },
-  pill: {
-    backgroundColor: PILL_BG,
-    borderRadius: rs(14),
-    paddingHorizontal: rs(10),
-    paddingVertical: rs(5),
-  },
-  pillText: { color: '#444', fontSize: rs(11), fontWeight: '600' },
-  card: {
-    backgroundColor: '#FFF',
-    borderRadius: rs(16),
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(0,0,0,0.08)',
-    padding: rs(14),
-    marginTop: rs(10),
-  },
-  cardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  cardLeft: { flexDirection: 'row', alignItems: 'center', gap: rs(10) },
-  indexBadge: {
-    width: rs(28),
-    height: rs(28),
-    borderRadius: rs(8),
-    backgroundColor: FAB_GREEN,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  indexText: { color: '#111', fontWeight: '800', fontSize: rs(12) },
-  cardName: { color: '#111', fontWeight: '800', fontSize: rs(15) },
-  cardUnits: { color: '#777', fontSize: rs(12), marginTop: rs(2) },
-  cardValue: { color: '#111', fontWeight: '800', fontSize: rs(15) },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-    marginVertical: rs(12),
-  },
-  cardBottom: { flexDirection: 'row', justifyContent: 'space-between' },
-  metaLabel: { color: '#888', fontSize: rs(11), marginBottom: rs(3) },
-  metaValue: { color: '#111', fontWeight: '800', fontSize: rs(14) },
-  empty: {
-    textAlign: 'center',
-    color: '#777',
-    marginTop: rs(40),
-    fontSize: rs(13),
-  },
-  addBtn: {
-    position: 'absolute',
-    left: rs(14),
-    right: rs(14),
-    bottom: 0,
-    backgroundColor: FAB_GREEN,
-    borderRadius: rs(28),
-    paddingVertical: rs(14),
-    alignItems: 'center',
-  },
-  addBtnText: { color: '#111', fontWeight: '800', fontSize: rs(15) },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: rs(20),
-    borderTopRightRadius: rs(20),
-    padding: rs(18),
-    paddingBottom: rs(28),
-  },
-  handle: {
-    alignSelf: 'center',
-    width: rs(40),
-    height: rs(4),
-    borderRadius: 2,
-    backgroundColor: '#CCC',
-    marginBottom: rs(14),
-  },
-  sheetTitle: {
-    color: '#111',
-    fontSize: rs(17),
-    fontWeight: '800',
-    marginBottom: rs(10),
-  },
-  sheetRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: rs(12),
-    paddingVertical: rs(12),
-  },
-  sheetIcon: {
-    width: rs(40),
-    height: rs(40),
-    borderRadius: rs(12),
-    backgroundColor: '#E8F0E4',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sheetRowTitle: { color: '#111', fontWeight: '700', fontSize: rs(14) },
-  sheetRowSub: { color: '#777', fontSize: rs(11), marginTop: rs(2) },
-  createSheet: {
-    backgroundColor: '#FFF',
-    marginHorizontal: rs(20),
-    marginBottom: rs(120),
-    borderRadius: rs(16),
-    padding: rs(18),
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#DDD',
-    borderRadius: rs(12),
-    paddingHorizontal: rs(12),
-    paddingVertical: rs(12),
-    color: '#111',
-    fontSize: rs(14),
-    marginTop: rs(8),
-    marginBottom: rs(14),
-  },
-  primaryBtn: {
-    backgroundColor: TAB_GREEN,
-    borderRadius: rs(24),
-    paddingVertical: rs(13),
-    alignItems: 'center',
-    marginTop: rs(8),
-  },
-  primaryBtnText: { color: '#FFF', fontWeight: '800', fontSize: rs(14) },
-  btnBusy: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: rs(8),
-  },
-  acctRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: rs(10),
-    paddingVertical: rs(10),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#EEE',
-  },
-  busyOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(228,234,217,0.85)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: rs(10),
-  },
-  busyText: { color: '#333', fontWeight: '600' },
-});
+function makeStyles(c: ThemeColors, isDark: boolean) {
+  const heroBg = isDark ? c.surfaceAlt : c.primaryMid;
+  const cardBg = isDark ? c.surface : '#FFF';
+  const sheetBg = c.surface;
+  const borderSoft = isDark ? c.border : 'rgba(0,0,0,0.08)';
+  const handleColor = isDark ? c.border : '#CCC';
+
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: c.bg },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(10),
+    },
+    title: { color: c.text, fontSize: rs(17), fontWeight: '800' },
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: rs(14) },
+    list: { paddingHorizontal: rs(14), gap: rs(12) },
+    hero: {
+      backgroundColor: heroBg,
+      borderRadius: rs(18),
+      padding: rs(18),
+      marginBottom: rs(4),
+    },
+    heroLabel: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      fontWeight: '700',
+      letterSpacing: 0.6,
+    },
+    heroValue: {
+      color: c.text,
+      fontSize: rs(28),
+      fontWeight: '800',
+      marginTop: rs(4),
+    },
+    heroSub: { color: c.textSecondary, fontSize: rs(13), marginTop: rs(4) },
+    pillRow: { flexDirection: 'row', gap: rs(8), marginTop: rs(14) },
+    pill: {
+      backgroundColor: PILL_BG,
+      borderRadius: rs(14),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(5),
+    },
+    pillText: { color: c.textSecondary, fontSize: rs(11), fontWeight: '600' },
+    card: {
+      backgroundColor: cardBg,
+      borderRadius: rs(16),
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: borderSoft,
+      padding: rs(14),
+      marginTop: rs(10),
+    },
+    cardTop: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+    },
+    cardLeft: { flexDirection: 'row', alignItems: 'center', gap: rs(10) },
+    indexBadge: {
+      width: rs(28),
+      height: rs(28),
+      borderRadius: rs(8),
+      backgroundColor: FAB_GREEN,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    indexText: { color: c.text, fontWeight: '800', fontSize: rs(12) },
+    cardName: { color: c.text, fontWeight: '800', fontSize: rs(15) },
+    cardUnits: { color: c.textMuted, fontSize: rs(12), marginTop: rs(2) },
+    cardValue: { color: c.text, fontWeight: '800', fontSize: rs(15) },
+    divider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: borderSoft,
+      marginVertical: rs(12),
+    },
+    cardBottom: { flexDirection: 'row', justifyContent: 'space-between' },
+    metaLabel: { color: c.textMuted, fontSize: rs(11), marginBottom: rs(3) },
+    metaValue: { color: c.text, fontWeight: '800', fontSize: rs(14) },
+    empty: {
+      textAlign: 'center',
+      color: c.textMuted,
+      marginTop: rs(40),
+      fontSize: rs(13),
+    },
+    addBtn: {
+      position: 'absolute',
+      left: rs(14),
+      right: rs(14),
+      bottom: 0,
+      backgroundColor: FAB_GREEN,
+      borderRadius: rs(28),
+      paddingVertical: rs(14),
+      alignItems: 'center',
+    },
+    addBtnText: { color: c.text, fontWeight: '800', fontSize: rs(15) },
+    backdrop: {
+      flex: 1,
+      backgroundColor: c.overlay,
+      justifyContent: 'flex-end',
+    },
+    sheet: {
+      backgroundColor: sheetBg,
+      borderTopLeftRadius: rs(20),
+      borderTopRightRadius: rs(20),
+      padding: rs(18),
+      paddingBottom: rs(28),
+    },
+    handle: {
+      alignSelf: 'center',
+      width: rs(40),
+      height: rs(4),
+      borderRadius: 2,
+      backgroundColor: handleColor,
+      marginBottom: rs(14),
+    },
+    sheetTitle: {
+      color: c.text,
+      fontSize: rs(17),
+      fontWeight: '800',
+      marginBottom: rs(10),
+    },
+    sheetRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(12),
+      paddingVertical: rs(12),
+    },
+    sheetIcon: {
+      width: rs(40),
+      height: rs(40),
+      borderRadius: rs(12),
+      backgroundColor: isDark ? c.surfaceAlt : c.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    sheetRowTitle: { color: c.text, fontWeight: '700', fontSize: rs(14) },
+    sheetRowSub: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
+    createSheet: {
+      backgroundColor: sheetBg,
+      marginHorizontal: rs(20),
+      marginBottom: rs(120),
+      borderRadius: rs(16),
+      padding: rs(18),
+    },
+    input: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: rs(12),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(12),
+      color: c.text,
+      fontSize: rs(14),
+      marginTop: rs(8),
+      marginBottom: rs(14),
+      backgroundColor: c.inputBg,
+    },
+    primaryBtn: {
+      backgroundColor: c.primary,
+      borderRadius: rs(24),
+      paddingVertical: rs(13),
+      alignItems: 'center',
+      marginTop: rs(8),
+    },
+    primaryBtnText: { color: '#FFF', fontWeight: '800', fontSize: rs(14) },
+    btnBusy: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+    },
+    acctRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      paddingVertical: rs(10),
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.borderMuted,
+    },
+    busyOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: isDark ? 'rgba(30,30,30,0.85)' : 'rgba(228,234,217,0.85)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(10),
+    },
+    busyText: { color: c.textSecondary, fontWeight: '600' },
+  });
+}

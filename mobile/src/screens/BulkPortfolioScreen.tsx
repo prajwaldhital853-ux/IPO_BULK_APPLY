@@ -14,7 +14,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
-import { lightColors, type ThemeColors } from '../theme/colors';
+import { type ThemeColors } from '../theme/colors';
 import { importPortfolioFromMeroshare } from '../services/meroshare';
 import type { AccountMeta } from '../types/account';
 import {
@@ -87,10 +87,7 @@ export function BulkPortfolioScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  // This screen always uses the light green palette to match the reference
-  // design, regardless of the app's dark/light theme.
-  useTheme();
-  const colors = lightColors;
+  const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { accounts } = useAccounts();
 
@@ -579,12 +576,12 @@ function makeStyles(c: ThemeColors) {
       paddingBottom: rs(40),
     },
     summaryCard: {
-      backgroundColor: '#E9F5EC',
+      backgroundColor: c.primarySoft,
       borderRadius: rs(16),
       padding: rs(14),
       marginBottom: rs(14),
       borderWidth: 1,
-      borderColor: '#CBE7D0',
+      borderColor: c.borderMuted,
     },
     summaryTop: {
       flexDirection: 'row',
@@ -669,7 +666,7 @@ function makeStyles(c: ThemeColors) {
       minWidth: rs(26),
       height: rs(26),
       borderRadius: rs(13),
-      backgroundColor: '#E7F6EA',
+      backgroundColor: c.primarySoft,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: rs(6),
@@ -683,7 +680,7 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(4),
-      backgroundColor: '#E7F6EA',
+      backgroundColor: c.primarySoft,
       borderRadius: rs(10),
       paddingHorizontal: rs(8),
       paddingVertical: rs(3),
@@ -712,7 +709,7 @@ function makeStyles(c: ThemeColors) {
     },
     chipActive: {
       borderColor: c.primary,
-      backgroundColor: '#E7F6EA',
+      backgroundColor: c.primarySoft,
     },
     chipDot: {
       width: rs(7),

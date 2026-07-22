@@ -37,8 +37,15 @@ export function parseMerolaganiRows(html: string): FloorsheetRow[] {
     );
     if (!symbolM) continue;
 
+    /**
+     * Only read BrokerDetail anchors. A loose title=…code= match can latch onto the
+     * stock's company title and pair it with the first broker code.
+     * Live HTML shape: title='…' href='/BrokerDetail.aspx?code=91'
+     */
     const brokerMs = [
-      ...part.matchAll(/title='([^']*)'[\s\S]*?code=(\d+)/gi),
+      ...part.matchAll(
+        /<a[^>]*title=['"]([^'"]*)['"][^>]*href=['"][^'"]*BrokerDetail\.aspx\?code=(\d+)[^'"]*['"][^>]*>|<a[^>]*href=['"][^'"]*BrokerDetail\.aspx\?code=(\d+)[^'"]*['"][^>]*title=['"]([^'"]*)['"][^>]*>/gi,
+      ),
     ];
     if (brokerMs.length < 2) continue;
 
@@ -65,8 +72,10 @@ export function parseMerolaganiRows(html: string): FloorsheetRow[] {
     }
 
     const symbol = (symbolM[3] || symbolM[1] || '').toUpperCase();
-    const buyerCode = brokerMs[0]![2]!.trim();
-    const sellerCode = brokerMs[1]![2]!.trim();
+    const buyerCode = (brokerMs[0]![2] || brokerMs[0]![3] || '').trim();
+    const sellerCode = (brokerMs[1]![2] || brokerMs[1]![3] || '').trim();
+    const buyerName = (brokerMs[0]![1] || brokerMs[0]![4] || '').trim() || null;
+    const sellerName = (brokerMs[1]![1] || brokerMs[1]![4] || '').trim() || null;
     if (!symbol || !buyerCode) continue;
 
     rows.push({
@@ -75,8 +84,8 @@ export function parseMerolaganiRows(html: string): FloorsheetRow[] {
       name: (symbolM[2] || symbol).trim(),
       buyerBroker: buyerCode,
       sellerBroker: sellerCode,
-      buyerBrokerName: brokerMs[0]![1]!.trim() || null,
-      sellerBrokerName: brokerMs[1]![1]!.trim() || null,
+      buyerBrokerName: buyerName,
+      sellerBrokerName: sellerName,
       rate,
       quantity,
       amount: amount || quantity * rate,
@@ -181,6 +190,76 @@ export async function loadMerolaganiFloorsheetProgressive(
       asOf,
     });
     await yieldUi();
+    if (!chunk.length) break;
+  }
+
+  return { rows: all, asOf };
+}
+
+/**
+ * Priority fetch: floorsheet rows for one symbol via Merolagani company filter.
+ * Used when the user searches a share that is not in the progressive board yet.
+ */
+export async function loadMerolaganiFloorsheetForSymbol(
+  symbol: string,
+  maxPages = 4,
+): Promise<{ rows: FloorsheetRow[]; asOf: string | null }> {
+  const sym = symbol.toUpperCase().trim();
+  if (!sym) return { rows: [], asOf: null };
+
+  const firstRes = await fetch(MERO_FLOOR, {
+    headers: {
+      Accept: 'text/html',
+      'User-Agent':
+        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+      'Cache-Control': 'no-cache',
+    },
+  });
+  if (!firstRes.ok) throw new Error('Merolagani floorsheet unavailable');
+  let html = await firstRes.text();
+
+  const body = new URLSearchParams();
+  body.set('__EVENTTARGET', '');
+  body.set('__EVENTARGUMENT', '');
+  body.set('__VIEWSTATE', grabField(html, '__VIEWSTATE'));
+  body.set('__VIEWSTATEGENERATOR', grabField(html, '__VIEWSTATEGENERATOR'));
+  const ev = grabField(html, '__EVENTVALIDATION');
+  if (ev) body.set('__EVENTVALIDATION', ev);
+  body.set('ctl00$ContentPlaceHolder1$ASCompanyFilter$txtAutoSuggest', sym);
+  body.set('ctl00$ContentPlaceHolder1$ASCompanyFilter$hdnAutoSuggest', sym);
+  body.set('ctl00$ContentPlaceHolder1$txtBuyerBrokerCodeFilter', '');
+  body.set('ctl00$ContentPlaceHolder1$txtSellerBrokerCodeFilter', '');
+  body.set('ctl00$ContentPlaceHolder1$txtFloorsheetDateFilter', '');
+  body.set('ctl00$ContentPlaceHolder1$PagerControl1$hdnCurrentPage', '1');
+  body.set('ctl00$ContentPlaceHolder1$PagerControl1$hdnPCID', 'PC1');
+
+  const filteredRes = await fetch(MERO_FLOOR, {
+    method: 'POST',
+    headers: {
+      Accept: 'text/html',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent':
+        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+    },
+    body: body.toString(),
+  });
+  if (!filteredRes.ok) throw new Error('Merolagani symbol filter failed');
+  html = await filteredRes.text();
+
+  const asOf = parseAsOf(html);
+  const totalPages = Math.min(parseTotalPages(html), maxPages);
+  const all: FloorsheetRow[] = parseMerolaganiRows(html).filter(
+    (r) => r.symbol.toUpperCase() === sym,
+  );
+  stampAsOf(all, asOf);
+
+  for (let page = 2; page <= totalPages; page++) {
+    html = await postFloorPage(html, page);
+    const chunk = parseMerolaganiRows(html).filter(
+      (r) => r.symbol.toUpperCase() === sym,
+    );
+    stampAsOf(chunk, asOf);
+    all.push(...chunk);
     if (!chunk.length) break;
   }
 

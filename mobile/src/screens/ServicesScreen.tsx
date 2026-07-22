@@ -49,11 +49,31 @@ const GAP = rs(14);
 const COLS = 4;
 const TILE_W = Math.floor((screenWidth - H_PAD * 2 - GAP * (COLS - 1)) / COLS);
 /** Compact tiles so Free Services fits ~3.5 rows on screen. */
-const TILE_H = Math.max(Math.floor(TILE_W * 0.98), rs(86));
+const TILE_H = Math.max(Math.floor(TILE_W * 1.02), rs(92));
 
-/** Brighter pastels so icons read crisp against white cards. */
+/** Icon well — brighter wells in dark so white glyphs stay crisp (SS2 look). */
 function pastel(hex: string, isDark: boolean) {
-  if (isDark) return `${hex}40`;
+  if (isDark) {
+    const map: Record<string, string> = {
+      '#42A5F5': '#1E4A6E',
+      '#66BB6A': '#1F4A2E',
+      '#EF5350': '#5C2428',
+      '#FFA726': '#5C3A12',
+      '#FFCA28': '#5C4810',
+      '#90A4AE': '#3A444C',
+      '#AB47BC': '#4A2A62',
+      '#29B6F6': '#1A4A5C',
+      '#26A69A': '#1A4A44',
+      '#7E57C2': '#3A2A62',
+      '#FDD835': '#5C4E12',
+      '#F48FB1': '#5C2A48',
+      '#EC407A': '#5C1E40',
+      '#FF7043': '#5C3018',
+      '#5C6BC0': '#2A3262',
+      '#81C784': '#1F4A2E',
+    };
+    return map[hex] ?? `${hex}66`;
+  }
   const map: Record<string, string> = {
     '#42A5F5': '#E3F2FD',
     '#66BB6A': '#E8F5E9',
@@ -199,9 +219,16 @@ function buildSections(): Section[] {
   ];
 }
 
-function ServiceIcon({ item }: { item: ServiceItem }) {
-  const size = rs(29);
-  const color = darkIcon(item.accent);
+function ServiceIcon({
+  item,
+  isDark,
+}: {
+  item: ServiceItem;
+  isDark: boolean;
+}) {
+  const size = rs(27);
+  // Dark: pure white glyphs on colored wells (clear like SS2).
+  const color = isDark ? '#FFFFFF' : darkIcon(item.accent);
   if (item.iconSet === 'mci') {
     return (
       <MaterialCommunityIcons
@@ -256,7 +283,7 @@ function ServiceTile({
       style={({ pressed }) => [
         styles.tile,
         !isDark && styles.tileLight,
-        featured && !isDark && styles.tileFeatured,
+        featured && styles.tileFeatured,
         pressed && styles.tilePressed,
       ]}
       onPress={onPress}
@@ -272,11 +299,13 @@ function ServiceTile({
           { backgroundColor: pastel(item.accent, isDark) },
         ]}
       >
-        <ServiceIcon item={item} />
+        <ServiceIcon item={item} isDark={isDark} />
       </View>
       <Text
         style={[styles.tileLabel, { color: isDark ? colors.text : '#1A1A1A' }]}
         numberOfLines={2}
+        adjustsFontSizeToFit
+        minimumFontScale={0.85}
       >
         {item.label}
       </Text>
@@ -296,9 +325,9 @@ function SectionPill({
   isDark: boolean;
 }) {
   const textColor =
-    !isDark && section.variant !== 'premium' && section.variant !== 'extra'
-      ? '#212121'
-      : '#FFFFFF';
+    section.variant === 'premium' || section.variant === 'extra'
+      ? '#FFFFFF'
+      : colors.pillText;
 
   const bg =
     section.variant === 'free'
@@ -311,7 +340,10 @@ function SectionPill({
 
   return (
     <View style={[styles.pill, { backgroundColor: bg }]}>
-      <Text style={[styles.pillText, { color: textColor }]}>
+      <Text
+        style={[styles.pillText, { color: textColor }]}
+        numberOfLines={1}
+      >
         {section.title}
       </Text>
     </View>
@@ -562,11 +594,9 @@ export function ServicesScreen() {
   return (
     <View style={[styles.root, { backgroundColor: isDark ? colors.bg : '#E4EAD9' }]}>
       <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
-      {!isDark ? (
-        <PromoBanner
-          onPress={() => navigation.navigate('MainTabs', { screen: 'Apply' })}
-        />
-      ) : null}
+      <PromoBanner
+        onPress={() => navigation.navigate('MainTabs', { screen: 'Apply' })}
+      />
 
       <View style={styles.searchWrap}>
         <View
@@ -574,7 +604,7 @@ export function ServicesScreen() {
             styles.searchInner,
             {
               backgroundColor: isDark ? colors.searchBg : '#EEF2E6',
-              borderColor: isDark ? colors.borderMuted : '#C5D0B5',
+              borderColor: isDark ? colors.border : '#C5D0B5',
             },
           ]}
         >
@@ -668,14 +698,20 @@ function makeStyles(c: ThemeColors) {
       height: StyleSheet.hairlineWidth,
     },
     pill: {
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(6),
-      borderRadius: rs(16),
+      flexShrink: 0,
+      paddingHorizontal: rs(16),
+      paddingVertical: rs(9),
+      borderRadius: rs(10),
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: rs(34),
     },
     pillText: {
-      fontWeight: '800',
+      fontWeight: '700',
       fontSize: rs(12),
-      letterSpacing: 0.2,
+      letterSpacing: 0,
+      textAlign: 'center',
+      includeFontPadding: false,
     },
     row: {
       flexDirection: 'row',
@@ -687,12 +723,12 @@ function makeStyles(c: ThemeColors) {
       width: TILE_W,
       height: TILE_H,
       backgroundColor: c.surface,
-      borderRadius: rs(19),
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.borderMuted,
+      borderRadius: rs(14),
+      borderWidth: 1,
+      borderColor: c.border,
       paddingTop: rs(10),
-      paddingBottom: rs(6),
-      paddingHorizontal: rs(3),
+      paddingBottom: rs(8),
+      paddingHorizontal: rs(6),
       alignItems: 'center',
       justifyContent: 'flex-start',
       overflow: 'visible',
@@ -708,7 +744,7 @@ function makeStyles(c: ThemeColors) {
       elevation: 3,
     },
     tileFeatured: {
-      borderColor: '#FFB300',
+      borderColor: '#FF9900',
       borderWidth: 1.5,
     },
     tilePressed: {
@@ -722,26 +758,28 @@ function makeStyles(c: ThemeColors) {
     },
     badgeAbs: {
       position: 'absolute',
-      top: rs(-5),
-      right: rs(-3),
+      top: rs(-4),
+      right: rs(-2),
       zIndex: 2,
     },
     tileIcon: {
-      width: rs(34),
-      height: rs(34),
-      borderRadius: rs(9),
+      width: rs(42),
+      height: rs(42),
+      borderRadius: rs(11),
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: rs(5),
+      marginBottom: rs(7),
       marginTop: rs(2),
     },
     tileLabel: {
-      fontSize: rs(10),
-      fontWeight: '800',
+      width: '100%',
+      fontSize: rs(11),
+      fontWeight: '700',
       textAlign: 'center',
-      lineHeight: rs(12),
-      paddingHorizontal: rs(1),
-      letterSpacing: 0.1,
+      lineHeight: rs(13),
+      paddingHorizontal: rs(2),
+      letterSpacing: 0,
+      includeFontPadding: false,
     },
     empty: {
       textAlign: 'center',
