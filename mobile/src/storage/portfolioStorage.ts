@@ -59,6 +59,27 @@ export async function deletePortfolio(id: string): Promise<void> {
   await saveAll(list.filter((p) => p.id !== id));
 }
 
+export async function renamePortfolio(
+  id: string,
+  name: string,
+): Promise<Portfolio | null> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Portfolio name is required');
+  const list = await listPortfolios();
+  const idx = list.findIndex((p) => p.id === id);
+  if (idx < 0) return null;
+  list[idx] = { ...list[idx]!, name: trimmed };
+  await saveAll(list);
+  return list[idx]!;
+}
+
+/** Replace all portfolios (used by backup restore). */
+export async function replaceAllPortfolios(
+  portfolios: Portfolio[],
+): Promise<void> {
+  await saveAll(Array.isArray(portfolios) ? portfolios : []);
+}
+
 export async function addHolding(
   portfolioId: string,
   holding: Omit<PortfolioHolding, 'name'> & { name?: string },

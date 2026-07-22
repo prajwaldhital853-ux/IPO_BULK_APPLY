@@ -147,23 +147,27 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   const genRef = useRef(0);
   const busyRef = useRef(false);
   const revealDoneRef = useRef(false);
+  const hasRowsRef = useRef(false);
 
   const refresh = useCallback(
-    async (silent = false) => {
-      // Don't let background poll restart mid-load / mid-reveal.
-      if (silent && (busyRef.current || !revealDoneRef.current)) return;
+    async (opts: { silent?: boolean; force?: boolean } = {}) => {
+      const silent = opts.silent === true;
+      const force = opts.force === true;
+
+      // Don't let background poll restart mid-load.
+      if (silent && busyRef.current) return;
 
       const gen = ++genRef.current;
       busyRef.current = true;
 
-      if (!silent) {
-        // Always pull live floorsheet/screener when opening or pull-to-refresh.
+      if (force) {
         invalidateMarketCaches();
         invalidateBrokerAnalyticsCache();
-        revealDoneRef.current = false;
-        setLoading(true);
-        setRows([]);
-        setDisplayCount(0);
+      }
+
+      if (!silent) {
+        // Keep existing rows visible — only full spinner if we have nothing yet.
+        if (!hasRowsRef.current) setLoading(true);
         setLoadingMore(true);
       }
 
@@ -173,10 +177,11 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
           (snap, meta) => {
             if (gen !== genRef.current) return;
 
-            // Silent poll: only swap in the finished list (no progressive reset).
+            // Silent poll: only swap in the finished list.
             if (silent) {
               if (!meta.partial) {
                 setRows(snap.rows);
+                hasRowsRef.current = snap.rows.length > 0;
                 setSessionDate(snap.sessionDate);
                 setBrokerBreakdown(snap.brokerBreakdown);
                 setDisplayCount(snap.rows.length);
@@ -187,12 +192,14 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
             }
 
             setRows(snap.rows);
+            hasRowsRef.current = snap.rows.length > 0;
             setSessionDate(snap.sessionDate);
             setBrokerBreakdown(snap.brokerBreakdown);
             setLoading(false);
             setLoadingMore(meta.partial);
-            // Never shrink the visible count — only start / grow via drip effect.
-            setDisplayCount((prev) => (prev === 0 && snap.rows.length > 0 ? 1 : prev));
+            // Show all ranked rows immediately (no one-by-one drip).
+            setDisplayCount(snap.rows.length);
+            if (!meta.partial) revealDoneRef.current = true;
           },
           120,
         );
@@ -207,30 +214,15 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
     [isAcc],
   );
 
-  // Fresh load every time this screen is focused / opened.
+  // Open: use warm cache when available; pull-to-refresh / header refresh forces live.
   useFocusEffect(
     useCallback(() => {
-      void refresh();
+      void refresh({ silent: false, force: false });
     }, [refresh]),
   );
 
   // Background poll every 60s while focused (silent, no list reset).
-  usePollingRefresh(refresh, 60_000);
-
-  // Append one row at a time until everything in `rows` is shown.
-  useEffect(() => {
-    if (displayCount >= rows.length) {
-      if (rows.length > 0 && !loadingMore) {
-        revealDoneRef.current = true;
-      }
-      return;
-    }
-    const delay = displayCount === 0 ? 30 : 70;
-    const t = setTimeout(() => {
-      setDisplayCount((c) => Math.min(c + 1, rows.length));
-    }, delay);
-    return () => clearTimeout(t);
-  }, [displayCount, rows.length, loadingMore]);
+  usePollingRefresh((silent) => refresh({ silent: !!silent }), 60_000);
 
   // Broker-number search only works when floorsheet includes member IDs.
   useEffect(() => {
@@ -387,6 +379,10 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
       ) : (
         <FlatList
           data={visible}
+          initialNumToRender={30}
+          maxToRenderPerBatch={40}
+          windowSize={8}
+          removeClippedSubviews
           keyExtractor={(item) =>
             `${item.symbol}-${item.brokerCode ?? 'x'}-${item.rank}`
           }
@@ -395,7 +391,9 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                void refresh(true).finally(() => setRefreshing(false));
+                void refresh({ silent: true, force: true }).finally(() =>
+                  setRefreshing(false),
+                );
               }}
               tintColor={HEADER_TEAL}
             />
@@ -404,17 +402,13 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
             <Text style={styles.empty}>No broker rows for this session.</Text>
           }
           ListFooterComponent={
-            searchingBroker ||
-            loadingMore ||
-            (!query.trim() && displayCount < rows.length) ? (
+            searchingBroker || loadingMore ? (
               <View style={styles.footerLoad}>
                 <ActivityIndicator size="small" color={HEADER_TEAL} />
                 <Text style={styles.footerText}>
                   {searchingBroker
                     ? `Loading broker ${query.trim()}…`
-                    : !query.trim() && displayCount < rows.length
-                      ? `Showing ${displayCount} of ${rows.length}…`
-                      : 'Loading more…'}
+                    : 'Updating rankings…'}
                 </Text>
               </View>
             ) : null
@@ -504,7 +498,7 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>{title}</Text>
-        <Pressable hitSlop={12} onPress={() => void refresh()}>
+        <Pressable hitSlop={12} onPress={() => void refresh({ force: true })}>
           <Ionicons
             name="refresh"
             size={rs(20)}

@@ -10,7 +10,7 @@ import {
   type MiniScreenerRow,
 } from './screener';
 import { formatRs } from './premiumAnalytics';
-import { loadMerolaganiFloorsheetProgressive } from './merolaganiFloorsheet';
+import { loadMerolaganiFloorsheetProgressive, MERO_FLOOR_FAST_PAGES } from './merolaganiFloorsheet';
 
 const DATA_BASE = 'https://sharehubnepal.com/data/api/v1';
 const LIVE_V2 = 'https://sharehubnepal.com/live/api/v2/nepselive';
@@ -19,6 +19,8 @@ const CACHE_MS = 120_000;
 /** Fewer / larger pages = much faster first paint. */
 const FLOOR_PAGE_SIZE = 200;
 const FLOOR_MAX_PAGES = 10;
+/** Acc/Dis only needs a few Merolagani pages for solid rankings. */
+const MERO_ACC_DIS_PAGES = MERO_FLOOR_FAST_PAGES;
 
 export function invalidateBrokerAnalyticsCache(): void {
   brokerCache = null;
@@ -175,7 +177,7 @@ async function loadSessionFloorsheet(force = false): Promise<FloorsheetRow[]> {
   try {
     const { rows, asOf } = await loadMerolaganiFloorsheetProgressive(
       () => undefined,
-      FLOOR_MAX_PAGES,
+      MERO_ACC_DIS_PAGES,
     );
     if (hasBrokerData(rows) && rows.length > 0) {
       floorsheetCache = rows;
@@ -228,7 +230,7 @@ async function loadSessionFloorsheetProgressive(
       (partial, meta) => {
         onPartial(partial, { page: meta.page, done: meta.done });
       },
-      FLOOR_MAX_PAGES,
+      MERO_ACC_DIS_PAGES,
     );
     if (hasBrokerData(rows) && rows.length > 0) {
       floorsheetCache = rows;
@@ -237,7 +239,7 @@ async function loadSessionFloorsheetProgressive(
         trades: rows.length,
         date: asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
       };
-      onPartial(rows, { page: FLOOR_MAX_PAGES, done: true });
+      // Final done already emitted by progressive loader.
       return rows;
     }
   } catch {
@@ -861,8 +863,7 @@ function buildNetIntelSnapshot(
 
 /**
  * Progressive broker accumulation / distribution.
- * Emits full ranked snapshots as floorsheet pages arrive (list only grows).
- * UI handles one-by-one row reveal.
+ * Starts floorsheet immediately (does not wait on screener first).
  */
 export async function streamPremiumIntel(
   kind: 'top-holders' | 'top-releases',
@@ -873,38 +874,49 @@ export async function streamPremiumIntel(
   limit = 120,
 ): Promise<PremiumIntelSnapshot> {
   const mode = kind === 'top-holders' ? 'holders' : 'releases';
-  const [screener, brokers, boards] = await Promise.all([
-    screenerMap(),
-    loadBrokers(),
-    loadBoardSets(),
-  ]);
+  const emptyBoards: BoardSets = { demand: new Set(), supply: new Set() };
+
+  let screener = new Map<string, MiniScreenerRow>();
+  let brokers: BrokerInfo[] = [];
+
+  // Load enrichment in parallel — do NOT block first floorsheet paint.
+  const metaP = Promise.all([screenerMap(), loadBrokers()]).then(([s, b]) => {
+    screener = s;
+    brokers = b;
+  });
 
   let latest: PremiumIntelSnapshot | null = null;
   let lastCount = 0;
 
-  await loadSessionFloorsheetProgressive((rows, meta) => {
+  const emit = (rows: FloorsheetRow[], meta: { page: number; done: boolean }) => {
     const snap = buildNetIntelSnapshot(
       mode,
       limit,
       rows,
       screener,
       brokers,
-      boards,
+      emptyBoards,
     );
-    // Never shrink the emitted list mid-stream (avoids UI reset to 1 row).
-    if (!meta.done && snap.rows.length < lastCount) {
-      return;
-    }
+    if (!meta.done && snap.rows.length < lastCount) return;
     lastCount = Math.max(lastCount, snap.rows.length);
     latest = snap;
     onUpdate(snap, { partial: !meta.done, page: meta.page });
-  });
+  };
 
-  if (!latest) {
+  await loadSessionFloorsheetProgressive(emit);
+
+  // Enrich LTP/sector once meta arrives (don't hang forever on screener).
+  await Promise.race([
+    metaP,
+    new Promise<void>((r) => setTimeout(r, 4_000)),
+  ]);
+  if (floorsheetCache?.length) {
+    emit(floorsheetCache, { page: 99, done: true });
+  } else if (!latest) {
     latest = await loadNetIntel(mode, limit);
     onUpdate(latest, { partial: false, page: 0 });
   }
-  return latest;
+  return latest!;
 }
 
 /**

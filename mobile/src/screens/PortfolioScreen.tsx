@@ -11,47 +11,76 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../context/ThemeContext';
-import type { ThemeColors } from '../theme/colors';
+import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
+import { useAccounts } from '../context/AccountsContext';
+import type { RootStackParamList } from '../navigation/types';
+import {
+  exportPortfoliosBackup,
+  importHoldingsFromExcelCsv,
+  importPortfoliosBackup,
+} from '../services/portfolio/backup';
+import {
+  aggregatePortfolios,
+  fmtNpr,
+  type QuoteMap,
+} from '../services/portfolio/metrics';
+import { importPortfolioFromMeroshare } from '../services/meroshare';
+import { loadMiniScreener } from '../services/nepse/screener';
 import {
   createPortfolio,
-  upsertImportedPortfolio,
-  deletePortfolio,
   listPortfolios,
+  upsertImportedPortfolio,
   type Portfolio,
 } from '../storage/portfolioStorage';
-import { useAccounts } from '../context/AccountsContext';
-import { importPortfolioFromMeroshare } from '../services/meroshare';
 import { rs } from '../utils/responsive';
 import { usePollingRefresh } from '../utils/usePollingRefresh';
-import type { RootStackParamList } from '../navigation/types';
-import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
+
+const PAGE_BG = '#E4EAD9';
+const TAB_GREEN = '#2D5A27';
+const FAB_GREEN = '#B8DFB9';
+const RECEIVABLE = '#5BA3D9';
+const PILL_BG = 'rgba(120,130,120,0.18)';
 
 export function PortfolioScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { accounts } = useAccounts();
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [quotes, setQuotes] = useState<QuoteMap>({});
+  const [sortAsc, setSortAsc] = useState(true);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
-  const [showForm, setShowForm] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [importingId, setImportingId] = useState<string | null>(null);
-  const [importProgress, setImportProgress] = useState<{
-    done: number;
-    total: number;
-  } | null>(null);
-  const [sortAsc, setSortAsc] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    setPortfolios(await listPortfolios());
+    const [list, screener] = await Promise.all([
+      listPortfolios(),
+      loadMiniScreener().catch(() => []),
+    ]);
+    setPortfolios(list);
+    const map: QuoteMap = {};
+    for (const row of screener) {
+      if (!row.symbol) continue;
+      map[row.symbol.toUpperCase()] = {
+        ltp: row.ltp,
+        change: row.change,
+        changePercent: row.changePercent,
+        sector: row.sector,
+        iconUrl: row.iconUrl,
+        name: row.name,
+        previousClose: row.previousClose,
+      };
+    }
+    setQuotes(map);
   }, []);
 
   useFocusEffect(
@@ -59,38 +88,54 @@ export function PortfolioScreen() {
       void reload();
     }, [reload]),
   );
-
   usePollingRefresh(reload);
 
-  const sortedPortfolios = useMemo(() => {
-    const list = [...portfolios];
+  const agg = useMemo(
+    () => aggregatePortfolios(portfolios, quotes),
+    [portfolios, quotes],
+  );
+
+  const sorted = useMemo(() => {
+    const list = [...agg.items];
     list.sort((a, b) =>
       sortAsc
-        ? a.name.localeCompare(b.name)
-        : b.name.localeCompare(a.name),
+        ? a.portfolio.name.localeCompare(b.portfolio.name)
+        : b.portfolio.name.localeCompare(a.portfolio.name),
     );
     return list;
-  }, [portfolios, sortAsc]);
+  }, [agg.items, sortAsc]);
 
   const onCreate = async () => {
+    if (creating) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      Alert.alert('Name required', 'Enter a portfolio name.');
+      return;
+    }
+    setCreating(true);
     try {
-      await createPortfolio(name);
+      const created = await createPortfolio(trimmed);
       setName('');
-      setShowForm(false);
-      await reload();
+      setCreateOpen(false);
+      // Open immediately — don't wait for market reload (that felt frozen).
+      navigation.navigate('PortfolioDetail', { portfolioId: created.id });
+      void reload();
     } catch (e) {
       Alert.alert(
-        'Could not create portfolio',
+        'Could not create',
         e instanceof Error ? e.message : 'Try again',
       );
+    } finally {
+      setCreating(false);
     }
   };
 
-  const onImportPress = () => {
+  const onImportMero = () => {
+    setBackupOpen(false);
     if (accounts.length === 0) {
       Alert.alert(
         'No MeroShare account',
-        'Add a MeroShare account first (used for bulk apply). Then you can import your holdings here.',
+        'Add a MeroShare account first, then import holdings here.',
       );
       return;
     }
@@ -98,39 +143,21 @@ export function PortfolioScreen() {
     setPickerOpen(true);
   };
 
-  const togglePick = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   const runImportSelected = async () => {
     const targets = accounts.filter((a) => selectedIds.has(a.id));
     if (!targets.length) {
-      Alert.alert('Select accounts', 'Pick at least one account to import.');
+      Alert.alert('Select accounts', 'Pick at least one account.');
       return;
     }
     setPickerOpen(false);
-    setImportingId('bulk');
-    setImportProgress({ done: 0, total: targets.length });
+    setBusy('Importing from MeroShare…');
     let ok = 0;
     let refreshed = 0;
-    let empty = 0;
-    let failed = 0;
-    const errors: string[] = [];
     try {
-      for (let i = 0; i < targets.length; i++) {
-        const account = targets[i]!;
-        setImportProgress({ done: i, total: targets.length });
+      for (const account of targets) {
         try {
           const result = await importPortfolioFromMeroshare(account);
-          if (result.holdings.length === 0) {
-            empty += 1;
-            continue;
-          }
+          if (!result.holdings.length) continue;
           const saved = await upsertImportedPortfolio(
             account.id,
             `${account.name} (MeroShare)`,
@@ -143,559 +170,543 @@ export function PortfolioScreen() {
           );
           if (saved.created) ok += 1;
           else refreshed += 1;
-        } catch (e) {
-          failed += 1;
-          errors.push(
-            `${account.name}: ${e instanceof Error ? e.message : 'failed'}`,
-          );
+        } catch {
+          /* continue */
         }
-        setImportProgress({ done: i + 1, total: targets.length });
       }
       await reload();
-      const parts = [
-        ok ? `${ok} imported` : null,
-        refreshed ? `${refreshed} updated` : null,
-        empty ? `${empty} empty` : null,
-        failed ? `${failed} failed` : null,
-      ].filter(Boolean);
       Alert.alert(
         'Import finished',
-        `${parts.join(' · ') || 'Nothing imported.'}${
-          errors.length
-            ? `\n\n${errors.slice(0, 3).join('\n')}${errors.length > 3 ? '\n…' : ''}`
-            : ''
-        }\n\nWACC is seeded from last price — edit it for accurate P/L.`,
+        `${ok ? `${ok} created` : ''}${ok && refreshed ? ' · ' : ''}${
+          refreshed ? `${refreshed} updated` : ''
+        }` || 'Nothing imported.',
       );
     } finally {
-      setImportingId(null);
-      setImportProgress(null);
+      setBusy(null);
     }
   };
 
-  const onDelete = (p: Portfolio) => {
-    Alert.alert('Delete portfolio', `Remove "${p.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          void deletePortfolio(p.id).then(reload);
-        },
-      },
-    ]);
-  };
-
-  function renderPicker() {
-    const allOn = accounts.length > 0 && selectedIds.size === accounts.length;
-    return (
-      <Modal
-        visible={pickerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPickerOpen(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setPickerOpen(false)}
-        >
-          <Pressable style={styles.sheet} onPress={() => {}}>
-            <Text style={styles.sheetTitle}>Import from MeroShare</Text>
-            <Text style={styles.sheetSub}>
-              Select one or more accounts — we&apos;ll pull holdings for all
-              selected at once.
-            </Text>
-            <View style={styles.selectRow}>
-              <Pressable
-                onPress={() =>
-                  setSelectedIds(
-                    allOn
-                      ? new Set()
-                      : new Set(accounts.map((a) => a.id)),
-                  )
-                }
-                hitSlop={8}
-              >
-                <Text style={styles.selectAction}>
-                  {allOn ? 'Clear' : 'Select all'}
-                </Text>
-              </Pressable>
-              <Text style={styles.selectCount}>{selectedIds.size} selected</Text>
-            </View>
-            <ScrollView style={{ maxHeight: rs(340) }}>
-              {accounts.map((a) => {
-                const on = selectedIds.has(a.id);
-                return (
-                  <Pressable
-                    key={a.id}
-                    style={styles.acctRow}
-                    onPress={() => togglePick(a.id)}
-                  >
-                    <View style={styles.acctIcon}>
-                      <Ionicons
-                        name="person"
-                        size={rs(16)}
-                        color={colors.accentGreen}
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.acctName}>{a.name}</Text>
-                      <Text style={styles.acctSub}>
-                        {a.dpName} · {a.username}
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name={on ? 'checkbox' : 'square-outline'}
-                      size={rs(22)}
-                      color={on ? colors.accentGreen : colors.textMuted}
-                    />
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-            <Pressable
-              style={[
-                styles.importSelectedBtn,
-                selectedIds.size === 0 && { opacity: 0.45 },
-              ]}
-              disabled={selectedIds.size === 0}
-              onPress={() => void runImportSelected()}
-            >
-              <Text style={styles.importSelectedText}>
-                Import selected ({selectedIds.size})
-              </Text>
-            </Pressable>
-            <Pressable
-              style={styles.cancelBtn}
-              onPress={() => setPickerOpen(false)}
-            >
-              <Text style={styles.cancelBtnText}>Cancel</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    );
-  }
-
-  if (portfolios.length === 0 && !showForm) {
-    return (
-      <ProtectedPersonalScreen title="Sign in to view portfolios">
+  return (
+    <ProtectedPersonalScreen title="Sign in to view portfolios">
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-            <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
+            <Ionicons name="arrow-back" size={rs(22)} color="#111" />
           </Pressable>
-          <Text style={styles.title}>Share Portfolio</Text>
-          <Pressable
-            hitSlop={10}
-            onPress={() => setSortAsc((v) => !v)}
-            accessibilityLabel="Sort portfolios"
-          >
-            <Ionicons
-              name="swap-vertical"
-              size={rs(20)}
-              color={colors.textMuted}
-            />
-          </Pressable>
+          <Text style={styles.title}>Portfolio</Text>
+          <View style={styles.headerActions}>
+            <Pressable hitSlop={10} onPress={() => setBackupOpen(true)}>
+              <Ionicons name="folder-open-outline" size={rs(20)} color="#333" />
+            </Pressable>
+            <Pressable hitSlop={10} onPress={() => setSortAsc((v) => !v)}>
+              <Ionicons name="swap-vertical" size={rs(20)} color="#333" />
+            </Pressable>
+          </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.emptyBody}>
-          <View style={styles.logoCircle}>
-            <MaterialCommunityIcons
-              name="chart-donut"
-              size={rs(36)}
-              color={colors.accentGreen}
-            />
-          </View>
-          <Text style={styles.heroTitle}>Build your share portfolio</Text>
-          <Text style={styles.heroText}>
-            Add your shares to follow live value, profit & loss, and sector
-            breakdown — with accurate NEPSE WACC, charges and CGT.
-          </Text>
-
-          <FeatureRow
-            icon="folder-outline"
-            label="Create multiple portfolios"
-            colors={colors}
-            styles={styles}
-          />
-          <FeatureRow
-            icon="stats-chart-outline"
-            label="Live profit, loss & WACC"
-            colors={colors}
-            styles={styles}
-          />
-          <FeatureRow
-            icon="cloud-download-outline"
-            label="Import from MeroShare or Excel"
-            colors={colors}
-            styles={styles}
-          />
-
-          <Pressable
-            style={styles.outlineBtn}
-            onPress={onImportPress}
-            disabled={importingId != null}
-          >
-            {importingId ? (
-              <ActivityIndicator size="small" color={colors.accentGreen} />
-            ) : (
-              <Ionicons
-                name="cloud-download-outline"
-                size={rs(18)}
-                color={colors.accentGreen}
-              />
-            )}
-            <Text style={styles.outlineBtnText}>
-              {importProgress
-                ? `Importing ${importProgress.done}/${importProgress.total}…`
-                : importingId
-                  ? 'Importing…'
-                  : 'Import from MeroShare'}
+        <FlatList
+          data={sorted}
+          keyExtractor={(item) => item.portfolio.id}
+          contentContainerStyle={[
+            styles.list,
+            { paddingBottom: insets.bottom + rs(90) },
+          ]}
+          ListHeaderComponent={
+            <View style={styles.hero}>
+              <Text style={styles.heroLabel}>TOTAL VALUE</Text>
+              <Text style={styles.heroValue}>
+                NPR {fmtNpr(agg.currentValue)}
+              </Text>
+              <Text style={styles.heroSub}>
+                {agg.portfolioCount} portfolio
+                {agg.portfolioCount === 1 ? '' : 's'} · Invested NPR{' '}
+                {fmtNpr(agg.invested)}
+              </Text>
+              <View style={styles.pillRow}>
+                <View style={styles.pill}>
+                  <Text style={styles.pillText}>
+                    Today {fmtNpr(agg.todayPnl)}
+                  </Text>
+                </View>
+                <View style={styles.pill}>
+                  <Text style={styles.pillText}>
+                    Overall {fmtNpr(agg.overallPnl)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          }
+          ListEmptyComponent={
+            <Text style={styles.empty}>
+              No portfolios yet. Tap Add New Portfolio below.
             </Text>
-          </Pressable>
-        </ScrollView>
-
-        {renderPicker()}
+          }
+          renderItem={({ item, index }) => {
+            const { portfolio, metrics } = item;
+            return (
+              <Pressable
+                style={styles.card}
+                onPress={() =>
+                  navigation.navigate('PortfolioDetail', {
+                    portfolioId: portfolio.id,
+                  })
+                }
+              >
+                <View style={styles.cardTop}>
+                  <View style={styles.cardLeft}>
+                    <View style={styles.indexBadge}>
+                      <Text style={styles.indexText}>{index + 1}</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.cardName}>{portfolio.name}</Text>
+                      <Text style={styles.cardUnits}>
+                        {fmtNpr(metrics.units)} units
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.cardValue}>
+                      {fmtNpr(metrics.currentValue)}
+                    </Text>
+                    <View style={[styles.pill, { marginTop: rs(6) }]}>
+                      <Text style={styles.pillText}>
+                        Today {fmtNpr(metrics.todayPnl)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+                <View style={styles.divider} />
+                <View style={styles.cardBottom}>
+                  <View>
+                    <Text style={styles.metaLabel}>Total Investment</Text>
+                    <Text style={styles.metaValue}>
+                      {fmtNpr(metrics.invested)}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.metaLabel}>Total Receivable</Text>
+                    <Text style={[styles.metaValue, { color: RECEIVABLE }]}>
+                      {fmtNpr(metrics.receivable)}
+                    </Text>
+                  </View>
+                </View>
+              </Pressable>
+            );
+          }}
+        />
 
         <Pressable
-          style={[styles.fab, { marginBottom: insets.bottom + rs(12) }]}
-          onPress={() => setShowForm(true)}
+          style={[styles.addBtn, { marginBottom: insets.bottom + rs(12) }]}
+          onPress={() => setCreateOpen(true)}
         >
-          <Ionicons name="add" size={rs(20)} color="#FFF" />
-          <Text style={styles.fabText}>Add New Portfolio</Text>
+          <Text style={styles.addBtnText}>+ Add New Portfolio</Text>
         </Pressable>
-      </View>
-      </ProtectedPersonalScreen>
-    );
-  }
 
-  return (
-    <ProtectedPersonalScreen title="Sign in to view portfolios">
-    <View style={[styles.root, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
-        </Pressable>
-        <Text style={styles.title}>Share Portfolio</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: rs(8) }}>
+        {/* Backup & Import */}
+        <Modal
+          visible={backupOpen}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setBackupOpen(false)}
+        >
           <Pressable
-            onPress={() => setSortAsc((v) => !v)}
-            hitSlop={10}
-            accessibilityLabel="Sort portfolios"
+            style={styles.backdrop}
+            onPress={() => setBackupOpen(false)}
           >
-            <Ionicons
-              name="swap-vertical"
-              size={rs(22)}
-              color={colors.textMuted}
-            />
+            <Pressable style={styles.sheet} onPress={() => {}}>
+              <View style={styles.handle} />
+              <Text style={styles.sheetTitle}>Backup & Import</Text>
+              <SheetRow
+                icon="cloud-upload-outline"
+                title="Export Portfolios"
+                sub="Save a backup file you can restore after reinstalling"
+                onPress={() => {
+                  setBackupOpen(false);
+                  void exportPortfoliosBackup().catch((e) =>
+                    Alert.alert(
+                      'Export failed',
+                      e instanceof Error ? e.message : 'Try again',
+                    ),
+                  );
+                }}
+              />
+              <SheetRow
+                icon="time-outline"
+                title="Import Portfolios"
+                sub="Restore from a backup file exported earlier"
+                onPress={() => {
+                  setBackupOpen(false);
+                  void (async () => {
+                    try {
+                      setBusy('Importing…');
+                      const r = await importPortfoliosBackup();
+                      await reload();
+                      if (r.count)
+                        Alert.alert(
+                          'Imported',
+                          r.mode === 'csv'
+                            ? `Loaded ${r.count} holdings`
+                            : `Restored ${r.count} portfolio(s)`,
+                        );
+                    } catch (e) {
+                      Alert.alert(
+                        'Import failed',
+                        e instanceof Error ? e.message : 'Try again',
+                      );
+                    } finally {
+                      setBusy(null);
+                    }
+                  })();
+                }}
+              />
+              <SheetRow
+                icon="grid-outline"
+                title="Import from Excel"
+                sub="Import transactions from a custom .xlsx / CSV file"
+                onPress={() => {
+                  setBackupOpen(false);
+                  void (async () => {
+                    try {
+                      setBusy('Importing Excel…');
+                      const r = await importHoldingsFromExcelCsv();
+                      await reload();
+                      if (r.holdings)
+                        Alert.alert(
+                          'Imported',
+                          `${r.holdings} holdings → ${r.portfolioName}`,
+                        );
+                    } catch (e) {
+                      Alert.alert(
+                        'Import failed',
+                        e instanceof Error
+                          ? e.message
+                          : 'Use a CSV with Symbol, Qty, WACC columns',
+                      );
+                    } finally {
+                      setBusy(null);
+                    }
+                  })();
+                }}
+              />
+              <SheetRow
+                icon="business-outline"
+                title="Import from MeroShare"
+                sub="Pull holdings from a saved account"
+                onPress={onImportMero}
+              />
+            </Pressable>
           </Pressable>
-          <Pressable onPress={() => setShowForm((v) => !v)} hitSlop={10}>
-            <Ionicons
-              name="add-circle-outline"
-              size={rs(22)}
-              color={colors.accentGreen}
-            />
-          </Pressable>
-        </View>
-      </View>
+        </Modal>
 
-      <Pressable
-        style={styles.importBar}
-        onPress={onImportPress}
-        disabled={importingId != null}
-      >
-        {importingId ? (
-          <ActivityIndicator size="small" color={colors.accentGreen} />
-        ) : (
-          <Ionicons
-            name="cloud-download-outline"
-            size={rs(16)}
-            color={colors.accentGreen}
-          />
-        )}
-        <Text style={styles.importBarText}>
-          {importProgress
-            ? `Importing ${importProgress.done}/${importProgress.total}…`
-            : importingId
-              ? 'Importing from MeroShare…'
-              : 'Import from MeroShare'}
-        </Text>
-      </Pressable>
-
-      {showForm ? (
-        <View style={styles.form}>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="Portfolio name"
-            placeholderTextColor={colors.textMuted}
-            style={styles.input}
-          />
-          <Pressable style={styles.saveBtn} onPress={() => void onCreate()}>
-            <Text style={styles.saveBtnText}>Create</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      <FlatList
-        data={sortedPortfolios}
-        keyExtractor={(p) => p.id}
-        contentContainerStyle={styles.listBody}
-        renderItem={({ item }) => (
+        {/* Create portfolio */}
+        <Modal
+          visible={createOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setCreateOpen(false)}
+        >
           <Pressable
-            style={styles.card}
-            onLongPress={() => onDelete(item)}
-            onPress={() =>
-              navigation.navigate('PortfolioDetail', { portfolioId: item.id })
-            }
+            style={styles.backdrop}
+            onPress={() => setCreateOpen(false)}
           >
-            <View style={styles.cardIcon}>
-              <Ionicons name="briefcase" size={rs(20)} color={colors.accentGreen} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>{item.name}</Text>
-              <Text style={styles.cardSub}>
-                {item.holdings.length} holding
-                {item.holdings.length === 1 ? '' : 's'}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={rs(18)} color={colors.textMuted} />
+            <Pressable style={styles.createSheet} onPress={() => {}}>
+              <Text style={styles.sheetTitle}>New Portfolio</Text>
+              <TextInput
+                value={name}
+                onChangeText={setName}
+                placeholder="Portfolio name"
+                placeholderTextColor="#888"
+                style={styles.input}
+                autoFocus
+                editable={!creating}
+                onSubmitEditing={() => void onCreate()}
+              />
+              <Pressable
+                style={[styles.primaryBtn, creating && { opacity: 0.7 }]}
+                disabled={creating}
+                onPress={() => void onCreate()}
+              >
+                {creating ? (
+                  <View style={styles.btnBusy}>
+                    <ActivityIndicator size="small" color="#FFF" />
+                    <Text style={styles.primaryBtnText}>Creating…</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.primaryBtnText}>Create</Text>
+                )}
+              </Pressable>
+            </Pressable>
           </Pressable>
-        )}
-      />
+        </Modal>
 
-      {renderPicker()}
-    </View>
+        {/* MeroShare picker */}
+        <Modal
+          visible={pickerOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPickerOpen(false)}
+        >
+          <Pressable
+            style={styles.backdrop}
+            onPress={() => setPickerOpen(false)}
+          >
+            <Pressable style={styles.sheet} onPress={() => {}}>
+              <Text style={styles.sheetTitle}>Import from MeroShare</Text>
+              <ScrollView style={{ maxHeight: rs(340) }}>
+                {accounts.map((a) => {
+                  const on = selectedIds.has(a.id);
+                  return (
+                    <Pressable
+                      key={a.id}
+                      style={styles.acctRow}
+                      onPress={() =>
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(a.id)) next.delete(a.id);
+                          else next.add(a.id);
+                          return next;
+                        })
+                      }
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.cardName}>{a.name}</Text>
+                        <Text style={styles.cardUnits}>
+                          {a.dpName} · {a.username}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name={on ? 'checkbox' : 'square-outline'}
+                        size={rs(22)}
+                        color={on ? TAB_GREEN : '#999'}
+                      />
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <Pressable
+                style={styles.primaryBtn}
+                onPress={() => void runImportSelected()}
+              >
+                <Text style={styles.primaryBtnText}>
+                  Import selected ({selectedIds.size})
+                </Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {busy ? (
+          <View style={styles.busyOverlay}>
+            <ActivityIndicator color={TAB_GREEN} />
+            <Text style={styles.busyText}>{busy}</Text>
+          </View>
+        ) : null}
+      </View>
     </ProtectedPersonalScreen>
   );
 }
 
-function FeatureRow({
+function SheetRow({
   icon,
-  label,
-  colors,
-  styles,
+  title,
+  sub,
+  onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  colors: ThemeColors;
-  styles: ReturnType<typeof makeStyles>;
+  title: string;
+  sub: string;
+  onPress: () => void;
 }) {
   return (
-    <View style={styles.featureRow}>
-      <View style={styles.featureIcon}>
-        <Ionicons name={icon} size={rs(18)} color={colors.accentGreen} />
+    <Pressable style={styles.sheetRow} onPress={onPress}>
+      <View style={styles.sheetIcon}>
+        <Ionicons name={icon} size={rs(20)} color={TAB_GREEN} />
       </View>
-      <Text style={styles.featureText}>{label}</Text>
-    </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.sheetRowTitle}>{title}</Text>
+        <Text style={styles.sheetRowSub}>{sub}</Text>
+      </View>
+    </Pressable>
   );
 }
 
-function makeStyles(c: ThemeColors) {
-  return StyleSheet.create({
-    root: { flex: 1, backgroundColor: c.bg },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: rs(12),
-      paddingVertical: rs(12),
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
-    },
-    title: { color: c.text, fontSize: rs(16), fontWeight: '800' },
-    emptyBody: {
-      padding: rs(20),
-      alignItems: 'center',
-      paddingBottom: rs(100),
-    },
-    logoCircle: {
-      width: rs(72),
-      height: rs(72),
-      borderRadius: rs(36),
-      backgroundColor: c.primarySoft,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: rs(16),
-    },
-    heroTitle: {
-      color: c.text,
-      fontSize: rs(20),
-      fontWeight: '800',
-      textAlign: 'center',
-      marginBottom: rs(10),
-    },
-    heroText: {
-      color: c.textSecondary,
-      fontSize: rs(13),
-      textAlign: 'center',
-      lineHeight: rs(20),
-      marginBottom: rs(20),
-    },
-    featureRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(12),
-      width: '100%',
-      marginBottom: rs(12),
-    },
-    featureIcon: {
-      width: rs(36),
-      height: rs(36),
-      borderRadius: rs(8),
-      backgroundColor: c.surface,
-      borderWidth: 1,
-      borderColor: c.borderMuted,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    featureText: { color: c.text, fontSize: rs(13), fontWeight: '600', flex: 1 },
-    outlineBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(8),
-      borderWidth: 1,
-      borderColor: c.accentGreen,
-      borderRadius: rs(22),
-      paddingHorizontal: rs(18),
-      paddingVertical: rs(10),
-      marginTop: rs(10),
-    },
-    outlineBtnText: { color: c.accentGreen, fontWeight: '700', fontSize: rs(13) },
-    fab: {
-      position: 'absolute',
-      left: rs(16),
-      right: rs(16),
-      bottom: 0,
-      backgroundColor: c.primary,
-      borderRadius: rs(24),
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: rs(8),
-      paddingVertical: rs(14),
-    },
-    fabText: { color: '#FFF', fontWeight: '800', fontSize: rs(14) },
-    form: {
-      flexDirection: 'row',
-      gap: rs(8),
-      padding: rs(12),
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
-    },
-    input: {
-      flex: 1,
-      backgroundColor: c.surface,
-      borderWidth: 1,
-      borderColor: c.borderMuted,
-      borderRadius: rs(10),
-      paddingHorizontal: rs(12),
-      paddingVertical: rs(10),
-      color: c.text,
-      fontSize: rs(13),
-    },
-    saveBtn: {
-      backgroundColor: c.primary,
-      borderRadius: rs(10),
-      paddingHorizontal: rs(16),
-      justifyContent: 'center',
-    },
-    saveBtnText: { color: '#FFF', fontWeight: '800' },
-    listBody: { padding: rs(12), gap: rs(10) },
-    card: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(12),
-      backgroundColor: c.surface,
-      borderRadius: rs(12),
-      borderWidth: 1,
-      borderColor: c.borderMuted,
-      padding: rs(14),
-      marginBottom: rs(10),
-    },
-    cardIcon: {
-      width: rs(40),
-      height: rs(40),
-      borderRadius: rs(10),
-      backgroundColor: c.primarySoft,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    cardTitle: { color: c.text, fontWeight: '800', fontSize: rs(14) },
-    cardSub: { color: c.textMuted, fontSize: rs(12), marginTop: rs(2) },
-    importBar: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: rs(8),
-      marginHorizontal: rs(12),
-      marginTop: rs(10),
-      borderWidth: 1,
-      borderColor: c.accentGreen,
-      borderRadius: rs(12),
-      paddingVertical: rs(11),
-    },
-    importBarText: { color: c.accentGreen, fontWeight: '700', fontSize: rs(13) },
-    modalBackdrop: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.5)',
-      justifyContent: 'flex-end',
-    },
-    sheet: {
-      backgroundColor: c.bg,
-      borderTopLeftRadius: rs(18),
-      borderTopRightRadius: rs(18),
-      padding: rs(18),
-      gap: rs(6),
-    },
-    sheetTitle: { color: c.text, fontSize: rs(16), fontWeight: '800' },
-    sheetSub: {
-      color: c.textMuted,
-      fontSize: rs(12),
-      marginBottom: rs(8),
-    },
-    selectRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: rs(4),
-    },
-    selectAction: { color: c.accentGreen, fontWeight: '800', fontSize: rs(13) },
-    selectCount: { color: c.textMuted, fontWeight: '600', fontSize: rs(12) },
-    acctRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(12),
-      backgroundColor: c.surface,
-      borderRadius: rs(12),
-      borderWidth: 1,
-      borderColor: c.borderMuted,
-      padding: rs(12),
-      marginTop: rs(8),
-    },
-    acctIcon: {
-      width: rs(34),
-      height: rs(34),
-      borderRadius: rs(9),
-      backgroundColor: c.primarySoft,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    acctName: { color: c.text, fontWeight: '700', fontSize: rs(13) },
-    acctSub: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
-    importSelectedBtn: {
-      marginTop: rs(14),
-      backgroundColor: c.primary,
-      borderRadius: rs(24),
-      paddingVertical: rs(13),
-      alignItems: 'center',
-    },
-    importSelectedText: { color: '#FFF', fontWeight: '800', fontSize: rs(14) },
-    cancelBtn: {
-      alignItems: 'center',
-      paddingVertical: rs(13),
-      marginTop: rs(4),
-    },
-    cancelBtnText: { color: c.textSecondary, fontWeight: '700', fontSize: rs(13) },
-  });
-}
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: PAGE_BG },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: rs(14),
+    paddingVertical: rs(10),
+  },
+  title: { color: '#111', fontSize: rs(17), fontWeight: '800' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: rs(14) },
+  list: { paddingHorizontal: rs(14), gap: rs(12) },
+  hero: {
+    backgroundColor: '#D8E0D0',
+    borderRadius: rs(18),
+    padding: rs(18),
+    marginBottom: rs(4),
+  },
+  heroLabel: {
+    color: '#555',
+    fontSize: rs(11),
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  heroValue: {
+    color: '#111',
+    fontSize: rs(28),
+    fontWeight: '800',
+    marginTop: rs(4),
+  },
+  heroSub: { color: '#666', fontSize: rs(13), marginTop: rs(4) },
+  pillRow: { flexDirection: 'row', gap: rs(8), marginTop: rs(14) },
+  pill: {
+    backgroundColor: PILL_BG,
+    borderRadius: rs(14),
+    paddingHorizontal: rs(10),
+    paddingVertical: rs(5),
+  },
+  pillText: { color: '#444', fontSize: rs(11), fontWeight: '600' },
+  card: {
+    backgroundColor: '#FFF',
+    borderRadius: rs(16),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.08)',
+    padding: rs(14),
+    marginTop: rs(10),
+  },
+  cardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  cardLeft: { flexDirection: 'row', alignItems: 'center', gap: rs(10) },
+  indexBadge: {
+    width: rs(28),
+    height: rs(28),
+    borderRadius: rs(8),
+    backgroundColor: FAB_GREEN,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  indexText: { color: '#111', fontWeight: '800', fontSize: rs(12) },
+  cardName: { color: '#111', fontWeight: '800', fontSize: rs(15) },
+  cardUnits: { color: '#777', fontSize: rs(12), marginTop: rs(2) },
+  cardValue: { color: '#111', fontWeight: '800', fontSize: rs(15) },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+    marginVertical: rs(12),
+  },
+  cardBottom: { flexDirection: 'row', justifyContent: 'space-between' },
+  metaLabel: { color: '#888', fontSize: rs(11), marginBottom: rs(3) },
+  metaValue: { color: '#111', fontWeight: '800', fontSize: rs(14) },
+  empty: {
+    textAlign: 'center',
+    color: '#777',
+    marginTop: rs(40),
+    fontSize: rs(13),
+  },
+  addBtn: {
+    position: 'absolute',
+    left: rs(14),
+    right: rs(14),
+    bottom: 0,
+    backgroundColor: FAB_GREEN,
+    borderRadius: rs(28),
+    paddingVertical: rs(14),
+    alignItems: 'center',
+  },
+  addBtnText: { color: '#111', fontWeight: '800', fontSize: rs(15) },
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#FFF',
+    borderTopLeftRadius: rs(20),
+    borderTopRightRadius: rs(20),
+    padding: rs(18),
+    paddingBottom: rs(28),
+  },
+  handle: {
+    alignSelf: 'center',
+    width: rs(40),
+    height: rs(4),
+    borderRadius: 2,
+    backgroundColor: '#CCC',
+    marginBottom: rs(14),
+  },
+  sheetTitle: {
+    color: '#111',
+    fontSize: rs(17),
+    fontWeight: '800',
+    marginBottom: rs(10),
+  },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rs(12),
+    paddingVertical: rs(12),
+  },
+  sheetIcon: {
+    width: rs(40),
+    height: rs(40),
+    borderRadius: rs(12),
+    backgroundColor: '#E8F0E4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetRowTitle: { color: '#111', fontWeight: '700', fontSize: rs(14) },
+  sheetRowSub: { color: '#777', fontSize: rs(11), marginTop: rs(2) },
+  createSheet: {
+    backgroundColor: '#FFF',
+    marginHorizontal: rs(20),
+    marginBottom: rs(120),
+    borderRadius: rs(16),
+    padding: rs(18),
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#DDD',
+    borderRadius: rs(12),
+    paddingHorizontal: rs(12),
+    paddingVertical: rs(12),
+    color: '#111',
+    fontSize: rs(14),
+    marginTop: rs(8),
+    marginBottom: rs(14),
+  },
+  primaryBtn: {
+    backgroundColor: TAB_GREEN,
+    borderRadius: rs(24),
+    paddingVertical: rs(13),
+    alignItems: 'center',
+    marginTop: rs(8),
+  },
+  primaryBtnText: { color: '#FFF', fontWeight: '800', fontSize: rs(14) },
+  btnBusy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rs(8),
+  },
+  acctRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rs(10),
+    paddingVertical: rs(10),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#EEE',
+  },
+  busyOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(228,234,217,0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: rs(10),
+  },
+  busyText: { color: '#333', fontWeight: '600' },
+});
