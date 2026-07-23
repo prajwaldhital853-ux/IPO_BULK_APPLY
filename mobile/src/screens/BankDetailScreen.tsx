@@ -15,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormField } from '../components/FormField';
+import { KeyboardSheetModal } from '../components/KeyboardSheetModal';
 import { LocalDisclaimer } from '../components/LocalDisclaimer';
 import { useAccounts } from '../context/AccountsContext';
 import { useSubscription } from '../context/SubscriptionContext';
@@ -69,78 +70,23 @@ function CredentialsSheet({
   children: React.ReactNode;
   footer: React.ReactNode;
 }) {
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-
-  useEffect(() => {
-    if (!visible) {
-      setKeyboardHeight(0);
-      return;
-    }
-    const showEvent =
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent =
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const onShow = Keyboard.addListener(showEvent, (e) => {
-      setKeyboardHeight(e.endCoordinates.height);
-    });
-    const onHide = Keyboard.addListener(hideEvent, () => {
-      setKeyboardHeight(0);
-    });
-    return () => {
-      onShow.remove();
-      onHide.remove();
-    };
-  }, [visible]);
-
-  // RN Modal on Android is a separate Dialog window — it does NOT follow
-  // softwareKeyboardLayoutMode: 'resize'. Expo Go can look fine without lift;
-  // production APK needs an explicit offset on both platforms.
-  const keyboardOpen = keyboardHeight > 0;
-  const lift = keyboardOpen
-    ? Math.max(0, keyboardHeight - insets.bottom)
-    : 0;
-  const bottomPad = keyboardOpen
-    ? rs(8)
-    : Math.max(insets.bottom, rs(16));
-
   return (
-    <Modal
+    <KeyboardSheetModal
       visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      onRequestClose={() => Keyboard.dismiss()}
+      onClose={() => Keyboard.dismiss()}
+      title="CRN & Transaction PIN"
+      subtitle="Enter details from your bank / ASBA, then verify."
+      footer={footer}
+      bottomInset={insets.bottom}
+      sheetStyle={styles.sheet}
+      backdropStyle={styles.sheetBackdrop}
+      handleStyle={styles.sheetHandle}
+      titleStyle={styles.sheetTitle}
+      subtitleStyle={styles.sheetSubtitle}
+      footerStyle={styles.sheetFooter}
     >
-      <View style={styles.sheetRoot} pointerEvents="box-none">
-        <Pressable
-          style={styles.sheetBackdrop}
-          onPress={() => Keyboard.dismiss()}
-        />
-        <View
-          style={[
-            styles.sheet,
-            { paddingBottom: bottomPad, marginBottom: lift },
-          ]}
-        >
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-            style={styles.sheetScrollView}
-            contentContainerStyle={styles.sheetScroll}
-          >
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>CRN & Transaction PIN</Text>
-            <Text style={styles.sheetSubtitle}>
-              Enter details from your bank / ASBA, then verify.
-            </Text>
-            {children}
-          </ScrollView>
-          <View style={styles.sheetFooter}>{footer}</View>
-        </View>
-      </View>
-    </Modal>
+      {children}
+    </KeyboardSheetModal>
   );
 }
 
