@@ -64,9 +64,21 @@ export async function runIssueManagerBulkCheck(opts: {
   accounts: AccountMeta[];
   company: IssueManagerCompany;
   onProgress?: (msg: string, index: number, total: number) => void;
+  /** Fires as soon as each account finishes — for live card updates. */
+  onAccountResult?: (
+    row: IssueManagerBulkRow,
+    index: number,
+    total: number,
+  ) => void;
 }): Promise<IssueManagerBulkSummary> {
   const resolved = await resolveBoidsForAccounts(opts.accounts);
   const results: IssueManagerBulkRow[] = [];
+  const total = resolved.length;
+
+  const emit = (row: IssueManagerBulkRow, i: number) => {
+    results.push(row);
+    opts.onAccountResult?.(row, i, total);
+  };
 
   for (let i = 0; i < resolved.length; i++) {
     const row = resolved[i];
@@ -77,40 +89,49 @@ export async function runIssueManagerBulkCheck(opts: {
     );
 
     if (!row.boid) {
-      results.push({
-        accountId: row.account.id,
-        accountName: row.account.name,
-        username: row.account.username,
-        ok: false,
-        allotted: false,
-        message: row.error ?? 'Missing BOID',
-      });
+      emit(
+        {
+          accountId: row.account.id,
+          accountName: row.account.name,
+          username: row.account.username,
+          ok: false,
+          allotted: false,
+          message: row.error ?? 'Missing BOID',
+        },
+        i,
+      );
       continue;
     }
 
     const masked = maskBoid(row.boid);
     try {
       const check = await checkViaIssueManager(opts.company, row.boid);
-      results.push({
-        accountId: row.account.id,
-        accountName: row.account.name,
-        username: row.account.username,
-        boidMasked: masked,
-        ok: check.ok,
-        allotted: check.allotted,
-        quantity: check.quantity,
-        message: formatAllotmentMessage(check),
-      });
+      emit(
+        {
+          accountId: row.account.id,
+          accountName: row.account.name,
+          username: row.account.username,
+          boidMasked: masked,
+          ok: check.ok,
+          allotted: check.allotted,
+          quantity: check.quantity,
+          message: formatAllotmentMessage(check),
+        },
+        i,
+      );
     } catch (e) {
-      results.push({
-        accountId: row.account.id,
-        accountName: row.account.name,
-        username: row.account.username,
-        boidMasked: masked,
-        ok: false,
-        allotted: false,
-        message: e instanceof Error ? e.message : 'Check failed',
-      });
+      emit(
+        {
+          accountId: row.account.id,
+          accountName: row.account.name,
+          username: row.account.username,
+          boidMasked: masked,
+          ok: false,
+          allotted: false,
+          message: e instanceof Error ? e.message : 'Check failed',
+        },
+        i,
+      );
     }
 
     if (i < resolved.length - 1) {

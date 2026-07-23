@@ -100,6 +100,7 @@ export async function addAccountWithSecrets(
     crnPinVerified: meta.crnPinVerified,
     boidHint: meta.boidHint,
     demat: meta.demat,
+    addedAt: meta.addedAt ?? new Date().toISOString(),
   };
   await saveSecrets(id, secrets);
   await saveAccountMeta([...list, next]);

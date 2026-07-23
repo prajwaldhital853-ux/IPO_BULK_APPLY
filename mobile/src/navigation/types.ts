@@ -62,6 +62,7 @@ export type RootStackParamList = {
   AdminDashboard: undefined;
   AdminSettings: undefined;
   AdminTeam: undefined;
+  AdminMarketClosures: undefined;
   AdminForgotPassword: undefined;
   AppSettings: undefined;
   FeedbackForm: { kind: 'feedback' | 'feature_request' };

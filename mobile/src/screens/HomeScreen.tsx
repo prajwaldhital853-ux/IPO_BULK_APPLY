@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,6 +35,177 @@ import type { RootStackParamList } from '../navigation/types';
 import type { AccountMeta } from '../types/account';
 import { MEROSHARE_WEB_HOME } from '../services/meroshare/webSession';
 
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
+function formatAddedOn(item: AccountMeta): string {
+  let d: Date | null = null;
+  if (item.addedAt) {
+    const parsed = new Date(item.addedAt);
+    if (!Number.isNaN(parsed.getTime())) d = parsed;
+  }
+  if (!d && item.id.startsWith('acc_')) {
+    const n = Number(item.id.replace(/^acc_/, '').split('_')[0]);
+    if (Number.isFinite(n) && n > 1e11) d = new Date(n);
+  }
+  if (!d) return '—';
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function AccountCard({
+  item,
+  index,
+  isActive,
+  searching,
+  onOpen,
+  onDrag,
+  styles,
+  colors,
+  compact,
+}: {
+  item: AccountMeta;
+  index: number;
+  isActive: boolean;
+  searching: boolean;
+  onOpen: () => void;
+  onDrag: () => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: ThemeColors;
+  compact: boolean;
+}) {
+  const active = item.verified !== false;
+  const statusColor = active ? colors.primary : colors.danger;
+  const statusLabel = active ? 'Active' : 'Inactive';
+
+  return (
+    <ScaleDecorator>
+      <Pressable
+        style={[styles.card, isActive && styles.cardActive]}
+        onPress={onOpen}
+        disabled={isActive}
+      >
+        <View style={styles.cardAccent} />
+        <View style={styles.cardInner}>
+          <View style={styles.cardTop}>
+            <View style={styles.indexWrap}>
+              <Text style={styles.indexText}>{index + 1}</Text>
+              {active ? (
+                <View style={styles.indexBadge}>
+                  <Ionicons name="checkmark" size={rs(9)} color="#FFF" />
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.cardBody}>
+              <View style={styles.nameRow}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {item.name.toUpperCase()}
+                </Text>
+                {active ? (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={rs(15)}
+                    color={colors.primary}
+                  />
+                ) : null}
+              </View>
+              <Text style={styles.username} numberOfLines={1}>
+                Username : {item.username}
+              </Text>
+            </View>
+
+            <Pressable
+              onLongPress={searching ? undefined : onDrag}
+              delayLongPress={120}
+              hitSlop={8}
+              style={styles.menuBtn}
+              disabled={searching}
+            >
+              <Ionicons
+                name="menu"
+                size={rs(18)}
+                color={searching ? colors.textDim : colors.primary}
+              />
+            </Pressable>
+          </View>
+
+          <View style={styles.cardDivider} />
+
+          <View style={[styles.metaRow, compact && styles.metaRowCompact]}>
+            <View style={[styles.metaCol, compact && styles.metaColCompact]}>
+              <View style={styles.metaIcon}>
+                <Ionicons name="person" size={rs(13)} color={colors.primary} />
+              </View>
+              <View style={styles.metaTextWrap}>
+                <Text style={styles.metaLabel} numberOfLines={1}>
+                  Account Status
+                </Text>
+                <Text
+                  style={[styles.metaValue, { color: statusColor }]}
+                  numberOfLines={1}
+                >
+                  {statusLabel}
+                </Text>
+              </View>
+            </View>
+
+            {!compact ? <View style={styles.metaSep} /> : null}
+
+            <View style={[styles.metaCol, compact && styles.metaColCompact]}>
+              <View style={styles.metaIcon}>
+                <Ionicons
+                  name="calendar-outline"
+                  size={rs(13)}
+                  color={colors.primary}
+                />
+              </View>
+              <View style={styles.metaTextWrap}>
+                <Text style={styles.metaLabel} numberOfLines={1}>
+                  Added On
+                </Text>
+                <Text style={styles.metaValue} numberOfLines={1}>
+                  {formatAddedOn(item)}
+                </Text>
+              </View>
+            </View>
+
+            {!compact ? <View style={styles.metaSep} /> : null}
+
+            <View style={[styles.metaCol, compact && styles.metaColCompact]}>
+              <View style={styles.metaIcon}>
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={rs(13)}
+                  color={colors.primary}
+                />
+              </View>
+              <View style={styles.metaTextWrap}>
+                <Text style={styles.metaLabel} numberOfLines={1}>
+                  Account Type
+                </Text>
+                <Text style={styles.metaValue} numberOfLines={1}>
+                  MeroShare
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Pressable>
+    </ScaleDecorator>
+  );
+}
 
 export function HomeScreen() {
   const navigation =
@@ -48,6 +220,8 @@ export function HomeScreen() {
   } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const compact = width < 370;
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const goAddCapital = useCallback(() => {
@@ -133,48 +307,20 @@ export function HomeScreen() {
     ({ item, getIndex, drag, isActive }: RenderItemParams<AccountMeta>) => {
       const index = getIndex() ?? 0;
       return (
-        <ScaleDecorator>
-          <Pressable
-            style={[styles.card, isActive && styles.cardActive]}
-            onPress={() => openSheet(item, index)}
-            disabled={isActive}
-          >
-            <View style={styles.indexBadge}>
-              <Text style={styles.indexText}>{index + 1}</Text>
-            </View>
-            <View style={styles.cardBody}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {item.name.toUpperCase()}
-                </Text>
-                {item.verified ? (
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={rs(16)}
-                    color={colors.accentGreen}
-                  />
-                ) : null}
-              </View>
-              <Text style={styles.username}>Username : {item.username}</Text>
-            </View>
-            <Pressable
-              onLongPress={searching ? undefined : drag}
-              delayLongPress={120}
-              hitSlop={8}
-              style={styles.dragHandle}
-              disabled={searching}
-            >
-              <Ionicons
-                name="reorder-three"
-                size={rs(22)}
-                color={searching ? colors.textDim : colors.textSecondary}
-              />
-            </Pressable>
-          </Pressable>
-        </ScaleDecorator>
+        <AccountCard
+          item={item}
+          index={index}
+          isActive={isActive}
+          searching={searching}
+          onOpen={() => openSheet(item, index)}
+          onDrag={drag}
+          styles={styles}
+          colors={colors}
+          compact={compact}
+        />
       );
     },
-    [colors.accentGreen, colors.textDim, colors.textSecondary, openSheet, searching, styles],
+    [colors, compact, openSheet, searching, styles],
   );
 
   return (
@@ -233,9 +379,13 @@ export function HomeScreen() {
           ) : null}
 
           <View style={styles.listHead}>
-            <Text style={styles.total}>
-              Total Accounts : {accounts.length}/{maxAccounts}
-            </Text>
+            <View style={styles.totalWrap}>
+              <Text style={styles.totalLabel}>Total Accounts</Text>
+              <Text style={styles.totalCount}>
+                <Text style={styles.totalCountOn}>{accounts.length}</Text>
+                <Text style={styles.totalCountMax}> / {maxAccounts}</Text>
+              </Text>
+            </View>
             <View style={styles.listActions}>
               <Pressable
                 onPress={() =>
@@ -262,27 +412,31 @@ export function HomeScreen() {
                     ],
                   )
                 }
-                hitSlop={8}
+                hitSlop={6}
                 style={styles.iconBtn}
               >
-                <Ionicons name="flask-outline" size={rs(20)} color={colors.text} />
+                <Ionicons
+                  name="filter-outline"
+                  size={rs(18)}
+                  color={colors.text}
+                />
               </Pressable>
               <Pressable
                 onPress={() => setSearchOpen((v) => !v)}
-                hitSlop={8}
+                hitSlop={6}
                 style={styles.iconBtn}
               >
-                <Ionicons name="search" size={rs(20)} color={colors.text} />
+                <Ionicons name="search" size={rs(18)} color={colors.text} />
               </Pressable>
               <Pressable
                 onPress={() => void exportAccounts()}
-                hitSlop={8}
+                hitSlop={6}
                 style={styles.iconBtn}
                 disabled={!accounts.length}
               >
                 <Ionicons
                   name="share-outline"
-                  size={rs(20)}
+                  size={rs(18)}
                   color={accounts.length ? colors.text : colors.textMuted}
                 />
               </Pressable>
@@ -290,15 +444,15 @@ export function HomeScreen() {
                 onPress={() =>
                   Alert.alert(
                     'Accounts',
-                    'Tap a card to open details. Long-press the ≡ handle on the right to drag and reorder. Use + to add a MeroShare account.',
+                    'Tap a card to open details. Long-press the menu handle on the right to drag and reorder. Use + to add a MeroShare account.',
                   )
                 }
-                hitSlop={8}
+                hitSlop={6}
                 style={styles.iconBtn}
               >
                 <Ionicons
                   name="information-circle-outline"
-                  size={rs(20)}
+                  size={rs(18)}
                   color={colors.text}
                 />
               </Pressable>
@@ -415,10 +569,32 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: HOME_H_PAD,
       paddingTop: rs(12),
       paddingBottom: rs(10),
+      gap: rs(8),
     },
-    total: { color: c.text, fontSize: rs(14), fontWeight: '700' },
-    listActions: { flexDirection: 'row', alignItems: 'center', gap: rs(2) },
-    iconBtn: { padding: rs(6) },
+    totalWrap: { flexShrink: 1 },
+    totalLabel: { color: c.text, fontSize: rs(14), fontWeight: '800' },
+    totalCount: { marginTop: rs(2) },
+    totalCountOn: {
+      color: c.primary,
+      fontSize: rs(16),
+      fontWeight: '800',
+    },
+    totalCountMax: {
+      color: c.textMuted,
+      fontSize: rs(13),
+      fontWeight: '600',
+    },
+    listActions: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
+    iconBtn: {
+      width: rs(34),
+      height: rs(34),
+      borderRadius: rs(8),
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: c.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     listFlex: { flex: 1 },
     list: {
       paddingHorizontal: HOME_H_PAD,
@@ -428,41 +604,140 @@ function makeStyles(c: ThemeColors) {
     listEmpty: { flexGrow: 1, paddingBottom: rs(100) },
     card: {
       flexDirection: 'row',
-      alignItems: 'center',
-      borderWidth: 1,
-      borderColor: c.borderMuted,
       borderRadius: rs(14),
-      paddingVertical: rs(12),
-      paddingHorizontal: rs(12),
       marginBottom: HOME_CARD_GAP,
       backgroundColor: c.surface,
-      gap: rs(10),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      overflow: 'hidden',
+      elevation: 2,
+      shadowColor: '#000',
+      shadowOpacity: 0.08,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
     },
     cardActive: {
-      opacity: 0.92,
+      opacity: 0.94,
       borderColor: c.primary,
       elevation: 4,
     },
-    indexBadge: {
-      width: rs(32),
-      height: rs(32),
-      borderRadius: rs(8),
-      backgroundColor: c.surfaceAlt,
+    cardAccent: {
+      width: rs(5),
+      backgroundColor: c.primary,
+    },
+    cardInner: {
+      flex: 1,
+      paddingVertical: rs(13),
+      paddingHorizontal: rs(16),
+    },
+    cardTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(11),
+    },
+    indexWrap: {
+      width: rs(46),
+      height: rs(46),
+      borderRadius: rs(11),
+      backgroundColor: c.primarySoft,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    indexText: { color: c.text, fontWeight: '700', fontSize: rs(13) },
-    cardBody: { flex: 1 },
-    nameRow: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
+    indexText: {
+      color: c.primary,
+      fontWeight: '800',
+      fontSize: rs(19),
+    },
+    indexBadge: {
+      position: 'absolute',
+      right: -rs(2),
+      bottom: -rs(2),
+      width: rs(17),
+      height: rs(17),
+      borderRadius: rs(9),
+      backgroundColor: c.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1.5,
+      borderColor: c.surface,
+    },
+    cardBody: { flex: 1, minWidth: 0 },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(5),
+    },
     name: {
       flexShrink: 1,
       color: c.text,
       fontWeight: '800',
-      fontSize: rs(14),
+      fontSize: rs(15),
       letterSpacing: 0.2,
     },
-    username: { color: c.textSecondary, fontSize: rs(12), marginTop: rs(3) },
-    dragHandle: { padding: rs(4) },
+    username: {
+      color: c.textSecondary,
+      fontSize: rs(13),
+      marginTop: rs(4),
+    },
+    menuBtn: {
+      width: rs(36),
+      height: rs(36),
+      borderRadius: rs(9),
+      backgroundColor: c.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    cardDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: c.borderMuted,
+      marginVertical: rs(13),
+    },
+    metaRow: {
+      flexDirection: 'row',
+      alignItems: 'stretch',
+    },
+    metaRowCompact: {
+      flexWrap: 'wrap',
+      gap: rs(8),
+    },
+    metaCol: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(6),
+      minWidth: 0,
+      paddingHorizontal: rs(2),
+    },
+    metaColCompact: {
+      flexBasis: '47%',
+      flexGrow: 1,
+      paddingHorizontal: 0,
+    },
+    metaSep: {
+      width: StyleSheet.hairlineWidth,
+      backgroundColor: c.borderMuted,
+      marginVertical: rs(2),
+    },
+    metaIcon: {
+      width: rs(28),
+      height: rs(28),
+      borderRadius: rs(14),
+      backgroundColor: c.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    metaTextWrap: { flex: 1, minWidth: 0 },
+    metaLabel: {
+      color: c.textMuted,
+      fontSize: rs(10),
+      fontWeight: '600',
+    },
+    metaValue: {
+      color: c.text,
+      fontSize: rs(12),
+      fontWeight: '700',
+      marginTop: rs(1),
+    },
     fab: {
       position: 'absolute',
       right: HOME_H_PAD,

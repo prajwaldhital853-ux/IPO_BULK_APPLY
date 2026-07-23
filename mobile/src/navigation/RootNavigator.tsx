@@ -53,6 +53,7 @@ import { AdminLoginScreen } from '../screens/AdminLoginScreen';
 import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
 import { AdminSettingsScreen } from '../screens/AdminSettingsScreen';
 import { AdminTeamScreen } from '../screens/AdminTeamScreen';
+import { AdminMarketClosuresScreen } from '../screens/AdminMarketClosuresScreen';
 import { AdminForgotPasswordScreen } from '../screens/AdminForgotPasswordScreen';
 import { AppSettingsScreen } from '../screens/AppSettingsScreen';
 import { FeedbackFormScreen } from '../screens/FeedbackFormScreen';
@@ -190,6 +191,10 @@ function RootStack() {
       <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
       <Stack.Screen name="AdminSettings" component={AdminSettingsScreen} />
       <Stack.Screen name="AdminTeam" component={AdminTeamScreen} />
+      <Stack.Screen
+        name="AdminMarketClosures"
+        component={AdminMarketClosuresScreen}
+      />
       <Stack.Screen name="AdminForgotPassword" component={AdminForgotPasswordScreen} />
       <Stack.Screen name="AppSettings" component={AppSettingsScreen} />
       <Stack.Screen name="FeedbackForm" component={FeedbackFormScreen} />

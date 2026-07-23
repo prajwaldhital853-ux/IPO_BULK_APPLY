@@ -152,6 +152,28 @@ class TeamMember(Base):
     )
 
 
+class MarketClosure(Base):
+    """Unexpected NEPSE closed day + notice, managed from the admin panel."""
+
+    __tablename__ = 'market_closures'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    date: Mapped[str] = mapped_column(String(10), unique=True, index=True)
+    title: Mapped[str] = mapped_column(String(256), default='NEPSE Closed')
+    notice: Mapped[str] = mapped_column(Text, default='')
+    color: Mapped[str] = mapped_column(String(16), default='#E53935')
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class AdminOtpReset(Base):
     __tablename__ = 'admin_otp_resets'
 

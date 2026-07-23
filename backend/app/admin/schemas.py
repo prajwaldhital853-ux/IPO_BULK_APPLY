@@ -227,3 +227,24 @@ class TeamMemberIn(BaseModel):
     clear_photo: bool = Field(default=False, alias='clearPhoto')
 
     model_config = {'populate_by_name': True}
+
+
+class MarketClosureOut(BaseModel):
+    id: str
+    date: str
+    title: str
+    notice: str
+    color: str
+    active: bool
+
+    model_config = {'populate_by_name': True}
+
+
+class MarketClosureIn(BaseModel):
+    date: str
+    title: str = 'NEPSE Closed'
+    notice: str = ''
+    color: str = '#E53935'
+    active: bool = True
+
+    model_config = {'populate_by_name': True}

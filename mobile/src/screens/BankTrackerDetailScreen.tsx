@@ -454,6 +454,11 @@ export function BankTrackerDetailScreen() {
         styles={styles}
         colors={colors}
         insets={insets}
+        footer={
+          <Pressable style={styles.primaryBtn} onPress={doStart}>
+            <Text style={styles.primaryBtnText}>Start</Text>
+          </Pressable>
+        }
       >
         <MoneyInput
           label="Opening balance (Rs)"
@@ -462,9 +467,6 @@ export function BankTrackerDetailScreen() {
           styles={styles}
           colors={colors}
         />
-        <Pressable style={styles.primaryBtn} onPress={doStart}>
-          <Text style={styles.primaryBtnText}>Start</Text>
-        </Pressable>
       </SheetModal>
 
       {/* Deposit / Withdraw / Adjust */}
@@ -488,6 +490,17 @@ export function BankTrackerDetailScreen() {
         styles={styles}
         colors={colors}
         insets={insets}
+        footer={
+          <Pressable style={styles.primaryBtn} onPress={doAction}>
+            <Text style={styles.primaryBtnText}>
+              {action === 'deposit'
+                ? 'Deposit'
+                : action === 'withdraw'
+                  ? 'Withdraw'
+                  : 'Save'}
+            </Text>
+          </Pressable>
+        }
       >
         <MoneyInput
           label={action === 'adjust' ? 'New balance (Rs)' : 'Amount (Rs)'}
@@ -496,15 +509,6 @@ export function BankTrackerDetailScreen() {
           styles={styles}
           colors={colors}
         />
-        <Pressable style={styles.primaryBtn} onPress={doAction}>
-          <Text style={styles.primaryBtnText}>
-            {action === 'deposit'
-              ? 'Deposit'
-              : action === 'withdraw'
-                ? 'Withdraw'
-                : 'Save'}
-          </Text>
-        </Pressable>
       </SheetModal>
 
       {/* Edit opening balance */}
@@ -516,6 +520,11 @@ export function BankTrackerDetailScreen() {
         styles={styles}
         colors={colors}
         insets={insets}
+        footer={
+          <Pressable style={styles.primaryBtn} onPress={doSaveEdit}>
+            <Text style={styles.primaryBtnText}>Save</Text>
+          </Pressable>
+        }
       >
         <MoneyInput
           label="Opening balance (Rs)"
@@ -524,9 +533,6 @@ export function BankTrackerDetailScreen() {
           styles={styles}
           colors={colors}
         />
-        <Pressable style={styles.primaryBtn} onPress={doSaveEdit}>
-          <Text style={styles.primaryBtnText}>Save</Text>
-        </Pressable>
       </SheetModal>
 
       {/* Account settings */}
@@ -537,6 +543,11 @@ export function BankTrackerDetailScreen() {
         styles={styles}
         colors={colors}
         insets={insets}
+        footer={
+          <Pressable style={styles.primaryBtn} onPress={doSaveSettings}>
+            <Text style={styles.primaryBtnText}>Save settings</Text>
+          </Pressable>
+        }
       >
         <Text style={styles.settingHeading}>CASBA fee per IPO apply</Text>
         <MoneyInput
@@ -545,6 +556,7 @@ export function BankTrackerDetailScreen() {
           onChangeText={setFeeValue}
           styles={styles}
           colors={colors}
+          autoFocus={false}
         />
         <Text style={styles.settingHint}>
           Charged on each fresh IPO apply. Leave 5 if unsure.
@@ -566,10 +578,6 @@ export function BankTrackerDetailScreen() {
             thumbColor="#FFFFFF"
           />
         </View>
-
-        <Pressable style={styles.primaryBtn} onPress={doSaveSettings}>
-          <Text style={styles.primaryBtnText}>Save settings</Text>
-        </Pressable>
       </SheetModal>
     </View>
   );
@@ -611,12 +619,14 @@ function MoneyInput({
   onChangeText,
   styles,
   colors,
+  autoFocus = true,
 }: {
   label: string;
   value: string;
   onChangeText: (t: string) => void;
   styles: ReturnType<typeof makeStyles>;
   colors: ThemeColors;
+  autoFocus?: boolean;
 }) {
   return (
     <View style={styles.moneyWrap}>
@@ -630,7 +640,7 @@ function MoneyInput({
           keyboardType="numeric"
           placeholder="0"
           placeholderTextColor={colors.textMuted}
-          autoFocus
+          autoFocus={autoFocus}
         />
       </View>
     </View>
@@ -643,6 +653,7 @@ function SheetModal({
   title,
   subtitle,
   children,
+  footer,
   styles,
   insets,
 }: {
@@ -651,6 +662,8 @@ function SheetModal({
   title: string;
   subtitle?: string;
   children: React.ReactNode;
+  /** Pinned above the keypad (Save / Start buttons). */
+  footer?: React.ReactNode;
   styles: ReturnType<typeof makeStyles>;
   colors: ThemeColors;
   insets: { bottom: number };
@@ -678,14 +691,15 @@ function SheetModal({
     };
   }, [visible]);
 
+  // Android uses softwareKeyboardLayoutMode: 'resize' — window already docks
+  // above the keypad. Only iOS needs an explicit lift to sit on the keypad edge.
   const keyboardOpen = keyboardHeight > 0;
-  /** Android already resizes the window — only iOS needs an explicit lift. */
   const lift =
     Platform.OS === 'ios' && keyboardOpen
       ? Math.max(0, keyboardHeight - insets.bottom)
       : 0;
   const bottomPad = keyboardOpen
-    ? rs(10)
+    ? rs(8)
     : Math.max(insets.bottom, rs(16));
 
   return (
@@ -701,10 +715,7 @@ function SheetModal({
         <View
           style={[
             styles.sheet,
-            {
-              paddingBottom: bottomPad,
-              marginBottom: lift,
-            },
+            { paddingBottom: bottomPad, marginBottom: lift },
           ]}
         >
           <ScrollView
@@ -712,6 +723,7 @@ function SheetModal({
             keyboardDismissMode="on-drag"
             showsVerticalScrollIndicator={false}
             bounces={false}
+            style={styles.sheetScrollView}
             contentContainerStyle={styles.sheetScroll}
           >
             <View style={styles.sheetHandle} />
@@ -721,6 +733,7 @@ function SheetModal({
             ) : null}
             {children}
           </ScrollView>
+          {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
         </View>
       </View>
     </Modal>
@@ -779,7 +792,7 @@ function makeStyles(c: ThemeColors) {
       borderRadius: rs(26),
       paddingVertical: rs(14),
       paddingHorizontal: rs(24),
-      marginTop: rs(8),
+      marginTop: rs(4),
     },
     primaryBtnText: { color: c.pillText, fontWeight: '800', fontSize: rs(14) },
     list: { padding: rs(14), paddingBottom: rs(30) },
@@ -928,11 +941,20 @@ function makeStyles(c: ThemeColors) {
       borderTopRightRadius: rs(20),
       paddingHorizontal: rs(18),
       paddingTop: rs(10),
-      maxHeight: '92%',
+      width: '100%',
+    },
+    sheetScrollView: {
+      flexGrow: 0,
+      flexShrink: 1,
     },
     sheetScroll: {
-      paddingBottom: rs(8),
-      flexGrow: 1,
+      paddingBottom: rs(4),
+      flexGrow: 0,
+    },
+    sheetFooter: {
+      paddingTop: rs(8),
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.borderMuted,
     },
     sheetHandle: {
       alignSelf: 'center',

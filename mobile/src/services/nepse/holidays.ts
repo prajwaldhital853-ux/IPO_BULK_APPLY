@@ -1,6 +1,13 @@
 import { NEPSE_WEEKEND_DAYS } from './config';
 import type { NepseHoliday } from './types';
 
+export type AdminClosedDay = {
+  date: string;
+  title: string;
+  notice: string;
+  color: string;
+};
+
 /**
  * NEPSE market holidays (public + exchange closures).
  * Source: NEPSE / Nepal Government holiday calendar — update yearly.
@@ -67,6 +74,33 @@ const RAW: NepseHoliday[] = [
 
 const BY_DATE = new Map(RAW.map((h) => [h.date, h]));
 
+/** Admin-marked unexpected closures (loaded from API). */
+let ADMIN_CLOSED = new Map<string, AdminClosedDay>();
+
+export function setAdminClosedDays(rows: AdminClosedDay[]): void {
+  ADMIN_CLOSED = new Map(
+    rows
+      .filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date))
+      .map((r) => [
+        r.date,
+        {
+          date: r.date,
+          title: r.title || 'NEPSE Closed',
+          notice: r.notice || '',
+          color: r.color || '#E53935',
+        },
+      ]),
+  );
+}
+
+export function getAdminClosedDay(dateIso: string): AdminClosedDay | undefined {
+  return ADMIN_CLOSED.get(dateIso);
+}
+
+export function listAdminClosedDays(): AdminClosedDay[] {
+  return [...ADMIN_CLOSED.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export function getHoliday(dateIso: string): NepseHoliday | undefined {
   return BY_DATE.get(dateIso);
 }
@@ -117,6 +151,7 @@ export function isTradingDay(dateIso: string): boolean {
   const d = parseIso(dateIso);
   if (isWeekendDay(d)) return false;
   if (getHoliday(dateIso)) return false;
+  if (getAdminClosedDay(dateIso)) return false;
   return true;
 }
 

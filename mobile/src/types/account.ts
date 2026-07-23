@@ -24,6 +24,8 @@ export type AccountMeta = {
   boidHint?: string;
   /** Full 16-digit demat / BOID (130 + DP code + username) for public IPO result */
   demat?: string;
+  /** ISO date when the account was added on this device */
+  addedAt?: string;
 };
 
 /** Sensitive fields — SecureStore only */

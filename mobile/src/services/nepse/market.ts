@@ -1,6 +1,7 @@
 import { nepseFetchJson } from './http';
 import { sessionStatus } from './calendar';
-import { nepalTodayIso } from './holidays';
+import { nepalTodayIso, setAdminClosedDays } from './holidays';
+import { fetchMarketClosures } from './marketClosures';
 import { fetchSharehubSnapshot } from './sharehub';
 import type {
   ChartPoint,
@@ -202,6 +203,20 @@ export async function loadNepseMarketSnapshot(
   opts: { allowCache?: boolean } = {},
 ): Promise<NepseMarketSnapshot> {
   const allowCache = opts.allowCache !== false;
+  // Keep unexpected closed days in sync for session / trading-day checks.
+  void fetchMarketClosures()
+    .then((rows) =>
+      setAdminClosedDays(
+        rows.map((c) => ({
+          date: c.date,
+          title: c.title,
+          notice: c.notice,
+          color: c.color,
+        })),
+      ),
+    )
+    .catch(() => undefined);
+
   try {
     const [sharehub, officialSecurities] = await Promise.all([
       fetchSharehubSnapshot(),

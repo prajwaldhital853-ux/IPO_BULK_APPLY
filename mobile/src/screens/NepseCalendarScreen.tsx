@@ -15,11 +15,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import {
+  getAdminClosedDay,
   getHoliday,
+  listAdminClosedDays,
   listUpcomingHolidays,
   nepalTodayIso,
   parseIso,
+  setAdminClosedDays,
 } from '../services/nepse';
+import { fetchMarketClosures } from '../services/nepse/marketClosures';
 import {
   loadPublicOfferingsByType,
   type PublicOffering,
@@ -49,8 +53,9 @@ type CalEvent = {
   id: string;
   date: string;
   title: string;
-  kind: 'open' | 'close' | 'holiday' | 'ipo' | 'fpo' | 'rights';
+  kind: 'open' | 'close' | 'holiday' | 'closed' | 'ipo' | 'fpo' | 'rights';
   subtitle?: string;
+  color?: string;
 };
 
 const FILTERS: {
@@ -70,6 +75,7 @@ const DOT = {
   open: '#43A047',
   close: '#E53935',
   holiday: '#FB8C00',
+  closed: '#E53935',
 };
 
 function isoDay(raw?: string | null): string | null {
@@ -128,15 +134,26 @@ export function NepseCalendarScreen() {
   }>({ ipo: [], fpo: [], rights: [] });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [closuresTick, setClosuresTick] = useState(0);
 
   const load = useCallback(async (force = false) => {
     try {
-      const [ipo, fpo, rights] = await Promise.all([
+      const [ipo, fpo, rights, closures] = await Promise.all([
         loadPublicOfferingsByType('Ipo', force),
         loadPublicOfferingsByType('Fpo', force),
         loadPublicOfferingsByType('Right', force),
+        fetchMarketClosures().catch(() => []),
       ]);
       setOfferings({ ipo, fpo, rights });
+      setAdminClosedDays(
+        closures.map((c) => ({
+          date: c.date,
+          title: c.title,
+          notice: c.notice,
+          color: c.color,
+        })),
+      );
+      setClosuresTick((n) => n + 1);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -157,7 +174,9 @@ export function NepseCalendarScreen() {
         kind: 'holiday',
       });
     }
-    const monthCells = buildBsMonthGrid(bsYear, bsMonth).flat().filter((c) => c.inMonth);
+    const monthCells = buildBsMonthGrid(bsYear, bsMonth)
+      .flat()
+      .filter((c) => c.inMonth);
     for (const cell of monthCells) {
       const h = getHoliday(cell.adIso);
       if (h && !holidayMap.has(cell.adIso)) {
@@ -169,6 +188,15 @@ export function NepseCalendarScreen() {
         });
       }
     }
+
+    const closedEvents: CalEvent[] = listAdminClosedDays().map((c) => ({
+      id: `closed-${c.date}`,
+      date: c.date,
+      title: c.title,
+      kind: 'closed',
+      subtitle: c.notice || undefined,
+      color: c.color,
+    }));
 
     const tag = (kind: 'ipo' | 'fpo' | 'rights', label: string) =>
       offeringEvents(
@@ -185,16 +213,19 @@ export function NepseCalendarScreen() {
 
     return [
       ...holidayMap.values(),
+      ...closedEvents,
       ...tag('ipo', 'IPO'),
       ...tag('fpo', 'FPO'),
       ...tag('rights', 'Rights'),
     ];
-  }, [offerings, todayIso, bsYear, bsMonth]);
+  }, [offerings, todayIso, bsYear, bsMonth, closuresTick]);
 
   const visibleEvents = useMemo(() => {
     if (filter === 'all') return allEvents;
     if (filter === 'holidays') {
-      return allEvents.filter((e) => e.kind === 'holiday');
+      return allEvents.filter(
+        (e) => e.kind === 'holiday' || e.kind === 'closed',
+      );
     }
     return allEvents.filter((e) => e.id.startsWith(`${filter}-`));
   }, [allEvents, filter]);
@@ -230,6 +261,10 @@ export function NepseCalendarScreen() {
   }, [visibleEvents, todayIso]);
 
   const selectedBs = useMemo(() => adIsoToBs(selectedIso), [selectedIso]);
+  const selectedClosed = useMemo(
+    () => getAdminClosedDay(selectedIso),
+    [selectedIso, closuresTick],
+  );
   const selectedDow = useMemo(() => {
     const [y, m, d] = selectedIso.split('-').map(Number);
     return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
@@ -264,6 +299,8 @@ export function NepseCalendarScreen() {
     if (kinds.has('open')) dots.push(DOT.open);
     if (kinds.has('close')) dots.push(DOT.close);
     if (kinds.has('holiday')) dots.push(DOT.holiday);
+    const closed = list.find((e) => e.kind === 'closed');
+    if (closed) dots.push(closed.color || DOT.closed);
     return dots.slice(0, 3);
   };
 
@@ -369,21 +406,26 @@ export function NepseCalendarScreen() {
 
         {weeks.map((week, wi) => (
           <View key={`w${wi}`} style={styles.weekRow}>
-            {week.map((cell) => (
-              <DayCell
-                key={`${cell.adIso}-${cell.inMonth ? 'in' : 'out'}`}
-                cell={cell}
-                selected={cell.adIso === selectedIso && cell.inMonth}
-                isToday={cell.adIso === todayIso && cell.inMonth}
-                dots={cell.inMonth ? dotsFor(cell.adIso) : []}
-                styles={styles}
-                onPress={() => {
-                  if (!cell.inMonth) return;
-                  setSelectedIso(cell.adIso);
-                  setDetailTab('selected');
-                }}
-              />
-            ))}
+            {week.map((cell) => {
+              const closed =
+                cell.inMonth ? getAdminClosedDay(cell.adIso) : undefined;
+              return (
+                <DayCell
+                  key={`${cell.adIso}-${cell.inMonth ? 'in' : 'out'}`}
+                  cell={cell}
+                  selected={cell.adIso === selectedIso && cell.inMonth}
+                  isToday={cell.adIso === todayIso && cell.inMonth}
+                  closedColor={closed?.color}
+                  dots={cell.inMonth ? dotsFor(cell.adIso) : []}
+                  styles={styles}
+                  onPress={() => {
+                    if (!cell.inMonth) return;
+                    setSelectedIso(cell.adIso);
+                    setDetailTab('selected');
+                  }}
+                />
+              );
+            })}
           </View>
         ))}
 
@@ -391,7 +433,37 @@ export function NepseCalendarScreen() {
           <LegendDot color={DOT.open} label="Opens" colors={colors} />
           <LegendDot color={DOT.close} label="Closes" colors={colors} />
           <LegendDot color={DOT.holiday} label="Holiday" colors={colors} />
+          <LegendDot color={DOT.closed} label="Closed" colors={colors} />
         </View>
+
+        {selectedClosed ? (
+          <View
+            style={[
+              styles.closureNotice,
+              { borderLeftColor: selectedClosed.color || DOT.closed },
+            ]}
+          >
+            <View style={styles.closureNoticeHead}>
+              <Ionicons
+                name="alert-circle"
+                size={rs(18)}
+                color={selectedClosed.color || DOT.closed}
+              />
+              <Text style={styles.closureNoticeTitle}>
+                {selectedClosed.title}
+              </Text>
+            </View>
+            {selectedClosed.notice ? (
+              <Text style={styles.closureNoticeBody}>
+                {selectedClosed.notice}
+              </Text>
+            ) : (
+              <Text style={styles.closureNoticeBody}>
+                NEPSE is closed on this day.
+              </Text>
+            )}
+          </View>
+        ) : null}
 
         <View style={styles.tabRow}>
           <Pressable
@@ -528,6 +600,7 @@ function DayCell({
   cell,
   selected,
   isToday,
+  closedColor,
   dots,
   onPress,
   styles,
@@ -535,6 +608,7 @@ function DayCell({
   cell: BsCalendarCell;
   selected: boolean;
   isToday: boolean;
+  closedColor?: string;
   dots: string[];
   onPress: () => void;
   styles: ReturnType<typeof makeStyles>;
@@ -550,6 +624,13 @@ function DayCell({
         style={[
           styles.dayInner,
           weekendBg && styles.dayWeekend,
+          closedColor
+            ? {
+                backgroundColor: `${closedColor}33`,
+                borderWidth: 1,
+                borderColor: closedColor,
+              }
+            : null,
           selected && styles.daySelected,
           isToday && !selected && styles.dayTodayRing,
         ]}
@@ -567,6 +648,7 @@ function DayCell({
             styles.dayBs,
             !cell.inMonth && styles.dayMuted,
             cell.isWeekend && cell.inMonth && styles.dayWeekendText,
+            closedColor ? { color: closedColor, fontWeight: '800' } : null,
             selected && styles.daySelectedText,
           ]}
         >
@@ -576,6 +658,7 @@ function DayCell({
           style={[
             styles.dayAd,
             !cell.inMonth && styles.dayMuted,
+            closedColor ? { color: closedColor } : null,
             selected && styles.daySelectedText,
           ]}
         >
@@ -633,11 +716,13 @@ function EventRow({
   showDate?: boolean;
 }) {
   const color =
-    ev.kind === 'holiday'
-      ? DOT.holiday
-      : ev.kind === 'close'
-        ? DOT.close
-        : DOT.open;
+    ev.kind === 'closed'
+      ? ev.color || DOT.closed
+      : ev.kind === 'holiday'
+        ? DOT.holiday
+        : ev.kind === 'close'
+          ? DOT.close
+          : DOT.open;
   return (
     <View style={styles.eventRow}>
       <View style={[styles.eventDotLg, { backgroundColor: color }]} />
@@ -834,10 +919,35 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     legend: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
       justifyContent: 'center',
-      gap: rs(18),
+      gap: rs(14),
       marginTop: rs(10),
+      marginBottom: rs(10),
+    },
+    closureNotice: {
+      borderLeftWidth: rs(4),
+      backgroundColor: isDark ? 'rgba(229,57,53,0.12)' : 'rgba(229,57,53,0.08)',
+      borderRadius: rs(10),
+      padding: rs(12),
       marginBottom: rs(14),
+      gap: rs(6),
+    },
+    closureNoticeHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+    },
+    closureNoticeTitle: {
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(14),
+      flex: 1,
+    },
+    closureNoticeBody: {
+      color: c.textSecondary,
+      fontSize: rs(13),
+      lineHeight: rs(18),
     },
     tabRow: {
       flexDirection: 'row',

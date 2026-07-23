@@ -22,13 +22,22 @@ export {
 
 export {
   formatIso,
+  getAdminClosedDay,
   getHoliday,
   isTradingDay,
+  listAdminClosedDays,
   listUpcomingHolidays,
   monthLabel,
   nepalTodayIso,
   parseIso,
+  setAdminClosedDays,
+  type AdminClosedDay,
 } from './holidays';
+
+export {
+  fetchMarketClosures,
+  type MarketClosure,
+} from './marketClosures';
 
 export { loadNepseMarketSnapshot } from './market';
 export type { StockListKind, DemandBoardResult, DemandRow } from './screener';

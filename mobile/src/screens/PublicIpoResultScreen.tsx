@@ -6,7 +6,6 @@ import {
   Modal,
   Pressable,
   RefreshControl,
-  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -57,6 +56,8 @@ export function PublicIpoResultScreen() {
   const [loadingCdsc, setLoadingCdsc] = useState(false);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
+  const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [checkComplete, setCheckComplete] = useState(false);
   const [summary, setSummary] = useState<IssueManagerBulkSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [partialWarn, setPartialWarn] = useState<string | null>(null);
@@ -182,6 +183,8 @@ export function PublicIpoResultScreen() {
     setResultsMap({});
     setSummary(null);
     setResultModalOpen(false);
+    setCheckComplete(false);
+    setCheckingId(null);
   }, [selected?.key]);
 
   const toggleCheckAccount = (account: AccountMeta) => {
@@ -194,17 +197,6 @@ export function PublicIpoResultScreen() {
       return [...base, account.id];
     });
   };
-
-  const mergeResults = useCallback((result: IssueManagerBulkSummary) => {
-    setSummary(result);
-    setResultsMap((prev) => {
-      const next = { ...prev };
-      for (const row of result.results) {
-        next[row.accountId] = row;
-      }
-      return next;
-    });
-  }, []);
 
   const runCheck = useCallback(
     (targets: AccountMeta[], openModal: boolean) => {
@@ -220,12 +212,21 @@ export function PublicIpoResultScreen() {
         return;
       }
 
+      const queue = targets.slice();
       void sensitive.requestSensitiveAction(
         async () => {
           setRunning(true);
+          setCheckComplete(false);
           setProgress('Starting…');
+          setCheckingId(queue[0]?.id ?? null);
+          // Clear only the accounts we're about to re-check.
+          setResultsMap((prev) => {
+            const next = { ...prev };
+            for (const a of queue) delete next[a.id];
+            return next;
+          });
           try {
-            for (const a of targets) {
+            for (const a of queue) {
               const built = resolveBoidSync(a);
               if (built && a.demat !== built) {
                 await updateAccountMeta(a.id, {
@@ -236,11 +237,19 @@ export function PublicIpoResultScreen() {
             }
 
             const result = await runIssueManagerBulkCheck({
-              accounts: targets,
+              accounts: queue,
               company: selected,
-              onProgress: (msg) => setProgress(msg),
+              onProgress: (msg, index) => {
+                setProgress(msg);
+                setCheckingId(queue[index]?.id ?? null);
+              },
+              onAccountResult: (row, index) => {
+                setResultsMap((prev) => ({ ...prev, [row.accountId]: row }));
+                setCheckingId(queue[index + 1]?.id ?? null);
+              },
             });
-            mergeResults(result);
+            setSummary(result);
+            setCheckComplete(true);
             if (openModal) setResultModalOpen(true);
           } catch (e) {
             Alert.alert(
@@ -250,12 +259,13 @@ export function PublicIpoResultScreen() {
           } finally {
             setRunning(false);
             setProgress('');
+            setCheckingId(null);
           }
         },
         { pinPolicy: 'skipIfUnlocked' },
       );
     },
-    [loadError, mergeResults, selected, sensitive, updateAccountMeta],
+    [loadError, selected, sensitive, updateAccountMeta],
   );
 
   const onCheckAll = useCallback(() => {
@@ -301,7 +311,8 @@ export function PublicIpoResultScreen() {
     [displayRows],
   );
 
-  const hasChecked = Object.keys(resultsMap).length > 0;
+  const showSummary =
+    checkComplete && !running && Object.keys(resultsMap).length > 0;
 
   const modalAllotted =
     summary?.results.filter((r) => r.ok && r.allotted).length ?? allottedCount;
@@ -375,16 +386,7 @@ export function PublicIpoResultScreen() {
         </Pressable>
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.body}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => void onRefresh()}
-            tintColor={colors.primary}
-          />
-        }
-      >
+      <View style={styles.controls}>
         <Pressable
           style={styles.companyPicker}
           onPress={() => setCheckPickerOpen(true)}
@@ -414,7 +416,24 @@ export function PublicIpoResultScreen() {
           )}
         </Pressable>
 
-        {hasChecked ? (
+        <Pressable
+          style={[
+            styles.checkNowBtn,
+            (running || !selected) && styles.checkNowDisabled,
+          ]}
+          onPress={onCheckAll}
+          disabled={running || !selected}
+        >
+          {running ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <Text style={styles.checkNowText}>Check Now</Text>
+          )}
+        </Pressable>
+
+        {progress ? <Text style={styles.progress}>{progress}</Text> : null}
+
+        {showSummary ? (
           <View style={styles.summaryBox}>
             <View style={styles.summaryHead}>
               <View style={styles.summaryTitleRow}>
@@ -461,25 +480,22 @@ export function PublicIpoResultScreen() {
             </View>
           </View>
         ) : null}
+      </View>
 
-        <Pressable
-          style={[
-            styles.checkNowBtn,
-            (running || !selected) && styles.checkNowDisabled,
-          ]}
-          onPress={onCheckAll}
-          disabled={running || !selected}
-        >
-          {running ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : (
-            <Text style={styles.checkNowText}>Check Now</Text>
-          )}
-        </Pressable>
-
-        {progress ? <Text style={styles.progress}>{progress}</Text> : null}
-
-        {displayRows.map(({ account, index, result }) => {
+      <FlatList
+        style={styles.accountList}
+        contentContainerStyle={styles.accountListContent}
+        data={displayRows}
+        keyExtractor={(item) => item.account.id}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void onRefresh()}
+            tintColor={colors.primary}
+          />
+        }
+        renderItem={({ item: { account, index, result } }) => {
+          const isChecking = checkingId === account.id;
           const boidRaw =
             result?.boidMasked ?? resolveBoidSync(account) ?? account.demat;
           const boidText = hideBoids
@@ -490,35 +506,47 @@ export function PublicIpoResultScreen() {
           const isAllotted = Boolean(result?.ok && result.allotted);
           const isError = Boolean(result && !result.ok);
           const isNotAllotted = Boolean(result?.ok && !result.allotted);
-          const statusColor = isAllotted
-            ? '#66BB6A'
-            : isError
-              ? '#FB8C00'
-              : isNotAllotted
-                ? '#E57373'
-                : colors.textMuted;
-          const statusMessage = result
-            ? result.message
-            : null;
-          const iconName = isAllotted
-            ? 'checkmark'
-            : isError
-              ? 'alert'
-              : isNotAllotted
+          const statusColor = isChecking
+            ? colors.primary
+            : isAllotted
+              ? '#66BB6A'
+              : isError
+                ? '#FB8C00'
+                : isNotAllotted
+                  ? '#E57373'
+                  : colors.textMuted;
+          const statusMessage = isChecking
+            ? 'Checking…'
+            : result
+              ? result.message
+              : null;
+          const iconName = isChecking
+            ? 'time'
+            : isAllotted
+              ? 'checkmark'
+              : isError
                 ? 'alert'
-                : 'help';
-          const iconBg = isAllotted
-            ? '#2E7D32'
-            : isError
-              ? '#EF6C00'
-              : isNotAllotted
-                ? '#C62828'
-                : colors.surfaceAlt;
+                : isNotAllotted
+                  ? 'alert'
+                  : 'help';
+          const iconBg = isChecking
+            ? colors.primary
+            : isAllotted
+              ? '#2E7D32'
+              : isError
+                ? '#EF6C00'
+                : isNotAllotted
+                  ? '#C62828'
+                  : colors.surfaceAlt;
 
           return (
-            <View key={account.id} style={styles.resultCard}>
+            <View style={styles.resultCard}>
               <View style={[styles.resultIcon, { backgroundColor: iconBg }]}>
-                <Ionicons name={iconName} size={rs(22)} color="#FFFFFF" />
+                {isChecking ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons name={iconName} size={rs(22)} color="#FFFFFF" />
+                )}
               </View>
               <View style={styles.resultBody}>
                 <Text style={styles.resultName}>
@@ -540,8 +568,8 @@ export function PublicIpoResultScreen() {
               </Pressable>
             </View>
           );
-        })}
-      </ScrollView>
+        }}
+      />
 
       <Modal
         visible={companyPickerOpen}
@@ -742,7 +770,19 @@ function makeStyles(c: ThemeColors) {
       textAlign: 'center',
       marginHorizontal: rs(8),
     },
-    body: { padding: rs(16), paddingBottom: rs(40) },
+    controls: {
+      paddingHorizontal: rs(16),
+      paddingTop: rs(16),
+      paddingBottom: rs(4),
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border,
+    },
+    accountList: { flex: 1 },
+    accountListContent: {
+      paddingHorizontal: rs(16),
+      paddingTop: rs(12),
+      paddingBottom: rs(40),
+    },
     companyPicker: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -752,7 +792,7 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: rs(14),
       paddingVertical: rs(14),
       backgroundColor: c.surface,
-      marginBottom: rs(16),
+      marginBottom: rs(10),
       gap: rs(10),
     },
     companyPickerText: {
@@ -816,7 +856,7 @@ function makeStyles(c: ThemeColors) {
       minHeight: rs(44),
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: rs(16),
+      marginBottom: rs(10),
       backgroundColor: c.surface,
     },
     checkNowDisabled: { opacity: 0.55 },

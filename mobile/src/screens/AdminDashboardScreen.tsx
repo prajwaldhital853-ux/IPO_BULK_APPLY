@@ -620,6 +620,23 @@ export function AdminDashboardScreen() {
         <Ionicons name="chevron-forward" size={rs(20)} color={colors.textMuted} />
       </Pressable>
 
+      <Pressable
+        style={styles.paymentCard}
+        onPress={() => navigation.navigate('AdminMarketClosures')}
+      >
+        <View style={styles.paymentCardIcon}>
+          <Ionicons name="calendar-outline" size={rs(28)} color={colors.primary} />
+        </View>
+        <View style={styles.paymentCardBody}>
+          <Text style={styles.paymentCardTitle}>NEPSE closed days</Text>
+          <Text style={styles.paymentCardSub}>
+            Mark unexpected market closures, pick a color, and add a notice for
+            the calendar
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={rs(20)} color={colors.textMuted} />
+      </Pressable>
+
       <View style={styles.tabs}>
         {(['users', 'subscriptions', 'feedback'] as Tab[]).map((t) => (
           <Pressable

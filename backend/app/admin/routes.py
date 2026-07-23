@@ -39,6 +39,8 @@ from .schemas import (
     FeedbackStatusIn,
     TeamMemberIn,
     TeamMemberOut,
+    MarketClosureIn,
+    MarketClosureOut,
 )
 from ..emailer import EmailNotConfiguredError
 from ..feedback import list_feedback, update_feedback_status
@@ -48,6 +50,12 @@ from ..team import (
     list_team_members,
     photo_public_path,
     update_team_member,
+)
+from ..market_closures import (
+    create_market_closure,
+    delete_market_closure,
+    list_market_closures,
+    update_market_closure,
 )
 from ..public_settings import _contact_out, _payment_out
 from ..site_settings import (
@@ -454,6 +462,88 @@ async def admin_delete_team(
 ) -> dict[str, bool]:
     try:
         await delete_team_member(db, member_id)
+        await db.commit()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {'ok': True}
+
+
+def _closure_out(row) -> MarketClosureOut:  # noqa: ANN001
+    return MarketClosureOut(
+        id=row.id,
+        date=row.date,
+        title=row.title,
+        notice=row.notice or '',
+        color=row.color,
+        active=bool(row.active),
+    )
+
+
+@router.get('/market-closures', response_model=list[MarketClosureOut])
+async def admin_list_closures(
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[MarketClosureOut]:
+    rows = await list_market_closures(db, active_only=False)
+    return [_closure_out(r) for r in rows]
+
+
+@router.post('/market-closures', response_model=MarketClosureOut)
+async def admin_create_closure(
+    body: MarketClosureIn,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> MarketClosureOut:
+    try:
+        row = await create_market_closure(
+            db,
+            date=body.date,
+            title=body.title,
+            notice=body.notice,
+            color=body.color,
+            active=body.active,
+        )
+        await db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await db.refresh(row)
+    return _closure_out(row)
+
+
+@router.put('/market-closures/{closure_id}', response_model=MarketClosureOut)
+async def admin_update_closure(
+    closure_id: str,
+    body: MarketClosureIn,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> MarketClosureOut:
+    try:
+        row = await update_market_closure(
+            db,
+            closure_id,
+            date=body.date,
+            title=body.title,
+            notice=body.notice,
+            color=body.color,
+            active=body.active,
+        )
+        await db.commit()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await db.refresh(row)
+    return _closure_out(row)
+
+
+@router.delete('/market-closures/{closure_id}')
+async def admin_delete_closure(
+    closure_id: str,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    try:
+        await delete_market_closure(db, closure_id)
         await db.commit()
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

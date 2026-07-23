@@ -9,9 +9,11 @@ from .feedback import create_feedback
 from .public_settings import settings_to_public
 from .site_settings import get_or_create_settings
 from .team import get_team_member, list_team_members, photo_public_path
+from .market_closures import list_market_closures
 from .admin.schemas import (
     FeedbackSubmitIn,
     FeedbackSubmitOut,
+    MarketClosureOut,
     PublicAppSettingsOut,
     TeamMemberOut,
 )
@@ -43,6 +45,24 @@ async def public_settings(db: AsyncSession = Depends(get_db)) -> PublicAppSettin
 async def public_team(db: AsyncSession = Depends(get_db)) -> list[TeamMemberOut]:
     rows = await list_team_members(db)
     return [team_member_to_out(r) for r in rows]
+
+
+@router.get('/market-closures', response_model=list[MarketClosureOut])
+async def public_market_closures(
+    db: AsyncSession = Depends(get_db),
+) -> list[MarketClosureOut]:
+    rows = await list_market_closures(db, active_only=True)
+    return [
+        MarketClosureOut(
+            id=r.id,
+            date=r.date,
+            title=r.title,
+            notice=r.notice or '',
+            color=r.color,
+            active=bool(r.active),
+        )
+        for r in rows
+    ]
 
 
 @router.get('/team/{member_id}/photo')
