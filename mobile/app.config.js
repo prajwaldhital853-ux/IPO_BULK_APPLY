@@ -10,7 +10,7 @@ module.exports = {
     slug: 'nepse',
     owner: 'nepseghars-team',
     scheme: 'nepseghar',
-    version: '3.3.5',
+    version: '3.3.7',
     orientation: 'portrait',
     icon: './assets/nepse-ghar-logo.png',
     userInterfaceStyle: 'dark',
@@ -25,12 +25,14 @@ module.exports = {
     },
     android: {
       package: 'com.nepse.ghar',
-      versionCode: 40,
+      versionCode: 42,
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',
         foregroundImage: './assets/nepse-ghar-logo.png',
       },
       predictiveBackGestureEnabled: false,
+      // pan: avoid window resize fighting our manual sheet lift.
+      // (RN Modal Dialogs ignored layout mode — KeyboardSheetModal avoids Modal on Android.)
       softwareKeyboardLayoutMode: 'pan',
     },
     androidNavigationBar: {

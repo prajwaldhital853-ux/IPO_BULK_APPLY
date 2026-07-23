@@ -1,0 +1,43 @@
+{
+  "id": "3a0dae2a-c0e4-402a-aa72-fee301b7b24e",
+  "status": "FINISHED",
+  "platform": "ANDROID",
+  "artifacts": {
+    "buildUrl": "https://expo.dev/artifacts/eas/AGn3MKSXRKkURNNH6hnYn5kKAvmeeHt2bqpIauThHy0.apk",
+    "applicationArchiveUrl": "https://expo.dev/artifacts/eas/AGn3MKSXRKkURNNH6hnYn5kKAvmeeHt2bqpIauThHy0.apk"
+  },
+  "initiatingActor": {
+    "id": "1e6c1ac3-d47d-4cc1-b2e1-0d75b1fc6a24",
+    "displayName": "nepse_ghar"
+  },
+  "logFiles": [
+    "https://storage.googleapis.com/eas-workflows-production/logs/4973816d-7659-48bb-a817-e1818ea14019/3a0dae2a-c0e4-402a-aa72-fee301b7b24e/2026-07-23T08%3A53%3A46Z-4064efa9-930f-4f55-85dc-01591196483d.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260723%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260723T091017Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=566a1513bb0160643fcaadf82439acef9c231af81aebdab26d46bf4544a2de11f75966563c0f381a0f14eb26d38f5fb8595ebf986552f9b40106222dabb687aaea92375c7979c15d0089520bd222a4c62b9943b28f1da7d98c628c71673156ce068335263f7244eedf26e2a18f96f3ae5bda5016bd2d901f5a7292fe8bf71da91e04d99df092206cebdf51e0a585e38238ad1886362d2044e774fefc2bd9ed53a3e247983df90f8fcaeb29386c85a76c9eace7c1ff2de9301628bec37e7225d0b52ee65152d68bb7052ec9b7ab0a59f287ddb745742b226a23edac58a50039a92e2cfc87b2d2047604da23520f59fddfcb8171e957701d110d85b6dbc05f6a47"
+  ],
+  "project": {
+    "id": "4973816d-7659-48bb-a817-e1818ea14019",
+    "name": "nepse",
+    "slug": "nepse",
+    "ownerAccount": {
+      "id": "8a5466a3-f460-49dd-84f9-102904ae2aed",
+      "name": "nepseghars-team"
+    }
+  },
+  "distribution": "INTERNAL",
+  "buildProfile": "preview",
+  "sdkVersion": "54.0.0",
+  "appVersion": "3.3.6",
+  "appBuildVersion": "41",
+  "gitCommitHash": "a9fc58be2bf9e1bcb93960d5c9ecb16076064d3d",
+  "gitCommitMessage": "Fix APK keypad covering Save on CRN/PIN and Bank Tracker sheets.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>",
+  "priority": "NORMAL",
+  "createdAt": "2026-07-23T08:52:28.011Z",
+  "updatedAt": "2026-07-23T09:07:54.096Z",
+  "completedAt": "2026-07-23T09:07:53.931Z",
+  "expirationDate": "2026-08-06T08:52:28.041Z",
+  "isForIosSimulator": false,
+  "metrics": {
+    "buildWaitTime": 5049,
+    "buildQueueTime": 78140,
+    "buildDuration": 842731
+  }
+}

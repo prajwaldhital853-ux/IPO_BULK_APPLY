@@ -3,7 +3,6 @@ import { AppState } from 'react-native';
 import { useAuth } from './AuthContext';
 import {
   accountLimitForPlan,
-  activatePremiumDays,
   cachePremiumFromServer,
   clearSubscription,
   isPremiumActive,
@@ -30,13 +29,6 @@ type SubscriptionContextValue = {
   refresh: () => Promise<void>;
   requestPlan: (planId: string, paymentNote?: string) => Promise<void>;
   cancelPending: () => Promise<void>;
-  /**
-   * Unlock premium on-device without Google sign-in (Expo Go / local testing).
-   * Does not create a server payment request.
-   */
-  unlockLocalPremium: (days?: number, productId?: string) => Promise<void>;
-  /** Clear local premium unlock. */
-  clearLocalPremium: () => Promise<void>;
 };
 
 const SubscriptionContext = React.createContext<SubscriptionContextValue | null>(
@@ -111,7 +103,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
             return;
           }
         } catch {
-          // fall through
+          // fall through to /me premium
         }
 
         if (me?.premium) {
@@ -124,10 +116,27 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           });
           return;
         }
-      } else if (auth.enabled) {
-        setServerStatus(null);
+
+        // Signed in but no entitlement payload — never restore local unlock.
+        await applyServerStatus({
+          active: false,
+          plan: null,
+          expiresAt: null,
+          status: 'free',
+          pendingRequest: null,
+        });
+        return;
       }
 
+      if (auth.enabled) {
+        // Guests cannot keep leftover on-device unlocks — wipe local premium.
+        setServerStatus(null);
+        const cleared = await clearSubscription();
+        setState(cleared);
+        return;
+      }
+
+      // Auth disabled (dev-only): fall back to local cache.
       const local = await loadSubscription();
       if (!isPremiumActive(local)) {
         setState({ ...local, plan: 'free' });
@@ -243,35 +252,14 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return me;
   }, [auth]);
 
-  const unlockLocalPremium = useCallback(
-    async (days = 365, productId = 'premium_local') => {
-      const next = await activatePremiumDays(days, productId);
-      setState(next);
-      setServerStatus(null);
-    },
-    [],
-  );
-
-  const clearLocalPremium = useCallback(async () => {
-    const next = await clearSubscription();
-    setState(next);
-  }, []);
-
   const requestPlan = useCallback(
     async (planId: string, paymentNote?: string) => {
-      // Without Google session (Expo Go / local): unlock premium on-device.
-      // Real payment verification still requires Google when signed in.
-      if (!auth.isAuthenticated) {
-        const days = planId.includes('year') || planId.includes('12') ? 365 : 183;
-        await unlockLocalPremium(days, planId);
-        return;
-      }
       await ensureSession();
       const status = await submitSubscriptionRequest(planId, paymentNote);
       await applyServerStatus(status);
       await auth.refreshProfile();
     },
-    [applyServerStatus, auth, ensureSession, unlockLocalPremium],
+    [applyServerStatus, auth, ensureSession],
   );
 
   const cancelPending = useCallback(async () => {
@@ -281,10 +269,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     await auth.refreshProfile();
   }, [applyServerStatus, auth, ensureSession]);
 
+  // When auth is on, only server/Google entitlement counts — never local unlock.
   const isPremium = auth.enabled
     ? premiumStillValid(auth.premium.active, auth.premium.expiresAt) ||
-      premiumStillValid(serverStatus?.active, serverStatus?.expiresAt) ||
-      isPremiumActive(state)
+      premiumStillValid(serverStatus?.active, serverStatus?.expiresAt)
     : isPremiumActive(state);
 
   const isPending =
@@ -304,8 +292,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       refresh,
       requestPlan,
       cancelPending,
-      unlockLocalPremium,
-      clearLocalPremium,
     }),
     [
       state,
@@ -316,8 +302,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       refresh,
       requestPlan,
       cancelPending,
-      unlockLocalPremium,
-      clearLocalPremium,
     ],
   );
 

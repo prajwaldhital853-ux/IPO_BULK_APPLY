@@ -1,0 +1,7 @@
+★ eas-cli@21.1.0 is now available.
+To upgrade, run:
+npm install -g eas-cli
+Proceeding with outdated version.
+
+- Fetching the build…
+√ Found a matching build for the project @nepseghars-team/nepse

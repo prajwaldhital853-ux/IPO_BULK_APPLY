@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
@@ -19,11 +20,11 @@ export function PremiumGate({
   subtitle?: string;
   children: React.ReactNode;
 }) {
-  const { isPremium, isPending, loading, unlockLocalPremium } = useSubscription();
+  const { isPremium, isPending, loading } = useSubscription();
+  const auth = useAuth();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
-  const [unlocking, setUnlocking] = React.useState(false);
 
   if (loading) {
     return (
@@ -44,19 +45,15 @@ export function PremiumGate({
     );
   }
 
+  const needsSignIn = auth.enabled && !auth.isAuthenticated;
+
   return (
     <Paywall
       colors={colors}
       title={title}
       subtitle={subtitle}
-      unlocking={unlocking}
+      ctaLabel={needsSignIn ? 'Sign in with Google to subscribe' : 'Subscribe with Google'}
       onSubscribe={() => navigation.navigate('Subscription')}
-      onUnlockLocal={() => {
-        setUnlocking(true);
-        void unlockLocalPremium(365, 'premium_local')
-          .catch(() => undefined)
-          .finally(() => setUnlocking(false));
-      }}
     />
   );
 }
@@ -81,8 +78,8 @@ function PendingWall({
         <Ionicons name="time-outline" size={rs(44)} color="#F9A825" />
         <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
         <Text style={[styles.sub, { color: colors.textSecondary }]}>
-          Your premium payment is pending verification. Admin will activate your account
-          after checking your WhatsApp payment screenshot.
+          Your premium payment is pending verification. Admin will activate your
+          account after checking your WhatsApp payment screenshot.
         </Text>
         <Pressable
           style={[styles.btn, { backgroundColor: colors.fab }]}
@@ -99,16 +96,14 @@ function Paywall({
   colors,
   title,
   subtitle,
-  unlocking,
+  ctaLabel,
   onSubscribe,
-  onUnlockLocal,
 }: {
   colors: ThemeColors;
   title: string;
   subtitle?: string;
-  unlocking?: boolean;
+  ctaLabel: string;
   onSubscribe: () => void;
-  onUnlockLocal: () => void;
 }) {
   const plan = PREMIUM_PLANS[0];
   return (
@@ -132,21 +127,14 @@ function Paywall({
             </Text>
           ))}
         </View>
+        <Text style={[styles.perk, { color: colors.textMuted, textAlign: 'center' }]}>
+          Sign in with Google, pay via QR, then wait for admin approval.
+        </Text>
         <Pressable
-          style={[styles.btn, { backgroundColor: colors.fab }, unlocking && { opacity: 0.6 }]}
-          disabled={unlocking}
-          onPress={onUnlockLocal}
+          style={[styles.btn, { backgroundColor: colors.fab }]}
+          onPress={onSubscribe}
         >
-          {unlocking ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.btnText}>Unlock premium (no Google needed)</Text>
-          )}
-        </Pressable>
-        <Pressable onPress={onSubscribe} hitSlop={8}>
-          <Text style={[styles.perk, { color: colors.teal, textAlign: 'center' }]}>
-            Or view plans / payment
-          </Text>
+          <Text style={styles.btnText}>{ctaLabel}</Text>
         </Pressable>
       </View>
     </View>
