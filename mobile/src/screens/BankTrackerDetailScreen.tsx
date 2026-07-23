@@ -691,13 +691,13 @@ function SheetModal({
     };
   }, [visible]);
 
-  // Android uses softwareKeyboardLayoutMode: 'resize' — window already docks
-  // above the keypad. Only iOS needs an explicit lift to sit on the keypad edge.
+  // RN Modal on Android is a separate Dialog window — it does NOT follow
+  // softwareKeyboardLayoutMode: 'resize'. Expo Go can look fine without lift;
+  // production APK needs an explicit offset on both platforms.
   const keyboardOpen = keyboardHeight > 0;
-  const lift =
-    Platform.OS === 'ios' && keyboardOpen
-      ? Math.max(0, keyboardHeight - insets.bottom)
-      : 0;
+  const lift = keyboardOpen
+    ? Math.max(0, keyboardHeight - insets.bottom)
+    : 0;
   const bottomPad = keyboardOpen
     ? rs(8)
     : Math.max(insets.bottom, rs(16));
