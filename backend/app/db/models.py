@@ -118,6 +118,8 @@ class SiteSettings(Base):
     contact_whatsapp_url: Mapped[str] = mapped_column(String(512), default='')
     contact_facebook_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     contact_tiktok_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # JSON array of {id, platform, label, detail, url}
+    contact_social_links: Mapped[str] = mapped_column(Text, default='[]')
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

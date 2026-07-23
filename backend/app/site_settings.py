@@ -259,6 +259,32 @@ async def update_site_settings(
         tt = contact.get('tiktok_url')
         if tt is not None:
             row.contact_tiktok_url = tt.strip()
+        if 'social_links' in contact:
+            from .public_settings import serialize_social_links
+
+            raw_links = contact.get('social_links') or []
+            row.contact_social_links = serialize_social_links(raw_links)
+            # Keep legacy columns in sync for older app builds
+            fb_link = next(
+                (
+                    str(x.get('url') or '').strip()
+                    for x in raw_links
+                    if str(x.get('platform') or '').lower() == 'facebook'
+                    and str(x.get('url') or '').strip()
+                ),
+                '',
+            )
+            tt_link = next(
+                (
+                    str(x.get('url') or '').strip()
+                    for x in raw_links
+                    if str(x.get('platform') or '').lower() == 'tiktok'
+                    and str(x.get('url') or '').strip()
+                ),
+                '',
+            )
+            row.contact_facebook_url = fb_link or None
+            row.contact_tiktok_url = tt_link or None
 
     row.updated_at = datetime.now(UTC)
     await db.flush()

@@ -278,17 +278,20 @@ export async function exportAccountsFile(
 export async function exportFullAccountsExcel(
   rows: FullAccountExportRow[],
 ): Promise<string> {
+  if (!rows.length) {
+    throw new Error('No accounts to export');
+  }
   const content = buildFullAccountsCsv(rows);
   const stamp = new Date().toISOString().slice(0, 10);
   const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
-  const fileUri = `${dir}nepse-ghar-accounts-full-${stamp}.csv`;
+  const fileUri = `${dir}nepse-ghar-accounts-full-${stamp}-${rows.length}.csv`;
   await FileSystem.writeAsStringAsync(fileUri, content, {
     encoding: FileSystem.EncodingType.UTF8,
   });
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(fileUri, {
       mimeType: 'text/csv',
-      dialogTitle: 'Save accounts Excel file',
+      dialogTitle: `Save ${rows.length} accounts Excel file`,
       UTI: 'public.comma-separated-values-text',
     });
   }

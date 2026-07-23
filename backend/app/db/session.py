@@ -43,6 +43,13 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     'ADD COLUMN payment_qr_image_mime VARCHAR(64)'
                 )
             )
+        if 'contact_social_links' not in cols:
+            sync_conn.execute(
+                text(
+                    "ALTER TABLE site_settings "
+                    "ADD COLUMN contact_social_links TEXT NOT NULL DEFAULT '[]'"
+                )
+            )
 
 
 async def init_db() -> None:
@@ -50,8 +57,27 @@ async def init_db() -> None:
         raise RuntimeError('Database not configured')
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        if _engine.url.get_backend_name() == 'sqlite':
+        backend = _engine.url.get_backend_name()
+        if backend == 'sqlite':
             await conn.run_sync(_apply_sqlite_patches)
+        elif backend in {'postgresql', 'postgres'}:
+            await conn.run_sync(_apply_postgres_patches)
+
+
+def _apply_postgres_patches(sync_conn) -> None:
+    insp = inspect(sync_conn)
+    tables = set(insp.get_table_names())
+    if 'site_settings' not in tables:
+        return
+    cols = {c['name'] for c in insp.get_columns('site_settings')}
+    if 'contact_social_links' not in cols:
+        sync_conn.execute(
+            text(
+                "ALTER TABLE site_settings "
+                "ADD COLUMN IF NOT EXISTS contact_social_links TEXT "
+                "NOT NULL DEFAULT '[]'"
+            )
+        )
 
 
 async def run_with_session(coro) -> None:

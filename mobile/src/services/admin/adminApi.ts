@@ -60,6 +60,14 @@ export type AdminPaymentSettings = {
   whatsappUrl: string;
 };
 
+export type AdminSocialLink = {
+  id: string;
+  platform: string;
+  label: string;
+  detail: string;
+  url: string;
+};
+
 export type AdminContactSettings = {
   companyName: string;
   email: string;
@@ -67,6 +75,7 @@ export type AdminContactSettings = {
   whatsappUrl: string;
   facebookUrl: string | null;
   tiktokUrl: string | null;
+  socialLinks: AdminSocialLink[];
 };
 
 export type AdminSettings = {
@@ -294,14 +303,55 @@ function mapPaymentSettings(json: Record<string, unknown>): AdminPaymentSettings
   };
 }
 
+function mapSocialLinks(raw: unknown): AdminSocialLink[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item, i) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      return {
+        id: String(row.id ?? `link-${i}`),
+        platform: String(row.platform ?? 'custom').trim().toLowerCase() || 'custom',
+        label: String(row.label ?? 'Link').trim() || 'Link',
+        detail: String(row.detail ?? '').trim(),
+        url: String(row.url ?? '').trim(),
+      };
+    })
+    .filter(Boolean) as AdminSocialLink[];
+}
+
 function mapContactSettings(json: Record<string, unknown>): AdminContactSettings {
+  let socialLinks = mapSocialLinks(json.socialLinks ?? json.social_links);
+  const facebookUrl = json.facebookUrl ? String(json.facebookUrl) : null;
+  const tiktokUrl = json.tiktokUrl ? String(json.tiktokUrl) : null;
+  if (!socialLinks.length) {
+    if (facebookUrl) {
+      socialLinks.push({
+        id: 'legacy-facebook',
+        platform: 'facebook',
+        label: 'Facebook',
+        detail: 'Open page',
+        url: facebookUrl,
+      });
+    }
+    if (tiktokUrl) {
+      socialLinks.push({
+        id: 'legacy-tiktok',
+        platform: 'tiktok',
+        label: 'TikTok',
+        detail: 'Open profile',
+        url: tiktokUrl,
+      });
+    }
+  }
   return {
     companyName: String(json.companyName ?? ''),
     email: String(json.email ?? ''),
     whatsapp: String(json.whatsapp ?? ''),
     whatsappUrl: String(json.whatsappUrl ?? ''),
-    facebookUrl: json.facebookUrl ? String(json.facebookUrl) : null,
-    tiktokUrl: json.tiktokUrl ? String(json.tiktokUrl) : null,
+    facebookUrl,
+    tiktokUrl,
+    socialLinks,
   };
 }
 

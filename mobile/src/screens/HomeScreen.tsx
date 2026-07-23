@@ -26,6 +26,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import { exportFullAccountsExcel } from '../services/accounts/backup';
 import { clearApplyHistoryForAccount } from '../storage/applyHistory';
+import { loadAccountMeta } from '../storage/accountsStorage';
 import type { ThemeColors } from '../theme/colors';
 import { guardAddAccount } from '../utils/accountLimits';
 import { rs } from '../utils/responsive';
@@ -178,53 +179,70 @@ export function HomeScreen() {
   }, []);
 
   const exportAccounts = useCallback(() => {
-    if (!accounts.length) {
-      Alert.alert('No accounts', 'Add a MeroShare account first.');
-      return;
-    }
-    Alert.alert(
-      'Export to Excel?',
-      `Save all ${accounts.length} account(s) with S.N., Name, DP, Client, Password, CRN and PIN.\n\nKeep this file private — it contains login secrets.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Export Excel',
-          onPress: () => {
-            void (async () => {
-              setExporting(true);
-              try {
-                const rows = [];
-                for (let i = 0; i < accounts.length; i++) {
-                  const a = accounts[i];
-                  const secrets = await loadSecrets(a.id);
-                  rows.push({
-                    sn: i + 1,
-                    name: a.name,
-                    dp: a.dpCode ?? a.dpId ?? '',
-                    client: a.username,
-                    password: secrets?.password ?? '',
-                    crn: secrets?.crn ?? '',
-                    pin: secrets?.pin ?? '',
-                    dpName: a.dpName,
-                    bankName: a.bankName,
-                    demat: a.demat,
-                  });
+    void (async () => {
+      // Always read from storage so export includes every saved account,
+      // not a stale/partial React state snapshot.
+      const list = await loadAccountMeta();
+      if (!list.length) {
+        Alert.alert('No accounts', 'Add a MeroShare account first.');
+        return;
+      }
+      Alert.alert(
+        'Export to Excel?',
+        `Save all ${list.length} account(s) with S.N., Name, DP, Client, Password, CRN and PIN.\n\nKeep this file private — it contains login secrets.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Export Excel',
+            onPress: () => {
+              void (async () => {
+                setExporting(true);
+                try {
+                  const rows = await Promise.all(
+                    list.map(async (a, i) => {
+                      let secrets: Awaited<ReturnType<typeof loadSecrets>> =
+                        null;
+                      try {
+                        secrets = await loadSecrets(a.id);
+                      } catch {
+                        secrets = null;
+                      }
+                      return {
+                        sn: i + 1,
+                        name: a.name ?? '',
+                        dp: a.dpCode ?? a.dpId ?? '',
+                        client: a.username ?? '',
+                        password: secrets?.password ?? '',
+                        crn: secrets?.crn ?? '',
+                        pin: secrets?.pin ?? '',
+                        dpName: a.dpName,
+                        bankName: a.bankName,
+                        demat: a.demat,
+                      };
+                    }),
+                  );
+                  await exportFullAccountsExcel(rows);
+                  Alert.alert(
+                    'Exported',
+                    `${rows.length} account${rows.length === 1 ? '' : 's'} saved to Excel/CSV.`,
+                  );
+                } catch (e: unknown) {
+                  Alert.alert(
+                    'Export failed',
+                    e instanceof Error
+                      ? e.message
+                      : 'Could not create Excel file.',
+                  );
+                } finally {
+                  setExporting(false);
                 }
-                await exportFullAccountsExcel(rows);
-              } catch (e: unknown) {
-                Alert.alert(
-                  'Export failed',
-                  e instanceof Error ? e.message : 'Could not create Excel file.',
-                );
-              } finally {
-                setExporting(false);
-              }
-            })();
+              })();
+            },
           },
-        },
-      ],
-    );
-  }, [accounts, loadSecrets]);
+        ],
+      );
+    })();
+  }, [loadSecrets]);
 
   const onDragEnd = useCallback(
     ({ data }: { data: AccountMeta[] }) => {

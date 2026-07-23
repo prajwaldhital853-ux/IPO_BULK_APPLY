@@ -56,6 +56,15 @@ const FALLBACK_CONTACT: ContactSettings = {
   whatsappUrl: 'https://wa.me/9779709133067',
   facebookUrl: null,
   tiktokUrl: 'https://www.tiktok.com/@unique_share_market',
+  socialLinks: [
+    {
+      id: 'fallback-tiktok',
+      platform: 'tiktok',
+      label: 'TikTok',
+      detail: '@unique_share_market',
+      url: 'https://www.tiktok.com/@unique_share_market',
+    },
+  ],
 };
 
 function formatExpiresOn(iso: string | null | undefined): string | null {
@@ -67,6 +76,28 @@ function formatExpiresOn(iso: string | null | undefined): string | null {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+const SOCIAL_STYLE: Record<
+  string,
+  { bg: string; iconColor: string; ion: keyof typeof Ionicons.glyphMap }
+> = {
+  email: { bg: '#FFCDD2', iconColor: '#C62828', ion: 'mail-outline' },
+  whatsapp: { bg: '#C8E6C9', iconColor: '#2E7D32', ion: 'logo-whatsapp' },
+  viber: { bg: '#E1BEE7', iconColor: '#6A1B9A', ion: 'chatbubble-ellipses-outline' },
+  youtube: { bg: '#FFCDD2', iconColor: '#C62828', ion: 'logo-youtube' },
+  instagram: { bg: '#F8BBD0', iconColor: '#AD1457', ion: 'logo-instagram' },
+  twitter: { bg: '#BBDEFB', iconColor: '#1565C0', ion: 'logo-twitter' },
+  x: { bg: '#CFD8DC', iconColor: '#263238', ion: 'logo-twitter' },
+  facebook: { bg: '#BBDEFB', iconColor: '#1565C0', ion: 'logo-facebook' },
+  tiktok: { bg: '#E0E0E0', iconColor: '#212121', ion: 'logo-tiktok' },
+  telegram: { bg: '#B3E5FC', iconColor: '#0277BD', ion: 'paper-plane-outline' },
+  website: { bg: '#D7CCC8', iconColor: '#5D4037', ion: 'globe-outline' },
+  custom: { bg: '#CFD8DC', iconColor: '#455A64', ion: 'link-outline' },
+};
+
+function socialStyle(platform: string) {
+  return SOCIAL_STYLE[platform] ?? SOCIAL_STYLE.custom;
 }
 
 async function openExternal(url: string, failLabel: string): Promise<void> {
@@ -102,34 +133,18 @@ function buildContactItems(contact: ContactSettings): ContactItem[] {
     },
   ];
 
-  if (contact.tiktokUrl) {
+  for (const link of contact.socialLinks ?? []) {
+    if (!link.url?.trim()) continue;
+    const style = socialStyle(link.platform);
     items.push({
-      label: 'TikTok',
-      detail: contact.tiktokUrl.replace(/^https?:\/\/(www\.)?tiktok\.com\//, '@'),
-      bg: '#E0E0E0',
-      iconColor: '#212121',
-      ion: 'logo-tiktok',
-      onPress: () => void openExternal(contact.tiktokUrl!, 'TikTok'),
+      label: link.label || link.platform,
+      detail: link.detail || 'Open',
+      bg: style.bg,
+      iconColor: style.iconColor,
+      ion: style.ion,
+      onPress: () => void openExternal(link.url, link.label || link.platform),
     });
   }
-
-  items.push({
-    label: 'Facebook',
-    detail: contact.facebookUrl ? 'Open page' : 'Link coming soon',
-    bg: '#BBDEFB',
-    iconColor: '#1565C0',
-    ion: 'logo-facebook',
-    onPress: () => {
-      if (contact.facebookUrl) {
-        void openExternal(contact.facebookUrl, 'Facebook');
-        return;
-      }
-      Alert.alert(
-        'Facebook',
-        'Facebook page link will be added soon. Contact us on WhatsApp or email for now.',
-      );
-    },
-  });
 
   return items;
 }

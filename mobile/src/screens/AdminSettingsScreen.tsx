@@ -22,6 +22,7 @@ import {
   updateAdminSettings,
   uploadAdminPaymentQr,
   type AdminSettings,
+  type AdminSocialLink,
 } from '../services/admin/adminApi';
 import { loadAdminToken } from '../services/admin/adminTokenStorage';
 import { AUTH_API_BASE } from '../services/auth/config';
@@ -39,6 +40,28 @@ function resolveQrImageUrl(path: string | null | undefined): string | null {
   if (!path) return null;
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
   return `${AUTH_API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+const SOCIAL_PLATFORMS = [
+  'viber',
+  'youtube',
+  'instagram',
+  'twitter',
+  'facebook',
+  'tiktok',
+  'telegram',
+  'website',
+  'custom',
+] as const;
+
+function newSocialLink(): AdminSocialLink {
+  return {
+    id: `link-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    platform: 'viber',
+    label: 'Viber',
+    detail: '',
+    url: '',
+  };
 }
 
 function Field({
@@ -96,8 +119,7 @@ export function AdminSettingsScreen() {
   const [contactEmail, setContactEmail] = useState('');
   const [contactWhatsapp, setContactWhatsapp] = useState('');
   const [whatsappUrl, setWhatsappUrl] = useState('');
-  const [facebookUrl, setFacebookUrl] = useState('');
-  const [tiktokUrl, setTiktokUrl] = useState('');
+  const [socialLinks, setSocialLinks] = useState<AdminSocialLink[]>([]);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -114,8 +136,7 @@ export function AdminSettingsScreen() {
     setContactEmail(s.contact.email);
     setContactWhatsapp(s.contact.whatsapp);
     setWhatsappUrl(s.contact.whatsappUrl);
-    setFacebookUrl(s.contact.facebookUrl ?? '');
-    setTiktokUrl(s.contact.tiktokUrl ?? '');
+    setSocialLinks(s.contact.socialLinks ?? []);
   }, []);
 
   const load = useCallback(async (t: string) => {
@@ -206,10 +227,33 @@ export function AdminSettingsScreen() {
     );
   };
 
+  const patchSocial = (id: string, patch: Partial<AdminSocialLink>) => {
+    setSocialLinks((prev) =>
+      prev.map((row) => {
+        if (row.id !== id) return row;
+        const next = { ...row, ...patch };
+        if (patch.platform && !patch.label) {
+          next.label =
+            patch.platform.charAt(0).toUpperCase() + patch.platform.slice(1);
+        }
+        return next;
+      }),
+    );
+  };
+
   const onSave = async () => {
     if (!token) return;
     setSaving(true);
     try {
+      const cleaned = socialLinks
+        .map((l) => ({
+          ...l,
+          platform: l.platform.trim().toLowerCase() || 'custom',
+          label: l.label.trim() || l.platform || 'Link',
+          detail: l.detail.trim(),
+          url: l.url.trim(),
+        }))
+        .filter((l) => l.url || l.label);
       const updated = await updateAdminSettings(token, {
         payment: {
           qrText: qrText.trim(),
@@ -223,8 +267,10 @@ export function AdminSettingsScreen() {
           email: contactEmail.trim(),
           whatsapp: contactWhatsapp.trim(),
           whatsappUrl: whatsappUrl.trim(),
-          facebookUrl: facebookUrl.trim() || null,
-          tiktokUrl: tiktokUrl.trim() || null,
+          facebookUrl:
+            cleaned.find((l) => l.platform === 'facebook')?.url ?? null,
+          tiktokUrl: cleaned.find((l) => l.platform === 'tiktok')?.url ?? null,
+          socialLinks: cleaned,
         },
       });
       applySettings(updated);
@@ -348,8 +394,76 @@ export function AdminSettingsScreen() {
           />
           <Field label="WhatsApp display number" value={contactWhatsapp} onChangeText={setContactWhatsapp} colors={colors} />
           <Field label="WhatsApp link" value={whatsappUrl} onChangeText={setWhatsappUrl} colors={colors} keyboardType="url" />
-          <Field label="Facebook URL" value={facebookUrl} onChangeText={setFacebookUrl} colors={colors} keyboardType="url" />
-          <Field label="TikTok URL" value={tiktokUrl} onChangeText={setTiktokUrl} colors={colors} keyboardType="url" />
+
+          <Text style={styles.section}>Social & extra contact links</Text>
+          <Text style={styles.help}>
+            Add Viber, YouTube, Instagram, Twitter/X, Facebook, TikTok, etc. Users see
+            these under Profile → Contact us. You can add, edit, or remove anytime.
+          </Text>
+
+          {socialLinks.map((link, index) => (
+            <View key={link.id} style={styles.socialCard}>
+              <View style={styles.socialHead}>
+                <Text style={styles.socialTitle}>Link #{index + 1}</Text>
+                <Pressable
+                  onPress={() =>
+                    setSocialLinks((prev) => prev.filter((x) => x.id !== link.id))
+                  }
+                  hitSlop={8}
+                >
+                  <Ionicons name="trash-outline" size={rs(18)} color={colors.danger} />
+                </Pressable>
+              </View>
+              <Text style={styles.chipLabel}>Platform</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipRow}
+              >
+                {SOCIAL_PLATFORMS.map((p) => {
+                  const active = link.platform === p;
+                  return (
+                    <Pressable
+                      key={p}
+                      style={[styles.chip, active && styles.chipOn]}
+                      onPress={() => patchSocial(link.id, { platform: p })}
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextOn]}>
+                        {p}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <Field
+                label="Display label"
+                value={link.label}
+                onChangeText={(t) => patchSocial(link.id, { label: t })}
+                colors={colors}
+              />
+              <Field
+                label="Subtitle (handle / phone)"
+                value={link.detail}
+                onChangeText={(t) => patchSocial(link.id, { detail: t })}
+                colors={colors}
+              />
+              <Field
+                label="URL / deep link"
+                value={link.url}
+                onChangeText={(t) => patchSocial(link.id, { url: t })}
+                colors={colors}
+                keyboardType="url"
+              />
+            </View>
+          ))}
+
+          <Pressable
+            style={styles.addSocialBtn}
+            onPress={() => setSocialLinks((prev) => [...prev, newSocialLink()])}
+          >
+            <Ionicons name="add-circle-outline" size={rs(18)} color={colors.primary} />
+            <Text style={styles.addSocialText}>Add social / contact link</Text>
+          </Pressable>
 
           <Pressable style={styles.btn} onPress={() => void onSave()} disabled={saving}>
             {saving ? (
@@ -462,6 +576,42 @@ function makeStyles(c: ThemeColors) {
     },
     qrBtnText: { color: '#fff', fontWeight: '800', fontSize: rs(13) },
     btnDisabled: { opacity: 0.65 },
+    socialCard: {
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderRadius: rs(12),
+      padding: rs(12),
+      marginBottom: rs(12),
+      backgroundColor: c.surface,
+    },
+    socialHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: rs(8),
+    },
+    socialTitle: { color: c.text, fontWeight: '800', fontSize: rs(13) },
+    chipLabel: { color: c.textSecondary, fontSize: rs(12), marginBottom: rs(6) },
+    chipRow: { gap: rs(8), paddingBottom: rs(8) },
+    chip: {
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(6),
+      borderRadius: rs(14),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.bg,
+    },
+    chipOn: { borderColor: c.primary, backgroundColor: c.primarySoft },
+    chipText: { color: c.textMuted, fontSize: rs(11), fontWeight: '700' },
+    chipTextOn: { color: c.text },
+    addSocialBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      paddingVertical: rs(12),
+      marginBottom: rs(8),
+    },
+    addSocialText: { color: c.primary, fontWeight: '700', fontSize: rs(13) },
     btn: {
       backgroundColor: c.fab,
       borderRadius: rs(12),

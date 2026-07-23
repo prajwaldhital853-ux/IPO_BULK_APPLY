@@ -28,6 +28,15 @@ const FALLBACK: ContactSettings = {
   whatsappUrl: 'https://wa.me/9779709133067',
   facebookUrl: null,
   tiktokUrl: 'https://www.tiktok.com/@unique_share_market',
+  socialLinks: [
+    {
+      id: 'fallback-tiktok',
+      platform: 'tiktok',
+      label: 'TikTok',
+      detail: '@unique_share_market',
+      url: 'https://www.tiktok.com/@unique_share_market',
+    },
+  ],
 };
 
 export function AboutCompanyScreen() {
@@ -95,15 +104,21 @@ export function AboutCompanyScreen() {
           <Ionicons name="logo-whatsapp" size={rs(18)} color="#25D366" />
           <Text style={styles.rowText}>{contact.whatsapp}</Text>
         </Pressable>
-        {contact.tiktokUrl ? (
-          <Pressable
-            style={styles.row}
-            onPress={() => void Linking.openURL(contact.tiktokUrl!)}
-          >
-            <Ionicons name="logo-tiktok" size={rs(18)} color={colors.text} />
-            <Text style={styles.rowText}>TikTok</Text>
-          </Pressable>
-        ) : null}
+        {(contact.socialLinks ?? []).map((link) =>
+          link.url ? (
+            <Pressable
+              key={link.id}
+              style={styles.row}
+              onPress={() => void Linking.openURL(link.url)}
+            >
+              <Ionicons name="link-outline" size={rs(18)} color={colors.teal} />
+              <Text style={styles.rowText}>
+                {link.label}
+                {link.detail ? ` · ${link.detail}` : ''}
+              </Text>
+            </Pressable>
+          ) : null,
+        )}
       </ScrollView>
     </View>
   );

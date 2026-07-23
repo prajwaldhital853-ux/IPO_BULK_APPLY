@@ -10,6 +10,14 @@ export type PaymentSettings = {
   whatsappUrl: string;
 };
 
+export type SocialLink = {
+  id: string;
+  platform: string;
+  label: string;
+  detail: string;
+  url: string;
+};
+
 export type ContactSettings = {
   companyName: string;
   email: string;
@@ -17,6 +25,7 @@ export type ContactSettings = {
   whatsappUrl: string;
   facebookUrl: string | null;
   tiktokUrl: string | null;
+  socialLinks: SocialLink[];
 };
 
 export type PublicAppSettings = {
@@ -41,6 +50,15 @@ const FALLBACK: PublicAppSettings = {
     whatsappUrl: 'https://wa.me/9779709133067',
     facebookUrl: null,
     tiktokUrl: 'https://www.tiktok.com/@unique_share_market',
+    socialLinks: [
+      {
+        id: 'fallback-tiktok',
+        platform: 'tiktok',
+        label: 'TikTok',
+        detail: '@unique_share_market',
+        url: 'https://www.tiktok.com/@unique_share_market',
+      },
+    ],
   },
 };
 
@@ -57,14 +75,59 @@ function mapPayment(json: Record<string, unknown>): PaymentSettings {
   };
 }
 
+function mapSocialLinks(raw: unknown): SocialLink[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item, i) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      const url = String(row.url ?? '').trim();
+      const label = String(row.label ?? row.platform ?? 'Link').trim();
+      if (!url && !label) return null;
+      return {
+        id: String(row.id ?? `link-${i}`),
+        platform: String(row.platform ?? 'custom').trim().toLowerCase() || 'custom',
+        label: label || 'Link',
+        detail: String(row.detail ?? '').trim(),
+        url,
+      };
+    })
+    .filter(Boolean) as SocialLink[];
+}
+
 function mapContact(json: Record<string, unknown>): ContactSettings {
+  let socialLinks = mapSocialLinks(json.socialLinks ?? json.social_links);
+  const facebookUrl = json.facebookUrl ? String(json.facebookUrl) : null;
+  const tiktokUrl = json.tiktokUrl ? String(json.tiktokUrl) : null;
+  if (!socialLinks.length) {
+    if (facebookUrl) {
+      socialLinks.push({
+        id: 'legacy-facebook',
+        platform: 'facebook',
+        label: 'Facebook',
+        detail: 'Open page',
+        url: facebookUrl,
+      });
+    }
+    if (tiktokUrl) {
+      socialLinks.push({
+        id: 'legacy-tiktok',
+        platform: 'tiktok',
+        label: 'TikTok',
+        detail: tiktokUrl
+          .replace(/^https?:\/\/(www\.)?tiktok\.com\//, '@'),
+        url: tiktokUrl,
+      });
+    }
+  }
   return {
     companyName: String(json.companyName ?? FALLBACK.contact.companyName),
     email: String(json.email ?? FALLBACK.contact.email),
     whatsapp: String(json.whatsapp ?? FALLBACK.contact.whatsapp),
     whatsappUrl: String(json.whatsappUrl ?? FALLBACK.contact.whatsappUrl),
-    facebookUrl: json.facebookUrl ? String(json.facebookUrl) : null,
-    tiktokUrl: json.tiktokUrl ? String(json.tiktokUrl) : null,
+    facebookUrl,
+    tiktokUrl,
+    socialLinks,
   };
 }
 

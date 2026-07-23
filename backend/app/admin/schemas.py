@@ -105,6 +105,26 @@ class PaymentSettingsIn(BaseModel):
     model_config = {'populate_by_name': True}
 
 
+class SocialLinkOut(BaseModel):
+    id: str
+    platform: str
+    label: str
+    detail: str = ''
+    url: str
+
+    model_config = {'populate_by_name': True}
+
+
+class SocialLinkIn(BaseModel):
+    id: str | None = None
+    platform: str
+    label: str
+    detail: str = ''
+    url: str
+
+    model_config = {'populate_by_name': True}
+
+
 class ContactSettingsOut(BaseModel):
     company_name: str = Field(alias='companyName')
     email: str
@@ -112,6 +132,7 @@ class ContactSettingsOut(BaseModel):
     whatsapp_url: str = Field(alias='whatsappUrl')
     facebook_url: str | None = Field(default=None, alias='facebookUrl')
     tiktok_url: str | None = Field(default=None, alias='tiktokUrl')
+    social_links: list[SocialLinkOut] = Field(default_factory=list, alias='socialLinks')
 
     model_config = {'populate_by_name': True}
 
@@ -123,6 +144,7 @@ class ContactSettingsIn(BaseModel):
     whatsapp_url: str = Field(alias='whatsappUrl')
     facebook_url: str | None = Field(default=None, alias='facebookUrl')
     tiktok_url: str | None = Field(default=None, alias='tiktokUrl')
+    social_links: list[SocialLinkIn] | None = Field(default=None, alias='socialLinks')
 
     model_config = {'populate_by_name': True}
 

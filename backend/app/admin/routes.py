@@ -225,7 +225,22 @@ async def admin_update_settings(
             'whatsapp_url': body.contact.whatsapp_url,
             'facebook_url': body.contact.facebook_url,
             'tiktok_url': body.contact.tiktok_url,
+            'social_links': [
+                {
+                    'id': link.id,
+                    'platform': link.platform,
+                    'label': link.label,
+                    'detail': link.detail,
+                    'url': link.url,
+                }
+                for link in (body.contact.social_links or [])
+            ]
+            if body.contact.social_links is not None
+            else None,
         }
+        # Drop None social_links key so update skips when omitted
+        if contact['social_links'] is None:
+            contact.pop('social_links')
     try:
         row = await update_site_settings(db, payment=payment, contact=contact)
         await db.commit()
