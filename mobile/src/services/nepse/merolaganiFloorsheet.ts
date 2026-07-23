@@ -102,6 +102,79 @@ function parseAsOf(html: string): string | null {
   return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
+/** Contract IDs are YYYYMMDD… — more reliable than the "As of" label when it lags. */
+export function dateFromContractId(contractId: number): string | null {
+  const s = String(contractId);
+  if (s.length < 8 || !/^\d{8}/.test(s)) return null;
+  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+}
+
+export function sessionDateFromRows(
+  rows: FloorsheetRow[],
+  asOf: string | null,
+): string | null {
+  const counts = new Map<string, number>();
+  for (const r of rows.slice(0, 120)) {
+    const d = dateFromContractId(r.contractId);
+    if (!d) continue;
+    counts.set(d, (counts.get(d) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestN = 0;
+  for (const [d, n] of counts) {
+    if (n > bestN) {
+      best = d;
+      bestN = n;
+    }
+  }
+  return best ?? asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null;
+}
+
+function isoToMeroDate(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  if (!y || !m || !d) return '';
+  return `${m}/${d}/${y}`;
+}
+
+async function postFloorSearch(
+  html: string,
+  opts: { dateIso?: string; symbol?: string } = {},
+): Promise<string> {
+  const body = new URLSearchParams();
+  body.set('__EVENTTARGET', 'ctl00$ContentPlaceHolder1$lbtnSearchFloorsheet');
+  body.set('__EVENTARGUMENT', '');
+  body.set('__VIEWSTATE', grabField(html, '__VIEWSTATE'));
+  body.set('__VIEWSTATEGENERATOR', grabField(html, '__VIEWSTATEGENERATOR'));
+  const ev = grabField(html, '__EVENTVALIDATION');
+  if (ev) body.set('__EVENTVALIDATION', ev);
+  const sym = (opts.symbol ?? '').toUpperCase().trim();
+  body.set('ctl00$ContentPlaceHolder1$ASCompanyFilter$txtAutoSuggest', sym);
+  body.set('ctl00$ContentPlaceHolder1$ASCompanyFilter$hdnAutoSuggest', sym);
+  body.set('ctl00$ContentPlaceHolder1$txtBuyerBrokerCodeFilter', '');
+  body.set('ctl00$ContentPlaceHolder1$txtSellerBrokerCodeFilter', '');
+  body.set(
+    'ctl00$ContentPlaceHolder1$txtFloorsheetDateFilter',
+    opts.dateIso ? isoToMeroDate(opts.dateIso) : '',
+  );
+  body.set('ctl00$ContentPlaceHolder1$PagerControl1$hdnCurrentPage', '1');
+  body.set('ctl00$ContentPlaceHolder1$PagerControl1$hdnPCID', 'PC1');
+
+  const res = await fetch(MERO_FLOOR, {
+    method: 'POST',
+    headers: {
+      Accept: 'text/html',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent':
+        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+      Referer: MERO_FLOOR,
+      Origin: 'https://merolagani.com',
+    },
+    body: body.toString(),
+  });
+  if (!res.ok) throw new Error('Merolagani floorsheet search failed');
+  return res.text();
+}
+
 function parseTotalPages(html: string): number {
   const m = html.match(/Total pages:\s*(\d+)/i);
   return m ? Math.max(1, Number(m[1]) || 1) : 1;
@@ -150,6 +223,7 @@ function yieldUi(): Promise<void> {
 /**
  * Live Merolagani floorsheet with real buyer/seller broker numbers + names.
  * Emits after page 1 immediately, then a few more pages with UI yields.
+ * Pass `dateIso` (YYYY-MM-DD) to force that session when the default page lags.
  */
 export async function loadMerolaganiFloorsheetProgressive(
   onPartial: (
@@ -157,6 +231,7 @@ export async function loadMerolaganiFloorsheetProgressive(
     meta: { page: number; done: boolean; asOf: string | null },
   ) => void,
   maxPages = MERO_FLOOR_FAST_PAGES,
+  opts: { dateIso?: string } = {},
 ): Promise<{ rows: FloorsheetRow[]; asOf: string | null }> {
   const firstRes = await fetch(MERO_FLOOR, {
     headers: {
@@ -170,10 +245,16 @@ export async function loadMerolaganiFloorsheetProgressive(
   let html = await firstRes.text();
   await yieldUi();
 
-  const asOf = parseAsOf(html);
+  if (opts.dateIso) {
+    html = await postFloorSearch(html, { dateIso: opts.dateIso });
+    await yieldUi();
+  }
+
+  let asOf = parseAsOf(html) ?? opts.dateIso ?? null;
+  const all: FloorsheetRow[] = parseMerolaganiRows(html);
+  asOf = sessionDateFromRows(all, asOf);
   const totalPages = Math.min(parseTotalPages(html), maxPages);
 
-  const all: FloorsheetRow[] = parseMerolaganiRows(html);
   stampAsOf(all, asOf);
   onPartial(all.slice(), { page: 1, done: totalPages <= 1, asOf });
   await yieldUi();
@@ -193,7 +274,7 @@ export async function loadMerolaganiFloorsheetProgressive(
     if (!chunk.length) break;
   }
 
-  return { rows: all, asOf };
+  return { rows: all, asOf: sessionDateFromRows(all, asOf) };
 }
 
 /**
@@ -218,35 +299,12 @@ export async function loadMerolaganiFloorsheetForSymbol(
   if (!firstRes.ok) throw new Error('Merolagani floorsheet unavailable');
   let html = await firstRes.text();
 
-  const body = new URLSearchParams();
-  body.set('__EVENTTARGET', '');
-  body.set('__EVENTARGUMENT', '');
-  body.set('__VIEWSTATE', grabField(html, '__VIEWSTATE'));
-  body.set('__VIEWSTATEGENERATOR', grabField(html, '__VIEWSTATEGENERATOR'));
-  const ev = grabField(html, '__EVENTVALIDATION');
-  if (ev) body.set('__EVENTVALIDATION', ev);
-  body.set('ctl00$ContentPlaceHolder1$ASCompanyFilter$txtAutoSuggest', sym);
-  body.set('ctl00$ContentPlaceHolder1$ASCompanyFilter$hdnAutoSuggest', sym);
-  body.set('ctl00$ContentPlaceHolder1$txtBuyerBrokerCodeFilter', '');
-  body.set('ctl00$ContentPlaceHolder1$txtSellerBrokerCodeFilter', '');
-  body.set('ctl00$ContentPlaceHolder1$txtFloorsheetDateFilter', '');
-  body.set('ctl00$ContentPlaceHolder1$PagerControl1$hdnCurrentPage', '1');
-  body.set('ctl00$ContentPlaceHolder1$PagerControl1$hdnPCID', 'PC1');
+  html = await postFloorSearch(html, { symbol: sym });
 
-  const filteredRes = await fetch(MERO_FLOOR, {
-    method: 'POST',
-    headers: {
-      Accept: 'text/html',
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent':
-        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
-    },
-    body: body.toString(),
-  });
-  if (!filteredRes.ok) throw new Error('Merolagani symbol filter failed');
-  html = await filteredRes.text();
-
-  const asOf = parseAsOf(html);
+  const asOf = sessionDateFromRows(
+    parseMerolaganiRows(html).filter((r) => r.symbol.toUpperCase() === sym),
+    parseAsOf(html),
+  );
   const totalPages = Math.min(parseTotalPages(html), maxPages);
   const all: FloorsheetRow[] = parseMerolaganiRows(html).filter(
     (r) => r.symbol.toUpperCase() === sym,
@@ -263,5 +321,5 @@ export async function loadMerolaganiFloorsheetForSymbol(
     if (!chunk.length) break;
   }
 
-  return { rows: all, asOf };
+  return { rows: all, asOf: sessionDateFromRows(all, asOf) };
 }

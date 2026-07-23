@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
@@ -95,6 +96,45 @@ export function EditAccountScreen() {
   const [saving, setSaving] = useState(false);
   const [errorField, setErrorField] = useState<VerifyField | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const pinAnchorY = useRef(0);
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = Keyboard.addListener(showEvent, (e) => {
+      const fromScreen = e.endCoordinates.screenY;
+      const winH = Dimensions.get('window').height;
+      const overlap =
+        fromScreen > 0 && fromScreen < winH
+          ? Math.max(0, winH - fromScreen)
+          : e.endCoordinates.height;
+      setKeyboardHeight(overlap);
+    });
+    const onHide = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
+
+  const scrollPinAboveKeyboard = () => {
+    setTimeout(() => {
+      if (pinAnchorY.current > 0) {
+        scrollRef.current?.scrollTo({
+          y: Math.max(0, pinAnchorY.current - rs(16)),
+          animated: true,
+        });
+      } else {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 100);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -266,7 +306,14 @@ export function EditAccountScreen() {
         <Text style={styles.title}>Edit Account</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: rs(48) }}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.flex}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <LocalDisclaimer />
 
         {errorMsg ? (
@@ -286,6 +333,7 @@ export function EditAccountScreen() {
         )}
 
         <FormField
+          emphasized
           icon="pricetag-outline"
           label="Account name"
           value={name}
@@ -293,6 +341,7 @@ export function EditAccountScreen() {
           placeholder="Display name"
         />
         <FormField
+          emphasized
           icon="business-outline"
           label="Depository Participants"
           value={dp?.name ?? 'Loading DPs…'}
@@ -301,6 +350,7 @@ export function EditAccountScreen() {
         />
         <View style={errStyle('username')}>
           <FormField
+            emphasized
             icon="person-outline"
             label="Username"
             value={username}
@@ -313,6 +363,7 @@ export function EditAccountScreen() {
         </View>
         <View style={errStyle('password')}>
           <FormField
+            emphasized
             icon="lock-closed-outline"
             label="Password"
             value={password}
@@ -328,6 +379,7 @@ export function EditAccountScreen() {
         </View>
         <View style={errStyle('crn')}>
           <FormField
+            emphasized
             icon="key-outline"
             label="CRN Number"
             value={crn}
@@ -339,10 +391,17 @@ export function EditAccountScreen() {
             secure={hideCrn}
             showEye
             onToggleEye={() => setHideCrn((v) => !v)}
+            onFocus={() => scrollPinAboveKeyboard()}
           />
         </View>
-        <View style={errStyle('pin')}>
+        <View
+          style={errStyle('pin')}
+          onLayout={(e) => {
+            pinAnchorY.current = e.nativeEvent.layout.y;
+          }}
+        >
           <FormField
+            emphasized
             icon="ellipsis-horizontal"
             label="Transaction PIN"
             value={pin}
@@ -357,9 +416,21 @@ export function EditAccountScreen() {
             keyboardType="number-pad"
             maxLength={4}
             counter={`${pin.length}/4`}
+            onFocus={() => scrollPinAboveKeyboard()}
           />
         </View>
+      </ScrollView>
 
+      <View
+        style={[
+          styles.footer,
+          {
+            paddingBottom:
+              keyboardHeight > 0 ? rs(10) : Math.max(insets.bottom, rs(16)),
+            bottom: keyboardHeight > 0 ? keyboardHeight : 0,
+          },
+        ]}
+      >
         <Pressable
           style={[styles.saveBtn, (saving || loadingSecrets) && { opacity: 0.6 }]}
           onPress={() => void onSave()}
@@ -367,14 +438,14 @@ export function EditAccountScreen() {
         >
           {saving ? (
             <View style={styles.saveRow}>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={styles.saveText}> Verifying live…</Text>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.saveText}> Verifying live…</Text>
             </View>
           ) : (
             <Text style={styles.saveText}>Verify & Save changes</Text>
           )}
         </Pressable>
-      </ScrollView>
+      </View>
 
       <Modal
         visible={pickerOpen}
@@ -450,6 +521,8 @@ export function EditAccountScreen() {
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
+  flex: { flex: 1 },
+  scrollContent: { paddingBottom: rs(100) },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -490,16 +563,26 @@ function makeStyles(colors: ThemeColors) {
     borderLeftColor: colors.danger,
     marginLeft: rs(8),
   },
+  footer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: colors.bgElevated,
+    paddingTop: rs(12),
+    paddingHorizontal: rs(16),
+    alignItems: 'center',
+  },
   saveBtn: {
-    alignSelf: 'center',
-    marginTop: rs(28),
-    borderWidth: 1,
+    alignSelf: 'stretch',
+    borderWidth: 2,
     borderColor: colors.primary,
     borderRadius: rs(24),
     paddingHorizontal: rs(36),
-    paddingVertical: rs(10),
-    minWidth: rs(180),
+    paddingVertical: rs(12),
     alignItems: 'center',
+    backgroundColor: colors.primarySoft,
   },
   saveRow: { flexDirection: 'row', alignItems: 'center' },
   saveText: { color: colors.primary, fontWeight: '700', fontSize: rs(15) },

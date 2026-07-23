@@ -4,16 +4,21 @@ import {
   isMockAccountId,
   mockExpiryForAccount,
 } from '../../data/mockAccounts';
+import { bsToAd, daysInBsMonth } from '../../utils/bsDate';
 
 export type ExpiryStatus = 'ok' | 'warning' | 'expired' | 'unknown' | 'error';
 
 export type PillKind = 'password' | 'demat' | 'meroshare';
+
+export type DateCalendar = 'AD' | 'BS';
 
 export type ExpiryPill = {
   kind: PillKind;
   label: string;
   expired: boolean | null;
   expiryDate: string | null;
+  /** CDSC demat expiry is Bikram Sambat; password / MeroShare are A.D. */
+  calendar: DateCalendar;
   daysLeft: number | null;
   statusLine: string;
 };
@@ -65,18 +70,64 @@ function readField(source: Record<string, unknown>, aliases: string[]): unknown 
   return null;
 }
 
-/** Add whole years to a YYYY-MM-DD string, returning YYYY-MM-DD. */
-function addYears(iso: string | null, years: number): string | null {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
-  const [y, m, d] = iso.split('-').map(Number);
-  return toIsoDay(new Date(y + years, m - 1, d));
-}
-
 function toIsoDay(date: Date): string {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, '0');
   const day = `${date.getDate()}`.padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function padIsoParts(y: number, m: number, d: number): string {
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/**
+ * CDSC demat expiry is shown in MeroShare as B.S. (e.g. 2084-03-32 B.S.).
+ * Years 2070–2099 in that field are BS, not Gregorian.
+ */
+export function isBsDematYear(year: number): boolean {
+  return year >= 2070 && year <= 2099;
+}
+
+/** Keep YYYY-MM-DD / DD-MM-YYYY text without Date() (day 32 is valid in BS). */
+function preserveDateString(input: unknown): string | null {
+  if (input == null || input === '') return null;
+  if (typeof input === 'number' && Number.isFinite(input)) {
+    return coerceDate(input);
+  }
+  if (typeof input !== 'string') return null;
+  const text = input.trim().replace(/\s*B\.?S\.?\s*$/i, '').trim();
+  if (!text) return null;
+
+  const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    return padIsoParts(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+  }
+
+  const slash = text.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4})/);
+  if (slash) {
+    const a = Number(slash[1]);
+    const b = Number(slash[2]);
+    const year = Number(slash[3]);
+    let day = a;
+    let month = b;
+    if (a <= 12 && b > 12) {
+      month = a;
+      day = b;
+    }
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 32) {
+      return padIsoParts(year, month, day);
+    }
+  }
+
+  return coerceDate(text);
+}
+
+function readPreservedDate(
+  source: Record<string, unknown>,
+  aliases: string[],
+): string | null {
+  return preserveDateString(readField(source, aliases));
 }
 
 /**
@@ -101,16 +152,27 @@ function coerceDate(input: unknown): string | null {
     return Number.isNaN(iso.getTime()) ? text.slice(0, 10) : toIsoDay(iso);
   }
 
-  const slash = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  const slash = text.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4})/);
   if (slash) {
-    const day = Number(slash[1]);
-    const month = Number(slash[2]);
+    const a = Number(slash[1]);
+    const b = Number(slash[2]);
     const year = Number(slash[3]);
+    // Nepal / CDSC strings are DD/MM/YYYY (or DD.MM.YYYY).
+    // If first part > 12 it must be day; otherwise treat as D/M.
+    let day = a;
+    let month = b;
+    if (a <= 12 && b > 12) {
+      // Rare M/D/Y shape
+      month = a;
+      day = b;
+    }
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
       return toIsoDay(new Date(year, month - 1, day));
     }
   }
 
+  // BS-looking years (e.g. 2081-03-15) sometimes appear in demat fields.
+  // Leave them as ISO day strings so display works; daysUntil will treat as AD.
   const loose = Date.parse(text);
   return Number.isNaN(loose) ? null : toIsoDay(new Date(loose));
 }
@@ -127,14 +189,28 @@ function readFlag(source: Record<string, unknown>, aliases: string[]): boolean |
   return null;
 }
 
-export function daysUntil(iso: string | null): number | null {
+export function daysUntil(
+  iso: string | null,
+  calendar: DateCalendar = 'AD',
+): number | null {
   if (!iso) return null;
-  const normalized = coerceDate(iso) ?? iso;
+  const normalized = preserveDateString(iso) ?? iso;
 
   let target: Date;
   if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
     const [y, m, d] = normalized.split('-').map(Number);
-    target = new Date(y, m - 1, d);
+    const useBs = calendar === 'BS' || isBsDematYear(y);
+    if (useBs) {
+      try {
+        const maxDay = daysInBsMonth(y, m);
+        const ad = bsToAd({ year: y, month: m, day: Math.min(d, maxDay) });
+        target = new Date(ad.year, ad.month - 1, ad.day);
+      } catch {
+        return null;
+      }
+    } else {
+      target = new Date(y, m - 1, d);
+    }
   } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(normalized)) {
     const [d, m, y] = normalized.split('/').map(Number);
     target = new Date(y, m - 1, d);
@@ -149,22 +225,42 @@ export function daysUntil(iso: string | null): number | null {
   return Math.round((target.getTime() - today.getTime()) / MS_PER_DAY);
 }
 
-export function formatExpiryDisplay(iso: string | null): string {
+export function formatExpiryDisplay(
+  iso: string | null,
+  calendar: DateCalendar = 'AD',
+): string {
   if (!iso) return '—';
-  const normalized = coerceDate(iso) ?? iso;
+  const normalized = preserveDateString(iso) ?? iso;
   if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
     const [y, m, d] = normalized.split('-').map(Number);
-    return `${d}/${m}/${y}`;
+    const useBs = calendar === 'BS' || isBsDematYear(y);
+    if (useBs) {
+      // Match MeroShare: 2084-03-32 B.S.
+      return `${padIsoParts(y, m, d)} B.S.`;
+    }
+    // Match MeroShare A.D.: year-month-day
+    return padIsoParts(y, m, d);
   }
-  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(normalized)) return normalized;
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(normalized)) {
+    const [d, m, y] = normalized.split('/').map(Number);
+    return padIsoParts(y, m, d);
+  }
   const parsed = new Date(normalized);
   if (Number.isNaN(parsed.getTime())) return iso;
-  return `${parsed.getDate()}/${parsed.getMonth() + 1}/${parsed.getFullYear()}`;
+  return padIsoParts(
+    parsed.getFullYear(),
+    parsed.getMonth() + 1,
+    parsed.getDate(),
+  );
 }
 
 /** A field is "expired" when its date is in the past; otherwise fall back to the flag. */
-function resolveExpired(date: string | null, flag: boolean | null): boolean | null {
-  const remaining = daysUntil(date);
+function resolveExpired(
+  date: string | null,
+  flag: boolean | null,
+  calendar: DateCalendar = 'AD',
+): boolean | null {
+  const remaining = daysUntil(date, calendar);
   if (remaining != null) return remaining < 0;
   return flag;
 }
@@ -201,21 +297,37 @@ type ExpiryFields = {
 };
 
 function makePills(fields: ExpiryFields): ExpiryPill[] {
-  const byKind: Record<PillKind, { expired: boolean | null; date: string | null }> = {
-    password: { expired: fields.passwordExpired, date: fields.passwordExpiryDate },
-    demat: { expired: fields.dematExpired, date: fields.dematExpiryDate },
-    meroshare: { expired: fields.meroshareExpired, date: fields.meroshareExpiryDate },
+  const byKind: Record<
+    PillKind,
+    { expired: boolean | null; date: string | null; calendar: DateCalendar }
+  > = {
+    password: {
+      expired: fields.passwordExpired,
+      date: fields.passwordExpiryDate,
+      calendar: 'AD',
+    },
+    demat: {
+      expired: fields.dematExpired,
+      date: fields.dematExpiryDate,
+      calendar: 'BS',
+    },
+    meroshare: {
+      expired: fields.meroshareExpired,
+      date: fields.meroshareExpiryDate,
+      calendar: 'AD',
+    },
   };
 
   return PILL_ORDER.map(({ kind, label }) => {
-    const { expired, date } = byKind[kind];
-    const days = daysUntil(date);
+    const { expired, date, calendar } = byKind[kind];
+    const days = daysUntil(date, calendar);
     const isExpired = days != null ? days < 0 : expired;
     return {
       kind,
       label,
       expired: isExpired,
       expiryDate: date,
+      calendar,
       daysLeft: days,
       statusLine: statusLineFor(isExpired, days),
     };
@@ -223,21 +335,43 @@ function makePills(fields: ExpiryFields): ExpiryPill[] {
 }
 
 function summarize(fields: ExpiryFields): { status: ExpiryStatus; detail: string } {
-  const dated = [
-    { name: 'Password', date: fields.passwordExpiryDate, flag: fields.passwordExpired },
-    { name: 'Demat', date: fields.dematExpiryDate, flag: fields.dematExpired },
-    { name: 'MeroShare', date: fields.meroshareExpiryDate, flag: fields.meroshareExpired },
+  const dated: Array<{
+    name: string;
+    date: string | null;
+    flag: boolean | null;
+    calendar: DateCalendar;
+  }> = [
+    {
+      name: 'Password',
+      date: fields.passwordExpiryDate,
+      flag: fields.passwordExpired,
+      calendar: 'AD',
+    },
+    {
+      name: 'Demat',
+      date: fields.dematExpiryDate,
+      flag: fields.dematExpired,
+      calendar: 'BS',
+    },
+    {
+      name: 'MeroShare',
+      date: fields.meroshareExpiryDate,
+      flag: fields.meroshareExpired,
+      calendar: 'AD',
+    },
   ];
 
   const expiredNames = dated
-    .filter(({ date, flag }) => resolveExpired(date, flag) === true)
+    .filter(
+      ({ date, flag, calendar }) => resolveExpired(date, flag, calendar) === true,
+    )
     .map(({ name }) => `${name} expired`);
   if (expiredNames.length) {
     return { status: 'expired', detail: expiredNames.join(' · ') };
   }
 
   const remaining = dated
-    .map(({ date }) => daysUntil(date))
+    .map(({ date, calendar }) => daysUntil(date, calendar))
     .filter((d): d is number => d != null);
   const soonest = remaining.length ? Math.min(...remaining) : null;
   if (soonest != null && soonest <= WARN_WINDOW_DAYS) {
@@ -292,9 +426,9 @@ export async function fetchAccountExpiryInfo(
       passwordExpiryDate: exp.passwordExpiryDate ?? null,
       dematExpiryDate: exp.dematExpiryDate ?? null,
       meroshareExpiryDate: exp.meroshareExpiryDate ?? null,
-      passwordExpired: resolveExpired(exp.passwordExpiryDate ?? null, null),
-      dematExpired: resolveExpired(exp.dematExpiryDate ?? null, null),
-      meroshareExpired: resolveExpired(exp.meroshareExpiryDate ?? null, null),
+      passwordExpired: resolveExpired(exp.passwordExpiryDate ?? null, null, 'AD'),
+      dematExpired: resolveExpired(exp.dematExpiryDate ?? null, null, 'BS'),
+      meroshareExpired: resolveExpired(exp.meroshareExpiryDate ?? null, null, 'AD'),
     };
     const { status, detail: summaryDetail } = summarize(fields);
     return {
@@ -323,54 +457,61 @@ export async function fetchAccountExpiryInfo(
         ? (renewRaw as Record<string, unknown>)
         : {};
 
+    // Official CDSC ownDetail fields (see @util/meroshare OwnDetail):
+    //   passwordExpiryDate / passwordExpiryDateStr
+    //   dematExpiryDate
+    //   expiredDate / expiredDateStr  → MeroShare account term
+    //   renewedDate / renewedDateStr  → last demat/account renew
     const passwordExpiryDate =
       readDate(detail, [
-        'passwordExpiryDate',
         'passwordExpiryDateStr',
+        'passwordExpiryDate',
         'passwordExpireDate',
         'pwdExpiryDate',
       ]) ??
       readDate(renew, [
-        'passwordExpiryDate',
         'passwordExpiryDateStr',
+        'passwordExpiryDate',
         'passwordExpireDate',
       ]);
 
-    // MeroShare account access expiry — CDSC "expiredDate" (account term).
+    // MeroShare account access — ONLY expiredDate* (never generic expiryDate /
+    // dematExpiryDate, or demat and meroshare collapse to the same day).
     const meroshareExpiryDate =
-      readDate(detail, [
-        'expiredDate',
+      readDate(detail, ['expiredDateStr', 'expiredDate']) ??
+      readDate(renew, [
         'expiredDateStr',
-        'expiryDate',
-        'accountExpiryDate',
+        'expiredDate',
         'meroshareExpiryDate',
         'meroShareExpiryDate',
-      ]) ??
-      readDate(renew, [
-        'expiredDate',
-        'expiredDateStr',
-        'expiryDate',
         'accountExpiryDate',
-        'meroshareExpiryDate',
       ]);
 
-    // Demat renewal expiry: CDSC demat accounts renew ANNUALLY from the last
-    // renewed date. The literal `dematExpiryDate` field is the demat-number
-    // lifetime (~year 2084), NOT the renewable expiry — so we derive the real
-    // one as renewedDate + 1 year, falling back to any explicit demat field.
-    const renewedDate = readDate(detail, [
-      'renewedDate',
-      'renewedDateStr',
-      'renewDate',
-      'lastRenewedDate',
-    ]);
-    const dematLifetime = readDate(detail, [
-      'dematExpiryDate',
-      'dematExpiredDate',
-      'dematExpireDate',
-    ]);
+    // Exact CDSC dematExpiryDate as shown in MeroShare (B.S., e.g. 2084-03-32).
+    // Preserve day 32; never derive from renewedDate + 1 year or MeroShare expiredDate.
     const dematExpiryDate =
-      addYears(renewedDate, 1) ?? meroshareExpiryDate ?? dematLifetime;
+      readPreservedDate(detail, [
+        'dematExpiryDate',
+        'dematExpiredDate',
+        'dematExpireDate',
+      ]) ??
+      readPreservedDate(renew, [
+        'dematExpiryDate',
+        'dematExpiredDate',
+        'dematExpireDate',
+      ]);
+
+    if (__DEV__) {
+      console.log('[expiry]', account.username, {
+        passwordExpiryDate,
+        dematExpiryDate,
+        meroshareExpiryDate,
+        renewedDate: readPreservedDate(detail, [
+          'renewedDateStr',
+          'renewedDate',
+        ]),
+      });
+    }
 
     const fields: ExpiryFields = {
       meroshareExpiryDate,
@@ -378,15 +519,26 @@ export async function fetchAccountExpiryInfo(
       passwordExpiryDate,
       meroshareExpired: resolveExpired(
         meroshareExpiryDate,
-        readFlag(detail, ['accountExpired', 'isAccountExpired', 'meroShareExpired', 'expired']),
+        readFlag(detail, [
+          'accountExpired',
+          'isAccountExpired',
+          'meroShareExpired',
+        ]),
+        'AD',
       ),
       dematExpired: resolveExpired(
         dematExpiryDate,
         readFlag(detail, ['dematExpired', 'isDematExpired']),
+        'BS',
       ),
       passwordExpired: resolveExpired(
         passwordExpiryDate,
-        readFlag(detail, ['passwordExpired', 'isPasswordExpired', 'passwordExpire']),
+        readFlag(detail, [
+          'passwordExpired',
+          'isPasswordExpired',
+          'passwordExpire',
+        ]),
+        'AD',
       ),
     };
 

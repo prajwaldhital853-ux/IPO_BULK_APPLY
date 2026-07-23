@@ -587,55 +587,35 @@ export function AdminDashboardScreen() {
         </View>
       ) : null}
 
-      <Pressable
-        style={styles.paymentCard}
-        onPress={() => navigation.navigate('AdminSettings')}
-      >
-        <View style={styles.paymentCardIcon}>
-          <Ionicons name="qr-code-outline" size={rs(28)} color={colors.primary} />
-        </View>
-        <View style={styles.paymentCardBody}>
-          <Text style={styles.paymentCardTitle}>Payment QR & bank details</Text>
-          <Text style={styles.paymentCardSub}>
-            Change subscription QR code, bank account, and WhatsApp number shown in the app
+      <View style={styles.toolsRow}>
+        <Pressable
+          style={styles.toolTile}
+          onPress={() => navigation.navigate('AdminSettings')}
+        >
+          <Ionicons name="qr-code-outline" size={rs(20)} color={colors.primary} />
+          <Text style={styles.toolTileText} numberOfLines={2}>
+            Payment
           </Text>
-        </View>
-        <Ionicons name="chevron-forward" size={rs(20)} color={colors.textMuted} />
-      </Pressable>
-
-      <Pressable
-        style={styles.paymentCard}
-        onPress={() => navigation.navigate('AdminTeam')}
-      >
-        <View style={styles.paymentCardIcon}>
-          <Ionicons name="people-outline" size={rs(28)} color={colors.primary} />
-        </View>
-        <View style={styles.paymentCardBody}>
-          <Text style={styles.paymentCardTitle}>Team members</Text>
-          <Text style={styles.paymentCardSub}>
-            Add or edit team profiles and photos shown in the app's Team Members
-            section
+        </Pressable>
+        <Pressable
+          style={styles.toolTile}
+          onPress={() => navigation.navigate('AdminTeam')}
+        >
+          <Ionicons name="people-outline" size={rs(20)} color={colors.primary} />
+          <Text style={styles.toolTileText} numberOfLines={2}>
+            Team
           </Text>
-        </View>
-        <Ionicons name="chevron-forward" size={rs(20)} color={colors.textMuted} />
-      </Pressable>
-
-      <Pressable
-        style={styles.paymentCard}
-        onPress={() => navigation.navigate('AdminMarketClosures')}
-      >
-        <View style={styles.paymentCardIcon}>
-          <Ionicons name="calendar-outline" size={rs(28)} color={colors.primary} />
-        </View>
-        <View style={styles.paymentCardBody}>
-          <Text style={styles.paymentCardTitle}>NEPSE closed days</Text>
-          <Text style={styles.paymentCardSub}>
-            Mark unexpected market closures, pick a color, and add a notice for
-            the calendar
+        </Pressable>
+        <Pressable
+          style={styles.toolTile}
+          onPress={() => navigation.navigate('AdminMarketClosures')}
+        >
+          <Ionicons name="calendar-outline" size={rs(20)} color={colors.primary} />
+          <Text style={styles.toolTileText} numberOfLines={2}>
+            Closed days
           </Text>
-        </View>
-        <Ionicons name="chevron-forward" size={rs(20)} color={colors.textMuted} />
-      </Pressable>
+        </Pressable>
+      </View>
 
       <View style={styles.tabs}>
         {(['users', 'subscriptions', 'feedback'] as Tab[]).map((t) => (
@@ -710,6 +690,7 @@ export function AdminDashboardScreen() {
         <ActivityIndicator color={colors.primary} style={{ marginTop: rs(24) }} />
       ) : tab === 'users' ? (
         <FlatList
+          style={styles.listFlex}
           data={users}
           keyExtractor={(item) => item.id}
           renderItem={renderUser}
@@ -722,6 +703,7 @@ export function AdminDashboardScreen() {
         />
       ) : tab === 'subscriptions' ? (
         <FlatList
+          style={styles.listFlex}
           data={rows}
           keyExtractor={(item) => item.id}
           renderItem={renderSub}
@@ -734,6 +716,7 @@ export function AdminDashboardScreen() {
         />
       ) : (
         <FlatList
+          style={styles.listFlex}
           data={feedbackRows}
           keyExtractor={(item) => item.id}
           renderItem={renderFeedback}
@@ -843,7 +826,32 @@ function makeStyles(c: ThemeColors) {
       flexWrap: 'wrap',
       gap: rs(10),
       paddingHorizontal: rs(16),
-      marginBottom: rs(12),
+      marginBottom: rs(8),
+    },
+    toolsRow: {
+      flexDirection: 'row',
+      gap: rs(8),
+      paddingHorizontal: rs(16),
+      marginBottom: rs(10),
+    },
+    toolTile: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(4),
+      paddingVertical: rs(10),
+      paddingHorizontal: rs(4),
+      borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+      minHeight: rs(64),
+    },
+    toolTileText: {
+      color: c.text,
+      fontWeight: '700',
+      fontSize: rs(11),
+      textAlign: 'center',
     },
     paymentCard: {
       flexDirection: 'row',
@@ -908,6 +916,7 @@ function makeStyles(c: ThemeColors) {
     chipActive: { backgroundColor: c.primarySoft, borderColor: c.primary },
     chipText: { color: c.textSecondary, fontSize: rs(11), textTransform: 'capitalize' },
     chipTextActive: { color: c.primary, fontWeight: '700' },
+    listFlex: { flex: 1 },
     list: { paddingHorizontal: rs(16), paddingBottom: rs(24) },
     compactRow: {
       flexDirection: 'row',

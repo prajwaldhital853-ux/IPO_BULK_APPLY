@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,6 +8,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -57,6 +58,7 @@ export function AddCapitalScreen() {
   const { isPremium } = useSubscription();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const scrollRef = useRef<ScrollView>(null);
 
   const [dps, setDps] = useState<DpOption[]>(FALLBACK_DPS);
   const [loadingDps, setLoadingDps] = useState(true);
@@ -68,6 +70,24 @@ export function AddCapitalScreen() {
   const [query, setQuery] = useState('');
   const [checkingLogin, setCheckingLogin] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const onHide = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -150,6 +170,13 @@ export function AddCapitalScreen() {
     }
   };
 
+  const keyboardPad =
+    keyboardHeight > 0
+      ? Platform.OS === 'ios'
+        ? Math.max(0, keyboardHeight - insets.bottom) + rs(24)
+        : rs(24)
+      : rs(40);
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -159,65 +186,90 @@ export function AddCapitalScreen() {
         <Text style={styles.title}>Add Capital Detail</Text>
       </View>
 
-      <LocalDisclaimer />
-
-      {loginError ? (
-        <Text style={styles.loginError}>{loginError}</Text>
-      ) : (
-        <Text style={styles.hint}>
-          Next live-checks DP + username + password with MeroShare.
-        </Text>
-      )}
-
-      <FormField
-        icon="business-outline"
-        label="Depository Participants"
-        value={loadingDps ? 'Loading DPs…' : dp.name}
-        dropdown
-        onPressDropdown={() => !loadingDps && setPickerOpen(true)}
-      />
-      <FormField
-        icon="person-outline"
-        label="Username"
-        value={username}
-        onChangeText={(t) => {
-          setUsername(t);
-          setLoginError('');
-        }}
-        placeholder="Username"
-      />
-      <FormField
-        icon="lock-closed-outline"
-        label="Password"
-        value={password}
-        onChangeText={(t) => {
-          setPassword(t);
-          setLoginError('');
-        }}
-        placeholder="Password"
-        secure={hidePass}
-        showEye
-        onToggleEye={() => setHidePass((v) => !v)}
-      />
-
-      <Pressable
-        style={[
-          styles.nextBtn,
-          (!username.trim() ||
-            !password.trim() ||
-            loadingDps ||
-            checkingLogin) &&
-            styles.nextDisabled,
-        ]}
-        onPress={() => void onNext()}
-        disabled={loadingDps || checkingLogin}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
       >
-        {loadingDps || checkingLogin ? (
-          <ActivityIndicator color={colors.primary} />
-        ) : (
-          <Text style={styles.nextText}>Next</Text>
-        )}
-      </Pressable>
+        <ScrollView
+          ref={scrollRef}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          contentContainerStyle={{ paddingBottom: keyboardPad }}
+          showsVerticalScrollIndicator={false}
+        >
+          <LocalDisclaimer />
+
+          <View style={styles.formCard}>
+            {loginError ? (
+              <Text style={styles.loginError}>{loginError}</Text>
+            ) : (
+              <Text style={styles.hint}>
+                Next live-checks DP + username + password with MeroShare.
+              </Text>
+            )}
+
+            <FormField
+              emphasized
+              icon="business-outline"
+              label="Depository Participants"
+              value={loadingDps ? 'Loading DPs…' : dp.name}
+              dropdown
+              onPressDropdown={() => !loadingDps && setPickerOpen(true)}
+            />
+            <FormField
+              emphasized
+              icon="person-outline"
+              label="Username"
+              value={username}
+              onChangeText={(t) => {
+                setUsername(t);
+                setLoginError('');
+              }}
+              placeholder="Username"
+              onFocus={() => {
+                setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
+              }}
+            />
+            <FormField
+              emphasized
+              icon="lock-closed-outline"
+              label="Password"
+              value={password}
+              onChangeText={(t) => {
+                setPassword(t);
+                setLoginError('');
+              }}
+              placeholder="Password"
+              secure={hidePass}
+              showEye
+              onToggleEye={() => setHidePass((v) => !v)}
+              onFocus={() => {
+                setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
+              }}
+            />
+
+            <Pressable
+              style={[
+                styles.nextBtn,
+                (!username.trim() ||
+                  !password.trim() ||
+                  loadingDps ||
+                  checkingLogin) &&
+                  styles.nextDisabled,
+              ]}
+              onPress={() => void onNext()}
+              disabled={loadingDps || checkingLogin}
+            >
+              {loadingDps || checkingLogin ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <Text style={styles.nextText}>Next</Text>
+              )}
+            </Pressable>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <Modal
         visible={pickerOpen}
@@ -291,6 +343,7 @@ export function AddCapitalScreen() {
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
+  flex: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -298,35 +351,56 @@ function makeStyles(colors: ThemeColors) {
     paddingVertical: rs(12),
     gap: rs(8),
     backgroundColor: colors.bgElevated,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   back: { color: colors.text, fontSize: rs(22), width: rs(32) },
-  title: { color: colors.text, fontSize: rs(17), fontWeight: '600' },
+  title: {
+    color: colors.text,
+    fontSize: rs(18),
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  formCard: {
+    marginHorizontal: rs(12),
+    marginTop: rs(4),
+    marginBottom: rs(8),
+    paddingVertical: rs(12),
+    paddingBottom: rs(20),
+    borderRadius: rs(14),
+    borderWidth: 1.5,
+    borderColor: colors.textDim,
+    backgroundColor: colors.surface,
+  },
   hint: {
     marginHorizontal: rs(16),
-    marginBottom: rs(8),
-    color: colors.textSecondary,
-    fontSize: rs(12),
+    marginBottom: rs(4),
+    color: colors.text,
+    fontSize: rs(13),
+    fontWeight: '600',
+    lineHeight: rs(18),
   },
   loginError: {
     marginHorizontal: rs(16),
     marginBottom: rs(8),
     color: colors.danger,
     fontSize: rs(12),
-    fontWeight: '600',
+    fontWeight: '700',
   },
   nextBtn: {
     alignSelf: 'center',
     marginTop: rs(28),
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.primary,
     borderRadius: rs(24),
     paddingHorizontal: rs(36),
     paddingVertical: rs(10),
     minWidth: rs(120),
     alignItems: 'center',
+    backgroundColor: colors.primarySoft,
   },
   nextDisabled: { opacity: 0.4 },
-  nextText: { color: colors.primary, fontWeight: '700', fontSize: rs(15) },
+  nextText: { color: colors.primary, fontWeight: '800', fontSize: rs(15) },
   modalOverlay: {
     flex: 1,
     backgroundColor: colors.overlay,
@@ -347,13 +421,14 @@ function makeStyles(colors: ThemeColors) {
     marginBottom: rs(10),
   },
   search: {
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: 1.5,
+    borderColor: colors.textDim,
     borderRadius: rs(10),
     paddingHorizontal: rs(12),
     paddingVertical: rs(10),
     color: colors.text,
     marginBottom: rs(8),
+    backgroundColor: colors.bg,
   },
   dpRow: {
     paddingVertical: rs(12),

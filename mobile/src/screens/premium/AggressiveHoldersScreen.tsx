@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PriorSessionBanner } from '../../components/PriorSessionBanner';
 import { PremiumGate } from '../../components/PremiumGate';
 import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
@@ -29,6 +30,7 @@ import { invalidateMarketCaches } from '../../services/nepse/invalidateMarketCac
 import { fmtNum, iconUri, loadMiniScreener } from '../../services/nepse/screener';
 import { nepalTodayIso } from '../../services/nepse/holidays';
 import { rs } from '../../utils/responsive';
+import { safeGoBack } from '../../utils/safeGoBack';
 import type { RootStackParamList } from '../../navigation/types';
 
 type Period = '1d' | '2d' | '3d' | '7d' | '1m';
@@ -278,6 +280,7 @@ export function AggressiveHoldersScreen() {
   const [stocks, setStocks] = useState<AggressiveHolderStock[]>([]);
   const [visibleCount, setVisibleCount] = useState(0);
   const [sessionDate, setSessionDate] = useState<string | null>(null);
+  const [priorReason, setPriorReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -315,6 +318,7 @@ export function AggressiveHoldersScreen() {
           return [...pinned, ...rest];
         });
         setSessionDate(board.sessionDate);
+        setPriorReason(board.priorSessionReason ?? null);
         if (board.stocks.length > 0) setLoading(false);
         setLoadingMore(meta.partial);
       }, 0);
@@ -473,6 +477,7 @@ export function AggressiveHoldersScreen() {
       contentContainerStyle={styles.list}
       ListHeaderComponent={
         <View>
+          <PriorSessionBanner reason={priorReason} />
           <View style={styles.metaRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.metaCount}>{filtered.length} stocks</Text>
@@ -522,7 +527,7 @@ export function AggressiveHoldersScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => safeGoBack(navigation)} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>

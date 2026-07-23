@@ -25,8 +25,10 @@ function makeStyles(colors: ThemeColors) {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: rs(10),
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.surface,
     borderRadius: rs(10),
+    borderWidth: 1.5,
+    borderColor: colors.sage,
     padding: rs(12),
     marginHorizontal: rs(16),
     marginTop: rs(12),
@@ -34,9 +36,10 @@ function makeStyles(colors: ThemeColors) {
   },
   text: {
     flex: 1,
-    color: colors.accentGreen,
+    color: colors.text,
     fontSize: rs(13),
     lineHeight: rs(18),
+    fontWeight: '600',
   },
   });
 }

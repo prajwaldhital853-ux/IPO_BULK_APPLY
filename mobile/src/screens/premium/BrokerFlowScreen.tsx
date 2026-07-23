@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PriorSessionBanner } from '../../components/PriorSessionBanner';
 import { PremiumGate } from '../../components/PremiumGate';
 import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
@@ -25,8 +26,10 @@ import {
   type PremiumIntelRow,
 } from '../../services/nepse/brokerAnalytics';
 import { invalidateMarketCaches } from '../../services/nepse/invalidateMarketCaches';
+import { nepalTodayIso } from '../../services/nepse/holidays';
 import { iconUri } from '../../services/nepse/screener';
 import { rs } from '../../utils/responsive';
+import { safeGoBack } from '../../utils/safeGoBack';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -80,11 +83,7 @@ function fmtQty(n: number | null | undefined): string {
 }
 
 function todayYmd(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = `${d.getMonth() + 1}`.padStart(2, '0');
-  const day = `${d.getDate()}`.padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return nepalTodayIso();
 }
 
 function SymLogo({
@@ -101,9 +100,10 @@ function SymLogo({
     setFailed(false);
   }, [iconUrl]);
   if (iconUrl && !failed) {
+    const uri = iconUri(iconUrl) ?? iconUrl;
     return (
       <Image
-        source={{ uri: iconUri(iconUrl) ?? iconUrl }}
+        source={{ uri }}
         style={styles.logoImg}
         onError={() => setFailed(true)}
       />
@@ -135,6 +135,7 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   const [searchingBroker, setSearchingBroker] = useState(false);
   const [displayCount, setDisplayCount] = useState(0);
   const [sessionDate, setSessionDate] = useState<string | null>(null);
+  const [priorReason, setPriorReason] = useState<string | null>(null);
   const [brokerBreakdown, setBrokerBreakdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -183,6 +184,7 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
                 setRows(snap.rows);
                 hasRowsRef.current = snap.rows.length > 0;
                 setSessionDate(snap.sessionDate);
+                setPriorReason(snap.priorSessionReason ?? null);
                 setBrokerBreakdown(snap.brokerBreakdown);
                 setDisplayCount(snap.rows.length);
                 setLoadingMore(false);
@@ -194,6 +196,7 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
             setRows(snap.rows);
             hasRowsRef.current = snap.rows.length > 0;
             setSessionDate(snap.sessionDate);
+            setPriorReason(snap.priorSessionReason ?? null);
             setBrokerBreakdown(snap.brokerBreakdown);
             setLoading(false);
             setLoadingMore(meta.partial);
@@ -327,6 +330,7 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   const body = (
     <View style={styles.body}>
       <Text style={styles.dateText}>{sessionDate ?? todayYmd()}</Text>
+      <PriorSessionBanner reason={priorReason} />
 
       <View style={styles.filters}>
         <Pressable style={styles.periodBtn} onPress={() => setPeriodOpen(true)}>
@@ -494,7 +498,7 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => safeGoBack(navigation)} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>{title}</Text>

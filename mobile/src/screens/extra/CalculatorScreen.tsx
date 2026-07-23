@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -27,6 +29,8 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 const ACCENT = '#A5D6A7';
+/** High-contrast green for totals / selected chips (light green is hard to read). */
+const EMPHASIS = '#1B5E20';
 const PAID_UP_OPTIONS = [100, 50, 10];
 
 /** Nepal secondary-market broker commission (common slabs). */
@@ -70,6 +74,11 @@ export function CalculatorScreen() {
 
   const [tab, setTab] = useState<TabId>('buy');
   const [showResult, setShowResult] = useState(false);
+  const [calculating, setCalculating] = useState(false);
+  const resultOpacity = useRef(new Animated.Value(0)).current;
+  const resultScale = useRef(new Animated.Value(0.96)).current;
+  const spin = useRef(new Animated.Value(0)).current;
+  const spinLoop = useRef<Animated.CompositeAnimation | null>(null);
 
   // Buy
   const [buyPrice, setBuyPrice] = useState('');
@@ -201,7 +210,6 @@ export function CalculatorScreen() {
       };
     }
 
-    // averaging
     const parsed = avgRows
       .map((r) => ({ u: num(r.units), p: num(r.price) }))
       .filter((r) => r.u > 0 && r.p > 0);
@@ -238,7 +246,47 @@ export function CalculatorScreen() {
     avgRows,
   ]);
 
-  const onCalculate = () => setShowResult(true);
+  const onCalculate = () => {
+    if (calculating) return;
+    setShowResult(false);
+    setCalculating(true);
+    resultOpacity.setValue(0);
+    resultScale.setValue(0.96);
+    spin.setValue(0);
+    spinLoop.current?.stop();
+    spinLoop.current = Animated.loop(
+      Animated.timing(spin, {
+        toValue: 1,
+        duration: 900,
+        useNativeDriver: true,
+      }),
+    );
+    spinLoop.current.start();
+
+    setTimeout(() => {
+      spinLoop.current?.stop();
+      setCalculating(false);
+      setShowResult(true);
+      Animated.parallel([
+        Animated.timing(resultOpacity, {
+          toValue: 1,
+          duration: 280,
+          useNativeDriver: true,
+        }),
+        Animated.spring(resultScale, {
+          toValue: 1,
+          friction: 7,
+          tension: 80,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 650);
+  };
+
+  const spinRotate = spin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -264,6 +312,8 @@ export function CalculatorScreen() {
               onPress={() => {
                 setTab(t.id);
                 setShowResult(false);
+                setCalculating(false);
+                spinLoop.current?.stop();
               }}
               style={styles.tabBtn}
             >
@@ -401,7 +451,7 @@ export function CalculatorScreen() {
               styles={styles}
             />
             <Text style={styles.fieldLabel}>
-              <MaterialCommunityIcons name="pound" size={rs(14)} color={ACCENT} />{' '}
+              <MaterialCommunityIcons name="pound" size={rs(14)} color={EMPHASIS} />{' '}
               Paid-up Value per Share
             </Text>
             <View style={styles.paidUpRow}>
@@ -488,35 +538,74 @@ export function CalculatorScreen() {
                 ])
               }
             >
-              <Ionicons name="add" size={rs(18)} color={ACCENT} />
+              <Ionicons name="add" size={rs(20)} color="#FFFFFF" />
               <Text style={styles.addMoreText}>ADD MORE</Text>
             </Pressable>
           </>
         ) : null}
 
-        <Pressable style={styles.calcBtn} onPress={onCalculate}>
-          <MaterialCommunityIcons
-            name="calculator-variant"
-            size={rs(18)}
-            color={ACCENT}
-          />
-          <Text style={styles.calcBtnText}>CALCULATE</Text>
+        <Pressable
+          style={[styles.calcBtn, calculating && styles.calcBtnBusy]}
+          onPress={onCalculate}
+          disabled={calculating}
+        >
+          {calculating ? (
+            <>
+              <Animated.View style={{ transform: [{ rotate: spinRotate }] }}>
+                <MaterialCommunityIcons
+                  name="loading"
+                  size={rs(20)}
+                  color="#0A0A0A"
+                />
+              </Animated.View>
+              <Text style={styles.calcBtnTextOnFill}>CALCULATING…</Text>
+            </>
+          ) : (
+            <>
+              <MaterialCommunityIcons
+                name="calculator-variant"
+                size={rs(20)}
+                color="#0A0A0A"
+              />
+              <Text style={styles.calcBtnTextOnFill}>CALCULATE</Text>
+            </>
+          )}
         </Pressable>
 
+        {calculating ? (
+          <View style={styles.calculatingBox}>
+            <ActivityIndicator color={ACCENT} size="large" />
+            <Text style={styles.calculatingText}>Working out fees & totals…</Text>
+          </View>
+        ) : null}
+
         {showResult ? (
-          <View style={styles.resultCard}>
+          <Animated.View
+            style={[
+              styles.resultCard,
+              {
+                opacity: resultOpacity,
+                transform: [{ scale: resultScale }],
+              },
+            ]}
+          >
             <Text style={styles.resultTitle}>{result.title}</Text>
             {result.rows.map((r) => (
-              <View key={r.label} style={styles.resultRow}>
-                <Text style={styles.resultLabel}>{r.label}</Text>
+              <View
+                key={r.label}
+                style={[styles.resultRow, r.bold && styles.resultRowBold]}
+              >
                 <Text
-                  style={[styles.resultValue, r.bold && styles.resultBold]}
+                  style={[styles.resultLabel, r.bold && styles.resultLabelBold]}
                 >
+                  {r.label}
+                </Text>
+                <Text style={[styles.resultValue, r.bold && styles.resultBold]}>
                   {r.value}
                 </Text>
               </View>
             ))}
-          </View>
+          </Animated.View>
         ) : null}
       </ScrollView>
     </View>
@@ -622,17 +711,18 @@ function makeStyles(c: ThemeColors) {
     fieldLabel: {
       color: c.text,
       fontSize: rs(13),
-      fontWeight: '600',
+      fontWeight: '700',
       marginBottom: rs(8),
     },
     input: {
-      borderWidth: 1,
-      borderColor: c.border,
+      borderWidth: 2,
+      borderColor: c.textDim,
       borderRadius: rs(24),
       paddingHorizontal: rs(16),
       paddingVertical: rs(12),
       color: c.text,
-      fontSize: rs(14),
+      fontSize: rs(15),
+      fontWeight: '600',
       backgroundColor: c.surface,
     },
     radioRow: {
@@ -673,18 +763,23 @@ function makeStyles(c: ThemeColors) {
     },
     paidUpChip: {
       flex: 1,
-      borderWidth: 1,
-      borderColor: c.border,
+      borderWidth: 2,
+      borderColor: c.text,
       borderRadius: rs(24),
-      paddingVertical: rs(12),
+      paddingVertical: rs(13),
       alignItems: 'center',
+      backgroundColor: c.surface,
     },
     paidUpChipActive: {
-      borderColor: ACCENT,
-      backgroundColor: 'rgba(165,214,167,0.12)',
+      borderColor: EMPHASIS,
+      backgroundColor: EMPHASIS,
     },
-    paidUpText: { color: c.textMuted, fontWeight: '700', fontSize: rs(13) },
-    paidUpTextActive: { color: ACCENT },
+    paidUpText: {
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(14),
+    },
+    paidUpTextActive: { color: '#FFFFFF' },
     avgRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -698,66 +793,97 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(6),
-      borderWidth: 1,
-      borderColor: ACCENT,
+      borderWidth: 2,
+      borderColor: EMPHASIS,
       borderRadius: rs(24),
-      paddingHorizontal: rs(18),
-      paddingVertical: rs(10),
+      paddingHorizontal: rs(22),
+      paddingVertical: rs(12),
       marginTop: rs(4),
       marginBottom: rs(18),
+      backgroundColor: EMPHASIS,
     },
     addMoreText: {
-      color: ACCENT,
-      fontWeight: '800',
-      fontSize: rs(13),
+      color: '#FFFFFF',
+      fontWeight: '900',
+      fontSize: rs(14),
       letterSpacing: 0.4,
     },
     calcBtn: {
-      alignSelf: 'center',
+      alignSelf: 'stretch',
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(8),
-      borderWidth: 1.5,
-      borderColor: ACCENT,
-      borderRadius: rs(24),
+      justifyContent: 'center',
+      gap: rs(10),
+      borderWidth: 2,
+      borderColor: EMPHASIS,
+      borderRadius: rs(28),
       paddingHorizontal: rs(28),
-      paddingVertical: rs(12),
-      marginTop: rs(8),
+      paddingVertical: rs(14),
+      marginTop: rs(12),
+      backgroundColor: ACCENT,
     },
-    calcBtnText: {
-      color: ACCENT,
-      fontWeight: '800',
-      fontSize: rs(14),
-      letterSpacing: 0.6,
+    calcBtnBusy: { opacity: 0.9 },
+    calcBtnTextOnFill: {
+      color: '#0A0A0A',
+      fontWeight: '900',
+      fontSize: rs(15),
+      letterSpacing: 0.8,
+    },
+    calculatingBox: {
+      marginTop: rs(20),
+      alignItems: 'center',
+      gap: rs(12),
+      paddingVertical: rs(18),
+    },
+    calculatingText: {
+      color: c.text,
+      fontSize: rs(13),
+      fontWeight: '700',
     },
     resultCard: {
       marginTop: rs(22),
       borderRadius: rs(14),
-      borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: c.surface,
-      padding: rs(14),
+      borderWidth: 2,
+      borderColor: EMPHASIS,
+      backgroundColor: c.bgElevated,
+      padding: rs(16),
     },
     resultTitle: {
-      color: ACCENT,
-      fontWeight: '800',
-      fontSize: rs(14),
-      marginBottom: rs(10),
+      color: c.text,
+      fontWeight: '900',
+      fontSize: rs(16),
+      marginBottom: rs(12),
     },
     resultRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
+      alignItems: 'center',
       gap: rs(12),
-      paddingVertical: rs(6),
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.borderMuted,
+      paddingVertical: rs(10),
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
     },
-    resultLabel: { color: c.textMuted, fontSize: rs(12), flex: 1 },
-    resultValue: {
-      color: c.text,
+    resultRowBold: {
+      marginTop: rs(8),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(10),
+      borderBottomWidth: 0,
+      backgroundColor: EMPHASIS,
+      marginHorizontal: -rs(4),
+      borderRadius: rs(10),
+    },
+    resultLabel: {
+      color: c.textSecondary,
       fontSize: rs(13),
       fontWeight: '600',
+      flex: 1,
     },
-    resultBold: { color: ACCENT, fontWeight: '800', fontSize: rs(14) },
+    resultLabelBold: { color: '#FFFFFF', fontWeight: '800' },
+    resultValue: {
+      color: c.text,
+      fontSize: rs(14),
+      fontWeight: '800',
+    },
+    resultBold: { color: '#FFFFFF', fontWeight: '900', fontSize: rs(16) },
   });
 }

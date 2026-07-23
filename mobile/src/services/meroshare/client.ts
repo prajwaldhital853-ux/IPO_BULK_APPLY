@@ -316,7 +316,15 @@ export class MeroshareClient {
       method: 'GET',
       auth: true,
     });
-    return data ?? {};
+    if (!data || typeof data !== 'object') return {};
+    const inner = (data as { object?: unknown }).object;
+    if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+      return {
+        ...(data as Record<string, unknown>),
+        ...(inner as Record<string, unknown>),
+      };
+    }
+    return data as Record<string, unknown>;
   }
 
   /**

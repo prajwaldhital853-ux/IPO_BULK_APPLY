@@ -48,8 +48,8 @@ const H_PAD = rs(14);
 const GAP = rs(14);
 const COLS = 4;
 const TILE_W = Math.floor((screenWidth - H_PAD * 2 - GAP * (COLS - 1)) / COLS);
-/** Compact tiles so Free Services fits ~3.5 rows on screen. */
-const TILE_H = Math.max(Math.floor(TILE_W * 1.02), rs(92));
+/** Compact tiles — slightly shorter so more rows fit on screen. */
+const TILE_H = Math.max(Math.floor(TILE_W * 0.92), rs(84));
 
 /** Icon well — brighter wells in dark so white glyphs stay crisp (SS2 look). */
 function pastel(hex: string, isDark: boolean) {
@@ -75,22 +75,22 @@ function pastel(hex: string, isDark: boolean) {
     return map[hex] ?? `${hex}66`;
   }
   const map: Record<string, string> = {
-    '#42A5F5': '#E3F2FD',
-    '#66BB6A': '#E8F5E9',
-    '#EF5350': '#FFEBEE',
-    '#FFA726': '#FFF3E0',
-    '#FFCA28': '#FFF8E1',
-    '#90A4AE': '#ECEFF1',
-    '#AB47BC': '#F3E5F5',
-    '#29B6F6': '#E1F5FE',
-    '#26A69A': '#E0F2F1',
-    '#7E57C2': '#EDE7F6',
-    '#FDD835': '#FFFDE7',
-    '#F48FB1': '#FCE4EC',
-    '#EC407A': '#FCE4EC',
-    '#FF7043': '#FBE9E7',
-    '#5C6BC0': '#E8EAF6',
-    '#81C784': '#E8F5E9',
+    '#42A5F5': '#BBDEFB',
+    '#66BB6A': '#C8E6C9',
+    '#EF5350': '#FFCDD2',
+    '#FFA726': '#FFE0B2',
+    '#FFCA28': '#FFF59D',
+    '#90A4AE': '#CFD8DC',
+    '#AB47BC': '#E1BEE7',
+    '#29B6F6': '#B3E5FC',
+    '#26A69A': '#B2DFDB',
+    '#7E57C2': '#D1C4E9',
+    '#FDD835': '#FFF59D',
+    '#F48FB1': '#F8BBD0',
+    '#EC407A': '#F48FB1',
+    '#FF7043': '#FFCCBC',
+    '#5C6BC0': '#C5CAE9',
+    '#81C784': '#C8E6C9',
   };
   return map[hex] ?? `${hex}28`;
 }
@@ -324,22 +324,32 @@ function SectionPill({
   styles: ReturnType<typeof makeStyles>;
   isDark: boolean;
 }) {
-  const textColor =
-    section.variant === 'premium' || section.variant === 'extra'
-      ? '#FFFFFF'
-      : colors.pillText;
+  const textColor = '#FFFFFF';
 
-  const bg =
-    section.variant === 'free'
+  const bg = isDark
+    ? section.variant === 'free'
       ? colors.pillFree
       : section.variant === 'mero'
         ? colors.pillMero
         : section.variant === 'premium'
           ? colors.pillPremiumEnd
-          : '#66BB6A';
+          : '#66BB6A'
+    : section.variant === 'free'
+      ? '#0277BD'
+      : section.variant === 'mero'
+        ? '#00897B'
+        : section.variant === 'premium'
+          ? '#0288D1'
+          : '#2E7D32';
 
   return (
-    <View style={[styles.pill, { backgroundColor: bg }]}>
+    <View
+      style={[
+        styles.pill,
+        { backgroundColor: bg },
+        !isDark && styles.pillLight,
+      ]}
+    >
       <Text
         style={[styles.pillText, { color: textColor }]}
         numberOfLines={1}
@@ -710,10 +720,19 @@ function makeStyles(c: ThemeColors) {
       justifyContent: 'center',
       minHeight: rs(34),
     },
+    pillLight: {
+      borderWidth: 1,
+      borderColor: 'rgba(0,0,0,0.12)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.12,
+      shadowRadius: 2,
+      elevation: 2,
+    },
     pillText: {
-      fontWeight: '700',
+      fontWeight: '800',
       fontSize: rs(12),
-      letterSpacing: 0,
+      letterSpacing: 0.2,
       textAlign: 'center',
       includeFontPadding: false,
     },
@@ -730,22 +749,22 @@ function makeStyles(c: ThemeColors) {
       borderRadius: rs(14),
       borderWidth: 1,
       borderColor: c.border,
-      paddingTop: rs(10),
-      paddingBottom: rs(8),
+      paddingTop: rs(8),
+      paddingBottom: rs(6),
       paddingHorizontal: rs(6),
       alignItems: 'center',
       justifyContent: 'flex-start',
       overflow: 'visible',
     },
     tileLight: {
-      backgroundColor: '#EEF2E6',
-      borderColor: 'rgba(45,90,39,0.08)',
-      borderWidth: 1,
+      backgroundColor: '#FFFFFF',
+      borderColor: '#9AAB8A',
+      borderWidth: 1.5,
       shadowColor: '#1B1B1B',
       shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.07,
+      shadowOpacity: 0.12,
       shadowRadius: 4,
-      elevation: 3,
+      elevation: 4,
     },
     tileFeatured: {
       borderColor: '#FF9900',
@@ -767,20 +786,20 @@ function makeStyles(c: ThemeColors) {
       zIndex: 2,
     },
     tileIcon: {
-      width: rs(42),
-      height: rs(42),
-      borderRadius: rs(11),
+      width: rs(38),
+      height: rs(38),
+      borderRadius: rs(10),
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: rs(7),
-      marginTop: rs(2),
+      marginBottom: rs(5),
+      marginTop: rs(1),
     },
     tileLabel: {
       width: '100%',
-      fontSize: rs(11),
+      fontSize: rs(10.5),
       fontWeight: '700',
       textAlign: 'center',
-      lineHeight: rs(13),
+      lineHeight: rs(12),
       paddingHorizontal: rs(2),
       letterSpacing: 0,
       includeFontPadding: false,

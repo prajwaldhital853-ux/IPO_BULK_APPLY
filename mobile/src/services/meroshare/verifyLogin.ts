@@ -185,6 +185,14 @@ export async function verifyAccountForSave(args: {
     } catch (e) {
       const msg =
         e instanceof Error ? e.message : 'Login failed — check DP / username / password';
+      if (isTransientMeroShareError(msg)) {
+        return {
+          ok: false,
+          field: 'network',
+          message: `MeroShare is temporarily busy: ${msg}. Wait a moment and tap Verify & Save again.`,
+          stage: 'login',
+        };
+      }
       const field =
         e instanceof MeroshareError && e.code === 'NETWORK'
           ? 'network'
@@ -317,6 +325,22 @@ export async function verifyAccountForSave(args: {
       };
     }
     if (probe.kind === 'impossible') {
+      // CDSC outages ("Unable to process…") — allow save; confirm on live apply
+      if (isTransientMeroShareError(probe.message)) {
+        return {
+          ok: true,
+          field: null,
+          message:
+            'Login OK. MeroShare is temporarily busy, so CRN/PIN were not confirmed yet. Account can be saved — they will be checked on first live IPO apply.',
+          stage: 'complete',
+          boid: session.boid,
+          demat: session.demat,
+          bankName,
+          accountNumber,
+          accountHolderName,
+          crnPinDeferred: true,
+        };
+      }
       return {
         ok: false,
         field: 'unknown',

@@ -43,6 +43,8 @@ function FiftyTwoWeekScreen({ mode }: { mode: FiftyTwoWeekMode }) {
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const [rows, setRows] = useState<FiftyTwoWeekRow[]>([]);
+  const [asOf, setAsOf] = useState<string | null>(null);
+  const [sourceNote, setSourceNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -52,6 +54,8 @@ function FiftyTwoWeekScreen({ mode }: { mode: FiftyTwoWeekMode }) {
       try {
         const res = await loadFiftyTwoWeekRows(mode, 120);
         setRows(res.rows);
+        setAsOf(res.asOf);
+        setSourceNote(res.sourceNote);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -87,10 +91,18 @@ function FiftyTwoWeekScreen({ mode }: { mode: FiftyTwoWeekMode }) {
       }
       contentContainerStyle={styles.list}
       ListHeaderComponent={
-        <View style={styles.tableHead}>
-          <Text style={[styles.headCell, styles.colSym]}>SYM</Text>
-          <Text style={[styles.headCell, styles.colLtp]}>LTP</Text>
-          <Text style={[styles.headCell, styles.colRange]}>{rangeLabel}</Text>
+        <View>
+          {asOf ? (
+            <Text style={styles.asOf}>Live LTP · {asOf}</Text>
+          ) : null}
+          {sourceNote ? (
+            <Text style={styles.note}>{sourceNote}</Text>
+          ) : null}
+          <View style={styles.tableHead}>
+            <Text style={[styles.headCell, styles.colSym]}>SYM</Text>
+            <Text style={[styles.headCell, styles.colLtp]}>LTP</Text>
+            <Text style={[styles.headCell, styles.colRange]}>{rangeLabel}</Text>
+          </View>
         </View>
       }
       ListEmptyComponent={
@@ -133,8 +145,8 @@ function FiftyTwoWeekScreen({ mode }: { mode: FiftyTwoWeekMode }) {
         title={title}
         subtitle={
           mode === 'high'
-            ? 'Stocks nearest their 52-week high from live mini-screener.'
-            : 'Stocks nearest their 52-week low from live mini-screener.'
+            ? 'Stocks nearest their 52-week high from live mini-screener prices.'
+            : 'Stocks nearest their 52-week low from live mini-screener prices.'
         }
       >
         {body}
@@ -157,6 +169,20 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     title: { color: c.text, fontWeight: '700', fontSize: rs(17) },
     list: { paddingBottom: rs(28) },
+    asOf: {
+      color: c.textMuted,
+      fontSize: rs(12),
+      fontWeight: '700',
+      paddingHorizontal: rs(14),
+      marginBottom: rs(4),
+    },
+    note: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      lineHeight: rs(15),
+      paddingHorizontal: rs(14),
+      marginBottom: rs(10),
+    },
     center: {
       flex: 1,
       alignItems: 'center',

@@ -64,10 +64,8 @@ import {
   AggressiveHoldersScreen,
   DistributionScreen,
 } from '../screens/premium/PremiumScannerScreen';
-import {
-  BrokerFavoritesScreen,
-  BrokerTopBuySellScreen,
-} from '../screens/premium/PremiumIntelScreen';
+import { BrokerFavoritesScreen } from '../screens/premium/BrokerFavoritesScreen';
+import { BrokerTopBuySellScreen } from '../screens/premium/BrokerTopBuySellScreen';
 import {
   TopBuyersScreen,
   TopSellersScreen,

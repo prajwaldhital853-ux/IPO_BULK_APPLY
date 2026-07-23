@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PriorSessionBanner } from '../../components/PriorSessionBanner';
 import { PremiumGate } from '../../components/PremiumGate';
 import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
@@ -25,7 +26,9 @@ import {
 } from '../../services/nepse/brokerAnalytics';
 import { fmtMcap } from '../../services/nepse/screener';
 import { invalidateMarketCaches } from '../../services/nepse/invalidateMarketCaches';
+import { nepalTodayIso } from '../../services/nepse/holidays';
 import { rs } from '../../utils/responsive';
+import { safeGoBack } from '../../utils/safeGoBack';
 import type { RootStackParamList } from '../../navigation/types';
 
 type Period = '1d' | '2d' | '3d' | '7d' | '1m';
@@ -64,6 +67,8 @@ function TopBuySellTableScreen({ side }: Props) {
 
   const [rows, setRows] = useState<TopSideTradeRow[]>([]);
   const [visibleCount, setVisibleCount] = useState(0);
+  const [sessionDate, setSessionDate] = useState<string | null>(null);
+  const [priorReason, setPriorReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -90,6 +95,8 @@ function TopBuySellTableScreen({ side }: Props) {
       try {
         await streamTopSideBoard(side, (board, meta) => {
           setLoadingMore(meta.partial);
+          setSessionDate(board.sessionDate);
+          setPriorReason(board.priorSessionReason ?? null);
           if (!meta.partial) {
             setRows(board.rows);
             setVisibleCount(0);
@@ -223,7 +230,11 @@ function TopBuySellTableScreen({ side }: Props) {
         }
         contentContainerStyle={styles.list}
         ListHeaderComponent={
-          <View>
+          <View style={{ paddingHorizontal: rs(14) }}>
+            <Text style={styles.sessionDate}>
+              {sessionDate ?? nepalTodayIso()}
+            </Text>
+            <PriorSessionBanner reason={priorReason} />
             <Pressable
               style={styles.periodBtn}
               onPress={() => setPeriodOpen(true)}
@@ -340,7 +351,7 @@ function TopBuySellTableScreen({ side }: Props) {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => safeGoBack(navigation)} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>{title}</Text>
@@ -412,6 +423,13 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     title: { color: c.text, fontWeight: '800', fontSize: rs(17) },
     list: { paddingBottom: rs(28) },
+    sessionDate: {
+      color: c.textMuted,
+      fontSize: rs(12),
+      fontWeight: '600',
+      marginBottom: rs(8),
+      paddingHorizontal: 0,
+    },
     center: {
       flex: 1,
       alignItems: 'center',
@@ -430,7 +448,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      marginHorizontal: rs(14),
+      marginHorizontal: 0,
       marginBottom: rs(10),
       paddingHorizontal: rs(14),
       paddingVertical: rs(11),
@@ -443,7 +461,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     searchRow: {
       flexDirection: 'row',
       gap: rs(8),
-      marginHorizontal: rs(14),
+      marginHorizontal: 0,
       marginBottom: rs(10),
     },
     searchBox: {

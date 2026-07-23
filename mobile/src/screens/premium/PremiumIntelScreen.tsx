@@ -23,6 +23,7 @@ import {
   type PremiumIntelSnapshot,
 } from '../../services/nepse/brokerAnalytics';
 import { rs } from '../../utils/responsive';
+import { safeGoBack } from '../../utils/safeGoBack';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -191,7 +192,7 @@ export function PremiumIntelScreen({ kind }: { kind: PremiumIntelKind }) {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => safeGoBack(navigation)} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>{snap?.title ?? 'Premium Intel'}</Text>
@@ -207,11 +208,8 @@ export function PremiumIntelScreen({ kind }: { kind: PremiumIntelKind }) {
   );
 }
 
-export function BrokerFavoritesScreen() {
-  return <PremiumIntelScreen kind="broker-favorites" />;
-}
-
 export { BrokerTopBuySellScreen } from './BrokerTopBuySellScreen';
+export { BrokerFavoritesScreen } from './BrokerFavoritesScreen';
 
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({

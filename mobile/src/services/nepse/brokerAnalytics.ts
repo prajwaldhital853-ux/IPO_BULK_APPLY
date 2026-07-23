@@ -1,6 +1,7 @@
 import {
   fmtMcap,
   fmtNum,
+  iconUri,
   loadFloorsheet,
   loadHighDemand,
   loadHighSupply,
@@ -10,8 +11,10 @@ import {
   type MiniScreenerRow,
 } from './screener';
 import { formatRs } from './premiumAnalytics';
-import { loadMerolaganiFloorsheetProgressive, loadMerolaganiFloorsheetForSymbol, MERO_FLOOR_FAST_PAGES } from './merolaganiFloorsheet';
+import { loadMerolaganiFloorsheetProgressive, loadMerolaganiFloorsheetForSymbol, MERO_FLOOR_FAST_PAGES, sessionDateFromRows } from './merolaganiFloorsheet';
 import { loadTmsBrokers } from './resources';
+import { sessionStatus } from './calendar';
+import { isTradingDay, nepalTodayIso } from './holidays';
 
 const DATA_BASE = 'https://sharehubnepal.com/data/api/v1';
 const LIVE_V2 = 'https://sharehubnepal.com/live/api/v2/nepselive';
@@ -31,6 +34,7 @@ export function invalidateBrokerAnalyticsCache(): void {
   brokerCacheAt = 0;
   floorsheetCache = null;
   floorsheetCacheAt = 0;
+  floorsheetMeta = { trades: 0, date: null };
 }
 
 export type BrokerInfo = { code: string; name: string; iconUrl: string | null };
@@ -71,6 +75,8 @@ export type PremiumIntelSnapshot = {
   title: string;
   subtitle: string;
   sessionDate: string | null;
+  /** Set when market is open but Merolagani still serves the prior sheet. */
+  priorSessionReason?: string | null;
   tradesScanned: number;
   brokerBreakdown: boolean;
   summary: IntelMetric[];
@@ -136,6 +142,69 @@ let brokerCacheAt = 0;
 let floorsheetCache: FloorsheetRow[] | null = null;
 let floorsheetCacheAt = 0;
 let floorsheetMeta: { trades: number; date: string | null } = { trades: 0, date: null };
+
+async function fetchLiveMarketDate(): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${LIVE_V2}/market-status?_=${Date.now()}`,
+      {
+        headers: {
+          Accept: 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+      },
+    );
+    if (!res.ok) return null;
+    const raw = (await res.json()) as { asOf?: string; isOpen?: string };
+    const iso = raw?.asOf ? String(raw.asOf).slice(0, 10) : null;
+    return iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when we should prefer today's session over a prior Merolagani sheet. */
+function expectTodaySession(liveDate: string): boolean {
+  const today = nepalTodayIso();
+  if (!isTradingDay(today)) return false;
+  // Only force "today" while the market is open. After close, keep Merolagani's
+  // latest published sheet (often still labeled prior day until they roll over).
+  if (sessionStatus() !== 'open') return false;
+  return liveDate >= today;
+}
+
+function isFloorsheetCacheFresh(_liveDate: string): boolean {
+  if (!floorsheetCache?.length) return false;
+  if (Date.now() - floorsheetCacheAt >= CACHE_MS) return false;
+  if (!floorsheetMeta.date) return false;
+  // Prior-day cache is fine during market open — UI shows priorSessionReason.
+  return true;
+}
+
+function rememberFloorsheet(rows: FloorsheetRow[], asOf: string | null): void {
+  if (!hasBrokerData(rows) || rows.length === 0) return;
+  floorsheetCache = rows;
+  floorsheetCacheAt = Date.now();
+  floorsheetMeta = {
+    trades: rows.length,
+    date: sessionDateFromRows(rows, asOf),
+  };
+}
+
+/** Explain why a prior broker floorsheet is shown while the market is open. */
+export function priorSessionReason(
+  publishedDate: string | null,
+  liveDate: string,
+): string | null {
+  if (!publishedDate) return null;
+  if (!expectTodaySession(liveDate)) return null;
+  if (publishedDate >= liveDate) return null;
+  return `Market is open today (${liveDate}), but today's broker floorsheet isn't published yet. Showing last published sheet (${publishedDate}). Pull to refresh.`;
+}
+
+async function resolveLiveMarketDate(): Promise<string> {
+  return (await fetchLiveMarketDate()) ?? nepalTodayIso();
+}
 
 function brokerKey(raw: string): string {
   const t = raw.trim();
@@ -322,7 +391,7 @@ async function loadSessionFloorsheetProgressive(
       floorsheetCacheAt = Date.now();
       floorsheetMeta = {
         trades: rows.length,
-        date: asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
+        date: sessionDateFromRows(rows, asOf),
       };
       // Final done already emitted by progressive loader.
       return rows;
@@ -469,7 +538,7 @@ function enrichRow(
   return {
     ...base,
     name: s?.name ?? base.name,
-    iconUrl: base.iconUrl ?? s?.iconUrl ?? null,
+    iconUrl: iconUri(base.iconUrl ?? s?.iconUrl) ?? null,
     sharePct: base.sharePct ?? null,
     ltp,
     changePct: s?.changePercent ?? base.changePct,
@@ -982,15 +1051,13 @@ export async function streamPremiumIntel(
 ): Promise<PremiumIntelSnapshot> {
   const mode = kind === 'top-holders' ? 'holders' : 'releases';
   const emptyBoards: BoardSets = { demand: new Set(), supply: new Set() };
+  const liveDate = await resolveLiveMarketDate();
 
-  let screener = new Map<string, MiniScreenerRow>();
-  let brokers: BrokerInfo[] = [];
-
-  // Load enrichment in parallel — do NOT block first floorsheet paint.
-  const metaP = Promise.all([screenerMap(), loadBrokers()]).then(([s, b]) => {
-    screener = s;
-    brokers = b;
-  });
+  // Load logos + names first so Acc/Dis rows never paint without company icons.
+  const [screener, brokers] = await Promise.all([
+    screenerMap(),
+    loadBrokers(),
+  ]);
 
   let latest: PremiumIntelSnapshot | null = null;
   let lastCount = 0;
@@ -1006,21 +1073,26 @@ export async function streamPremiumIntel(
     );
     if (!meta.done && snap.rows.length < lastCount) return;
     lastCount = Math.max(lastCount, snap.rows.length);
-    latest = snap;
-    onUpdate(snap, { partial: !meta.done, page: meta.page });
+    const sessionDate =
+      floorsheetMeta.date ?? sessionDateFromRows(rows, null);
+    latest = {
+      ...snap,
+      sessionDate,
+      priorSessionReason: priorSessionReason(sessionDate, liveDate),
+    };
+    onUpdate(latest, { partial: !meta.done, page: meta.page });
   };
 
   await loadSessionFloorsheetProgressive(emit);
 
-  // Enrich LTP/sector once meta arrives (don't hang forever on screener).
-  await Promise.race([
-    metaP,
-    new Promise<void>((r) => setTimeout(r, 4_000)),
-  ]);
   if (floorsheetCache?.length) {
     emit(floorsheetCache, { page: 99, done: true });
   } else if (!latest) {
     latest = await loadNetIntel(mode, limit);
+    latest = {
+      ...latest,
+      priorSessionReason: priorSessionReason(latest.sessionDate, liveDate),
+    };
     onUpdate(latest, { partial: false, page: 0 });
   }
   return latest!;
@@ -1133,15 +1205,87 @@ async function loadBrokerFavorites(limit: number): Promise<PremiumIntelSnapshot>
     title: 'Broker Favorites',
     subtitle:
       'Stocks where demand, turnover, momentum and 52-week strength converge — smart-money watchlist.',
-    sessionDate: new Date().toISOString().slice(0, 10),
+    sessionDate: nepalTodayIso(),
     tradesScanned: 0,
     brokerBreakdown: false,
     summary: [
       { label: 'Demand board', value: String(demand.length) },
       { label: 'Top turnover', value: String(topTurn.length) },
       { label: 'Candidates', value: String(intel.length) },
+      { label: 'Source', value: 'Live screener' },
     ],
     rows: rankRows(intel, limit),
+  };
+}
+
+/** Broker directory for Favorites picker (code + name + logo). */
+export async function loadBrokerDirectory(): Promise<BrokerInfo[]> {
+  return loadBrokers();
+}
+
+/**
+ * Stocks a specific broker is net-buying on the latest floorsheet.
+ * Used when Favorites search mode is Broker # / name.
+ */
+export async function loadBrokerFavoriteBuys(
+  brokerQuery: string,
+  limit = 60,
+): Promise<{ rows: PremiumIntelRow[]; broker: BrokerInfo | null; sessionDate: string | null }> {
+  const q = brokerQuery.trim();
+  if (!q) return { rows: [], broker: null, sessionDate: null };
+
+  const [brokers, screener] = await Promise.all([loadBrokers(), screenerMap()]);
+  const digits = q.replace(/\D/g, '');
+  const ql = q.toLowerCase();
+  const broker =
+    brokers.find((b) => digits && normBrokerCode(b.code) === normBrokerCode(digits)) ??
+    brokers.find((b) => b.name.toLowerCase().includes(ql)) ??
+    brokers.find((b) => b.code.includes(digits)) ??
+    null;
+  if (!broker) return { rows: [], broker: null, sessionDate: floorsheetMeta.date };
+
+  let rows = floorsheetCache ?? [];
+  if (!hasBrokerData(rows)) {
+    try {
+      await loadMerolaganiFloorsheetProgressive((partial, meta) => {
+        if (hasBrokerData(partial)) {
+          rememberFloorsheet(partial, meta.asOf);
+        }
+      }, MERO_FLOOR_FAST_PAGES);
+      rows = floorsheetCache ?? [];
+    } catch {
+      rows = await loadSessionFloorsheet(true);
+    }
+  }
+
+  const code = normBrokerCode(broker.code);
+  const buyRows = rows.filter(
+    (r) => normBrokerCode(r.buyerBroker) === code,
+  );
+  const agg = buildSideAgg(buyRows, 'buy');
+  const directory = nameDirectory(brokers);
+  const intel = [...agg.values()]
+    .filter((a) => a.qty > 0)
+    .map((a) =>
+      sideToIntel(
+        a,
+        screener,
+        directory,
+        `Broker ${code} buying · ${broker.name}`,
+        (x) => x.amount * Math.log10(x.qty + 10),
+      ),
+    )
+    .map((r) => ({
+      ...r,
+      brokerCode: code,
+      brokerName: broker.name,
+      iconUrl: r.iconUrl ?? screener.get(r.symbol.toUpperCase())?.iconUrl ?? null,
+    }));
+
+  return {
+    rows: rankRows(intel, limit),
+    broker,
+    sessionDate: floorsheetMeta.date ?? sessionDateFromRows(rows, null),
   };
 }
 
@@ -1329,6 +1473,8 @@ export type BrokerTopBuySellCard = {
 export type BrokerTopBuySellBoard = {
   brokers: BrokerTopBuySellCard[];
   sessionDate: string | null;
+  /** Why a prior-day sheet is shown while market is open (if any). */
+  priorSessionReason?: string | null;
   tradesScanned: number;
   brokerBreakdown: boolean;
 };
@@ -1351,7 +1497,7 @@ function buildBrokerTopBuySellBoard(
   nameDir: Map<string, string>,
 ): BrokerTopBuySellBoard {
   const sessionDate =
-    floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null;
+    floorsheetMeta.date ?? sessionDateFromRows(rows, null);
 
   if (!hasBrokerData(rows)) {
     return {
@@ -1456,9 +1602,8 @@ export async function loadBrokerTopBuySellBoard(): Promise<BrokerTopBuySellBoard
 
 /**
  * Progressive board for Broker Top Buy/Sell.
- * Recomputes from all rows so far, but only publishes broker chips when the
- * floorsheet stream finishes — so BUY/SELL symbols match the final correct set
- * and never reshuffle mid-load. Warm cache is published immediately.
+ * Prefers today's Merolagani sheet when published; otherwise shows the last
+ * published sheet and sets priorSessionReason while the market is open.
  */
 export async function streamBrokerTopBuySellBoard(
   onUpdate: (board: BrokerTopBuySellBoard, meta: { partial: boolean }) => void,
@@ -1466,52 +1611,83 @@ export async function streamBrokerTopBuySellBoard(
   const brokers = await loadBrokers();
   const brokerDir = brokerDirectoryMap(brokers);
   const nameDir = nameDirectory(brokers);
+  const liveDate = await resolveLiveMarketDate();
+  const wantToday = expectTodaySession(liveDate);
 
   let last: BrokerTopBuySellBoard = {
     brokers: [],
     sessionDate: null,
+    priorSessionReason: null,
     tradesScanned: 0,
     brokerBreakdown: false,
   };
 
-  const emit = (rows: FloorsheetRow[], partial: boolean) => {
+  const emit = (
+    rows: FloorsheetRow[],
+    partial: boolean,
+    publishedDate: string | null,
+  ) => {
     mergeBrokerNamesFromRows(nameDir, rows);
     const fresh = buildBrokerTopBuySellBoard(rows, brokerDir, nameDir);
-    // Keep meta updating while loading; withhold incomplete broker chips.
-    if (partial) {
-      last = {
-        brokers: last.brokers,
-        sessionDate: fresh.sessionDate,
-        tradesScanned: fresh.tradesScanned,
-        brokerBreakdown: fresh.brokerBreakdown || last.brokerBreakdown,
-      };
-      onUpdate(last, { partial: true });
-      return;
-    }
-    last = fresh;
-    onUpdate(last, { partial: false });
+    const sessionDate = publishedDate ?? fresh.sessionDate;
+    const reason = priorSessionReason(sessionDate, liveDate);
+    // Paint chips as soon as page 1 has broker data — refine as more pages arrive.
+    last = {
+      ...fresh,
+      sessionDate,
+      priorSessionReason: reason,
+      brokerBreakdown: fresh.brokerBreakdown || last.brokerBreakdown,
+    };
+    onUpdate(last, { partial });
   };
 
-  // Instant paint from warm cache (already a complete snapshot).
-  if (floorsheetCache?.length && Date.now() - floorsheetCacheAt < CACHE_MS) {
-    emit(floorsheetCache, false);
+  if (isFloorsheetCacheFresh(liveDate)) {
+    emit(floorsheetCache!, false, floorsheetMeta.date);
   }
 
+  const ingestDefault = (
+    rows: FloorsheetRow[],
+    meta: { done: boolean; asOf: string | null },
+  ) => {
+    const asOf = sessionDateFromRows(rows, meta.asOf);
+    rememberFloorsheet(rows, asOf);
+    emit(rows, !meta.done, asOf);
+  };
+
   try {
+    // Load the published Merolagani sheet immediately (usually prior day while
+    // market is open). Skipping an empty "today" date-filter probe saves ~3–8s.
     await loadMerolaganiFloorsheetProgressive((rows, meta) => {
-      if (hasBrokerData(rows) && rows.length > 0) {
-        floorsheetCache = rows;
-        floorsheetCacheAt = Date.now();
-        floorsheetMeta = {
-          trades: rows.length,
-          date: meta.asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
-        };
-      }
-      emit(rows, !meta.done);
+      ingestDefault(rows, meta);
     }, MERO_FLOOR_FAST_PAGES);
+
+    // If default sheet already rolled to today, we're done.
+    if (
+      last.sessionDate &&
+      last.sessionDate >= liveDate &&
+      last.brokers.length
+    ) {
+      return last;
+    }
+
+    // Optional one-shot today probe only when market is open and we have no rows yet.
+    if (wantToday && last.brokers.length === 0) {
+      await loadMerolaganiFloorsheetProgressive(
+        (rows, meta) => {
+          const asOf = sessionDateFromRows(rows, meta.asOf ?? liveDate);
+          if (asOf && asOf >= liveDate && hasBrokerData(rows)) {
+            rememberFloorsheet(rows, asOf);
+            emit(rows, !meta.done, asOf);
+          }
+        },
+        MERO_FLOOR_FAST_PAGES,
+        { dateIso: liveDate },
+      );
+    }
   } catch {
     const rows = await loadSessionFloorsheet(true);
-    emit(rows, false);
+    const asOf = sessionDateFromRows(rows, floorsheetMeta.date);
+    emit(rows, false, asOf);
   }
 
   return last;
@@ -1530,6 +1706,7 @@ export type TopSideTradeRow = {
 export type TopSideBoard = {
   rows: TopSideTradeRow[];
   sessionDate: string | null;
+  priorSessionReason?: string | null;
   tradesScanned: number;
   side: 'buy' | 'sell';
 };
@@ -1539,7 +1716,7 @@ function buildTopSideBoard(
   side: 'buy' | 'sell',
 ): TopSideBoard {
   const sessionDate =
-    floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null;
+    floorsheetMeta.date ?? sessionDateFromRows(rows, null);
   const agg = buildSideAgg(rows, side);
   const list: TopSideTradeRow[] = [...agg.values()]
     .filter((a) => a.qty > 0)
@@ -1570,18 +1747,31 @@ export async function streamTopSideBoard(
   side: 'buy' | 'sell',
   onUpdate: (board: TopSideBoard, meta: { partial: boolean }) => void,
 ): Promise<TopSideBoard> {
+  const liveDate = await resolveLiveMarketDate();
+
   let last: TopSideBoard = {
     rows: [],
     sessionDate: null,
+    priorSessionReason: null,
     tradesScanned: 0,
     side,
   };
 
-  const emit = (rows: FloorsheetRow[], partial: boolean) => {
+  const emit = (
+    rows: FloorsheetRow[],
+    partial: boolean,
+    publishedDate: string | null,
+  ) => {
+    const sessionDate =
+      publishedDate ??
+      floorsheetMeta.date ??
+      sessionDateFromRows(rows, null);
+    const reason = priorSessionReason(sessionDate, liveDate);
     if (!hasBrokerData(rows)) {
       last = {
         rows: [],
-        sessionDate: floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
+        sessionDate,
+        priorSessionReason: reason,
         tradesScanned: rows.length,
         side,
       };
@@ -1589,39 +1779,35 @@ export async function streamTopSideBoard(
       return;
     }
     const fresh = buildTopSideBoard(rows, side);
-    if (partial) {
-      last = {
-        rows: last.rows,
-        sessionDate: fresh.sessionDate,
-        tradesScanned: fresh.tradesScanned,
-        side,
-      };
-      onUpdate(last, { partial: true });
-      return;
-    }
-    last = fresh;
-    onUpdate(last, { partial: false });
+    // Publish ranked rows early so the table isn't blank until all pages finish.
+    last = {
+      ...fresh,
+      sessionDate,
+      priorSessionReason: reason,
+    };
+    onUpdate(last, { partial });
   };
 
-  if (floorsheetCache?.length && Date.now() - floorsheetCacheAt < CACHE_MS) {
-    emit(floorsheetCache, false);
+  if (isFloorsheetCacheFresh(liveDate)) {
+    emit(floorsheetCache!, false, floorsheetMeta.date);
   }
+
+  const ingest = (
+    rows: FloorsheetRow[],
+    meta: { done: boolean; asOf: string | null },
+  ) => {
+    const asOf = sessionDateFromRows(rows, meta.asOf);
+    rememberFloorsheet(rows, asOf);
+    emit(rows, !meta.done, asOf);
+  };
 
   try {
     await loadMerolaganiFloorsheetProgressive((rows, meta) => {
-      if (hasBrokerData(rows) && rows.length > 0) {
-        floorsheetCache = rows;
-        floorsheetCacheAt = Date.now();
-        floorsheetMeta = {
-          trades: rows.length,
-          date: meta.asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
-        };
-      }
-      emit(rows, !meta.done);
+      ingest(rows, meta);
     }, MERO_FLOOR_FAST_PAGES);
   } catch {
     const rows = await loadSessionFloorsheet(true);
-    emit(rows, false);
+    emit(rows, false, sessionDateFromRows(rows, floorsheetMeta.date));
   }
 
   return last;
@@ -1727,7 +1913,7 @@ function buildNetSideBoard(
   screener?: Map<string, MiniScreenerRow>,
 ): NetSideBoard {
   const sessionDate =
-    floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null;
+    floorsheetMeta.date ?? sessionDateFromRows(rows, null);
 
   if (!hasBrokerData(rows)) {
     return {
@@ -2060,8 +2246,14 @@ export async function loadPremiumIntel(
 export async function loadFiftyTwoWeekRows(
   mode: 'high' | 'low',
   limit = 60,
-): Promise<{ rows: FiftyTwoWeekRow[]; summary: IntelMetric[] }> {
-  const mini = await loadMiniScreener();
+): Promise<{
+  rows: FiftyTwoWeekRow[];
+  summary: IntelMetric[];
+  asOf: string;
+  sourceNote: string;
+}> {
+  const asOf = await resolveLiveMarketDate();
+  const mini = await loadMiniScreener(true);
   const rows = mini
     .map((s) => {
       const ltp = s.ltp;
@@ -2138,7 +2330,11 @@ export async function loadFiftyTwoWeekRows(
       { label: 'Universe', value: String(mini.length) },
       { label: 'Matched', value: String(sorted.length) },
       { label: 'Mode', value: mode === 'high' ? 'Near 52W high' : 'Near 52W low' },
+      { label: 'As of', value: asOf },
     ],
+    asOf,
+    sourceNote:
+      'Uses live mini-screener LTP (not broker floorsheet). Rankings update with today’s prices even when Merolagani floorsheet lags.',
   };
 }
 
@@ -2172,6 +2368,7 @@ export type AggressiveHolderStock = {
 export type AggressiveHolderBoard = {
   stocks: AggressiveHolderStock[];
   sessionDate: string | null;
+  priorSessionReason?: string | null;
   brokerBreakdown: boolean;
   tradesScanned: number;
 };
@@ -2201,7 +2398,7 @@ function buildAggressiveBoard(
   limit: number,
 ): AggressiveHolderBoard {
   const sessionDate =
-    floorsheetMeta.date ?? rows[0]?.tradeTime?.slice(0, 10) ?? null;
+    floorsheetMeta.date ?? sessionDateFromRows(rows, null);
 
   if (!hasBrokerData(rows)) {
     const stocks = [...screener.values()]
@@ -2385,6 +2582,8 @@ export async function streamAggressiveHolderStocks(
   brokerCache = null;
   brokerCacheAt = 0;
 
+  const liveDate = await resolveLiveMarketDate();
+
   const [screener, brokers] = await Promise.all([
     screenerMap(),
     loadBrokers(),
@@ -2395,32 +2594,50 @@ export async function streamAggressiveHolderStocks(
   let last: AggressiveHolderBoard = {
     stocks: [],
     sessionDate: null,
+    priorSessionReason: null,
     brokerBreakdown: false,
     tradesScanned: 0,
   };
 
-  const emit = (rows: FloorsheetRow[], partial: boolean) => {
+  const emit = (
+    rows: FloorsheetRow[],
+    partial: boolean,
+    publishedDate: string | null,
+  ) => {
     mergeBrokerNamesFromRows(directory, rows);
-    last = buildAggressiveBoard(rows, screener, brokerDir, directory, limit);
+    const board = buildAggressiveBoard(
+      rows,
+      screener,
+      brokerDir,
+      directory,
+      limit,
+    );
+    const sessionDate = publishedDate ?? board.sessionDate;
+    last = {
+      ...board,
+      sessionDate,
+      priorSessionReason: priorSessionReason(sessionDate, liveDate),
+    };
     onUpdate(last, { partial });
+  };
+
+  const ingest = (
+    rows: FloorsheetRow[],
+    meta: { done: boolean; asOf: string | null },
+  ) => {
+    const asOf = sessionDateFromRows(rows, meta.asOf);
+    rememberFloorsheet(rows, asOf);
+    emit(rows, !meta.done, asOf);
   };
 
   // Deep floorsheet load — Acc/Dis thin cache (4 pages) often misses SAIL-like names.
   try {
     await loadMerolaganiFloorsheetProgressive((rows, meta) => {
-      if (hasBrokerData(rows) && rows.length > 0) {
-        floorsheetCache = rows;
-        floorsheetCacheAt = Date.now();
-        floorsheetMeta = {
-          trades: rows.length,
-          date: meta.asOf ?? rows[0]?.tradeTime?.slice(0, 10) ?? null,
-        };
-      }
-      emit(rows, !meta.done);
+      ingest(rows, meta);
     }, MERO_AGGRESSIVE_PAGES);
   } catch {
     const rows = await loadSessionFloorsheet(true);
-    emit(rows, false);
+    emit(rows, false, sessionDateFromRows(rows, floorsheetMeta.date));
   }
 
   return last;

@@ -27,6 +27,9 @@ type Props = {
   editable?: boolean;
   keyboardType?: TextInputProps['keyboardType'];
   maxLength?: number;
+  onFocus?: TextInputProps['onFocus'];
+  /** Stronger border + label contrast (Add Capital / CRN screens). */
+  emphasized?: boolean;
 };
 
 export function FormField({
@@ -44,20 +47,26 @@ export function FormField({
   editable = true,
   keyboardType,
   maxLength,
+  onFocus,
+  emphasized = false,
 }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const fieldStyle = [styles.field, emphasized && styles.fieldEmphasized];
+  const labelColor = emphasized ? colors.text : colors.textSecondary;
   return (
     <View style={styles.wrap}>
       <View style={styles.labelRow}>
         {icon ? (
-          <Ionicons name={icon} size={rs(16)} color={colors.textSecondary} />
+          <Ionicons name={icon} size={rs(16)} color={labelColor} />
         ) : null}
-        <Text style={styles.label}>{label}</Text>
+        <Text style={[styles.label, emphasized && styles.labelEmphasized]}>
+          {label}
+        </Text>
       </View>
 
       {dropdown ? (
-        <Pressable style={styles.field} onPress={onPressDropdown}>
+        <Pressable style={fieldStyle} onPress={onPressDropdown}>
           <Text
             style={[styles.value, !value && styles.placeholder]}
             numberOfLines={1}
@@ -67,7 +76,7 @@ export function FormField({
           <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
         </Pressable>
       ) : (
-        <View style={styles.field}>
+        <View style={fieldStyle}>
           <TextInput
             style={styles.input}
             value={value}
@@ -79,6 +88,7 @@ export function FormField({
             keyboardType={keyboardType}
             maxLength={maxLength}
             autoCapitalize="none"
+            onFocus={onFocus}
           />
           {showEye ? (
             <Pressable onPress={onToggleEye} hitSlop={10}>
@@ -111,17 +121,28 @@ function makeStyles(colors: ThemeColors) {
   label: {
     color: colors.textSecondary,
     fontSize: rs(13),
+    fontWeight: '600',
+  },
+  labelEmphasized: {
+    color: colors.text,
+    fontSize: rs(14),
+    fontWeight: '700',
   },
   field: {
     minHeight: rs(48),
     borderRadius: rs(12),
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.border,
-    backgroundColor: colors.inputBg,
+    backgroundColor: colors.surface,
     paddingHorizontal: rs(14),
     flexDirection: 'row',
     alignItems: 'center',
     gap: rs(8),
+  },
+  fieldEmphasized: {
+    borderWidth: 2,
+    borderColor: colors.textDim,
+    backgroundColor: colors.surface,
   },
   input: {
     flex: 1,

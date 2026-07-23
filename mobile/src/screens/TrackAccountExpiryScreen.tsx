@@ -44,6 +44,19 @@ const STATUS = {
   neutralText: '#8A948A',
 } as const;
 
+/** Stronger contrast for light-mode cards (sage page bg washes out soft greens). */
+const STATUS_LIGHT = {
+  okBg: '#FFFFFF',
+  okBorder: '#1B5E20',
+  okText: '#1B5E20',
+  badBg: '#FFEBEE',
+  badBorder: '#B71C1C',
+  badText: '#B71C1C',
+  neutralBg: '#FFFFFF',
+  neutralBorder: '#6B7A60',
+  neutralText: '#3D4A38',
+} as const;
+
 function isInvalidAccount(item: AccountExpiryInfo): boolean {
   if (item.status === 'expired' || item.status === 'error') return true;
   return item.pills.some((p) => p.expired === true);
@@ -55,6 +68,7 @@ const PLACEHOLDER_PILLS: ExpiryPill[] = [
     label: 'Password',
     expired: null,
     expiryDate: null,
+    calendar: 'AD',
     daysLeft: null,
     statusLine: 'Unknown',
   },
@@ -63,6 +77,7 @@ const PLACEHOLDER_PILLS: ExpiryPill[] = [
     label: 'Demat',
     expired: null,
     expiryDate: null,
+    calendar: 'BS',
     daysLeft: null,
     statusLine: 'Unknown',
   },
@@ -71,25 +86,40 @@ const PLACEHOLDER_PILLS: ExpiryPill[] = [
     label: 'MeroShare',
     expired: null,
     expiryDate: null,
+    calendar: 'AD',
     daysLeft: null,
     statusLine: 'Unknown',
   },
 ];
 
-function PillBox({ pill, styles }: { pill: ExpiryPill; styles: Styles }) {
+type StatusPalette = typeof STATUS;
+
+function statusPalette(isDark: boolean): StatusPalette {
+  return isDark ? STATUS : STATUS_LIGHT;
+}
+
+function PillBox({
+  pill,
+  styles,
+  palette,
+}: {
+  pill: ExpiryPill;
+  styles: Styles;
+  palette: StatusPalette;
+}) {
   const bad = pill.expired === true;
   const neutral = pill.expired == null;
-  const bg = bad ? STATUS.badBg : neutral ? STATUS.neutralBg : STATUS.okBg;
+  const bg = bad ? palette.badBg : neutral ? palette.neutralBg : palette.okBg;
   const border = bad
-    ? STATUS.badBorder
+    ? palette.badBorder
     : neutral
-      ? STATUS.neutralBorder
-      : STATUS.okBorder;
+      ? palette.neutralBorder
+      : palette.okBorder;
   const tint = bad
-    ? STATUS.badText
+    ? palette.badText
     : neutral
-      ? STATUS.neutralText
-      : STATUS.okText;
+      ? palette.neutralText
+      : palette.okText;
   return (
     <View style={[styles.pill, { backgroundColor: bg, borderColor: border }]}>
       <Text style={[styles.pillLabel, { color: tint }]}>{pill.label}</Text>
@@ -106,7 +136,7 @@ function PillBox({ pill, styles }: { pill: ExpiryPill; styles: Styles }) {
         </Text>
       </View>
       <Text style={[styles.pillDate, { color: tint }]}>
-        {formatExpiryDisplay(pill.expiryDate)}
+        {formatExpiryDisplay(pill.expiryDate, pill.calendar)}
       </Text>
     </View>
   );
@@ -118,6 +148,7 @@ export function TrackAccountExpiryScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const palette = useMemo(() => statusPalette(isDark), [isDark]);
   const { accounts, loadSecrets } = useAccounts();
 
   const [tab, setTab] = useState<TabId>('users');
@@ -339,7 +370,7 @@ export function TrackAccountExpiryScreen() {
                 <Text style={styles.selectAction}>Select All</Text>
               </Pressable>
               <Pressable onPress={() => setSelected(new Set())} hitSlop={8}>
-                <Text style={[styles.selectAction, { color: STATUS.badText }]}>
+                <Text style={[styles.selectAction, { color: palette.badText }]}>
                   Unselect All
                 </Text>
               </Pressable>
@@ -419,7 +450,7 @@ export function TrackAccountExpiryScreen() {
           ListHeaderComponent={
             fetchProgress ? (
               <View style={styles.progressBanner}>
-                <ActivityIndicator size="small" color={STATUS.okText} />
+                <ActivityIndicator size="small" color={palette.okText} />
                 <Text style={styles.progressText}>
                   Fetching {fetchProgress.done}/{fetchProgress.total}…
                 </Text>
@@ -429,7 +460,7 @@ export function TrackAccountExpiryScreen() {
           ListEmptyComponent={
             loading || fetchProgress ? (
               <View style={styles.loadingEmpty}>
-                <ActivityIndicator color={STATUS.okText} />
+                <ActivityIndicator color={palette.okText} />
                 <Text style={styles.empty}>
                   Checking selected accounts one by one…
                 </Text>
@@ -446,8 +477,8 @@ export function TrackAccountExpiryScreen() {
             const pills = item.pills.length ? item.pills : PLACEHOLDER_PILLS;
             const bad = renewFor(item);
             const invalid = isInvalidAccount(item);
-            const accent = invalid ? STATUS.badText : STATUS.okText;
-            const border = invalid ? STATUS.badBorder : STATUS.okBorder;
+            const accent = invalid ? palette.badText : palette.okText;
+            const border = invalid ? palette.badBorder : palette.okBorder;
             return (
               <View style={[styles.card, { borderColor: border }]}>
                 <View style={styles.cardHead}>
@@ -462,7 +493,7 @@ export function TrackAccountExpiryScreen() {
                     style={[
                       styles.statusBadge,
                       {
-                        backgroundColor: invalid ? STATUS.badBg : STATUS.okBg,
+                        backgroundColor: invalid ? palette.badBg : palette.okBg,
                         borderColor: border,
                       },
                     ]}
@@ -475,7 +506,12 @@ export function TrackAccountExpiryScreen() {
 
                 <View style={styles.pillRow}>
                   {pills.map((p) => (
-                    <PillBox key={p.kind} pill={p} styles={styles} />
+                    <PillBox
+                      key={p.kind}
+                      pill={p}
+                      styles={styles}
+                      palette={palette}
+                    />
                   ))}
                 </View>
 
@@ -487,9 +523,11 @@ export function TrackAccountExpiryScreen() {
                     <Ionicons
                       name="alert-circle-outline"
                       size={rs(14)}
-                      color={STATUS.badText}
+                      color={palette.badText}
                     />
-                    <Text style={styles.renewText}>{renewLabel(bad.kind)}</Text>
+                    <Text style={[styles.renewText, { color: palette.badText }]}>
+                      {renewLabel(bad.kind)}
+                    </Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -503,8 +541,9 @@ export function TrackAccountExpiryScreen() {
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
   const headerBg = c.bgElevated;
-  const cardBg = c.surface;
-  const avatarBg = isDark ? c.surfaceAlt : STATUS.okBg;
+  const cardBg = isDark ? c.surface : '#FFFFFF';
+  const avatarBg = isDark ? c.surfaceAlt : STATUS_LIGHT.okBg;
+  const tone = isDark ? STATUS : STATUS_LIGHT;
 
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
@@ -540,8 +579,8 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       paddingHorizontal: rs(12),
       backgroundColor: cardBg,
       borderRadius: rs(10),
-      borderWidth: 1,
-      borderColor: c.border,
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: isDark ? c.border : '#7A8F6A',
     },
     searchInput: {
       flex: 1,
@@ -561,7 +600,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       paddingTop: rs(12),
     },
     tabText: { color: c.textMuted, fontSize: rs(13), fontWeight: '600' },
-    tabTextActive: { color: c.accentGreen, fontWeight: '800' },
+    tabTextActive: { color: tone.okText, fontWeight: '800' },
     tabLine: {
       marginTop: rs(9),
       height: rs(2.5),
@@ -570,7 +609,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderTopLeftRadius: rs(2),
       borderTopRightRadius: rs(2),
     },
-    tabLineActive: { backgroundColor: c.accentGreen },
+    tabLineActive: { backgroundColor: tone.okBorder },
     selectRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -581,7 +620,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     selectCount: { color: c.text, fontWeight: '700', fontSize: rs(13) },
     selectActions: { flexDirection: 'row', gap: rs(18) },
-    selectAction: { color: c.accentGreen, fontWeight: '700', fontSize: rs(13) },
+    selectAction: { color: tone.okText, fontWeight: '700', fontSize: rs(13) },
     list: { padding: rs(14), paddingBottom: rs(24) },
     empty: {
       textAlign: 'center',
@@ -596,8 +635,8 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       padding: rs(14),
       marginBottom: rs(10),
       borderRadius: rs(12),
-      borderWidth: 1,
-      borderColor: c.border,
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: isDark ? c.border : '#8FA07A',
       backgroundColor: cardBg,
     },
     avatar: {
@@ -618,26 +657,27 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       backgroundColor: headerBg,
     },
     fetchBtn: {
-      borderWidth: 1.5,
-      borderColor: c.accentGreen,
+      borderWidth: 2,
+      borderColor: tone.okBorder,
       borderRadius: rs(26),
       paddingVertical: rs(13),
       alignItems: 'center',
+      backgroundColor: isDark ? 'transparent' : '#E8F5E9',
     },
     fetchBtnOff: { opacity: 0.4 },
-    fetchText: { color: c.accentGreen, fontWeight: '800', fontSize: rs(14) },
+    fetchText: { color: tone.okText, fontWeight: '800', fontSize: rs(14) },
     card: {
-      borderWidth: 1.5,
-      borderColor: c.border,
+      borderWidth: isDark ? 1.5 : 2,
+      borderColor: isDark ? c.border : '#1B5E20',
       borderRadius: rs(18),
       padding: rs(18),
       backgroundColor: cardBg,
       marginBottom: rs(16),
       shadowColor: '#000',
-      shadowOpacity: isDark ? 0.2 : 0.05,
+      shadowOpacity: isDark ? 0.2 : 0.12,
       shadowRadius: 6,
       shadowOffset: { width: 0, height: 2 },
-      elevation: 2,
+      elevation: isDark ? 2 : 4,
     },
     cardHead: {
       flexDirection: 'row',
@@ -653,7 +693,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       letterSpacing: 0.3,
     },
     statusBadge: {
-      borderWidth: 1,
+      borderWidth: 1.5,
       borderRadius: rs(12),
       paddingHorizontal: rs(10),
       paddingVertical: rs(4),
@@ -670,12 +710,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       paddingVertical: rs(10),
       paddingHorizontal: rs(12),
       borderRadius: rs(12),
-      backgroundColor: isDark ? c.surfaceAlt : STATUS.okBg,
-      borderWidth: 1,
-      borderColor: STATUS.okBorder,
+      backgroundColor: isDark ? c.surfaceAlt : '#E8F5E9',
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: tone.okBorder,
     },
     progressText: {
-      color: STATUS.okText,
+      color: tone.okText,
       fontWeight: '700',
       fontSize: rs(13),
     },
@@ -688,7 +728,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     pill: {
       flex: 1,
       borderRadius: rs(12),
-      borderWidth: 1,
+      borderWidth: isDark ? 1 : 1.5,
       paddingHorizontal: rs(11),
       paddingVertical: rs(12),
       minHeight: rs(92),
@@ -702,7 +742,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(6),
     },
     pillStatus: { fontSize: rs(11.5), fontWeight: '700', flex: 1 },
-    pillDate: { fontSize: rs(11), fontWeight: '600', opacity: 0.85 },
+    pillDate: { fontSize: rs(11), fontWeight: '700', opacity: 1 },
     renewBtn: {
       alignSelf: 'flex-end',
       flexDirection: 'row',
@@ -711,12 +751,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       gap: rs(6),
       marginTop: rs(14),
       borderWidth: 1.5,
-      borderColor: STATUS.badText,
+      borderColor: tone.badText,
       borderRadius: rs(24),
       paddingHorizontal: rs(22),
       paddingVertical: rs(10),
       minWidth: rs(150),
     },
-    renewText: { color: STATUS.badText, fontWeight: '800', fontSize: rs(13) },
+    renewText: { color: tone.badText, fontWeight: '800', fontSize: rs(13) },
   });
 }

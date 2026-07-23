@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PriorSessionBanner } from '../../components/PriorSessionBanner';
 import { PremiumGate } from '../../components/PremiumGate';
 import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
@@ -28,6 +29,7 @@ import {
 import { invalidateMarketCaches } from '../../services/nepse/invalidateMarketCaches';
 import { nepalTodayIso } from '../../services/nepse/holidays';
 import { rs } from '../../utils/responsive';
+import { safeGoBack } from '../../utils/safeGoBack';
 import type { RootStackParamList } from '../../navigation/types';
 
 type Period = '1d' | '2d' | '3d' | '7d' | '1m';
@@ -95,9 +97,9 @@ function ChipRow({
   onPressSymbol: (sym: string) => void;
 }) {
   return (
-    <View style={styles.chipRow}>
-      <View style={[styles.sidePill, { backgroundColor: color }]}>
-        <Text style={styles.sidePillText}>{label}</Text>
+    <View style={[styles.sideCard, { borderColor: color }]}>
+      <View style={[styles.sideCardHead, { backgroundColor: color }]}>
+        <Text style={styles.sideCardHeadText}>{label}</Text>
       </View>
       <ScrollView
         horizontal
@@ -167,6 +169,7 @@ export function BrokerTopBuySellScreen() {
   const [brokers, setBrokers] = useState<BrokerTopBuySellCard[]>([]);
   const [visibleCount, setVisibleCount] = useState(0);
   const [sessionDate, setSessionDate] = useState<string | null>(null);
+  const [priorReason, setPriorReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -190,15 +193,14 @@ export function BrokerTopBuySellScreen() {
     try {
       await streamBrokerTopBuySellBoard((board, meta) => {
         setSessionDate(board.sessionDate);
+        setPriorReason(board.priorSessionReason ?? null);
         setLoadingMore(meta.partial);
-        // Publish only the finished board — correct chips, no mid-load reshuffle.
-        if (!meta.partial && board.brokers.length) {
+        // Publish finished board (including empty) so yesterday's chips don't stick.
+        if (!meta.partial) {
           setBrokers(board.brokers);
           setVisibleCount(0);
           setLoading(false);
         } else if (board.brokers.length) {
-          // Warm cache hit published as complete already handled above;
-          // partial updates keep the spinner / "loading more" state.
           setBrokers(board.brokers);
           setLoading(false);
         }
@@ -331,6 +333,7 @@ export function BrokerTopBuySellScreen() {
         contentContainerStyle={styles.list}
         ListHeaderComponent={
           <View>
+            <PriorSessionBanner reason={priorReason} />
             <View style={styles.metaRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.metaCount}>
@@ -364,7 +367,8 @@ export function BrokerTopBuySellScreen() {
         }
         ListEmptyComponent={
           <Text style={styles.empty}>
-            No broker buy/sell data yet. Pull to refresh after market open.
+            No broker buy/sell data yet. Pull to refresh after the floorsheet
+            publishes.
           </Text>
         }
         renderItem={({ item }) => (
@@ -376,7 +380,7 @@ export function BrokerTopBuySellScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => safeGoBack(navigation)} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
@@ -560,13 +564,19 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontSize: rs(13),
     },
     card: {
-      marginBottom: rs(18),
+      marginBottom: rs(14),
+      borderRadius: rs(14),
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: isDark ? c.surface : '#FFFFFF',
+      padding: rs(12),
+      gap: rs(8),
     },
     cardHead: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       gap: rs(10),
-      marginBottom: rs(8),
+      marginBottom: rs(2),
     },
     logoImg: {
       width: rs(32),
@@ -595,30 +605,29 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontSize: rs(14),
       lineHeight: rs(19),
     },
-    chipRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginBottom: rs(6),
-      gap: rs(6),
+    sideCard: {
+      borderRadius: rs(10),
+      borderWidth: 1.5,
+      backgroundColor: isDark ? c.surfaceAlt : '#FAFBFC',
+      overflow: 'hidden',
     },
-    sidePill: {
-      borderRadius: rs(6),
+    sideCardHead: {
       paddingHorizontal: rs(10),
-      paddingVertical: rs(5),
-      minWidth: rs(48),
-      alignItems: 'center',
+      paddingVertical: rs(6),
     },
-    sidePillText: {
+    sideCardHeadText: {
       color: '#FFF',
       fontWeight: '800',
       fontSize: rs(11),
-      letterSpacing: 0.3,
+      letterSpacing: 0.4,
     },
     chipScroll: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(5),
-      paddingRight: rs(8),
+      gap: rs(6),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(10),
+      paddingRight: rs(12),
     },
     symPill: {
       borderRadius: rs(6),

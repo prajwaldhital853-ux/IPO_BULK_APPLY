@@ -21,6 +21,11 @@ import {
   saveAccountMeta,
   updateAccountSecrets,
 } from '../storage/accountsStorage';
+import {
+  clearCapitalDraft,
+  loadCapitalDraft,
+  saveCapitalDraft,
+} from '../storage/draftCapitalStorage';
 import type {
   AccountMeta,
   AccountSecrets,
@@ -69,7 +74,16 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
   const [accounts, setAccounts] = useState<AccountMeta[]>([]);
   const [loading, setLoading] = useState(true);
-  const [draft, setDraft] = useState<DraftCapital | null>(null);
+  const [draft, setDraftState] = useState<DraftCapital | null>(null);
+
+  const setDraft = useCallback((d: DraftCapital | null) => {
+    setDraftState(d);
+    if (d) {
+      void saveCapitalDraft(d);
+    } else {
+      void clearCapitalDraft();
+    }
+  }, []);
 
   const reloadAccounts = useCallback(async () => {
     setLoading(true);
@@ -83,6 +97,8 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       } else {
         setAccounts(list);
       }
+      const savedDraft = await loadCapitalDraft();
+      if (savedDraft) setDraftState(savedDraft);
     } finally {
       setLoading(false);
     }
@@ -97,7 +113,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     await addAccountWithSecrets(meta, { password, crn, pin });
     setAccounts(await loadAccountMeta());
     setDraft(null);
-  }, []);
+  }, [setDraft]);
 
   const removeAccount = useCallback(async (id: string) => {
     setAccounts(await removeAccountFully(id));
@@ -201,7 +217,8 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
   const clearAll = useCallback(async () => {
     await clearAllAccounts();
     setAccounts([]);
-  }, []);
+    setDraft(null);
+  }, [setDraft]);
 
   const reorderAccounts = useCallback(async (orderedIds: string[]) => {
     setAccounts(await reorderAccountMeta(orderedIds));
