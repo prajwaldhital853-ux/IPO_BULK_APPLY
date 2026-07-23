@@ -14,7 +14,34 @@ export type ImportedAccount = {
   demat?: string;
 };
 
+/** Full device backup row — includes secrets (local Excel export only). */
+export type FullAccountExportRow = {
+  sn: number;
+  name: string;
+  dp: string;
+  client: string;
+  password: string;
+  crn: string;
+  pin: string;
+  dpName?: string;
+  bankName?: string;
+  demat?: string;
+};
+
 const CSV_HEADER = ['Name', 'DP', 'Username', 'DP Name', 'Bank', 'BOID'];
+
+const FULL_CSV_HEADER = [
+  'S.N.',
+  'Name',
+  'DP',
+  'Client',
+  'Password',
+  'CRN',
+  'PIN',
+  'DP Name',
+  'Bank',
+  'BOID',
+];
 
 function csvCell(v: string): string {
   const s = String(v ?? '');
@@ -33,6 +60,29 @@ export function buildAccountsCsv(accounts: AccountMeta[]): string {
   return [CSV_HEADER, ...rows]
     .map((r) => r.map(csvCell).join(','))
     .join('\r\n');
+}
+
+/** Full Excel-friendly CSV with password / CRN / PIN (Home share arrow). */
+export function buildFullAccountsCsv(rows: FullAccountExportRow[]): string {
+  const body = rows.map((r) => [
+    String(r.sn),
+    r.name ?? '',
+    r.dp ?? '',
+    r.client ?? '',
+    r.password ?? '',
+    r.crn ?? '',
+    r.pin ?? '',
+    r.dpName ?? '',
+    r.bankName ?? '',
+    r.demat ?? '',
+  ]);
+  // BOM so Excel opens UTF-8 correctly on Windows/Android.
+  return (
+    '\uFEFF' +
+    [FULL_CSV_HEADER, ...body]
+      .map((r) => r.map(csvCell).join(','))
+      .join('\r\n')
+  );
 }
 
 export function buildAccountsBackup(accounts: AccountMeta[]): string {
@@ -219,6 +269,30 @@ export async function exportAccountsFile(
         kind === 'csv' ? 'public.comma-separated-values-text' : 'public.json',
     });
   }
+}
+
+/**
+ * Export every saved account (incl. password, CRN, PIN) as a UTF-8 CSV
+ * Excel can open without the “extension doesn’t match” warning.
+ */
+export async function exportFullAccountsExcel(
+  rows: FullAccountExportRow[],
+): Promise<string> {
+  const content = buildFullAccountsCsv(rows);
+  const stamp = new Date().toISOString().slice(0, 10);
+  const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
+  const fileUri = `${dir}nepse-ghar-accounts-full-${stamp}.csv`;
+  await FileSystem.writeAsStringAsync(fileUri, content, {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(fileUri, {
+      mimeType: 'text/csv',
+      dialogTitle: 'Save accounts Excel file',
+      UTI: 'public.comma-separated-values-text',
+    });
+  }
+  return fileUri;
 }
 
 /** Open the document picker and return the selected file's text content. */

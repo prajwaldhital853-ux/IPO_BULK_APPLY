@@ -218,7 +218,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
 
   const ipo: Item[] = [
     {
-      label: 'Bulk IPO Result',
+      label: 'IPO Result',
       icon: (
         <IconWell bg={well('#C8E6C9', '#1E3D28')} bordered={wellBorder}>
           <Ionicons
@@ -229,19 +229,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
         </IconWell>
       ),
       onPress: () => goStack('PublicIpoResult'),
-    },
-    {
-      label: 'Upcoming Issues',
-      icon: (
-        <IconWell bg={well('#F8BBD0', '#4A2440')} bordered={wellBorder}>
-          <Ionicons
-            name="calendar"
-            size={iconSize}
-            color={ink('#AD1457', '#F48FB1')}
-          />
-        </IconWell>
-      ),
-      onPress: () => goStack('IpoIssues', { mode: 'upcoming' }),
     },
     {
       label: 'Bulk IPO Status/Result',
@@ -271,18 +258,18 @@ export function DrawerContent(props: DrawerContentComponentProps) {
       onPress: () => goStack('CurrentIpoStatus'),
     },
     {
-      label: 'Current Issues',
+      label: 'All IPO Status',
       icon: (
-        <IconWell bg={well('#E1BEE7', '#3A2450')} bordered={wellBorder}>
-          <MaterialCommunityIcons
-            name="clipboard-text-clock"
+        <IconWell bg={well('#B2EBF2', '#163A44')} bordered={wellBorder}>
+          <Ionicons
+            name="list-outline"
             size={iconSize}
-            color={ink('#6A1B9A', '#CE93D8')}
+            color={ink('#00838F', '#4DD0E1')}
           />
         </IconWell>
       ),
-      badge: 'NEW',
-      onPress: () => goStack('IpoIssues', { mode: 'current' }),
+      badge: 'UPDATED',
+      onPress: () => goStack('AllIpoStatus'),
     },
     {
       label: 'All IPO Statistics',
@@ -296,7 +283,48 @@ export function DrawerContent(props: DrawerContentComponentProps) {
         </IconWell>
       ),
       badge: 'NEW',
-      onPress: () => goStack('AllIpoStatus'),
+      onPress: () => goStack('AllIpoStatistics'),
+    },
+    {
+      label: 'Calculate WACC',
+      icon: (
+        <IconWell bg={well('#FFE082', '#4A3D14')} bordered={wellBorder}>
+          <MaterialCommunityIcons
+            name="calculator-variant"
+            size={iconSize}
+            color={ink('#E65100', '#FFD54F')}
+          />
+        </IconWell>
+      ),
+      badge: 'NEW',
+      onPress: () => goStack('CalculateWacc'),
+    },
+    {
+      label: 'Upcoming Issues',
+      icon: (
+        <IconWell bg={well('#F8BBD0', '#4A2440')} bordered={wellBorder}>
+          <Ionicons
+            name="calendar"
+            size={iconSize}
+            color={ink('#AD1457', '#F48FB1')}
+          />
+        </IconWell>
+      ),
+      onPress: () => goStack('IpoIssues', { mode: 'upcoming' }),
+    },
+    {
+      label: 'Current Issues',
+      icon: (
+        <IconWell bg={well('#E1BEE7', '#3A2450')} bordered={wellBorder}>
+          <MaterialCommunityIcons
+            name="clipboard-text-clock"
+            size={iconSize}
+            color={ink('#6A1B9A', '#CE93D8')}
+          />
+        </IconWell>
+      ),
+      badge: 'NEW',
+      onPress: () => goStack('IpoIssues', { mode: 'current' }),
     },
   ];
 

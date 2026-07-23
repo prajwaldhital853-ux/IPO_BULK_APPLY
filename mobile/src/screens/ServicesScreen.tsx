@@ -159,11 +159,14 @@ function buildSections(): Section[] {
         { id: 'bulk-portfolio', label: 'Bulk Portfolio', badge: 'UPDATED', iconSet: 'mci', iconName: 'wallet-outline', accent: '#42A5F5', route: 'BulkPortfolio' },
         { id: 'bulk-status', label: 'Bulk IPO Status', badge: 'UPDATED', iconSet: 'ion', iconName: 'checkbox-outline', accent: '#42A5F5', route: 'IpoBulkStatus' },
         { id: 'current-status', label: 'Current IPO Status', badge: 'UPDATED', iconSet: 'ion', iconName: 'search', accent: '#7E57C2', route: 'CurrentIpoStatus' },
+        { id: 'all-ipo-status', label: 'All IPO Status', badge: 'UPDATED', iconSet: 'ion', iconName: 'list-outline', accent: '#26A69A', route: 'AllIpoStatus' },
+        { id: 'all-ipo-stats', label: 'All IPO Statistics', badge: 'NEW', iconSet: 'mci', iconName: 'chart-box-outline', accent: '#66BB6A', route: 'AllIpoStatistics' },
+        { id: 'calc-wacc', label: 'Calculate WACC', badge: 'NEW', iconSet: 'mci', iconName: 'calculator-variant', accent: '#FFA726', route: 'CalculateWacc' },
         { id: 'auto-ipo', label: 'Auto IPO', badge: 'NEW', iconSet: 'ion', iconName: 'flash', accent: '#FDD835', route: 'ApplyTab' },
         { id: 'current-issues', label: 'Current Issues', iconSet: 'mci', iconName: 'file-document-outline', accent: '#66BB6A', route: 'IpoIssuesCurrent' },
         { id: 'upcoming', label: 'Upcoming Issues', badge: 'UPDATED', iconSet: 'ion', iconName: 'calendar-outline', accent: '#F48FB1', route: 'IpoIssuesUpcoming' },
         { id: 'meroshare-web', label: 'MeroShare Web', iconSet: 'ion', iconName: 'globe-outline', accent: '#26A69A', route: 'MeroshareWeb' },
-        { id: 'bulk-result', label: 'Bulk IPO Result', iconSet: 'ion', iconName: 'checkmark-done-circle-outline', accent: '#66BB6A', route: 'PublicIpoResult' },
+        { id: 'bulk-result', label: 'IPO Result', iconSet: 'ion', iconName: 'checkmark-done-circle-outline', accent: '#66BB6A', route: 'PublicIpoResult' },
         { id: 'change-password', label: 'Change Password', iconSet: 'ion', iconName: 'key-outline', accent: '#FF7043', route: 'ChangePassword' },
         { id: 'track-account-expiry', label: 'Track Account Expiry', badge: 'NEW', iconSet: 'ion', iconName: 'hourglass-outline', accent: '#EC407A', route: 'TrackAccountExpiry' },
       ],
@@ -454,6 +457,18 @@ export function ServicesScreen() {
     }
     if (item.route === 'PublicIpoResult') {
       navigation.navigate('PublicIpoResult');
+      return;
+    }
+    if (item.route === 'AllIpoStatus') {
+      navigation.navigate('AllIpoStatus');
+      return;
+    }
+    if (item.route === 'AllIpoStatistics') {
+      navigation.navigate('AllIpoStatistics');
+      return;
+    }
+    if (item.route === 'CalculateWacc') {
+      navigation.navigate('CalculateWacc');
       return;
     }
     if (item.route === 'NepseData') {

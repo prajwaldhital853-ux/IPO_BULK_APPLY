@@ -8,7 +8,8 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -22,6 +23,7 @@ import {
   loginAccountForWeb,
   MEROSHARE_WEB_APP_URL,
   MEROSHARE_WEB_HOME,
+  MEROSHARE_WEB_PURCHASE_URL,
 } from '../services/meroshare/webSession';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
@@ -41,6 +43,7 @@ function accountLabel(account: AccountMeta, index: number): string {
 export function MeroshareWebScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'MeroshareWeb'>>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -50,24 +53,42 @@ export function MeroshareWebScreen() {
   const loginGenRef = useRef(0);
   const loginSeqRef = useRef(0);
 
+  const destination = route.params?.destination ?? 'dashboard';
+  const targetHash = destination === 'purchase' ? '/purchase' : '/dashboard';
+  const appUrl =
+    destination === 'purchase'
+      ? MEROSHARE_WEB_PURCHASE_URL
+      : MEROSHARE_WEB_APP_URL;
+
   const [loading, setLoading] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
   const [signInLabel, setSignInLabel] = useState('');
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
-  const [selectedIdx, setSelectedIdx] = useState(0);
+  const [selectedIdx, setSelectedIdx] = useState(() => {
+    const id = route.params?.accountId;
+    if (!id) return 0;
+    const idx = accounts.findIndex((a) => a.id === id);
+    return idx >= 0 ? idx : 0;
+  });
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [webKey, setWebKey] = useState('idle');
   const [loginError, setLoginError] = useState<string | null>(null);
-  // Tracks the account id we've already auto-attempted, so the effect never
-  // loops (it used to re-fire on every render because `sensitive` is a fresh
-  // object each render, hammering CDSC and flickering the error).
   const attemptedRef = useRef<string | null>(null);
   const sensitiveRef = useRef(sensitive);
   sensitiveRef.current = sensitive;
 
   const selected = accounts[selectedIdx] ?? null;
+
+  // When opened from Calculate WACC with an accountId, lock selection to it.
+  useEffect(() => {
+    const id = route.params?.accountId;
+    if (!id || !accounts.length) return;
+    const idx = accounts.findIndex((a) => a.id === id);
+    if (idx >= 0 && idx !== selectedIdx) setSelectedIdx(idx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params?.accountId, accounts]);
 
   const signInAccount = useCallback(
     async (account: AccountMeta, index: number) => {
@@ -94,7 +115,7 @@ export function MeroshareWebScreen() {
         if (seq !== loginSeqRef.current) return;
         loginGenRef.current += 1;
         setSessionToken(session.token);
-        setWebKey(`${account.id}-${loginGenRef.current}`);
+        setWebKey(`${account.id}-${destination}-${loginGenRef.current}`);
       } catch (e) {
         if (seq !== loginSeqRef.current) return;
         const raw =
@@ -113,7 +134,7 @@ export function MeroshareWebScreen() {
         setSignInLabel('');
       }
     },
-    [loadSecrets],
+    [destination, loadSecrets],
   );
 
   const retryLogin = useCallback(() => {
@@ -138,7 +159,6 @@ export function MeroshareWebScreen() {
       return;
     }
     const account = accounts[idx];
-    // Only auto-login once per account — never loop on failure.
     if (attemptedRef.current === account.id) return;
     attemptedRef.current = account.id;
     void sensitiveRef.current.requestSensitiveAction(async () => {
@@ -148,21 +168,23 @@ export function MeroshareWebScreen() {
   }, [accounts, selectedIdx, signInAccount]);
 
   const onSelectAccount = (index: number) => {
+    attemptedRef.current = null;
     setSelectedIdx(index);
     setPickerOpen(false);
   };
 
   const injectedBeforeLoad = sessionToken
-    ? buildMeroshareSessionBootstrap(sessionToken)
+    ? buildMeroshareSessionBootstrap(sessionToken, targetHash)
     : undefined;
 
   const injectedAfterLoad = sessionToken
-    ? buildMerosharePostLoadScript(sessionToken)
+    ? buildMerosharePostLoadScript(sessionToken, targetHash)
     : undefined;
 
-  const webSource = sessionToken
-    ? { uri: MEROSHARE_WEB_APP_URL }
-    : { uri: MEROSHARE_URL };
+  const webSource = sessionToken ? { uri: appUrl } : { uri: MEROSHARE_URL };
+
+  const title =
+    destination === 'purchase' ? 'Calculate WACC' : 'MeroShare Web';
 
   return (
     <ProtectedPersonalScreen title="Sign in to use MeroShare Web">
@@ -172,7 +194,7 @@ export function MeroshareWebScreen() {
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
-          MeroShare Web
+          {title}
         </Text>
         <View style={styles.headerActions}>
           <Pressable

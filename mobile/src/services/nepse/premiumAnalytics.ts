@@ -90,6 +90,8 @@ export type MarketPulse = {
     negativeCircuit: number;
   } | null;
   hotSymbols: string[];
+  demand: Array<{ symbol: string; quantity: number; price: number | null }>;
+  supply: Array<{ symbol: string; quantity: number; price: number | null }>;
 };
 
 type HomePageApi = {
@@ -213,11 +215,24 @@ export async function loadMarketPulse(): Promise<MarketPulse> {
       }
     : null;
 
-  const demand = home?.demand ?? [];
-  const hotSymbols = demand
-    .slice(0, 8)
-    .map((d) => String((d as { symbol?: string }).symbol ?? ''))
-    .filter(Boolean);
+  const demandRaw = home?.demand ?? [];
+  const supplyRaw = home?.supply ?? [];
+  const mapBook = (rows: Array<Record<string, unknown>>) =>
+    rows
+      .map((d) => ({
+        symbol: String(d.symbol ?? '').trim(),
+        quantity: Number(d.quantity ?? d.qty ?? d.volume ?? 0) || 0,
+        price:
+          d.price != null || d.ltp != null
+            ? Number(d.price ?? d.ltp)
+            : null,
+      }))
+      .filter((d) => d.symbol)
+      .slice(0, 12);
+
+  const demand = mapBook(demandRaw);
+  const supply = mapBook(supplyRaw);
+  const hotSymbols = demand.map((d) => d.symbol).slice(0, 8);
 
   return {
     status: home?.marketStatus?.status ?? 'UNKNOWN',
@@ -225,6 +240,8 @@ export async function loadMarketPulse(): Promise<MarketPulse> {
     summary,
     breadth,
     hotSymbols,
+    demand,
+    supply,
   };
 }
 

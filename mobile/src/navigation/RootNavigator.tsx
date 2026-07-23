@@ -20,6 +20,7 @@ import { BankDetailScreen } from '../screens/BankDetailScreen';
 import { CurrentIpoStatusScreen } from '../screens/CurrentIpoStatusScreen';
 import { IpoBulkStatusScreen } from '../screens/IpoBulkStatusScreen';
 import { AllIpoStatusScreen } from '../screens/AllIpoStatusScreen';
+import { AllIpoStatisticsScreen } from '../screens/AllIpoStatisticsScreen';
 import { CheckResultWebScreen } from '../screens/CheckResultWebScreen';
 import { IpoStatusDetailScreen } from '../screens/IpoStatusDetailScreen';
 import { PublicIpoResultScreen } from '../screens/PublicIpoResultScreen';
@@ -41,6 +42,7 @@ import { PriceAlertScreen } from '../screens/PriceAlertScreen';
 import { BulkPortfolioScreen } from '../screens/BulkPortfolioScreen';
 import { IpoIssuesScreen } from '../screens/IpoIssuesScreen';
 import { MeroshareWebScreen } from '../screens/MeroshareWebScreen';
+import { CalculateWaccScreen } from '../screens/CalculateWaccScreen';
 import { TrackAccountExpiryScreen } from '../screens/TrackAccountExpiryScreen';
 import { BankTrackerScreen } from '../screens/BankTrackerScreen';
 import { BankTrackerDetailScreen } from '../screens/BankTrackerDetailScreen';
@@ -156,6 +158,7 @@ function RootStack() {
       <Stack.Screen name="CurrentIpoStatus" component={CurrentIpoStatusScreen} />
       <Stack.Screen name="IpoBulkStatus" component={IpoBulkStatusScreen} />
       <Stack.Screen name="AllIpoStatus" component={AllIpoStatusScreen} />
+      <Stack.Screen name="AllIpoStatistics" component={AllIpoStatisticsScreen} />
       <Stack.Screen name="CheckResultWeb" component={CheckResultWebScreen} />
       <Stack.Screen name="IpoStatusDetail" component={IpoStatusDetailScreen} />
       <Stack.Screen name="PublicIpoResult" component={PublicIpoResultScreen} />
@@ -177,6 +180,7 @@ function RootStack() {
       <Stack.Screen name="BulkPortfolio" component={BulkPortfolioScreen} />
       <Stack.Screen name="IpoIssues" component={IpoIssuesScreen} />
       <Stack.Screen name="MeroshareWeb" component={MeroshareWebScreen} />
+      <Stack.Screen name="CalculateWacc" component={CalculateWaccScreen} />
       <Stack.Screen name="TrackAccountExpiry" component={TrackAccountExpiryScreen} />
       <Stack.Screen name="BankTracker" component={BankTrackerScreen} />
       <Stack.Screen name="BankTrackerDetail" component={BankTrackerDetailScreen} />

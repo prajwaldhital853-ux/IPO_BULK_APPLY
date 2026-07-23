@@ -6,9 +6,7 @@ export type NewsSourceId =
   | 'arthakendra'
   | 'corporatekhabar'
   | 'insurancenews'
-  | 'bajarkochirfar'
-  | 'arthasansar'
-  | 'arthasarokar';
+  | 'bajarkochirfar';
 
 export type NewsSource = {
   id: NewsSourceId;
@@ -16,7 +14,6 @@ export type NewsSource = {
   site: string;
   homeUrl: string;
   feeds?: string[];
-  /** HTML pages to scrape for article links (with images). */
   scrapeUrls?: string[];
 };
 
@@ -53,7 +50,6 @@ export const NEWS_SOURCES: NewsSource[] = [
     label: 'Artha Kendra',
     site: 'arthakendra.com',
     homeUrl: 'https://arthakendra.com',
-    feeds: ['https://arthakendra.com/feed'],
     scrapeUrls: ['https://arthakendra.com/'],
   },
   {
@@ -78,28 +74,21 @@ export const NEWS_SOURCES: NewsSource[] = [
     homeUrl: 'https://bajarkochirfar.com',
     feeds: ['https://bajarkochirfar.com/feed'],
   },
-  {
-    id: 'arthasansar',
-    label: 'Artha Sansar',
-    site: 'arthasansar.com',
-    homeUrl: 'https://www.arthasansar.com',
-    feeds: ['https://www.arthasansar.com/feed'],
-  },
-  {
-    id: 'arthasarokar',
-    label: 'Artha Sarokar',
-    site: 'arthasarokar.com',
-    homeUrl: 'https://www.arthasarokar.com',
-    feeds: ['https://www.arthasarokar.com/feed'],
-  },
 ];
 
 const UA =
   'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36';
 
+/** First paint size — rest loads in background. */
+export const NEWS_FIRST_PAGE = 8;
+
 function decodeXml(s: string): string {
   return s
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) =>
+      String.fromCodePoint(parseInt(h, 16)),
+    )
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -126,7 +115,11 @@ function extractImage(block: string): string | null {
     pickAttr(block, 'media:content', 'url') ||
     pickAttr(block, 'media:thumbnail', 'url') ||
     pickAttr(block, 'enclosure', 'url');
-  if (media && /^https?:\/\//i.test(media) && !/favicon|logo|sprite/i.test(media)) {
+  if (
+    media &&
+    /^https?:\/\//i.test(media) &&
+    !/favicon|logo|sprite/i.test(media)
+  ) {
     return media;
   }
   const desc =
@@ -206,7 +199,6 @@ function parseRssItems(
   return out;
 }
 
-/** Google News article URLs used only for og:image enrichment. */
 const googleLinkById = new Map<string, string>();
 
 async function fetchText(url: string): Promise<string | null> {
@@ -234,11 +226,14 @@ function extractOgImage(html: string): string | null {
   ];
   for (const re of patterns) {
     const m = html.match(re);
-    if (m?.[1] && /^https?:\/\//i.test(m[1]) && !/favicon|logo\.svg/i.test(m[1])) {
+    if (
+      m?.[1] &&
+      /^https?:\/\//i.test(m[1]) &&
+      !/favicon|logo\.svg/i.test(m[1])
+    ) {
       return encodeImageUrl(m[1].replace(/&amp;/g, '&'));
     }
   }
-  // Google News sometimes embeds lh3 thumbnails
   const lh = html.match(
     /(https:\/\/lh3\.googleusercontent\.com\/[^"'>\s]+)/i,
   );
@@ -246,7 +241,6 @@ function extractOgImage(html: string): string | null {
   return null;
 }
 
-/** Encode spaces / unsafe chars in image path while keeping URL structure. */
 function encodeImageUrl(url: string): string {
   try {
     const u = new URL(url);
@@ -282,6 +276,15 @@ function dateFromSlug(slug: string): string | null {
   return m ? new Date(`${m[1]}T12:00:00`).toUTCString() : null;
 }
 
+function absUrl(base: string, href: string): string {
+  if (/^https?:\/\//i.test(href)) return href;
+  try {
+    return new URL(href, base).toString();
+  } catch {
+    return href;
+  }
+}
+
 async function mapPool<T, R>(
   items: T[],
   concurrency: number,
@@ -296,15 +299,90 @@ async function mapPool<T, R>(
     }
   }
   await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+    Array.from({ length: Math.min(concurrency, items.length) }, () =>
+      worker(),
+    ),
   );
   return out;
 }
 
-/** ShareSansar: collect newsdetail URLs then pull og:image from each article. */
-async function scrapeShareSansar(
-  sourceId: NewsSourceId,
-): Promise<ShareNewsItem[]> {
+/** Merolagani NewsList — cards already include title + thumbnail. */
+function scrapeMerolaganiList(html: string): ShareNewsItem[] {
+  const chunks = html.split(/class="media-news[^"]*"/i).slice(1);
+  const seen = new Set<string>();
+  const out: ShareNewsItem[] = [];
+  for (const chunk of chunks) {
+    const idMatch = chunk.match(/NewsDetail\.aspx\?newsID=(\d+)/i);
+    if (!idMatch) continue;
+    const newsId = idMatch[1];
+    if (seen.has(newsId)) continue;
+    seen.add(newsId);
+    const img =
+      chunk.match(
+        /src=["'](https?:\/\/images\.merolagani\.com[^"']+)["']/i,
+      )?.[1] ?? null;
+    const titleRaw =
+      chunk.match(/class="media-title"[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i)?.[1] ??
+      chunk.match(/<img[^>]+alt=["']([^"']+)["']/i)?.[1] ??
+      '';
+    const title = decodeXml(titleRaw.replace(/<[^>]+>/g, '')).trim();
+    if (!title) continue;
+    const dateLabel =
+      chunk.match(/class="media-label"[^>]*>([\s\S]*?)<\//i)?.[1] ?? '';
+    const dateText = decodeXml(dateLabel.replace(/<[^>]+>/g, '')).trim();
+    let publishedAt = new Date().toISOString();
+    if (dateText) {
+      const parsed = Date.parse(dateText);
+      if (!Number.isNaN(parsed)) publishedAt = new Date(parsed).toISOString();
+    }
+    out.push({
+      id: `merolagani-${newsId}`,
+      title,
+      url: `https://merolagani.com/NewsDetail.aspx?newsID=${newsId}`,
+      publishedAt,
+      imageUrl: img ? encodeImageUrl(img.replace(/\\/g, '/')) : null,
+      sourceId: 'merolagani',
+    });
+  }
+  return out;
+}
+
+/** Artha Kendra home — /news/{id} cards with CDN images + entity titles. */
+function scrapeArthaKendraHome(html: string): ShareNewsItem[] {
+  const seen = new Set<string>();
+  const out: ShareNewsItem[] = [];
+  const hrefRe = /href=["'](\/news\/(\d+))["']/gi;
+  let m;
+  while ((m = hrefRe.exec(html))) {
+    const path = m[1];
+    const newsId = m[2];
+    if (seen.has(newsId)) continue;
+    seen.add(newsId);
+    const start = m.index;
+    const block = html.slice(start, start + 1400);
+    const img =
+      block.match(
+        /(?:src=["']|url\()["']?(https?:\/\/cdn\.arthakendra\.com\/[^"')\s]+)/i,
+      )?.[1] ?? null;
+    const titleRaw =
+      block.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i)?.[1] ?? '';
+    const title = decodeXml(titleRaw.replace(/<[^>]+>/g, '')).trim();
+    if (!title || title.length < 8) continue;
+    // Skip tiny UI labels that aren't headlines
+    if (/^(होम|Home|थप|More)$/i.test(title)) continue;
+    out.push({
+      id: `arthakendra-${newsId}`,
+      title,
+      url: absUrl('https://arthakendra.com/', path),
+      publishedAt: new Date().toISOString(),
+      imageUrl: img ? encodeImageUrl(img.replace(/\\/g, '/')) : null,
+      sourceId: 'arthakendra',
+    });
+  }
+  return out;
+}
+
+async function scrapeShareSansarLinks(): Promise<string[]> {
   const listingUrls = [
     'https://www.sharesansar.com/',
     'https://www.sharesansar.com/category/latest',
@@ -318,15 +396,18 @@ async function scrapeShareSansar(
     );
     for (const m of matches) linkSet.add(m[0].split('?')[0]);
   }
-  const links = [...linkSet]
+  return [...linkSet]
     .sort((a, b) => {
       const da = a.match(/(\d{4}-\d{2}-\d{2})$/)?.[1] ?? '';
       const db = b.match(/(\d{4}-\d{2}-\d{2})$/)?.[1] ?? '';
       return db.localeCompare(da);
     })
     .slice(0, 28);
-  if (!links.length) return [];
+}
 
+async function fetchShareSansarArticles(
+  links: string[],
+): Promise<ShareNewsItem[]> {
   const pages = await mapPool(links, 6, async (url) => {
     const html = await fetchText(url);
     if (!html) return null;
@@ -348,14 +429,12 @@ async function scrapeShareSansar(
       url,
       publishedAt,
       imageUrl,
-      sourceId,
+      sourceId: 'sharesansar' as const,
     } satisfies ShareNewsItem;
   });
-
   return pages.filter((p): p is ShareNewsItem => p != null);
 }
 
-/** Enrich missing images by fetching og:image from article / Google News URLs. */
 async function enrichImages(items: ShareNewsItem[]): Promise<ShareNewsItem[]> {
   const need = items
     .map((it, index) => ({ it, index }))
@@ -386,31 +465,90 @@ async function fetchRss(url: string): Promise<string | null> {
   return text;
 }
 
-export async function loadShareNews(
+function mergeUnique(
+  prev: ShareNewsItem[],
+  next: ShareNewsItem[],
+): ShareNewsItem[] {
+  const seen = new Set(prev.map((p) => p.id));
+  const out = [...prev];
+  for (const n of next) {
+    if (seen.has(n.id)) continue;
+    seen.add(n.id);
+    out.push(n);
+  }
+  return out;
+}
+
+/**
+ * Progressive news load: paints first page quickly, then streams the rest.
+ * `onUpdate(items, { done })` is called at least once with the first page.
+ */
+export async function loadShareNewsProgressive(
   sourceId: NewsSourceId,
+  onUpdate: (
+    items: ShareNewsItem[],
+    meta: { done: boolean; phase: 'first' | 'more' },
+  ) => void,
 ): Promise<ShareNewsItem[]> {
   const source = NEWS_SOURCES.find((s) => s.id === sourceId);
-  if (!source) return [];
+  if (!source) {
+    onUpdate([], { done: true, phase: 'first' });
+    return [];
+  }
 
-  // Prefer site scrape for ShareSansar (reliable images + direct URLs)
+  // ——— Merolagani: listing HTML has titles + images (no Google RSS) ———
+  if (sourceId === 'merolagani') {
+    const html = await fetchText('https://merolagani.com/NewsList.aspx');
+    const all = html ? scrapeMerolaganiList(html) : [];
+    const first = all.slice(0, NEWS_FIRST_PAGE);
+    onUpdate(first, { done: all.length <= NEWS_FIRST_PAGE, phase: 'first' });
+    if (all.length > NEWS_FIRST_PAGE) {
+      onUpdate(all.slice(0, 40), { done: true, phase: 'more' });
+    }
+    return all.slice(0, 40);
+  }
+
+  // ——— Artha Kendra: scrape home (feed 404s) ———
+  if (sourceId === 'arthakendra') {
+    const html = await fetchText('https://arthakendra.com/');
+    const all = html ? scrapeArthaKendraHome(html) : [];
+    const first = all.slice(0, NEWS_FIRST_PAGE);
+    onUpdate(first, { done: all.length <= NEWS_FIRST_PAGE, phase: 'first' });
+    if (all.length > NEWS_FIRST_PAGE) {
+      onUpdate(all.slice(0, 40), { done: true, phase: 'more' });
+    }
+    return all.slice(0, 40);
+  }
+
+  // ——— ShareSansar: first N article pages, then rest ———
   if (sourceId === 'sharesansar') {
     try {
-      const scraped = await scrapeShareSansar(sourceId);
-      if (scraped.length) {
-        const withImages = scraped.filter((s) => s.imageUrl).length;
-        if (withImages > 0) return scraped.slice(0, 40);
+      const links = await scrapeShareSansarLinks();
+      if (links.length) {
+        const firstLinks = links.slice(0, NEWS_FIRST_PAGE);
+        const first = await fetchShareSansarArticles(firstLinks);
+        onUpdate(first, {
+          done: links.length <= NEWS_FIRST_PAGE,
+          phase: 'first',
+        });
+        if (links.length > NEWS_FIRST_PAGE) {
+          const rest = await fetchShareSansarArticles(
+            links.slice(NEWS_FIRST_PAGE),
+          );
+          const merged = mergeUnique(first, rest).slice(0, 40);
+          onUpdate(merged, { done: true, phase: 'more' });
+          return merged;
+        }
+        return first;
       }
     } catch {
-      // fall through
+      // fall through to RSS
     }
   }
 
-  const candidates = [
-    ...(source.feeds ?? []),
-    googleRssUrl(source.site),
-  ];
-
+  // ——— RSS / Google News fallback ———
   googleLinkById.clear();
+  const candidates = [...(source.feeds ?? []), googleRssUrl(source.site)];
   let items: ShareNewsItem[] = [];
   for (const feedUrl of candidates) {
     const xml = await fetchRss(feedUrl);
@@ -418,40 +556,41 @@ export async function loadShareNews(
     items = parseRssItems(xml, sourceId);
     if (items.length) break;
   }
-
-  if (!items.length) return [];
-
-  // Match ShareSansar Google titles to local newsdetail links for better images
-  if (sourceId === 'sharesansar') {
-    const home = await fetchText('https://www.sharesansar.com/');
-    if (home) {
-      const linkMap = new Map<string, string>();
-      for (const m of home.matchAll(
-        /https?:\/\/www\.sharesansar\.com\/newsdetail\/([a-z0-9-]+)/gi,
-      )) {
-        const slug = m[1];
-        const key = slug.replace(/-\d{4}-\d{2}-\d{2}$/, '').toLowerCase();
-        linkMap.set(key, m[0].split('?')[0]);
-      }
-      items = items.map((it) => {
-        const key = it.title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '');
-        // find best slug start match
-        let best: string | null = null;
-        for (const [slugKey, url] of linkMap) {
-          if (key.includes(slugKey.slice(0, 28)) || slugKey.includes(key.slice(0, 28))) {
-            best = url;
-            break;
-          }
-        }
-        return best ? { ...it, url: best } : it;
-      });
-    }
+  if (!items.length) {
+    onUpdate([], { done: true, phase: 'first' });
+    return [];
   }
 
-  return (await enrichImages(items)).slice(0, 40);
+  const first = items.slice(0, NEWS_FIRST_PAGE);
+  onUpdate(first, { done: false, phase: 'first' });
+
+  // Enrich images in background (first page first, then rest)
+  const enrichedFirst = await enrichImages([...first]);
+  onUpdate(enrichedFirst, {
+    done: items.length <= NEWS_FIRST_PAGE,
+    phase: 'more',
+  });
+
+  if (items.length > NEWS_FIRST_PAGE) {
+    const rest = items.slice(NEWS_FIRST_PAGE, 40);
+    const enrichedRest = await enrichImages([...rest]);
+    const merged = mergeUnique(enrichedFirst, enrichedRest).slice(0, 40);
+    onUpdate(merged, { done: true, phase: 'more' });
+    return merged;
+  }
+
+  return enrichedFirst;
+}
+
+/** Full load (non-progressive) — used by callers that don’t stream. */
+export async function loadShareNews(
+  sourceId: NewsSourceId,
+): Promise<ShareNewsItem[]> {
+  let final: ShareNewsItem[] = [];
+  await loadShareNewsProgressive(sourceId, (items, meta) => {
+    if (meta.done || meta.phase === 'first') final = items;
+  });
+  return final;
 }
 
 /** Screenshot style: Mon, Jul 20, 2026 05:05 PM */

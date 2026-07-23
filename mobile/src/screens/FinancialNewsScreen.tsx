@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -19,7 +19,7 @@ import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import {
   formatNewsTime,
-  loadShareNews,
+  loadShareNewsProgressive,
   NEWS_SOURCES,
   type NewsSourceId,
   type ShareNewsItem,
@@ -39,16 +39,36 @@ export function FinancialNewsScreen() {
   const [sourceId, setSourceId] = useState<NewsSourceId>('sharesansar');
   const [rows, setRows] = useState<ShareNewsItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const genRef = useRef(0);
 
   const refresh = useCallback(
     async (silent = false) => {
-      if (!silent) setLoading(true);
+      const gen = ++genRef.current;
+      if (!silent) {
+        setLoading(true);
+        setRows([]);
+      }
+      setLoadingMore(false);
       try {
-        setRows(await loadShareNews(sourceId));
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
+        await loadShareNewsProgressive(sourceId, (items, meta) => {
+          if (gen !== genRef.current) return;
+          setRows(items);
+          if (meta.phase === 'first') {
+            setLoading(false);
+            setRefreshing(false);
+            if (!meta.done) setLoadingMore(true);
+          }
+          if (meta.done) setLoadingMore(false);
+        });
+      } catch {
+        if (gen === genRef.current) {
+          setRows([]);
+          setLoading(false);
+          setLoadingMore(false);
+          setRefreshing(false);
+        }
       }
     },
     [sourceId],
@@ -187,6 +207,14 @@ export function FinancialNewsScreen() {
             </Pressable>
           )}
           ItemSeparatorComponent={() => <View style={styles.sep} />}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.moreWrap}>
+                <ActivityIndicator color={ACCENT} />
+                <Text style={styles.moreText}>Loading more…</Text>
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             !featured ? (
               <Text style={styles.empty}>
@@ -316,6 +344,15 @@ function makeStyles(c: ThemeColors) {
       textAlign: 'center',
       paddingVertical: rs(40),
       paddingHorizontal: rs(20),
+    },
+    moreWrap: {
+      paddingVertical: rs(16),
+      alignItems: 'center',
+      gap: rs(8),
+    },
+    moreText: {
+      color: c.textMuted,
+      fontSize: rs(12),
     },
   });
 }

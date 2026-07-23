@@ -20,6 +20,7 @@ export type RootStackParamList = {
   CurrentIpoStatus: { mode?: 'status' | 'result' } | undefined;
   IpoBulkStatus: undefined;
   AllIpoStatus: undefined;
+  AllIpoStatistics: undefined;
   CheckResultWeb: undefined;
   IpoStatusDetail: {
     accountId: string;
@@ -49,7 +50,10 @@ export type RootStackParamList = {
   PriceAlert: undefined;
   BulkPortfolio: undefined;
   IpoIssues: { mode: 'current' | 'upcoming' };
-  MeroshareWeb: undefined;
+  MeroshareWeb:
+    | { accountId?: string; destination?: 'dashboard' | 'purchase' }
+    | undefined;
+  CalculateWacc: undefined;
   TrackAccountExpiry: undefined;
   BankTracker: undefined;
   BankTrackerDetail: { accountId: string };
