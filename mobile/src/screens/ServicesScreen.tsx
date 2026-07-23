@@ -163,7 +163,7 @@ function buildSections(): Section[] {
         { id: 'current-issues', label: 'Current Issues', iconSet: 'mci', iconName: 'file-document-outline', accent: '#66BB6A', route: 'IpoIssuesCurrent' },
         { id: 'upcoming', label: 'Upcoming Issues', badge: 'UPDATED', iconSet: 'ion', iconName: 'calendar-outline', accent: '#F48FB1', route: 'IpoIssuesUpcoming' },
         { id: 'meroshare-web', label: 'MeroShare Web', iconSet: 'ion', iconName: 'globe-outline', accent: '#26A69A', route: 'MeroshareWeb' },
-        { id: 'bulk-result', label: 'Bulk IPO Result', iconSet: 'ion', iconName: 'checkmark-done-circle-outline', accent: '#66BB6A', route: 'CheckTab' },
+        { id: 'bulk-result', label: 'Bulk IPO Result', iconSet: 'ion', iconName: 'checkmark-done-circle-outline', accent: '#66BB6A', route: 'PublicIpoResult' },
         { id: 'change-password', label: 'Change Password', iconSet: 'ion', iconName: 'key-outline', accent: '#FF7043', route: 'ChangePassword' },
         { id: 'track-account-expiry', label: 'Track Account Expiry', badge: 'NEW', iconSet: 'ion', iconName: 'hourglass-outline', accent: '#EC407A', route: 'TrackAccountExpiry' },
       ],
@@ -440,6 +440,10 @@ export function ServicesScreen() {
     }
     if (item.route === 'IpoBulkStatus') {
       navigation.navigate('IpoBulkStatus');
+      return;
+    }
+    if (item.route === 'PublicIpoResult') {
+      navigation.navigate('PublicIpoResult');
       return;
     }
     if (item.route === 'NepseData') {

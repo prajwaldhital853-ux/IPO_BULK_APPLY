@@ -9,8 +9,8 @@ class AdminLoginRequest(BaseModel):
 
 
 class AdminLoginResponse(BaseModel):
-    access_token: str = Field(alias='accessToken')
-    expires_in: int = Field(alias='expiresIn')
+    access_token: str = Field(alias='accessToken', serialization_alias='accessToken')
+    expires_in: int = Field(alias='expiresIn', serialization_alias='expiresIn')
     email: str
 
     model_config = {'populate_by_name': True}

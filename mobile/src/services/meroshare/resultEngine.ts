@@ -336,3 +336,66 @@ export async function loadApplicationReportDetailForUi(
     client.clearSession();
   }
 }
+
+/**
+ * Load Application Report list + detail rows for one account (single login).
+ * Used by All IPO Statistics / Allotment Status.
+ */
+export async function loadAllApplicationDetailsForUi(
+  account: AccountMeta,
+): Promise<ApplicationReportDetail[]> {
+  const secrets = await getSecrets(account.id);
+  if (!secrets?.password) {
+    throw new MeroshareError('AUTH', 'Account password missing');
+  }
+
+  const client = new MeroshareClient();
+  try {
+    await client.login({
+      clientId: account.dpId,
+      dpCode: account.dpCode,
+      username: account.username,
+      password: secrets.password,
+    });
+
+    const reports = await client.listApplicationReports();
+    const out: ApplicationReportDetail[] = [];
+
+    for (const report of reports) {
+      if (report.applicantFormId != null) {
+        try {
+          const detail = await client.getApplicationReportDetail(
+            report.applicantFormId,
+            report,
+          );
+          out.push({
+            ...detail,
+            bankName: detail.bankName || account.bankName,
+            boid: detail.boid || account.demat,
+          });
+          continue;
+        } catch {
+          // Fall through to list-row fallback.
+        }
+      }
+      out.push({
+        companyShareId: report.companyShareId,
+        companyName: report.companyName,
+        scrip: report.scrip,
+        shareTypeName: report.shareTypeName,
+        statusName: report.statusName,
+        applicantFormId: report.applicantFormId,
+        appliedKitta: report.appliedKitta,
+        amount:
+          report.appliedKitta != null ? report.appliedKitta * 100 : null,
+        bankName: account.bankName,
+        boid: account.demat,
+        appliedDate: report.appliedDate,
+      });
+    }
+
+    return out;
+  } finally {
+    client.clearSession();
+  }
+}

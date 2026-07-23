@@ -44,10 +44,11 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure(settings.database_url)
     await init_db()
-    from .site_settings import get_or_create_settings
+    from .site_settings import get_or_create_settings, sync_admin_credentials_from_env
 
     async def _seed(session):
         await get_or_create_settings(session)
+        await sync_admin_credentials_from_env(session)
 
     await run_with_session(_seed)
     await init_blacklist(settings.redis_url or None)

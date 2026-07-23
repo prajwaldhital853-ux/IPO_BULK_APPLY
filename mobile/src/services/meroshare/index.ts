@@ -4,6 +4,7 @@ export {
   runBulkResultCheck,
   loadCheckableIssuesForUi,
   loadApplicationReportDetailForUi,
+  loadAllApplicationDetailsForUi,
 } from './resultEngine';
 export {
   verifyMeroshareLogin,

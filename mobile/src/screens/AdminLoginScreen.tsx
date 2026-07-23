@@ -82,13 +82,20 @@ export function AdminLoginScreen() {
           value={password}
           onChangeText={setPassword}
         />
-        <Pressable style={styles.btn} onPress={() => void onLogin()} disabled={busy}>
+        <Pressable
+          style={[styles.btn, busy && { opacity: 0.7 }]}
+          onPress={() => void onLogin()}
+          disabled={busy}
+        >
           {busy ? (
             <ActivityIndicator color={colors.fabIcon} />
           ) : (
             <Text style={styles.btnText}>Login</Text>
           )}
         </Pressable>
+        {busy ? (
+          <Text style={styles.wakeHint}>Signing in…</Text>
+        ) : null}
         <Pressable
           style={styles.forgotBtn}
           onPress={() => navigation.navigate('AdminForgotPassword')}
@@ -152,6 +159,13 @@ function makeStyles(c: ThemeColors) {
       marginTop: rs(4),
     },
     btnText: { color: c.fabIcon, fontWeight: '800', fontSize: rs(15) },
+    wakeHint: {
+      color: c.textMuted,
+      fontSize: rs(12),
+      textAlign: 'center',
+      marginTop: rs(10),
+      lineHeight: rs(16),
+    },
     forgotBtn: { alignItems: 'center', marginTop: rs(16), paddingVertical: rs(8) },
     forgotText: { color: c.primary, fontWeight: '600', fontSize: rs(14) },
   });

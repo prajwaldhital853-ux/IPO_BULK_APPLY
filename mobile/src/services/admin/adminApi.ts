@@ -1,4 +1,5 @@
 import { AUTH_API_BASE } from '../auth/config';
+import { fetchWithTimeout } from '../auth/http';
 
 export type AdminSubscriptionRow = {
   id: string;
@@ -98,17 +99,51 @@ export async function adminLogin(
   email: string,
   password: string,
 ): Promise<{ accessToken: string; expiresIn: number; email: string }> {
-  const res = await fetch(`${AUTH_API_BASE}/admin/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) throw new Error(await parseError(res));
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      `${AUTH_API_BASE}/admin/login`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+        }),
+      },
+      60_000,
+    );
+  } catch (e) {
+    throw new Error(
+      e instanceof Error
+        ? `Network error: ${e.message}`
+        : 'Network error contacting server',
+    );
+  }
+
+  if (!res.ok) {
+    const detail = await parseError(res);
+    if (res.status === 401) {
+      throw new Error(
+        detail ||
+          'Invalid admin email or password. Use the email/password set on the server (ADMIN_EMAIL / ADMIN_PASSWORD).',
+      );
+    }
+    throw new Error(detail);
+  }
+
   const json = (await res.json()) as Record<string, unknown>;
+  const accessToken = String(json.accessToken ?? json.access_token ?? '');
+  if (!accessToken || accessToken === 'undefined') {
+    throw new Error('Login succeeded but no access token was returned');
+  }
   return {
-    accessToken: String(json.accessToken),
-    expiresIn: Number(json.expiresIn ?? 86400),
-    email: String(json.email),
+    accessToken,
+    expiresIn: Number(json.expiresIn ?? json.expires_in ?? 86400),
+    email: String(json.email ?? email.trim()),
   };
 }
 

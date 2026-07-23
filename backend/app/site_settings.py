@@ -65,7 +65,44 @@ async def verify_admin_login(db: AsyncSession, email: str, password: str) -> boo
     row = await get_or_create_settings(db)
     if email.strip().lower() != row.admin_email.strip().lower():
         return False
-    return verify_password(password, row.admin_password_hash, pepper=_pepper())
+    if verify_password(password, row.admin_password_hash, pepper=_pepper()):
+        return True
+
+    # Recover when JWT_SECRET (password pepper) was rotated on Render:
+    # if the typed password still matches ADMIN_PASSWORD env/default, re-hash
+    # with the current pepper so login works again without wiping the DB.
+    configured = get_settings().admin_password
+    if configured and password == configured:
+        row.admin_password_hash = hash_password(password, pepper=_pepper())
+        row.updated_at = datetime.now(UTC)
+        await db.flush()
+        return True
+    return False
+
+
+async def sync_admin_credentials_from_env(db: AsyncSession) -> None:
+    """Keep DB admin email/password hash aligned with env after secret changes."""
+    s = get_settings()
+    row = await get_or_create_settings(db)
+    changed = False
+    email = s.admin_email.strip().lower()
+    if email and row.admin_email.strip().lower() != email:
+        row.admin_email = email
+        changed = True
+    if s.admin_password:
+        if not verify_password(
+            s.admin_password,
+            row.admin_password_hash,
+            pepper=_pepper(),
+        ):
+            row.admin_password_hash = hash_password(
+                s.admin_password,
+                pepper=_pepper(),
+            )
+            changed = True
+    if changed:
+        row.updated_at = datetime.now(UTC)
+        await db.flush()
 
 
 async def update_admin_password(db: AsyncSession, new_password: str) -> None:

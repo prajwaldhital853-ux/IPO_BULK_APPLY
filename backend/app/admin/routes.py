@@ -160,7 +160,7 @@ async def _user_row(db: AsyncSession, user: User) -> AdminUserRow:
     )
 
 
-@router.post('/login', response_model=AdminLoginResponse)
+@router.post('/login', response_model=AdminLoginResponse, response_model_by_alias=True)
 async def admin_login(
     body: AdminLoginRequest,
     db: AsyncSession = Depends(get_db),

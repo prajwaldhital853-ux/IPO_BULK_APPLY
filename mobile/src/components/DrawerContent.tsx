@@ -201,7 +201,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
           <Ionicons name="checkmark-circle" size={iconSize} color="#66BB6A" />
         </IconWell>
       ),
-      onPress: () => goTab('Check'),
+      onPress: () => goStack('PublicIpoResult'),
     },
     {
       label: 'Upcoming Issues',
@@ -250,30 +250,18 @@ export function DrawerContent(props: DrawerContentComponentProps) {
       onPress: () => goStack('IpoIssues', { mode: 'current' }),
     },
     {
-      label: 'All IPO Status',
+      label: 'All IPO Statistics',
       icon: (
         <IconWell bg={well('#E8F5E9', '#1E3D28')}>
           <MaterialCommunityIcons
-            name="checkbox-multiple-marked"
+            name="chart-box-outline"
             size={iconSize}
             color="#A5D6A7"
           />
         </IconWell>
       ),
+      badge: 'NEW',
       onPress: () => goStack('AllIpoStatus'),
-    },
-    {
-      label: 'IPO Result',
-      icon: (
-        <IconWell bg={well('#E0F2F1', '#163D38')}>
-          <MaterialCommunityIcons
-            name="file-document-check-outline"
-            size={iconSize}
-            color="#80CBC4"
-          />
-        </IconWell>
-      ),
-      onPress: () => goStack('PublicIpoResult'),
     },
   ];
 
