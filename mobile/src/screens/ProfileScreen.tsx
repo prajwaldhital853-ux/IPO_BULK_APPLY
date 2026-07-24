@@ -41,6 +41,7 @@ import {
 } from '../services/app/publicSettingsApi';
 
 type ContactItem = {
+  id: string;
   label: string;
   detail: string;
   bg: string;
@@ -116,6 +117,7 @@ async function openExternal(url: string, failLabel: string): Promise<void> {
 function buildContactItems(contact: ContactSettings): ContactItem[] {
   const items: ContactItem[] = [
     {
+      id: 'contact-email',
       label: 'Email',
       detail: contact.email,
       bg: '#FFCDD2',
@@ -124,6 +126,7 @@ function buildContactItems(contact: ContactSettings): ContactItem[] {
       onPress: () => void openExternal(`mailto:${contact.email}`, 'Email'),
     },
     {
+      id: 'contact-whatsapp',
       label: 'WhatsApp',
       detail: contact.whatsapp,
       bg: '#C8E6C9',
@@ -133,18 +136,24 @@ function buildContactItems(contact: ContactSettings): ContactItem[] {
     },
   ];
 
-  for (const link of contact.socialLinks ?? []) {
-    if (!link.url?.trim()) continue;
+  const seen = new Set<string>(['contact-email', 'contact-whatsapp']);
+  (contact.socialLinks ?? []).forEach((link, index) => {
+    if (!link.url?.trim()) return;
+    let id = (link.id || '').trim() || `social-${index}`;
+    if (seen.has(id)) id = `social-${index}-${id}`;
+    seen.add(id);
     const style = socialStyle(link.platform);
     items.push({
-      label: link.label || link.platform,
-      detail: link.detail || 'Open',
+      id,
+      label: link.label || link.platform || `Link ${index + 1}`,
+      detail: link.detail?.trim() || link.url,
       bg: style.bg,
       iconColor: style.iconColor,
       ion: style.ion,
-      onPress: () => void openExternal(link.url, link.label || link.platform),
+      onPress: () =>
+        void openExternal(link.url, link.label || link.platform || 'Link'),
     });
-  }
+  });
 
   return items;
 }
@@ -546,25 +555,24 @@ export function ProfileScreen() {
 
         <Text style={styles.sectionOutside}>Connect With Us</Text>
         <Text style={styles.sectionHint}>{contact.companyName}</Text>
-        <View style={styles.card}>
-          {contactItems.map((item, index) => (
-            <View key={item.label}>
-              <Pressable style={styles.row} onPress={item.onPress}>
-                <View style={[styles.rowIcon, { backgroundColor: item.bg }]}>
-                  <Ionicons name={item.ion} size={rs(18)} color={item.iconColor} />
-                </View>
-                <View style={styles.rowTextWrap}>
-                  <Text style={styles.rowLabel}>{item.label}</Text>
-                  <Text style={styles.rowDetail} numberOfLines={2}>
-                    {item.detail}
-                  </Text>
-                </View>
-                <Ionicons name="open-outline" size={rs(16)} color={colors.textDim} />
-              </Pressable>
-              {index < contactItems.length - 1 ? (
-                <View style={[styles.divider, { backgroundColor: colors.borderMuted }]} />
-              ) : null}
-            </View>
+        <View style={styles.contactList}>
+          {contactItems.map((item) => (
+            <Pressable
+              key={item.id}
+              style={styles.contactCard}
+              onPress={item.onPress}
+            >
+              <View style={[styles.rowIcon, { backgroundColor: item.bg }]}>
+                <Ionicons name={item.ion} size={rs(18)} color={item.iconColor} />
+              </View>
+              <View style={styles.rowTextWrap}>
+                <Text style={styles.rowLabel}>{item.label}</Text>
+                <Text style={styles.rowDetail} numberOfLines={2}>
+                  {item.detail}
+                </Text>
+              </View>
+              <Ionicons name="open-outline" size={rs(16)} color={colors.textDim} />
+            </Pressable>
           ))}
         </View>
 
@@ -781,6 +789,22 @@ function makeStyles(c: ThemeColors) {
       backgroundColor: c.surface,
       paddingHorizontal: rs(14),
       paddingVertical: rs(6),
+    },
+    contactList: {
+      marginHorizontal: rs(16),
+      marginBottom: rs(16),
+      gap: rs(10),
+    },
+    contactCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(14),
+      borderRadius: rs(16),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(14),
     },
     row: {
       flexDirection: 'row',

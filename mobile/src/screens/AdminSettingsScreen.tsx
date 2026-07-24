@@ -71,6 +71,7 @@ function Field({
   colors,
   multiline,
   keyboardType,
+  fieldKey,
 }: {
   label: string;
   value: string;
@@ -78,12 +79,14 @@ function Field({
   colors: ThemeColors;
   multiline?: boolean;
   keyboardType?: 'default' | 'email-address' | 'phone-pad' | 'url';
+  fieldKey?: string;
 }) {
   const styles = useMemo(() => makeFieldStyles(colors), [colors]);
   return (
     <View style={styles.wrap}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        key={fieldKey}
         style={[styles.input, multiline && styles.multiline]}
         value={value}
         onChangeText={onChangeText}
@@ -94,6 +97,24 @@ function Field({
       />
     </View>
   );
+}
+
+function ensureUniqueSocialLinks(links: AdminSocialLink[]): AdminSocialLink[] {
+  const seen = new Set<string>();
+  return links.map((link, index) => {
+    let id = (link.id || '').trim();
+    if (!id || seen.has(id)) {
+      id = `link-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+    seen.add(id);
+    return {
+      id,
+      platform: (link.platform || 'custom').trim().toLowerCase() || 'custom',
+      label: link.label || link.platform || `Link ${index + 1}`,
+      detail: link.detail ?? '',
+      url: link.url ?? '',
+    };
+  });
 }
 
 export function AdminSettingsScreen() {
@@ -136,7 +157,7 @@ export function AdminSettingsScreen() {
     setContactEmail(s.contact.email);
     setContactWhatsapp(s.contact.whatsapp);
     setWhatsappUrl(s.contact.whatsappUrl);
-    setSocialLinks(s.contact.socialLinks ?? []);
+    setSocialLinks(ensureUniqueSocialLinks(s.contact.socialLinks ?? []));
   }, []);
 
   const load = useCallback(async (t: string) => {
@@ -231,8 +252,20 @@ export function AdminSettingsScreen() {
     setSocialLinks((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
-        const next = { ...row, ...patch };
-        if (patch.platform && !patch.label) {
+        const next: AdminSocialLink = {
+          id: row.id,
+          platform: patch.platform ?? row.platform,
+          label: patch.label ?? row.label,
+          detail: patch.detail ?? row.detail,
+          url: patch.url ?? row.url,
+        };
+        // Only auto-rename when platform changes and label was the old platform name.
+        if (
+          patch.platform &&
+          patch.label === undefined &&
+          (!row.label.trim() ||
+            row.label.trim().toLowerCase() === row.platform.toLowerCase())
+        ) {
           next.label =
             patch.platform.charAt(0).toUpperCase() + patch.platform.slice(1);
         }
@@ -245,9 +278,9 @@ export function AdminSettingsScreen() {
     if (!token) return;
     setSaving(true);
     try {
-      const cleaned = socialLinks
+      const cleaned = ensureUniqueSocialLinks(socialLinks)
         .map((l) => ({
-          ...l,
+          id: l.id,
           platform: l.platform.trim().toLowerCase() || 'custom',
           label: l.label.trim() || l.platform || 'Link',
           detail: l.detail.trim(),
@@ -404,7 +437,9 @@ export function AdminSettingsScreen() {
           {socialLinks.map((link, index) => (
             <View key={link.id} style={styles.socialCard}>
               <View style={styles.socialHead}>
-                <Text style={styles.socialTitle}>Link #{index + 1}</Text>
+                <Text style={styles.socialTitle}>
+                  {link.label?.trim() || `Link #${index + 1}`}
+                </Text>
                 <Pressable
                   onPress={() =>
                     setSocialLinks((prev) => prev.filter((x) => x.id !== link.id))
@@ -415,16 +450,12 @@ export function AdminSettingsScreen() {
                 </Pressable>
               </View>
               <Text style={styles.chipLabel}>Platform</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.chipRow}
-              >
+              <View style={styles.chipWrap}>
                 {SOCIAL_PLATFORMS.map((p) => {
                   const active = link.platform === p;
                   return (
                     <Pressable
-                      key={p}
+                      key={`${link.id}-plat-${p}`}
                       style={[styles.chip, active && styles.chipOn]}
                       onPress={() => patchSocial(link.id, { platform: p })}
                     >
@@ -434,20 +465,23 @@ export function AdminSettingsScreen() {
                     </Pressable>
                   );
                 })}
-              </ScrollView>
+              </View>
               <Field
+                fieldKey={`${link.id}-label`}
                 label="Display label"
                 value={link.label}
                 onChangeText={(t) => patchSocial(link.id, { label: t })}
                 colors={colors}
               />
               <Field
+                fieldKey={`${link.id}-detail`}
                 label="Subtitle (handle / phone)"
                 value={link.detail}
                 onChangeText={(t) => patchSocial(link.id, { detail: t })}
                 colors={colors}
               />
               <Field
+                fieldKey={`${link.id}-url`}
                 label="URL / deep link"
                 value={link.url}
                 onChangeText={(t) => patchSocial(link.id, { url: t })}
@@ -459,7 +493,11 @@ export function AdminSettingsScreen() {
 
           <Pressable
             style={styles.addSocialBtn}
-            onPress={() => setSocialLinks((prev) => [...prev, newSocialLink()])}
+            onPress={() =>
+              setSocialLinks((prev) =>
+                ensureUniqueSocialLinks([...prev, newSocialLink()]),
+              )
+            }
           >
             <Ionicons name="add-circle-outline" size={rs(18)} color={colors.primary} />
             <Text style={styles.addSocialText}>Add social / contact link</Text>
@@ -593,6 +631,12 @@ function makeStyles(c: ThemeColors) {
     socialTitle: { color: c.text, fontWeight: '800', fontSize: rs(13) },
     chipLabel: { color: c.textSecondary, fontSize: rs(12), marginBottom: rs(6) },
     chipRow: { gap: rs(8), paddingBottom: rs(8) },
+    chipWrap: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: rs(8),
+      marginBottom: rs(8),
+    },
     chip: {
       paddingHorizontal: rs(10),
       paddingVertical: rs(6),

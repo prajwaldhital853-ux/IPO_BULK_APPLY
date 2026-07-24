@@ -7,8 +7,8 @@ const googleIosScheme = webClientId
 module.exports = {
   expo: {
     name: 'NEPSE GHAR',
-    slug: 'nepse',
-    owner: 'nepseghars-team',
+    slug: 'hello35eg',
+    owner: 'hellohello636gs-team',
     scheme: 'nepseghar',
     version: '3.3.9',
     orientation: 'portrait',
@@ -81,7 +81,7 @@ module.exports = {
     ],
     extra: {
       eas: {
-        projectId: '4973816d-7659-48bb-a817-e1818ea14019',
+        projectId: '0a36c499-7902-465c-a03a-75f885ee337e',
       },
     },
   },

@@ -77,22 +77,26 @@ function mapPayment(json: Record<string, unknown>): PaymentSettings {
 
 function mapSocialLinks(raw: unknown): SocialLink[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item, i) => {
-      if (!item || typeof item !== 'object') return null;
-      const row = item as Record<string, unknown>;
-      const url = String(row.url ?? '').trim();
-      const label = String(row.label ?? row.platform ?? 'Link').trim();
-      if (!url && !label) return null;
-      return {
-        id: String(row.id ?? `link-${i}`),
-        platform: String(row.platform ?? 'custom').trim().toLowerCase() || 'custom',
-        label: label || 'Link',
-        detail: String(row.detail ?? '').trim(),
-        url,
-      };
-    })
-    .filter(Boolean) as SocialLink[];
+  const seen = new Set<string>();
+  const out: SocialLink[] = [];
+  raw.forEach((item, i) => {
+    if (!item || typeof item !== 'object') return;
+    const row = item as Record<string, unknown>;
+    const url = String(row.url ?? '').trim();
+    const label = String(row.label ?? row.platform ?? 'Link').trim();
+    if (!url && !label) return;
+    let id = String(row.id ?? '').trim() || `link-${i}`;
+    if (seen.has(id)) id = `link-${i}-${Date.now()}`;
+    seen.add(id);
+    out.push({
+      id,
+      platform: String(row.platform ?? 'custom').trim().toLowerCase() || 'custom',
+      label: label || 'Link',
+      detail: String(row.detail ?? '').trim(),
+      url,
+    });
+  });
+  return out;
 }
 
 function mapContact(json: Record<string, unknown>): ContactSettings {

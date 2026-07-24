@@ -43,7 +43,8 @@ def parse_social_links(raw: str | None) -> list[SocialLinkOut]:
     if not isinstance(data, list):
         return []
     out: list[SocialLinkOut] = []
-    for item in data:
+    seen: set[str] = set()
+    for index, item in enumerate(data):
         if not isinstance(item, dict):
             continue
         url = str(item.get('url') or '').strip()
@@ -52,6 +53,9 @@ def parse_social_links(raw: str | None) -> list[SocialLinkOut]:
         if not url and not label:
             continue
         sid = str(item.get('id') or '').strip() or str(uuid.uuid4())
+        if sid in seen:
+            sid = str(uuid.uuid4())
+        seen.add(sid)
         out.append(
             SocialLinkOut(
                 id=sid,
@@ -100,27 +104,32 @@ def social_links_with_legacy(row: SiteSettings) -> list[SocialLinkOut]:
 
 def serialize_social_links(links: list[dict] | list[SocialLinkOut]) -> str:
     payload = []
-    for item in links:
+    seen: set[str] = set()
+    for index, item in enumerate(links):
         if isinstance(item, SocialLinkOut):
-            payload.append(
-                {
-                    'id': item.id,
-                    'platform': item.platform,
-                    'label': item.label,
-                    'detail': item.detail,
-                    'url': item.url,
-                }
-            )
+            sid = (item.id or '').strip()
+            platform = item.platform
+            label = item.label
+            detail = item.detail
+            url = item.url
         else:
-            payload.append(
-                {
-                    'id': str(item.get('id') or uuid.uuid4()),
-                    'platform': str(item.get('platform') or 'custom').strip().lower(),
-                    'label': str(item.get('label') or 'Link').strip(),
-                    'detail': str(item.get('detail') or '').strip(),
-                    'url': str(item.get('url') or '').strip(),
-                }
-            )
+            sid = str(item.get('id') or '').strip()
+            platform = str(item.get('platform') or 'custom').strip().lower()
+            label = str(item.get('label') or 'Link').strip()
+            detail = str(item.get('detail') or '').strip()
+            url = str(item.get('url') or '').strip()
+        if not sid or sid in seen:
+            sid = str(uuid.uuid4())
+        seen.add(sid)
+        payload.append(
+            {
+                'id': sid,
+                'platform': platform or 'custom',
+                'label': label or 'Link',
+                'detail': detail,
+                'url': url,
+            }
+        )
     return json.dumps(payload)
 
 

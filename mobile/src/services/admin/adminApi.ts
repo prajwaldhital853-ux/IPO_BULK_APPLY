@@ -305,19 +305,23 @@ function mapPaymentSettings(json: Record<string, unknown>): AdminPaymentSettings
 
 function mapSocialLinks(raw: unknown): AdminSocialLink[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item, i) => {
-      if (!item || typeof item !== 'object') return null;
-      const row = item as Record<string, unknown>;
-      return {
-        id: String(row.id ?? `link-${i}`),
-        platform: String(row.platform ?? 'custom').trim().toLowerCase() || 'custom',
-        label: String(row.label ?? 'Link').trim() || 'Link',
-        detail: String(row.detail ?? '').trim(),
-        url: String(row.url ?? '').trim(),
-      };
-    })
-    .filter(Boolean) as AdminSocialLink[];
+  const seen = new Set<string>();
+  const out: AdminSocialLink[] = [];
+  raw.forEach((item, i) => {
+    if (!item || typeof item !== 'object') return;
+    const row = item as Record<string, unknown>;
+    let id = String(row.id ?? '').trim() || `link-${i}`;
+    if (seen.has(id)) id = `link-${i}-${Date.now()}`;
+    seen.add(id);
+    out.push({
+      id,
+      platform: String(row.platform ?? 'custom').trim().toLowerCase() || 'custom',
+      label: String(row.label ?? 'Link').trim() || 'Link',
+      detail: String(row.detail ?? '').trim(),
+      url: String(row.url ?? '').trim(),
+    });
+  });
+  return out;
 }
 
 function mapContactSettings(json: Record<string, unknown>): AdminContactSettings {

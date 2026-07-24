@@ -18,6 +18,7 @@ import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import { SoftBadge } from './SoftBadge';
+import { BrandLogo } from './BrandLogo';
 import type { DrawerParamList, RootStackParamList } from '../navigation/types';
 
 type Item = {
@@ -383,12 +384,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
       >
         <Pressable style={styles.brand} onPress={() => goTab('Apply')}>
           <View style={styles.brandIcon}>
-            <MaterialCommunityIcons
-              name="chart-bar"
-              size={rs(28)}
-              color={isDark ? '#66BB6A' : '#1B5E20'}
-            />
-            <Text style={styles.ipoTag}>IPO</Text>
+            <BrandLogo variant="mark" height={rs(40)} />
           </View>
           <Text style={styles.brandText}>NEPSE GHAR</Text>
         </Pressable>
