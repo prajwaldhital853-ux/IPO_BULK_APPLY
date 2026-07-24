@@ -54,14 +54,67 @@ const SOCIAL_PLATFORMS = [
   'custom',
 ] as const;
 
-function newSocialLink(): AdminSocialLink {
+type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
+
+type PlatformLinkDraft = {
+  id: string;
+  label: string;
+  detail: string;
+  url: string;
+};
+
+function emptyPlatformDraft(platform: string): PlatformLinkDraft {
+  const title = platform.charAt(0).toUpperCase() + platform.slice(1);
   return {
-    id: `link-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    platform: 'viber',
-    label: 'Viber',
+    id: `link-${platform}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    label: title,
     detail: '',
     url: '',
   };
+}
+
+function linksToPlatformMap(
+  links: AdminSocialLink[],
+): Record<string, PlatformLinkDraft> {
+  const map: Record<string, PlatformLinkDraft> = {};
+  for (const link of links) {
+    const platform = (link.platform || 'custom').trim().toLowerCase() || 'custom';
+    // Keep the first entry per platform so values never overwrite each other.
+    if (map[platform]) continue;
+    map[platform] = {
+      id:
+        link.id?.trim() ||
+        `link-${platform}-${Math.random().toString(36).slice(2, 8)}`,
+      label: link.label || platform,
+      detail: link.detail ?? '',
+      url: link.url ?? '',
+    };
+  }
+  return map;
+}
+
+function platformMapToLinks(
+  map: Record<string, PlatformLinkDraft>,
+): AdminSocialLink[] {
+  return SOCIAL_PLATFORMS.map((platform) => {
+    const draft = map[platform];
+    if (!draft) return null;
+    const url = draft.url.trim();
+    const label = draft.label.trim();
+    const detail = draft.detail.trim();
+    // Only persist platforms the admin actually filled in.
+    if (!url && !detail && (!label || label.toLowerCase() === platform)) {
+      return null;
+    }
+    if (!url && !label) return null;
+    return {
+      id: draft.id,
+      platform,
+      label: label || platform.charAt(0).toUpperCase() + platform.slice(1),
+      detail,
+      url,
+    } satisfies AdminSocialLink;
+  }).filter(Boolean) as AdminSocialLink[];
 }
 
 function Field({
@@ -99,24 +152,6 @@ function Field({
   );
 }
 
-function ensureUniqueSocialLinks(links: AdminSocialLink[]): AdminSocialLink[] {
-  const seen = new Set<string>();
-  return links.map((link, index) => {
-    let id = (link.id || '').trim();
-    if (!id || seen.has(id)) {
-      id = `link-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`;
-    }
-    seen.add(id);
-    return {
-      id,
-      platform: (link.platform || 'custom').trim().toLowerCase() || 'custom',
-      label: link.label || link.platform || `Link ${index + 1}`,
-      detail: link.detail ?? '',
-      url: link.url ?? '',
-    };
-  });
-}
-
 export function AdminSettingsScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -140,7 +175,10 @@ export function AdminSettingsScreen() {
   const [contactEmail, setContactEmail] = useState('');
   const [contactWhatsapp, setContactWhatsapp] = useState('');
   const [whatsappUrl, setWhatsappUrl] = useState('');
-  const [socialLinks, setSocialLinks] = useState<AdminSocialLink[]>([]);
+  const [socialByPlatform, setSocialByPlatform] = useState<
+    Record<string, PlatformLinkDraft>
+  >({});
+  const [activePlatform, setActivePlatform] = useState<SocialPlatform>('instagram');
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -157,7 +195,10 @@ export function AdminSettingsScreen() {
     setContactEmail(s.contact.email);
     setContactWhatsapp(s.contact.whatsapp);
     setWhatsappUrl(s.contact.whatsappUrl);
-    setSocialLinks(ensureUniqueSocialLinks(s.contact.socialLinks ?? []));
+    const map = linksToPlatformMap(s.contact.socialLinks ?? []);
+    setSocialByPlatform(map);
+    const firstFilled = SOCIAL_PLATFORMS.find((p) => map[p]?.url?.trim());
+    setActivePlatform(firstFilled ?? 'instagram');
   }, []);
 
   const load = useCallback(async (t: string) => {
@@ -248,45 +289,45 @@ export function AdminSettingsScreen() {
     );
   };
 
-  const patchSocial = (id: string, patch: Partial<AdminSocialLink>) => {
-    setSocialLinks((prev) =>
-      prev.map((row) => {
-        if (row.id !== id) return row;
-        const next: AdminSocialLink = {
-          id: row.id,
-          platform: patch.platform ?? row.platform,
-          label: patch.label ?? row.label,
-          detail: patch.detail ?? row.detail,
-          url: patch.url ?? row.url,
-        };
-        // Only auto-rename when platform changes and label was the old platform name.
-        if (
-          patch.platform &&
-          patch.label === undefined &&
-          (!row.label.trim() ||
-            row.label.trim().toLowerCase() === row.platform.toLowerCase())
-        ) {
-          next.label =
-            patch.platform.charAt(0).toUpperCase() + patch.platform.slice(1);
-        }
-        return next;
-      }),
-    );
+  const activeDraft =
+    socialByPlatform[activePlatform] ?? emptyPlatformDraft(activePlatform);
+
+  const selectPlatform = (platform: SocialPlatform) => {
+    setActivePlatform(platform);
+    setSocialByPlatform((prev) => {
+      if (prev[platform]) return prev;
+      return { ...prev, [platform]: emptyPlatformDraft(platform) };
+    });
+  };
+
+  const patchActivePlatform = (patch: Partial<PlatformLinkDraft>) => {
+    setSocialByPlatform((prev) => {
+      const current = prev[activePlatform] ?? emptyPlatformDraft(activePlatform);
+      return {
+        ...prev,
+        [activePlatform]: {
+          id: current.id,
+          label: patch.label ?? current.label,
+          detail: patch.detail ?? current.detail,
+          url: patch.url ?? current.url,
+        },
+      };
+    });
+  };
+
+  const clearActivePlatform = () => {
+    setSocialByPlatform((prev) => {
+      const next = { ...prev };
+      delete next[activePlatform];
+      return next;
+    });
   };
 
   const onSave = async () => {
     if (!token) return;
     setSaving(true);
     try {
-      const cleaned = ensureUniqueSocialLinks(socialLinks)
-        .map((l) => ({
-          id: l.id,
-          platform: l.platform.trim().toLowerCase() || 'custom',
-          label: l.label.trim() || l.platform || 'Link',
-          detail: l.detail.trim(),
-          url: l.url.trim(),
-        }))
-        .filter((l) => l.url || l.label);
+      const cleaned = platformMapToLinks(socialByPlatform);
       const updated = await updateAdminSettings(token, {
         payment: {
           qrText: qrText.trim(),
@@ -307,7 +348,10 @@ export function AdminSettingsScreen() {
         },
       });
       applySettings(updated);
-      Alert.alert('Saved', 'Payment and contact details updated.');
+      Alert.alert(
+        'Saved',
+        `${cleaned.length} social link(s) saved. Each platform keeps its own URL.`,
+      );
     } catch (e) {
       Alert.alert('Save failed', e instanceof Error ? e.message : 'Try again');
     } finally {
@@ -430,78 +474,67 @@ export function AdminSettingsScreen() {
 
           <Text style={styles.section}>Social & extra contact links</Text>
           <Text style={styles.help}>
-            Add Viber, YouTube, Instagram, Twitter/X, Facebook, TikTok, etc. Users see
-            these under Profile → Contact us. You can add, edit, or remove anytime.
+            Tap a platform (Instagram, Viber, …), then enter that platform’s own
+            label and URL. Switching platforms does not copy data — each one is
+            saved separately and shown one-by-one in Profile → Connect With Us.
           </Text>
 
-          {socialLinks.map((link, index) => (
-            <View key={link.id} style={styles.socialCard}>
-              <View style={styles.socialHead}>
-                <Text style={styles.socialTitle}>
-                  {link.label?.trim() || `Link #${index + 1}`}
-                </Text>
+          <Text style={styles.chipLabel}>Choose platform to edit</Text>
+          <View style={styles.chipWrap}>
+            {SOCIAL_PLATFORMS.map((p) => {
+              const active = activePlatform === p;
+              const hasData = Boolean(socialByPlatform[p]?.url?.trim());
+              return (
                 <Pressable
-                  onPress={() =>
-                    setSocialLinks((prev) => prev.filter((x) => x.id !== link.id))
-                  }
-                  hitSlop={8}
+                  key={`plat-${p}`}
+                  style={[styles.chip, active && styles.chipOn]}
+                  onPress={() => selectPlatform(p)}
                 >
-                  <Ionicons name="trash-outline" size={rs(18)} color={colors.danger} />
+                  <Text style={[styles.chipText, active && styles.chipTextOn]}>
+                    {hasData ? `● ${p}` : p}
+                  </Text>
                 </Pressable>
-              </View>
-              <Text style={styles.chipLabel}>Platform</Text>
-              <View style={styles.chipWrap}>
-                {SOCIAL_PLATFORMS.map((p) => {
-                  const active = link.platform === p;
-                  return (
-                    <Pressable
-                      key={`${link.id}-plat-${p}`}
-                      style={[styles.chip, active && styles.chipOn]}
-                      onPress={() => patchSocial(link.id, { platform: p })}
-                    >
-                      <Text style={[styles.chipText, active && styles.chipTextOn]}>
-                        {p}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              <Field
-                fieldKey={`${link.id}-label`}
-                label="Display label"
-                value={link.label}
-                onChangeText={(t) => patchSocial(link.id, { label: t })}
-                colors={colors}
-              />
-              <Field
-                fieldKey={`${link.id}-detail`}
-                label="Subtitle (handle / phone)"
-                value={link.detail}
-                onChangeText={(t) => patchSocial(link.id, { detail: t })}
-                colors={colors}
-              />
-              <Field
-                fieldKey={`${link.id}-url`}
-                label="URL / deep link"
-                value={link.url}
-                onChangeText={(t) => patchSocial(link.id, { url: t })}
-                colors={colors}
-                keyboardType="url"
-              />
-            </View>
-          ))}
+              );
+            })}
+          </View>
 
-          <Pressable
-            style={styles.addSocialBtn}
-            onPress={() =>
-              setSocialLinks((prev) =>
-                ensureUniqueSocialLinks([...prev, newSocialLink()]),
-              )
-            }
-          >
-            <Ionicons name="add-circle-outline" size={rs(18)} color={colors.primary} />
-            <Text style={styles.addSocialText}>Add social / contact link</Text>
-          </Pressable>
+          <View style={styles.socialCard}>
+            <View style={styles.socialHead}>
+              <Text style={styles.socialTitle}>
+                Editing: {activePlatform}
+              </Text>
+              <Pressable onPress={clearActivePlatform} hitSlop={8}>
+                <Ionicons name="trash-outline" size={rs(18)} color={colors.danger} />
+              </Pressable>
+            </View>
+            <Field
+              fieldKey={`${activePlatform}-label`}
+              label="Display label"
+              value={activeDraft.label}
+              onChangeText={(t) => patchActivePlatform({ label: t })}
+              colors={colors}
+            />
+            <Field
+              fieldKey={`${activePlatform}-detail`}
+              label="Subtitle (handle / phone)"
+              value={activeDraft.detail}
+              onChangeText={(t) => patchActivePlatform({ detail: t })}
+              colors={colors}
+            />
+            <Field
+              fieldKey={`${activePlatform}-url`}
+              label="URL / deep link"
+              value={activeDraft.url}
+              onChangeText={(t) => patchActivePlatform({ url: t })}
+              colors={colors}
+              keyboardType="url"
+            />
+            <Text style={styles.filledHint}>
+              Filled platforms:{' '}
+              {SOCIAL_PLATFORMS.filter((p) => socialByPlatform[p]?.url?.trim())
+                .join(', ') || 'none yet'}
+            </Text>
+          </View>
 
           <Pressable style={styles.btn} onPress={() => void onSave()} disabled={saving}>
             {saving ? (
@@ -656,6 +689,12 @@ function makeStyles(c: ThemeColors) {
       marginBottom: rs(8),
     },
     addSocialText: { color: c.primary, fontWeight: '700', fontSize: rs(13) },
+    filledHint: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      marginTop: rs(4),
+      lineHeight: rs(16),
+    },
     btn: {
       backgroundColor: c.fab,
       borderRadius: rs(12),

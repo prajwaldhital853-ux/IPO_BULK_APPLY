@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import {
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,8 +19,9 @@ import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import { SoftBadge } from './SoftBadge';
-import { BrandLogo } from './BrandLogo';
 import type { DrawerParamList, RootStackParamList } from '../navigation/types';
+
+const APP_LOGO = require('../../assets/nepse-ghar-logo.png');
 
 type Item = {
   label: string;
@@ -384,7 +386,12 @@ export function DrawerContent(props: DrawerContentComponentProps) {
       >
         <Pressable style={styles.brand} onPress={() => goTab('Apply')}>
           <View style={styles.brandIcon}>
-            <BrandLogo variant="mark" height={rs(40)} />
+            <Image
+              source={APP_LOGO}
+              style={styles.brandLogo}
+              resizeMode="contain"
+              accessibilityLabel="NEPSE GHAR logo"
+            />
           </View>
           <Text style={styles.brandText}>NEPSE GHAR</Text>
         </Pressable>
@@ -422,23 +429,22 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
       width: rs(48),
       height: rs(48),
       borderRadius: rs(12),
-      backgroundColor: isDark ? '#1A1A1A' : '#E4EAD9',
+      backgroundColor: isDark ? '#1A1A1A' : '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
+      overflow: 'hidden',
+      padding: rs(4),
     },
-    ipoTag: {
-      position: 'absolute',
-      bottom: 2,
-      right: 2,
-      fontSize: rs(8),
-      fontWeight: '800',
-      color: '#42A5F5',
+    brandLogo: {
+      width: '100%',
+      height: '100%',
     },
     brandText: {
       color: isDark ? colors.text : '#0D0D0D',
       fontSize: rs(18),
       fontWeight: '800',
       letterSpacing: 0.3,
+      flexShrink: 1,
     },
     section: {
       marginTop: rs(12),

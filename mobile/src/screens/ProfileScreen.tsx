@@ -576,22 +576,34 @@ export function ProfileScreen() {
           ))}
         </View>
 
-        {auth.isAuthenticated ? (
-          <>
-            <Text style={styles.sectionOutside}>Danger Zone</Text>
-            <View style={styles.card}>
-              <Pressable style={styles.row} onPress={() => setDeleteOpen(true)}>
-                <View style={[styles.rowIcon, { backgroundColor: '#FFCDD2' }]}>
-                  <Ionicons name="trash-outline" size={rs(18)} color="#C62828" />
-                </View>
+        <Text style={styles.sectionOutside}>Danger Zone</Text>
+        <View style={styles.card}>
+          {auth.isAuthenticated ? (
+            <Pressable style={styles.row} onPress={() => setDeleteOpen(true)}>
+              <View style={[styles.rowIcon, { backgroundColor: '#FFCDD2' }]}>
+                <Ionicons name="trash-outline" size={rs(18)} color="#C62828" />
+              </View>
+              <Text style={[styles.rowLabel, { color: colors.danger }]}>
+                Delete account
+              </Text>
+              <Ionicons name="chevron-forward" size={rs(16)} color={colors.danger} />
+            </Pressable>
+          ) : (
+            <View style={styles.row}>
+              <View style={[styles.rowIcon, { backgroundColor: '#FFCDD2' }]}>
+                <Ionicons name="trash-outline" size={rs(18)} color="#C62828" />
+              </View>
+              <View style={styles.rowTextWrap}>
                 <Text style={[styles.rowLabel, { color: colors.danger }]}>
                   Delete account
                 </Text>
-                <Ionicons name="chevron-forward" size={rs(16)} color={colors.danger} />
-              </Pressable>
+                <Text style={styles.rowDetail}>
+                  Sign in with Google to delete your account
+                </Text>
+              </View>
             </View>
-          </>
-        ) : null}
+          )}
+        </View>
       </ScrollView>
 
       <Modal
