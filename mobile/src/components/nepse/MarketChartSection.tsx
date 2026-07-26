@@ -44,7 +44,7 @@ export function MarketChartSection({
   colors,
   onSearchPress,
 }: Props) {
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const [range, setRange] = useState<IndexChartRange>('1D');
   const [chartPoints, setChartPoints] = useState<ChartPoint[]>(intradayPoints);
   const [chartLoading, setChartLoading] = useState(false);
@@ -59,15 +59,10 @@ export function MarketChartSection({
   const loadChart = useCallback(async () => {
     setChartLoading(true);
     try {
-      const pts = await loadIndexChartPoints(
-        sym,
-        range,
-        intradayPoints,
-        {
-          current: indexQuote.current,
-          change: indexQuote.change,
-        },
-      );
+      const pts = await loadIndexChartPoints(sym, range, intradayPoints, {
+        current: indexQuote.current,
+        change: indexQuote.change,
+      });
       setChartPoints(pts);
     } finally {
       setChartLoading(false);
@@ -78,6 +73,9 @@ export function MarketChartSection({
     void loadChart();
   }, [loadChart]);
 
+  const iconColor = isDark ? colors.sage : '#4A5544';
+  const chartBg = isDark ? colors.bg : colors.bg;
+
   return (
     <View style={styles.wrap}>
       <View style={styles.controls}>
@@ -85,19 +83,19 @@ export function MarketChartSection({
           style={styles.dropdown}
           onPress={() => setIndexMenuOpen(true)}
         >
-          <Ionicons name="options-outline" size={rs(14)} color={colors.primary} />
+          <Ionicons name="list" size={rs(15)} color={iconColor} />
           <Text style={styles.dropdownText} numberOfLines={1}>
             {indexQuote.name}
           </Text>
-          <Ionicons name="chevron-down" size={rs(14)} color={colors.primary} />
+          <Ionicons name="chevron-down" size={rs(14)} color={iconColor} />
         </Pressable>
         <Pressable
           style={styles.dropdown}
           onPress={() => setRangeMenuOpen(true)}
         >
-          <Ionicons name="calendar-outline" size={rs(14)} color={colors.primary} />
+          <Ionicons name="calendar-outline" size={rs(14)} color={iconColor} />
           <Text style={styles.dropdownText}>{rangeLabel}</Text>
-          <Ionicons name="chevron-down" size={rs(14)} color={colors.primary} />
+          <Ionicons name="chevron-down" size={rs(14)} color={iconColor} />
         </Pressable>
         {onSearchPress ? (
           <Pressable style={styles.searchBtn} onPress={onSearchPress} hitSlop={8}>
@@ -111,8 +109,8 @@ export function MarketChartSection({
         isDark={isDark}
         up={up}
         loading={chartLoading}
-        height={rs(230)}
-        backgroundColor={isDark ? '#121212' : '#F5F7F0'}
+        height={rs(250)}
+        backgroundColor={chartBg}
       />
 
       <Modal visible={indexMenuOpen} transparent animationType="fade">
@@ -179,29 +177,27 @@ export function MarketChartSection({
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
-    wrap: { marginTop: rs(4) },
+    wrap: { marginTop: rs(2) },
     controls: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      marginBottom: rs(8),
+      marginBottom: rs(6),
     },
     dropdown: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(5),
+      gap: rs(6),
       paddingHorizontal: rs(12),
       paddingVertical: rs(9),
-      borderRadius: rs(12),
-      backgroundColor: c.surfaceAlt,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.borderMuted,
-      maxWidth: rs(140),
+      borderRadius: rs(16),
+      backgroundColor: isDark ? c.surfaceAlt : '#D8E2CC',
+      maxWidth: rs(148),
     },
     dropdownText: {
-      color: c.primary,
+      color: isDark ? c.sage : '#3E4638',
       fontSize: rs(12),
       fontWeight: '700',
       flexShrink: 1,
@@ -211,7 +207,7 @@ function makeStyles(c: ThemeColors) {
       width: rs(40),
       height: rs(40),
       borderRadius: rs(20),
-      backgroundColor: c.primary,
+      backgroundColor: isDark ? c.accentGreen : '#2D5A27',
       alignItems: 'center',
       justifyContent: 'center',
     },

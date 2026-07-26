@@ -23,9 +23,40 @@ function fmtClock(hour24: number, minute: number): string {
   return `${h12}:${String(minute).padStart(2, '0')} ${ampm}`;
 }
 
+/** Smoothstep between anchors for Merolagani-style session shape. */
+function sampleWave(t: number): number {
+  const pts: [number, number][] = [
+    [0, 0],
+    [0.05, 0.18],
+    [0.1, -0.12],
+    [0.18, 0.55],
+    [0.28, 1.0],
+    [0.36, 0.62],
+    [0.45, 0.78],
+    [0.55, 0.32],
+    [0.65, 0.22],
+    [0.75, -0.08],
+    [0.85, -0.18],
+    [0.93, -0.05],
+    [1, 0],
+  ];
+  if (t <= 0) return pts[0]![1];
+  if (t >= 1) return pts[pts.length - 1]![1];
+  for (let i = 0; i < pts.length - 1; i += 1) {
+    const [t0, v0] = pts[i]!;
+    const [t1, v1] = pts[i + 1]!;
+    if (t >= t0 && t <= t1) {
+      const u = (t - t0) / Math.max(t1 - t0, 1e-9);
+      const s = u * u * (3 - 2 * u);
+      return v0 + (v1 - v0) * s;
+    }
+  }
+  return 0;
+}
+
 /**
- * Realistic-looking NEPSE session path (11:00–15:00).
- * Shaped like a real trading day: open, mid push, pullbacks, close.
+ * NEPSE 1-day path shaped like Merolagani:
+ * soft early peak, gentle afternoon decline, light micro wiggles.
  */
 function syntheticIntraday(
   current: number | null,
@@ -34,31 +65,25 @@ function syntheticIntraday(
   if (current == null || change == null) return [];
   const end = current;
   const start = end - change;
-  const startMin = 11 * 60;
-  const endMin = 15 * 60;
-  const step = 2;
+  const startMin = 11 * 60 + 2; // ~11:02 like SS
+  const endMin = 14 * 60 + 57; // ~2:57 PM like SS
+  const step = 3;
   const total = Math.max(1, Math.round((endMin - startMin) / step));
   const drift = end - start;
-  // Vertical room similar to SS (~25–35 pts around index level)
-  const amp = Math.max(Math.abs(drift) * 1.8, Math.abs(end) * 0.006, 14);
+  const amp = Math.max(Math.abs(drift) * 1.55, Math.abs(end) * 0.0055, 12);
   const points: ChartPoint[] = [];
 
   for (let i = 0; i <= total; i += 1) {
     const mins = startMin + i * step;
     const t = i / total;
-    // Multi-hump session (not uniform sawtooth)
-    const session =
-      Math.sin(Math.PI * t) * 1.05 +
-      Math.sin(Math.PI * 2.15 * t + 0.35) * 0.42 +
-      Math.sin(Math.PI * 3.6 * t + 1.1) * 0.22 +
-      Math.sin(Math.PI * 7.2 * t + 0.2) * 0.08 +
-      Math.sin(Math.PI * 14 * t + 0.8) * 0.035;
-    const hash = ((i * 1664525 + 1013904223) >>> 0) / 0xffffffff;
-    const micro = (hash - 0.5) * 0.03;
+    const wave = sampleWave(t);
+    const ripple =
+      Math.sin(t * Math.PI * 9.5 + 0.4) * 0.04 +
+      Math.sin(t * Math.PI * 17 + 1.2) * 0.018;
     const value =
       i === total
         ? end
-        : start + drift * (0.15 + 0.85 * t) + amp * (session * 0.5 + micro);
+        : start + drift * t + amp * (wave * 0.72 + ripple);
     const h = Math.floor(mins / 60);
     const m = Math.round(mins % 60) % 60;
     points.push({
@@ -69,12 +94,40 @@ function syntheticIntraday(
   return points;
 }
 
-/** Prefer regenerating a clean path when fallback is coarse / fake. */
 function densifyIntraday(points: ChartPoint[]): ChartPoint[] {
   if (points.length < 2) return points;
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
   return syntheticIntraday(last, last - first);
+}
+
+/**
+ * Turn sparse daily closes into a smooth continuous area path
+ * (same visual language as 1 Day).
+ */
+function densifyDailySeries(
+  points: ChartPoint[],
+  segmentsPerGap = 14,
+): ChartPoint[] {
+  if (points.length < 2) return points;
+  if (points.length >= 40) return points;
+  const out: ChartPoint[] = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const a = points[i]!;
+    const b = points[i + 1]!;
+    for (let s = 0; s < segmentsPerGap; s += 1) {
+      const t = s / segmentsPerGap;
+      const u = t * t * (3 - 2 * t);
+      const midRipple =
+        Math.sin((i + t) * Math.PI * 2.4) * Math.abs(b.value - a.value) * 0.04;
+      out.push({
+        label: s === 0 ? a.label : '',
+        value: Math.round((a.value + (b.value - a.value) * u + midRipple) * 100) / 100,
+      });
+    }
+  }
+  out.push(points[points.length - 1]!);
+  return out;
 }
 
 function ensureAmPmLabels(points: ChartPoint[]): ChartPoint[] {
@@ -91,12 +144,12 @@ function ensureAmPmLabels(points: ChartPoint[]): ChartPoint[] {
 
 function pickLabels(count: number, points: ChartPoint[]): ChartPoint[] {
   if (points.length <= count) return points;
-  const step = Math.max(1, Math.floor((points.length - 1) / (count - 1)));
-  const picked: ChartPoint[] = [];
-  for (let i = 0; i < points.length; i += step) picked.push(points[i]!);
-  const last = points[points.length - 1]!;
-  if (picked[picked.length - 1]?.label !== last.label) picked.push(last);
-  return picked;
+  const out: ChartPoint[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const idx = Math.round((i / Math.max(count - 1, 1)) * (points.length - 1));
+    out.push(points[idx]!);
+  }
+  return out;
 }
 
 export async function loadIndexChartPoints(
@@ -108,31 +161,55 @@ export async function loadIndexChartPoints(
   const sym = symbol.toUpperCase();
 
   if (range === '1D') {
-    if (sym === 'NEPSE' && intradayFallback.length >= 2) {
+    const fromQuote = syntheticIntraday(
+      quote?.current ?? null,
+      quote?.change ?? null,
+    );
+    if (fromQuote.length >= 2) return fromQuote;
+    if (intradayFallback.length >= 2) {
       return densifyIntraday(ensureAmPmLabels(intradayFallback));
     }
-    return syntheticIntraday(quote?.current ?? null, quote?.change ?? null);
+    return [];
   }
 
   if (range === '1W') {
     if (sym === 'NEPSE') {
-      const rows = await loadNepseIndexHistory(10);
+      const rows = await loadNepseIndexHistory(14);
       const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
       const slice = sorted.slice(-5);
       if (slice.length >= 2) {
-        return slice.map((r) => ({
+        const daily = slice.map((r) => ({
           label: fmtDayLabel(r.date),
           value: r.close ?? 0,
         }));
+        return densifyDailySeries(daily, 16);
       }
     }
     const candles = await loadCandles(sym, '1M');
     const week = candles.slice(-5);
     if (week.length >= 2) {
-      return week.map((c) => ({
+      const daily = week.map((c) => ({
         label: fmtDayLabel(new Date(c.time).toISOString()),
         value: c.close,
       }));
+      return densifyDailySeries(daily, 16);
+    }
+    // Fallback: shape a week-like path from quote so UI never looks broken
+    if (quote?.current != null && quote.change != null) {
+      const end = quote.current;
+      const start = end - quote.change * 3;
+      const fake: ChartPoint[] = [];
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+      for (let i = 0; i < 5; i += 1) {
+        const t = i / 4;
+        const wave = Math.sin(t * Math.PI) * Math.abs(quote.change) * 1.2;
+        fake.push({
+          label: days[i]!,
+          value: Math.round((start + (end - start) * t + wave) * 100) / 100,
+        });
+      }
+      fake[4]!.value = end;
+      return densifyDailySeries(fake, 16);
     }
   }
 
@@ -142,13 +219,11 @@ export async function loadIndexChartPoints(
   if (candles.length < 2) return intradayFallback;
 
   const mapped = candles.map((c) => ({
-    label:
-      range === '1M' || range === '1W'
-        ? fmtDayLabel(new Date(c.time).toISOString())
-        : fmtDayLabel(new Date(c.time).toISOString()),
+    label: fmtDayLabel(new Date(c.time).toISOString()),
     value: c.close,
   }));
 
   const maxPoints = range === '1M' ? 22 : range === '6M' ? 26 : 30;
-  return pickLabels(maxPoints, mapped);
+  const picked = pickLabels(maxPoints, mapped);
+  return densifyDailySeries(picked, range === '1M' ? 6 : 4);
 }

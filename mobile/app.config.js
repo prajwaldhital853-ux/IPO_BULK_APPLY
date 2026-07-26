@@ -55,6 +55,15 @@ module.exports = {
         },
       ],
       [
+        'expo-media-library',
+        {
+          photosPermission:
+            'Allow NEPSE GHAR to save the payment QR to your gallery.',
+          savePhotosPermission:
+            'Allow NEPSE GHAR to save the payment QR to your gallery.',
+        },
+      ],
+      [
         'expo-screen-orientation',
         {
           initialOrientation: 'PORTRAIT',

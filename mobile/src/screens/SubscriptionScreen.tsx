@@ -12,6 +12,8 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,7 +29,7 @@ import type { RootStackParamList } from '../navigation/types';
 
 function generatedQrUrl(text: string): string {
   const data = text.trim() || 'NEPSE GHAR Premium Payment';
-  return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(data)}`;
+  return `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encodeURIComponent(data)}`;
 }
 
 function resolvePaymentQrUrl(path: string | null | undefined): string | null {
@@ -59,8 +61,12 @@ export function SubscriptionScreen() {
   const [paymentNote, setPaymentNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
+  const [savingQr, setSavingQr] = useState(false);
+  /** Plan id the user marked as paid — reveals WhatsApp CTA. */
+  const [paidPlanId, setPaidPlanId] = useState<string | null>(null);
 
   const needsSignIn = auth.enabled && !auth.isAuthenticated;
+  const showCheckout = !isPremium && !isPending;
 
   const qrUrl = useMemo(() => {
     const uploaded = resolvePaymentQrUrl(paymentInfo?.qrImageUrl);
@@ -79,6 +85,10 @@ export function SubscriptionScreen() {
       void refresh();
     }, [refresh]),
   );
+
+  useEffect(() => {
+    if (isPending || isPremium) setPaidPlanId(null);
+  }, [isPending, isPremium]);
 
   const pending = serverStatus?.pendingRequest ?? auth.premium.pendingRequest;
 
@@ -117,7 +127,7 @@ export function SubscriptionScreen() {
     [onSignIn],
   );
 
-  const onSubmit = useCallback(
+  const submitPaidPlan = useCallback(
     async (planId: string, title: string, price: string) => {
       if (isPending) {
         Alert.alert(
@@ -128,18 +138,6 @@ export function SubscriptionScreen() {
       }
       if (isPremium) {
         Alert.alert('Premium active', 'Your subscription is already active.');
-        return;
-      }
-
-      if (needsSignIn) {
-        Alert.alert(
-          'Google sign-in required',
-          'Sign in with a Google account to subscribe. Premium activates only after admin verifies your payment.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Sign in', onPress: () => void onSignIn() },
-          ],
-        );
         return;
       }
 
@@ -155,32 +153,23 @@ export function SubscriptionScreen() {
         );
         return;
       }
-      Alert.alert(
-        'Submit for verification',
-        `Plan: ${title} (${price})\n\n1. Pay using QR/bank details below\n2. Send payment screenshot on WhatsApp\n3. Tap Submit — admin will activate your account`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Submit',
-            onPress: () => {
-              setSubmitting(true);
-              void requestPlan(planId, paymentNote.trim() || undefined)
-                .then(() => {
-                  Alert.alert(
-                    'Submitted',
-                    'Your subscription is pending verification. You will get premium access after admin approval.',
-                  );
-                  setPaymentNote('');
-                })
-                .catch((e: unknown) => showAuthActionError('Could not submit', e))
-                .finally(() => setSubmitting(false));
-            },
-          },
-        ],
-      );
+
+      setSubmitting(true);
+      try {
+        await requestPlan(planId, paymentNote.trim() || undefined);
+        setPaidPlanId(planId);
+        setPaymentNote('');
+        Alert.alert(
+          'Payment marked',
+          `Thanks! Now send your ${price} payment screenshot on WhatsApp so admin can verify ${title}.`,
+        );
+      } catch (e: unknown) {
+        showAuthActionError('Could not submit', e);
+      } finally {
+        setSubmitting(false);
+      }
     },
     [
-      needsSignIn,
       isPending,
       isPremium,
       paymentNote,
@@ -189,6 +178,34 @@ export function SubscriptionScreen() {
       auth,
       onSignIn,
     ],
+  );
+
+  const onPlanPress = useCallback(
+    (planId: string, title: string, price: string) => {
+      if (needsSignIn) {
+        Alert.alert(
+          'Google sign-in required',
+          'Sign in with Google to mark your payment and activate premium after admin verification.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Sign in with Google', onPress: () => void onSignIn() },
+          ],
+        );
+        return;
+      }
+      Alert.alert(
+        'Confirm payment',
+        `Have you already paid ${price} for ${title}?`,
+        [
+          { text: 'Not yet', style: 'cancel' },
+          {
+            text: `I have paid ${price}`,
+            onPress: () => void submitPaidPlan(planId, title, price),
+          },
+        ],
+      );
+    },
+    [needsSignIn, onSignIn, submitPaidPlan],
   );
 
   const onCancelPending = useCallback(async () => {
@@ -232,12 +249,14 @@ export function SubscriptionScreen() {
     const url = paymentInfo?.whatsappUrl ?? 'https://wa.me/9779709133067';
     const msg = pending
       ? `Hi, I submitted premium payment for ${pending.planTitle}. Please verify.`
-      : 'Hi, I want to subscribe to NEPSE GHAR Premium. I will send payment screenshot.';
+      : paidPlanId
+        ? `Hi, I have paid for NEPSE GHAR Premium (${paidPlanId}). I will send the payment screenshot.`
+        : 'Hi, I want to subscribe to NEPSE GHAR Premium. I will send payment screenshot.';
     const full = `${url}?text=${encodeURIComponent(msg)}`;
     await Linking.openURL(full).catch(() => {
       Alert.alert('WhatsApp', 'Could not open WhatsApp.');
     });
-  }, [paymentInfo?.whatsappUrl, pending]);
+  }, [paymentInfo?.whatsappUrl, pending, paidPlanId]);
 
   const openMoreAccountsWhatsApp = useCallback(async () => {
     const url = paymentInfo?.whatsappUrl ?? 'https://wa.me/9779709133067';
@@ -256,25 +275,68 @@ export function SubscriptionScreen() {
     });
   }, [paymentInfo?.whatsappUrl, auth.user?.email, maxAccounts]);
 
+  const downloadQr = useCallback(async () => {
+    if (!qrUrl || savingQr) return;
+    setSavingQr(true);
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission needed',
+          'Allow photo access so the payment QR can be saved to your gallery.',
+        );
+        return;
+      }
+      const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+      if (!dir) throw new Error('Storage not available on this device.');
+      const fileUri = `${dir}nepse-ghar-payment-qr.png`;
+      const result = await FileSystem.downloadAsync(qrUrl, fileUri);
+      await MediaLibrary.saveToLibraryAsync(result.uri);
+      Alert.alert('Saved', 'Payment QR saved to your gallery.');
+    } catch (e: unknown) {
+      Alert.alert(
+        'Download failed',
+        e instanceof Error ? e.message : 'Could not save the payment QR to gallery.',
+      );
+    } finally {
+      setSavingQr(false);
+    }
+  }, [qrUrl, savingQr]);
+
+  const heroSub = isPremium
+    ? [
+        daysLeft != null ? `${daysLeft} day(s) left` : 'Active',
+        state.productId ?? 'premium',
+        `up to ${maxAccounts} accounts`,
+      ].join(' · ')
+    : isPending && pending
+      ? `${pending.planTitle} · Rs ${pending.amountNpr} · waiting for admin approval`
+      : 'Free: 10 accounts · Premium: 50 accounts';
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
-        <Text style={styles.title}>Premium Subscription</Text>
+        <Text style={styles.title}>Premium</Text>
         <Pressable onPress={() => void refresh()} hitSlop={12}>
           <Ionicons name="refresh" size={rs(20)} color={colors.teal} />
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + rs(28) }]}
+        showsVerticalScrollIndicator={false}
+      >
         {loading ? (
-          <ActivityIndicator color={colors.teal} style={{ marginVertical: rs(20) }} />
+          <ActivityIndicator color={colors.teal} style={{ marginBottom: rs(12) }} />
         ) : null}
 
         <View style={styles.hero}>
-          <Ionicons name="diamond" size={rs(36)} color={colors.tealHeader} />
+          <View style={styles.heroIcon}>
+            <Ionicons name="diamond" size={rs(22)} color={colors.tealHeader} />
+          </View>
           <Text style={styles.heroTitle}>
             {isPremium
               ? 'Premium active'
@@ -282,171 +344,235 @@ export function SubscriptionScreen() {
                 ? 'Pending verification'
                 : 'Upgrade to Premium'}
           </Text>
-          {isPremium ? (
-            <Text style={styles.heroSub}>
-              {daysLeft != null
-                ? `${daysLeft} day(s) remaining · ${state.productId ?? 'premium'}`
-                : 'Active subscription'}
-              {` · up to ${maxAccounts} accounts`}
-            </Text>
-          ) : isPending && pending ? (
-            <Text style={styles.heroSub}>
-              {pending.planTitle} · Rs {pending.amountNpr} submitted on{' '}
-              {new Date(pending.createdAt).toLocaleDateString()}. Admin is verifying your
-              payment. Premium features stay locked until approved.
-            </Text>
-          ) : (
-            <Text style={styles.heroSub}>
-              Free plan: up to 10 accounts. Premium: up to 50 accounts — Rs 300 /
-              6 months or Rs 500 / year. Need more than 50? Contact us on WhatsApp
-              after subscribing — admin can raise your limit (e.g. 100 / 200) after
-              payment.
-            </Text>
-          )}
+          <Text style={styles.heroSub}>{heroSub}</Text>
         </View>
 
-        <View style={styles.moreAccountsCard}>
-          <Text style={styles.moreAccountsTitle}>Need more than 50 accounts?</Text>
-          <Text style={styles.moreAccountsText}>
-            Premium includes up to 50 MeroShare accounts by default. If you need 60,
-            100, 200, or any higher limit, message us on WhatsApp. Pay as agreed
-            offline — after payment, admin raises your account limit immediately in
-            the app.
+        {isPending && pending ? (
+          <View style={[styles.card, styles.pendingBorder]}>
+            <Text style={styles.cardTitle}>Waiting for approval</Text>
+            <Text style={styles.cardBody}>
+              Submitted {new Date(pending.createdAt).toLocaleDateString()}. Premium
+              stays locked until admin activates your plan.
+            </Text>
+            <Pressable style={styles.waBtn} onPress={() => void openWhatsApp()}>
+              <Ionicons name="logo-whatsapp" size={rs(18)} color="#fff" />
+              <Text style={styles.waBtnText}>Send screenshot on WhatsApp</Text>
+            </Pressable>
+            <Pressable style={styles.linkBtn} onPress={() => void onCancelPending()}>
+              <Text style={styles.linkDanger}>Cancel pending request</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {showCheckout ? (
+          <>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>How to subscribe</Text>
+              <StepRow styles={styles} n={1} text="Pay with the QR or bank details below" />
+              <StepRow
+                styles={styles}
+                n={2}
+                text="Tap “I have paid …” on your plan"
+              />
+              <StepRow
+                styles={styles}
+                n={3}
+                text="Send payment screenshot on WhatsApp"
+              />
+              <StepRow styles={styles} n={4} text="Wait for admin approval" />
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Payment QR</Text>
+              <View style={styles.qrWrap}>
+                <Image source={{ uri: qrUrl }} style={styles.qr} />
+              </View>
+              <Pressable
+                style={[styles.secondaryBtn, savingQr && styles.btnDisabled]}
+                disabled={savingQr}
+                onPress={() => void downloadQr()}
+              >
+                <Ionicons name="download-outline" size={rs(18)} color={colors.tealHeader} />
+                <Text style={[styles.secondaryBtnText, { color: colors.tealHeader }]}>
+                  {savingQr ? 'Saving…' : 'Save QR to gallery'}
+                </Text>
+              </Pressable>
+
+              <View style={styles.bankBlock}>
+                <BankLine
+                  styles={styles}
+                  label="Bank"
+                  value={paymentInfo?.bankName ?? 'Kalash Financial Solution Pvt. Ltd.'}
+                />
+                <BankLine
+                  styles={styles}
+                  label="Account"
+                  value={paymentInfo?.accountName ?? 'Kalash Financial Solution'}
+                />
+                <BankLine
+                  styles={styles}
+                  label="A/C No"
+                  value={paymentInfo?.accountNumber ?? '0123456789'}
+                />
+              </View>
+
+              <TextInput
+                style={styles.noteInput}
+                placeholder="Payment note (optional) — e.g. transaction ID"
+                placeholderTextColor={colors.textMuted}
+                value={paymentNote}
+                onChangeText={setPaymentNote}
+              />
+            </View>
+
+            <Text style={styles.sectionLabel}>Choose a plan</Text>
+            <View style={styles.planCompare}>
+              <View style={styles.planMini}>
+                <Text style={styles.planMiniName}>Free</Text>
+                <Text style={styles.planMiniPrice}>Rs 0</Text>
+                <Text style={styles.planMiniMeta}>10 accounts</Text>
+              </View>
+              <View style={styles.planMiniDivider} />
+              <View style={styles.planMini}>
+                <Text style={styles.planMiniName}>Premium</Text>
+                <Text style={styles.planMiniPrice}>from Rs 300</Text>
+                <Text style={styles.planMiniMeta}>50 accounts + tools</Text>
+              </View>
+            </View>
+
+            {PREMIUM_PLANS.map((plan) => {
+              const selected = paidPlanId === plan.id;
+              return (
+                <Pressable
+                  key={plan.id}
+                  style={[styles.planCard, selected && styles.planCardPaid]}
+                  disabled={submitting || signingIn}
+                  onPress={() => {
+                    if (needsSignIn) {
+                      void onSignIn();
+                      return;
+                    }
+                    if (!selected) onPlanPress(plan.id, plan.title, plan.price);
+                  }}
+                >
+                  <View style={styles.planHead}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.planTitle}>{plan.title}</Text>
+                      <Text style={styles.planPeriod}>
+                        {plan.period} · up to {plan.maxAccounts} accounts
+                      </Text>
+                    </View>
+                    <Text style={styles.planPrice}>{plan.price}</Text>
+                  </View>
+                  <Text style={styles.perk}>
+                    ✓ Up to {plan.maxAccounts} MeroShare accounts
+                  </Text>
+                  <Text style={styles.perk}>✓ Bulk IPO apply & premium analytics</Text>
+                  <Text style={styles.perk}>✓ Market tools & portfolio insights</Text>
+
+                  {needsSignIn ? (
+                    <View style={[styles.primaryBtn, signingIn && styles.btnDisabled]}>
+                      <Ionicons name="logo-google" size={rs(16)} color="#fff" />
+                      <Text style={styles.primaryBtnText}>
+                        {signingIn ? 'Signing in…' : 'Sign in with Google'}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View
+                      style={[
+                        styles.primaryBtn,
+                        (submitting || selected) && styles.btnDisabled,
+                      ]}
+                    >
+                      <Text style={styles.primaryBtnText}>
+                        {submitting && !selected
+                          ? 'Submitting…'
+                          : selected
+                            ? `Paid ${plan.price}`
+                            : `I have paid ${plan.price}`}
+                      </Text>
+                    </View>
+                  )}
+
+                  {selected ? (
+                    <Pressable
+                      style={styles.waBtn}
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        void openWhatsApp();
+                      }}
+                    >
+                      <Ionicons name="logo-whatsapp" size={rs(18)} color="#fff" />
+                      <Text style={styles.waBtnText}>Send screenshot on WhatsApp</Text>
+                    </Pressable>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </>
+        ) : null}
+
+        {isPremium ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Your plan</Text>
+            <Text style={styles.cardBody}>
+              You can add up to {maxAccounts} MeroShare accounts with this subscription.
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={[styles.card, styles.moreCard]}>
+          <Text style={styles.cardTitle}>Need more than 50 accounts?</Text>
+          <Text style={styles.cardBody}>
+            Premium includes 50 accounts by default. For 60, 100, 200 or more, contact
+            us on WhatsApp. Pay offline as agreed — admin then raises your limit in
+            the app immediately.
           </Text>
           <Pressable
-            style={styles.moreAccountsBtn}
+            style={styles.waBtn}
             onPress={() => void openMoreAccountsWhatsApp()}
           >
             <Ionicons name="logo-whatsapp" size={rs(18)} color="#fff" />
             <Text style={styles.waBtnText}>Contact us for more than 50 accounts</Text>
           </Pressable>
         </View>
-
-        {needsSignIn && !isPremium ? (
-          <View style={styles.signInCard}>
-            <Ionicons name="logo-google" size={rs(24)} color={colors.tealHeader} />
-            <Text style={styles.signInTitle}>Google sign-in required</Text>
-            <Text style={styles.signInText}>
-              Subscribe with a Google account, pay via QR, send the WhatsApp
-              screenshot, then wait for admin approval. Premium cannot be unlocked
-              without Google.
-            </Text>
-            <Pressable
-              style={[styles.signInBtn, signingIn && styles.buyBtnDisabled]}
-              disabled={signingIn}
-              onPress={() => void onSignIn()}
-            >
-              <Text style={styles.signInBtnText}>
-                {signingIn ? 'Signing in…' : 'Sign in with Google'}
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {isPending && pending ? (
-          <View style={styles.pendingCard}>
-            <Ionicons name="time-outline" size={rs(28)} color="#F9A825" />
-            <Text style={styles.pendingTitle}>Account pending verification</Text>
-            <Text style={styles.pendingText}>
-              You cannot buy another plan or use premium features until admin activates
-              your subscription.
-            </Text>
-            <Pressable style={styles.waBtn} onPress={() => void openWhatsApp()}>
-              <Ionicons name="logo-whatsapp" size={rs(18)} color="#fff" />
-              <Text style={styles.waBtnText}>Send screenshot on WhatsApp</Text>
-            </Pressable>
-            <Pressable
-              style={styles.cancelBtn}
-              onPress={() => void onCancelPending()}
-            >
-              <Text style={styles.cancelText}>Cancel pending request</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {!isPremium && !isPending ? (
-          <View style={styles.paymentCard}>
-            <Text style={styles.sectionTitle}>Payment details</Text>
-            <Image source={{ uri: qrUrl }} style={styles.qr} />
-            <Text style={styles.bankLine}>
-              {paymentInfo?.bankName ?? 'Kalash Financial Solution Pvt. Ltd.'}
-            </Text>
-            <Text style={styles.bankLine}>
-              Account: {paymentInfo?.accountName ?? 'Kalash Financial Solution'}
-            </Text>
-            <Text style={styles.bankLine}>
-              A/C No: {paymentInfo?.accountNumber ?? '0123456789'}
-            </Text>
-            <Pressable style={styles.waBtn} onPress={() => void openWhatsApp()}>
-              <Ionicons name="logo-whatsapp" size={rs(18)} color="#fff" />
-              <Text style={styles.waBtnText}>WhatsApp payment screenshot</Text>
-            </Pressable>
-            <TextInput
-              style={styles.noteInput}
-              placeholder="Payment note (optional) — e.g. transaction ID"
-              placeholderTextColor={colors.textMuted}
-              value={paymentNote}
-              onChangeText={setPaymentNote}
-            />
-          </View>
-        ) : null}
-
-        {!isPending
-          ? (
-            <>
-              <View style={styles.planCard}>
-                <View style={styles.planHead}>
-                  <Text style={styles.planTitle}>Free</Text>
-                  <Text style={styles.planPrice}>Rs 0</Text>
-                </View>
-                <Text style={styles.planPeriod}>
-                  Forever · up to 10 accounts
-                </Text>
-                <Text style={styles.perk}>✓ Add up to 10 MeroShare accounts</Text>
-                <Text style={styles.perk}>✓ Bulk IPO apply & basic tools</Text>
-                <Text style={styles.perk}>
-                  ✓ Upgrade anytime for 50 accounts + premium analytics
-                </Text>
-              </View>
-              {PREMIUM_PLANS.map((plan) => (
-              <View key={plan.id} style={styles.planCard}>
-                <View style={styles.planHead}>
-                  <Text style={styles.planTitle}>{plan.title}</Text>
-                  <Text style={styles.planPrice}>{plan.price}</Text>
-                </View>
-                <Text style={styles.planPeriod}>
-                  {plan.period} · up to {plan.maxAccounts} accounts
-                </Text>
-                {plan.perks.slice(0, 4).map((p) => (
-                  <Text key={p} style={styles.perk}>
-                    ✓ {p}
-                  </Text>
-                ))}
-                <Text style={styles.perk}>✓ …and more premium tools</Text>
-                {!isPremium ? (
-                  <Pressable
-                    style={[
-                      styles.buyBtn,
-                      (submitting || needsSignIn) && styles.buyBtnDisabled,
-                    ]}
-                    disabled={submitting || isPending || needsSignIn}
-                    onPress={() => onSubmit(plan.id, plan.title, plan.price)}
-                  >
-                    <Text style={styles.buyText}>
-                      {needsSignIn
-                        ? 'Sign in to submit'
-                        : submitting
-                          ? 'Submitting…'
-                          : `Submit payment · ${plan.price}`}
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            ))}
-            </>
-          )
-          : null}
       </ScrollView>
+    </View>
+  );
+}
+
+function StepRow({
+  styles,
+  n,
+  text,
+}: {
+  styles: ReturnType<typeof makeStyles>;
+  n: number;
+  text: string;
+}) {
+  return (
+    <View style={styles.stepRow}>
+      <View style={styles.stepNum}>
+        <Text style={styles.stepNumText}>{n}</Text>
+      </View>
+      <Text style={styles.stepText}>{text}</Text>
+    </View>
+  );
+}
+
+function BankLine({
+  styles,
+  label,
+  value,
+}: {
+  styles: ReturnType<typeof makeStyles>;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.bankLine}>
+      <Text style={styles.bankLabel}>{label}</Text>
+      <Text style={styles.bankValue}>{value}</Text>
     </View>
   );
 }
@@ -462,12 +588,22 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(12),
     },
     title: { color: c.text, fontWeight: '800', fontSize: rs(16) },
-    scroll: { padding: rs(16), paddingBottom: rs(32) },
+    scroll: { paddingHorizontal: rs(16), paddingTop: rs(4) },
     hero: {
       alignItems: 'center',
-      gap: rs(8),
       marginBottom: rs(16),
-      padding: rs(16),
+      gap: rs(6),
+    },
+    heroIcon: {
+      width: rs(44),
+      height: rs(44),
+      borderRadius: rs(22),
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: rs(2),
     },
     heroTitle: { color: c.text, fontWeight: '800', fontSize: rs(20) },
     heroSub: {
@@ -475,27 +611,111 @@ function makeStyles(c: ThemeColors) {
       textAlign: 'center',
       fontSize: rs(13),
       lineHeight: rs(18),
+      paddingHorizontal: rs(8),
     },
-    moreAccountsCard: {
+    card: {
       borderWidth: 1,
       borderColor: c.borderMuted,
       backgroundColor: c.surface,
       borderRadius: rs(14),
       padding: rs(16),
-      marginBottom: rs(16),
+      marginBottom: rs(12),
       gap: rs(10),
     },
-    moreAccountsTitle: {
-      color: c.text,
-      fontWeight: '800',
-      fontSize: rs(15),
-    },
-    moreAccountsText: {
+    pendingBorder: { borderColor: '#F9A825' },
+    moreCard: { marginTop: rs(4), marginBottom: rs(8) },
+    cardTitle: { color: c.text, fontWeight: '800', fontSize: rs(15) },
+    cardBody: {
       color: c.textSecondary,
       fontSize: rs(13),
-      lineHeight: rs(18),
+      lineHeight: rs(19),
     },
-    moreAccountsBtn: {
+    stepRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: rs(10),
+    },
+    stepNum: {
+      width: rs(22),
+      height: rs(22),
+      borderRadius: rs(11),
+      backgroundColor: c.tealHeader,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: rs(1),
+    },
+    stepNumText: { color: '#fff', fontWeight: '800', fontSize: rs(11) },
+    stepText: {
+      flex: 1,
+      color: c.textSecondary,
+      fontSize: rs(13),
+      lineHeight: rs(19),
+    },
+    qrWrap: {
+      alignSelf: 'center',
+      padding: rs(10),
+      backgroundColor: '#fff',
+      borderRadius: rs(14),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+    },
+    qr: {
+      width: rs(180),
+      height: rs(180),
+      backgroundColor: '#fff',
+    },
+    bankBlock: {
+      alignSelf: 'stretch',
+      gap: rs(8),
+      paddingTop: rs(4),
+    },
+    bankLine: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: rs(12),
+    },
+    bankLabel: {
+      color: c.textMuted,
+      fontSize: rs(12),
+      fontWeight: '700',
+      minWidth: rs(64),
+    },
+    bankValue: {
+      flex: 1,
+      color: c.text,
+      fontSize: rs(13),
+      textAlign: 'right',
+      fontWeight: '600',
+    },
+    primaryBtn: {
+      marginTop: rs(8),
+      backgroundColor: c.fab,
+      borderRadius: rs(12),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(16),
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(8),
+    },
+    primaryBtnText: { color: '#fff', fontWeight: '800', fontSize: rs(14) },
+    secondaryBtn: {
+      alignSelf: 'stretch',
+      borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      paddingVertical: rs(11),
+      paddingHorizontal: rs(14),
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(8),
+      backgroundColor: c.bg,
+    },
+    secondaryBtnText: { fontWeight: '800', fontSize: rs(13) },
+    btnDisabled: { opacity: 0.6 },
+    waBtn: {
+      marginTop: rs(4),
       backgroundColor: '#25D366',
       borderRadius: rs(12),
       paddingVertical: rs(12),
@@ -505,124 +725,72 @@ function makeStyles(c: ThemeColors) {
       gap: rs(8),
       justifyContent: 'center',
     },
-    signInCard: {
-      borderWidth: 1,
-      borderColor: c.teal,
-      backgroundColor: c.surface,
-      borderRadius: rs(14),
-      padding: rs(16),
-      alignItems: 'center',
-      gap: rs(8),
-      marginBottom: rs(16),
-    },
-    signInTitle: { color: c.text, fontWeight: '800', fontSize: rs(16) },
-    signInText: {
-      color: c.textSecondary,
-      textAlign: 'center',
-      fontSize: rs(12),
-      lineHeight: rs(18),
-    },
-    signInBtn: {
-      marginTop: rs(4),
-      backgroundColor: c.fab,
-      borderRadius: rs(12),
-      paddingVertical: rs(12),
-      paddingHorizontal: rs(20),
-      alignSelf: 'stretch',
-      alignItems: 'center',
-    },
-    signInBtnText: { color: '#fff', fontWeight: '800', fontSize: rs(14) },
-    pendingCard: {
-      borderWidth: 1,
-      borderColor: '#F9A825',
-      backgroundColor: c.surface,
-      borderRadius: rs(14),
-      padding: rs(16),
-      alignItems: 'center',
-      gap: rs(8),
-      marginBottom: rs(16),
-    },
-    pendingTitle: { color: c.text, fontWeight: '800', fontSize: rs(16) },
-    pendingText: {
-      color: c.textSecondary,
-      textAlign: 'center',
-      fontSize: rs(12),
-      lineHeight: rs(18),
-    },
-    paymentCard: {
-      borderWidth: 1,
-      borderColor: c.borderMuted,
-      borderRadius: rs(14),
-      padding: rs(16),
-      backgroundColor: c.surface,
-      marginBottom: rs(16),
-      alignItems: 'center',
-      gap: rs(6),
-    },
-    sectionTitle: {
-      color: c.text,
-      fontWeight: '800',
-      fontSize: rs(15),
-      alignSelf: 'flex-start',
-    },
-    qr: {
-      width: rs(180),
-      height: rs(180),
-      borderRadius: rs(12),
-      marginVertical: rs(8),
-      backgroundColor: '#fff',
-    },
-    bankLine: { color: c.textSecondary, fontSize: rs(13) },
-    waBtn: {
-      marginTop: rs(8),
-      backgroundColor: '#25D366',
-      borderRadius: rs(12),
-      paddingVertical: rs(12),
-      paddingHorizontal: rs(16),
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(8),
-      alignSelf: 'stretch',
-      justifyContent: 'center',
-    },
     waBtnText: { color: '#fff', fontWeight: '800', fontSize: rs(13) },
     noteInput: {
-      marginTop: rs(10),
       borderWidth: 1,
       borderColor: c.borderMuted,
       borderRadius: rs(10),
       padding: rs(12),
       color: c.text,
-      alignSelf: 'stretch',
       fontSize: rs(13),
+      backgroundColor: c.bg,
     },
+    sectionLabel: {
+      color: c.textMuted,
+      fontWeight: '800',
+      fontSize: rs(11),
+      letterSpacing: 0.6,
+      textTransform: 'uppercase',
+      marginBottom: rs(8),
+      marginTop: rs(4),
+    },
+    planCompare: {
+      flexDirection: 'row',
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+      borderRadius: rs(14),
+      marginBottom: rs(12),
+      overflow: 'hidden',
+    },
+    planMini: {
+      flex: 1,
+      paddingVertical: rs(14),
+      paddingHorizontal: rs(12),
+      alignItems: 'center',
+      gap: rs(2),
+    },
+    planMiniDivider: {
+      width: StyleSheet.hairlineWidth,
+      backgroundColor: c.borderMuted,
+    },
+    planMiniName: { color: c.textMuted, fontSize: rs(11), fontWeight: '700' },
+    planMiniPrice: { color: c.text, fontWeight: '800', fontSize: rs(15) },
+    planMiniMeta: { color: c.textSecondary, fontSize: rs(11) },
     planCard: {
       borderWidth: 1,
       borderColor: c.borderMuted,
       borderRadius: rs(14),
       padding: rs(16),
       backgroundColor: c.surface,
-      marginBottom: rs(14),
+      marginBottom: rs(12),
+      gap: rs(4),
+    },
+    planCardPaid: {
+      borderColor: '#25D366',
     },
     planHead: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'center',
+      alignItems: 'flex-start',
+      gap: rs(12),
+      marginBottom: rs(6),
     },
     planTitle: { color: c.text, fontWeight: '800', fontSize: rs(16) },
     planPrice: { color: c.tealHeader, fontWeight: '800', fontSize: rs(16) },
-    planPeriod: { color: c.textMuted, fontSize: rs(12), marginVertical: rs(6) },
+    planPeriod: { color: c.textMuted, fontSize: rs(12), marginTop: rs(2) },
     perk: { color: c.textSecondary, fontSize: rs(12), lineHeight: rs(18) },
-    buyBtn: {
-      marginTop: rs(14),
-      backgroundColor: c.fab,
-      borderRadius: rs(12),
-      paddingVertical: rs(12),
-      alignItems: 'center',
-    },
-    buyBtnDisabled: { opacity: 0.6 },
-    buyText: { color: '#fff', fontWeight: '800', fontSize: rs(14) },
-    cancelBtn: { padding: rs(8) },
-    cancelText: { color: c.danger, fontSize: rs(12), fontWeight: '600' },
+    linkBtn: { paddingVertical: rs(4), alignItems: 'center' },
+    linkDanger: { color: c.danger, fontSize: rs(12), fontWeight: '600' },
   });
 }
