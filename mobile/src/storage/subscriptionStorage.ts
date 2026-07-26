@@ -158,6 +158,7 @@ export type PremiumPlan = {
   id: string;
   title: string;
   price: string;
+  amountNpr: number;
   period: string;
   days: number;
   maxAccounts: number;
@@ -169,6 +170,7 @@ export const PREMIUM_PLANS: PremiumPlan[] = [
     id: 'premium_6month',
     title: 'Premium 6 Months',
     price: 'Rs 300',
+    amountNpr: 300,
     period: '6 months',
     days: 180,
     maxAccounts: PREMIUM_ACCOUNT_LIMIT,
@@ -189,6 +191,7 @@ export const PREMIUM_PLANS: PremiumPlan[] = [
     id: 'premium_yearly',
     title: 'Premium Yearly',
     price: 'Rs 500',
+    amountNpr: 500,
     period: '1 year',
     days: 365,
     maxAccounts: PREMIUM_ACCOUNT_LIMIT,

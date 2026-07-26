@@ -25,10 +25,13 @@ type AppBrandingContextValue = {
 const AppBrandingContext = createContext<AppBrandingContextValue | null>(null);
 
 function mapPublicPlan(p: PublicSubscriptionPlan): PremiumPlan {
+  const amountNpr = Math.max(1, Math.floor(p.amountNpr) || 1);
+  const price = (p.priceLabel || '').trim() || `Rs ${amountNpr}`;
   return {
     id: p.id,
     title: p.title,
-    price: p.priceLabel,
+    price,
+    amountNpr,
     period: p.period,
     days: p.days,
     maxAccounts: p.maxAccounts,

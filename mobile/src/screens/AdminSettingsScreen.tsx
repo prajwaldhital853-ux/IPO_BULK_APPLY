@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Dimensions,
   Image,
   Keyboard,
@@ -14,6 +15,8 @@ import {
   Text,
   TextInput,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -43,6 +46,54 @@ import type { RootStackParamList } from '../navigation/types';
 import { PREMIUM_PLANS } from '../storage/subscriptionStorage';
 import { rs } from '../utils/responsive';
 import * as ImagePicker from 'expo-image-picker';
+
+function TapButton({
+  style,
+  disabled,
+  onPress,
+  children,
+  danger,
+}: {
+  style?: StyleProp<ViewStyle>;
+  disabled?: boolean;
+  onPress?: () => void;
+  children: React.ReactNode;
+  danger?: boolean;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const animateTo = (to: number) => {
+    Animated.spring(scale, {
+      toValue: to,
+      useNativeDriver: true,
+      speed: 40,
+      bounciness: 6,
+    }).start();
+  };
+
+  return (
+    <Animated.View style={{ transform: [{ scale }], opacity: disabled ? 0.65 : 1 }}>
+      <Pressable
+        disabled={disabled}
+        onPress={onPress}
+        onPressIn={() => {
+          if (!disabled) animateTo(0.94);
+        }}
+        onPressOut={() => animateTo(1)}
+        android_ripple={{
+          color: danger ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.35)',
+          borderless: false,
+        }}
+        style={({ pressed }) => [
+          style,
+          pressed && !disabled && { opacity: 0.88 },
+        ]}
+      >
+        {children}
+      </Pressable>
+    </Animated.View>
+  );
+}
 
 function qrPreviewUrl(text: string): string {
   const data = text.trim() || 'NEPSE GHAR Premium Payment';
@@ -331,26 +382,26 @@ export function AdminSettingsScreen() {
   }, [load, navigation]);
 
   const onPickQrFromGallery = async () => {
-    if (!token) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        'Permission needed',
-        'Allow photo access so you can upload the payment QR from your gallery.',
-      );
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.85,
-      allowsEditing: true,
-      aspect: [1, 1],
-    });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-
-    const asset = result.assets[0];
+    if (!token || qrBusy) return;
     setQrBusy(true);
     try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission needed',
+          'Allow photo access so you can upload the payment QR from your gallery.',
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.85,
+        allowsEditing: true,
+        aspect: [1, 1],
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+
+      const asset = result.assets[0];
       const mime = asset.mimeType ?? 'image/jpeg';
       const name =
         asset.fileName ??
@@ -396,29 +447,29 @@ export function AdminSettingsScreen() {
   };
 
   const onPickNoticeFromGallery = async () => {
-    if (!token) return;
+    if (!token || noticeBusy) return;
     if (noticeItems.length >= 10) {
       Alert.alert('Limit reached', 'You can add up to 10 startup notices.');
       return;
     }
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        'Permission needed',
-        'Allow photo access so you can upload a startup notice from your gallery.',
-      );
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.85,
-      allowsEditing: false,
-    });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-
-    const asset = result.assets[0];
     setNoticeBusy(true);
     try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission needed',
+          'Allow photo access so you can upload a startup notice from your gallery.',
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.85,
+        allowsEditing: false,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+
+      const asset = result.assets[0];
       const mime = asset.mimeType ?? 'image/jpeg';
       const updated = await uploadAdminPopupNotice(token, asset.uri, mime);
       applySettings(updated);
@@ -576,25 +627,25 @@ export function AdminSettingsScreen() {
   };
 
   const onPickAppLogo = async () => {
-    if (!token) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        'Permission needed',
-        'Allow photo access so you can upload the company logo.',
-      );
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.9,
-      allowsEditing: true,
-      aspect: [1, 1],
-    });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-    const asset = result.assets[0];
+    if (!token || logoBusy) return;
     setLogoBusy(true);
     try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission needed',
+          'Allow photo access so you can upload the company logo.',
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.9,
+        allowsEditing: true,
+        aspect: [1, 1],
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
       const mime = asset.mimeType ?? 'image/png';
       const updated = await uploadAdminAppLogo(token, asset.uri, mime);
       applySettings(updated);
@@ -892,8 +943,8 @@ export function AdminSettingsScreen() {
                     }}
                   />
                   <View style={styles.qrActions}>
-                    <Pressable
-                      style={[styles.qrBtn, noticeBusy && styles.btnDisabled]}
+                    <TapButton
+                      style={styles.qrBtn}
                       disabled={noticeBusy}
                       onPress={onAddTextNotice}
                     >
@@ -909,9 +960,9 @@ export function AdminSettingsScreen() {
                           <Text style={styles.qrBtnText}>Add text notice</Text>
                         </>
                       )}
-                    </Pressable>
-                    <Pressable
-                      style={[styles.qrBtn, noticeBusy && styles.btnDisabled]}
+                    </TapButton>
+                    <TapButton
+                      style={styles.qrBtn}
                       disabled={noticeBusy}
                       onPress={() => void onPickNoticeFromGallery()}
                     >
@@ -927,13 +978,11 @@ export function AdminSettingsScreen() {
                           <Text style={styles.qrBtnText}>Add from gallery</Text>
                         </>
                       )}
-                    </Pressable>
+                    </TapButton>
                     {noticeItems.length ? (
-                      <Pressable
-                        style={[
-                          styles.qrBtnDanger,
-                          noticeBusy && styles.btnDisabled,
-                        ]}
+                      <TapButton
+                        style={styles.qrBtnDanger}
+                        danger
                         disabled={noticeBusy}
                         onPress={onClearAllNotices}
                       >
@@ -943,7 +992,7 @@ export function AdminSettingsScreen() {
                           color="#fff"
                         />
                         <Text style={styles.qrBtnText}>Delete all</Text>
-                      </Pressable>
+                      </TapButton>
                     ) : null}
                   </View>
                 </View>
@@ -970,17 +1019,27 @@ export function AdminSettingsScreen() {
                       colors={colors}
                     />
                     <Field
-                      label="Price label (shown to users)"
+                      label="Amount NPR"
+                      value={plan.amountNpr}
+                      onChangeText={(v) => {
+                        const digits = v.replace(/[^\d]/g, '');
+                        const n = Number(digits);
+                        updatePlanDraft(index, {
+                          amountNpr: digits,
+                          priceLabel:
+                            Number.isFinite(n) && n > 0
+                              ? `Rs ${n}`
+                              : plan.priceLabel,
+                        });
+                      }}
+                      colors={colors}
+                      keyboardType="number-pad"
+                    />
+                    <Field
+                      label="Price label (optional override)"
                       value={plan.priceLabel}
                       onChangeText={(v) => updatePlanDraft(index, { priceLabel: v })}
                       colors={colors}
-                    />
-                    <Field
-                      label="Amount NPR (for payment matching)"
-                      value={plan.amountNpr}
-                      onChangeText={(v) => updatePlanDraft(index, { amountNpr: v })}
-                      colors={colors}
-                      keyboardType="number-pad"
                     />
                     <Field
                       label="Period label"
@@ -1046,8 +1105,8 @@ export function AdminSettingsScreen() {
                     resizeMode="contain"
                   />
                   <View style={styles.qrActions}>
-                    <Pressable
-                      style={[styles.qrBtn, logoBusy && styles.btnDisabled]}
+                    <TapButton
+                      style={styles.qrBtn}
                       disabled={logoBusy}
                       onPress={() => void onPickAppLogo()}
                     >
@@ -1065,13 +1124,11 @@ export function AdminSettingsScreen() {
                           </Text>
                         </>
                       )}
-                    </Pressable>
+                    </TapButton>
                     {appLogoUrl ? (
-                      <Pressable
-                        style={[
-                          styles.qrBtnDanger,
-                          logoBusy && styles.btnDisabled,
-                        ]}
+                      <TapButton
+                        style={styles.qrBtnDanger}
+                        danger
                         disabled={logoBusy}
                         onPress={onDeleteAppLogo}
                       >
@@ -1081,7 +1138,7 @@ export function AdminSettingsScreen() {
                           color="#fff"
                         />
                         <Text style={styles.qrBtnText}>Remove</Text>
-                      </Pressable>
+                      </TapButton>
                     ) : null}
                   </View>
                 </View>
@@ -1109,8 +1166,8 @@ export function AdminSettingsScreen() {
                     style={styles.qrImage}
                   />
                   <View style={styles.qrActions}>
-                    <Pressable
-                      style={[styles.qrBtn, qrBusy && styles.btnDisabled]}
+                    <TapButton
+                      style={styles.qrBtn}
                       disabled={qrBusy}
                       onPress={() => void onPickQrFromGallery()}
                     >
@@ -1130,13 +1187,11 @@ export function AdminSettingsScreen() {
                           </Text>
                         </>
                       )}
-                    </Pressable>
+                    </TapButton>
                     {qrImageUrl ? (
-                      <Pressable
-                        style={[
-                          styles.qrBtnDanger,
-                          qrBusy && styles.btnDisabled,
-                        ]}
+                      <TapButton
+                        style={styles.qrBtnDanger}
+                        danger
                         disabled={qrBusy}
                         onPress={onDeleteQrImage}
                       >
@@ -1146,7 +1201,7 @@ export function AdminSettingsScreen() {
                           color="#fff"
                         />
                         <Text style={styles.qrBtnText}>Delete QR</Text>
-                      </Pressable>
+                      </TapButton>
                     ) : null}
                   </View>
                 </View>
@@ -1664,6 +1719,7 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: rs(8),
+      overflow: 'hidden',
     },
     qrBtnDanger: {
       backgroundColor: c.danger,
@@ -1674,6 +1730,7 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: rs(8),
+      overflow: 'hidden',
     },
     qrBtnText: { color: '#fff', fontWeight: '800', fontSize: rs(13) },
     btnDisabled: { opacity: 0.65 },

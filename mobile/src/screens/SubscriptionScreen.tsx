@@ -43,7 +43,7 @@ export function SubscriptionScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const { plans: PREMIUM_PLANS } = useAppBranding();
+  const { plans: PREMIUM_PLANS, refresh: refreshBranding } = useAppBranding();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const auth = useAuth();
   const {
@@ -84,7 +84,8 @@ export function SubscriptionScreen() {
   useFocusEffect(
     useCallback(() => {
       void refresh();
-    }, [refresh]),
+      void refreshBranding();
+    }, [refresh, refreshBranding]),
   );
 
   useEffect(() => {
@@ -181,6 +182,13 @@ export function SubscriptionScreen() {
     ],
   );
 
+  const formatPlanAmount = useCallback((plan: { price: string; amountNpr?: number }) => {
+    if (plan.amountNpr != null && Number.isFinite(plan.amountNpr) && plan.amountNpr > 0) {
+      return `Rs ${plan.amountNpr}`;
+    }
+    return plan.price;
+  }, []);
+
   const onPlanPress = useCallback(
     (planId: string, title: string, price: string) => {
       if (needsSignIn) {
@@ -248,16 +256,20 @@ export function SubscriptionScreen() {
 
   const openWhatsApp = useCallback(async () => {
     const url = paymentInfo?.whatsappUrl ?? 'https://wa.me/9779709133067';
+    const paidPlan = paidPlanId
+      ? PREMIUM_PLANS.find((p) => p.id === paidPlanId)
+      : null;
+    const paidAmount = paidPlan ? formatPlanAmount(paidPlan) : null;
     const msg = pending
-      ? `Hi, I submitted premium payment for ${pending.planTitle}. Please verify.`
-      : paidPlanId
-        ? `Hi, I have paid for NEPSE GHAR Premium (${paidPlanId}). I will send the payment screenshot.`
+      ? `Hi, I submitted premium payment for ${pending.planTitle} (Rs ${pending.amountNpr}). Please verify.`
+      : paidPlan
+        ? `Hi, I have paid ${paidAmount} for NEPSE GHAR Premium (${paidPlan.title}). I will send the payment screenshot.`
         : 'Hi, I want to subscribe to NEPSE GHAR Premium. I will send payment screenshot.';
     const full = `${url}?text=${encodeURIComponent(msg)}`;
     await Linking.openURL(full).catch(() => {
       Alert.alert('WhatsApp', 'Could not open WhatsApp.');
     });
-  }, [paymentInfo?.whatsappUrl, pending, paidPlanId]);
+  }, [paymentInfo?.whatsappUrl, pending, paidPlanId, PREMIUM_PLANS, formatPlanAmount]);
 
   const openMoreAccountsWhatsApp = useCallback(async () => {
     const url = paymentInfo?.whatsappUrl ?? 'https://wa.me/9779709133067';
@@ -437,7 +449,7 @@ export function SubscriptionScreen() {
               <View style={styles.planMini}>
                 <Text style={styles.planMiniName}>Premium</Text>
                 <Text style={styles.planMiniPrice}>
-                  from {PREMIUM_PLANS[0]?.price ?? 'Rs 300'}
+                  from {formatPlanAmount(PREMIUM_PLANS[0] ?? { price: 'Rs 300', amountNpr: 300 })}
                 </Text>
                 <Text style={styles.planMiniMeta}>
                   {PREMIUM_PLANS[0]?.maxAccounts ?? 50} accounts + tools
@@ -447,6 +459,7 @@ export function SubscriptionScreen() {
 
             {PREMIUM_PLANS.map((plan) => {
               const selected = paidPlanId === plan.id;
+              const amountLabel = formatPlanAmount(plan);
               return (
                 <Pressable
                   key={plan.id}
@@ -457,7 +470,7 @@ export function SubscriptionScreen() {
                       void onSignIn();
                       return;
                     }
-                    if (!selected) onPlanPress(plan.id, plan.title, plan.price);
+                    if (!selected) onPlanPress(plan.id, plan.title, amountLabel);
                   }}
                 >
                   <View style={styles.planHead}>
@@ -467,7 +480,7 @@ export function SubscriptionScreen() {
                         {plan.period} · up to {plan.maxAccounts} accounts
                       </Text>
                     </View>
-                    <Text style={styles.planPrice}>{plan.price}</Text>
+                    <Text style={styles.planPrice}>{amountLabel}</Text>
                   </View>
                   {plan.perks.slice(0, 4).map((perk) => (
                     <Text key={perk} style={styles.perk}>
@@ -493,8 +506,8 @@ export function SubscriptionScreen() {
                         {submitting && !selected
                           ? 'Submitting…'
                           : selected
-                            ? `Paid ${plan.price}`
-                            : `I have paid ${plan.price}`}
+                            ? `Paid ${amountLabel}`
+                            : `I have paid ${amountLabel}`}
                       </Text>
                     </View>
                   )}
