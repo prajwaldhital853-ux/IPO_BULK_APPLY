@@ -83,7 +83,8 @@ class AdminUserRow(BaseModel):
 
 
 class AdminMaxAccountsIn(BaseModel):
-    max_accounts: int = Field(alias='maxAccounts', ge=1, le=500)
+    # 999999 = unlimited (admin-controlled). No hard 500 cap.
+    max_accounts: int = Field(alias='maxAccounts', ge=1, le=999999)
 
     model_config = {'populate_by_name': True}
 

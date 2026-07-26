@@ -10,9 +10,10 @@ from ..db.models import PremiumEntitlement, SubscriptionRequest, User
 from .schemas import PendingRequestOut, PremiumOut, premium_from_row
 
 # Free tier: 10 MeroShare accounts. Paid plans unlock 50 by default.
-# Admin can raise a user's cap (e.g. 100 / 200) via users.max_accounts.
+# Admin can raise a user's cap (or set 999999 = unlimited) via users.max_accounts.
 FREE_ACCOUNT_LIMIT = 10
 PREMIUM_ACCOUNT_LIMIT = 50
+UNLIMITED_ACCOUNT_LIMIT = 999_999
 
 PLAN_CATALOG: dict[str, dict[str, object]] = {
     'premium_6month': {

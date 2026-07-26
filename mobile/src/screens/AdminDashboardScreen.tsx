@@ -179,8 +179,11 @@ export function AdminDashboardScreen() {
   };
 
   const onSetMaxAccounts = (user: AdminUserRow, maxAccounts: number) => {
-    if (!Number.isFinite(maxAccounts) || maxAccounts < 1 || maxAccounts > 500) {
-      Alert.alert('Invalid limit', 'Enter a number between 1 and 500.');
+    if (!Number.isFinite(maxAccounts) || maxAccounts < 1 || maxAccounts > 999999) {
+      Alert.alert(
+        'Invalid limit',
+        'Enter a number from 1 upward, or tap Unlimited.',
+      );
       return;
     }
     void (async () => {
@@ -193,7 +196,14 @@ export function AdminDashboardScreen() {
         );
         setDetail({ kind: 'user', data: { ...user, ...updated } });
         setCustomMaxAccounts('');
-        Alert.alert('Updated', `Account limit set to ${updated.maxAccounts}. User can add accounts up to this limit immediately.`);
+        const label =
+          updated.maxAccounts >= 999999
+            ? 'Unlimited'
+            : String(updated.maxAccounts);
+        Alert.alert(
+          'Updated',
+          `Account limit set to ${label}. User can add accounts up to this limit immediately.`,
+        );
       } catch (e) {
         Alert.alert(
           'Failed',
@@ -345,7 +355,8 @@ export function AdminDashboardScreen() {
             {item.name || item.email}
           </Text>
           <Text style={styles.rowSub} numberOfLines={1}>
-            {item.email} · {item.maxAccounts} accts
+            {item.email} ·{' '}
+            {item.maxAccounts >= 999999 ? 'Unlimited' : `${item.maxAccounts} accts`}
           </Text>
         </View>
         <View style={[styles.badge, { backgroundColor: `${tint}18` }]}>
@@ -433,7 +444,9 @@ export function AdminDashboardScreen() {
     if (detail.kind === 'user') {
       const item = detail.data;
       const limitBusy = busy || busyId === `max-${item.id}`;
-      const limitPresets = [50, 60, 100, 150, 200];
+      const limitPresets = [50, 100, 200, 500, 999999];
+      const limitLabel =
+        item.maxAccounts >= 999999 ? 'Unlimited' : `${item.maxAccounts} accounts`;
       return (
         <>
           <Text style={styles.detailName}>{item.name || '—'}</Text>
@@ -444,7 +457,7 @@ export function AdminDashboardScreen() {
             <DetailCell
               styles={styles}
               label="Account limit"
-              value={`${item.maxAccounts} accounts`}
+              value={limitLabel}
             />
             {item.premiumPlan ? (
               <DetailCell
@@ -465,7 +478,7 @@ export function AdminDashboardScreen() {
           <View style={styles.limitBox}>
             <Text style={styles.limitTitle}>Set account limit</Text>
             <Text style={styles.limitHint}>
-              Premium default is 50. Raise after offline payment (e.g. 100 / 200). Applies immediately.
+              Premium default is 50. Raise after offline payment, or set Unlimited. Applies immediately.
             </Text>
             <View style={styles.limitChips}>
               {limitPresets.map((n) => (
@@ -484,7 +497,7 @@ export function AdminDashboardScreen() {
                       item.maxAccounts === n && styles.limitChipTextActive,
                     ]}
                   >
-                    {n}
+                    {n >= 999999 ? 'Unlimited' : n}
                   </Text>
                 </Pressable>
               ))}
@@ -493,7 +506,7 @@ export function AdminDashboardScreen() {
               <TextInput
                 style={styles.limitInput}
                 keyboardType="number-pad"
-                placeholder="Custom (1–500)"
+                placeholder="Custom (any number)"
                 placeholderTextColor={colors.textMuted}
                 value={customMaxAccounts}
                 onChangeText={setCustomMaxAccounts}

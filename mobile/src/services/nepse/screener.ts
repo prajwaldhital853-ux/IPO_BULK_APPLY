@@ -749,18 +749,22 @@ export type CandlePoint = {
   volume: number | null;
 };
 
-export type ChartRange = '1M' | '3M' | '6M' | '1Y' | '5Y' | 'ALL';
+export type ChartRange =
+  | '1D'
+  | '1W'
+  | '1M'
+  | '3M'
+  | '6M'
+  | '1Y'
+  | '5Y'
+  | 'ALL';
 
-export async function loadCandles(
-  symbol = 'NEPSE',
-  range: ChartRange = '1Y',
-): Promise<CandlePoint[]> {
-  const raw = await absFetch<Envelope<Array<Record<string, unknown>>>>(
-    `${DATA_BASE}/price-history/graph/candle/${encodeURIComponent(
-      symbol.toUpperCase(),
-    )}?time=${range}`,
-  );
-  const list = raw?.data ?? [];
+/** UI ranges on Stock Detail Price Chart. */
+export type StockChartRange = '1D' | '1W' | '1M' | '6M' | '1Y';
+
+function parseCandleList(
+  list: Array<Record<string, unknown>>,
+): CandlePoint[] {
   return list
     .map((r) => ({
       time: Number(r.time ?? 0),
@@ -772,6 +776,53 @@ export async function loadCandles(
     }))
     .filter((p) => p.time > 0 && p.close > 0)
     .sort((a, b) => a.time - b.time);
+}
+
+async function fetchCandlesRaw(
+  symbol: string,
+  time: string,
+): Promise<CandlePoint[]> {
+  const raw = await absFetch<Envelope<Array<Record<string, unknown>>>>(
+    `${DATA_BASE}/price-history/graph/candle/${encodeURIComponent(
+      symbol.toUpperCase(),
+    )}?time=${time}`,
+  );
+  return parseCandleList(raw?.data ?? []);
+}
+
+function sliceCandlesForRange(
+  points: CandlePoint[],
+  range: '1D' | '1W',
+): CandlePoint[] {
+  if (points.length < 2) return points;
+  const last = points[points.length - 1]!;
+  const lastMs = last.time > 1e12 ? last.time : last.time * 1000;
+  if (range === '1D') {
+    const dayStart = new Date(lastMs);
+    dayStart.setHours(0, 0, 0, 0);
+    const startMs = dayStart.getTime();
+    const sameDay = points.filter((p) => {
+      const ms = p.time > 1e12 ? p.time : p.time * 1000;
+      return ms >= startMs;
+    });
+    if (sameDay.length >= 2) return sameDay;
+    return points.slice(-Math.min(24, points.length));
+  }
+  // 1W ≈ last 5–7 trading sessions
+  return points.slice(-Math.min(7, points.length));
+}
+
+export async function loadCandles(
+  symbol = 'NEPSE',
+  range: ChartRange = '1Y',
+): Promise<CandlePoint[]> {
+  if (range === '1D' || range === '1W') {
+    const direct = await fetchCandlesRaw(symbol, range);
+    if (direct.length >= 2) return direct;
+    const month = await fetchCandlesRaw(symbol, '1M');
+    return sliceCandlesForRange(month, range);
+  }
+  return fetchCandlesRaw(symbol, range);
 }
 
 /* ------------------------------------------------------------------ */

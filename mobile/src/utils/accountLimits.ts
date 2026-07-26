@@ -3,6 +3,7 @@ import {
   FREE_ACCOUNT_LIMIT,
   PREMIUM_ACCOUNT_LIMIT,
   accountLimitForPlan,
+  isUnlimitedAccountLimit,
 } from '../storage/subscriptionStorage';
 
 /** Returns true if the user may add another account. Shows Alert when blocked. */
@@ -16,12 +17,12 @@ export function guardAddAccount(opts: {
     opts.maxAccounts != null && opts.maxAccounts > 0
       ? opts.maxAccounts
       : accountLimitForPlan(opts.isPremium);
-  if (opts.currentCount < max) return true;
+  if (isUnlimitedAccountLimit(max) || opts.currentCount < max) return true;
 
   if (opts.isPremium) {
     Alert.alert(
       'Account limit reached',
-      `Your plan allows up to ${max} MeroShare accounts.\n\nNeed more? Open Subscription and tap “Contact us for more than 50 accounts” on WhatsApp.`,
+      `Your plan allows up to ${max} MeroShare accounts.\n\nNeed more? Open Subscription and tap “Contact us for more than 50 accounts” on WhatsApp — admin can raise your limit (including unlimited).`,
     );
     return false;
   }
