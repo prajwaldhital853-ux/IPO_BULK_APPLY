@@ -74,9 +74,16 @@ class AdminUserRow(BaseModel):
     premium_plan: str | None = Field(default=None, alias='premiumPlan')
     premium_expires_at: str | None = Field(default=None, alias='premiumExpiresAt')
     premium_source: str | None = Field(default=None, alias='premiumSource')
+    max_accounts: int = Field(alias='maxAccounts')
     pending_request: AdminPendingBrief | None = Field(default=None, alias='pendingRequest')
     subscription_request_count: int = Field(alias='subscriptionRequestCount')
     last_subscription_at: str | None = Field(default=None, alias='lastSubscriptionAt')
+
+    model_config = {'populate_by_name': True}
+
+
+class AdminMaxAccountsIn(BaseModel):
+    max_accounts: int = Field(alias='maxAccounts', ge=1, le=500)
 
     model_config = {'populate_by_name': True}
 

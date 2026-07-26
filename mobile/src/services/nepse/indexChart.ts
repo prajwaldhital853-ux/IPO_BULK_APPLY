@@ -23,6 +23,10 @@ function fmtClock(hour24: number, minute: number): string {
   return `${h12}:${String(minute).padStart(2, '0')} ${ampm}`;
 }
 
+/**
+ * Realistic-looking NEPSE session path (11:00–15:00).
+ * Shaped like a real trading day: open, mid push, pullbacks, close.
+ */
 function syntheticIntraday(
   current: number | null,
   change: number | null,
@@ -32,25 +36,45 @@ function syntheticIntraday(
   const start = end - change;
   const startMin = 11 * 60;
   const endMin = 15 * 60;
-  const step = 5;
-  const total = Math.floor((endMin - startMin) / step);
+  const step = 2;
+  const total = Math.max(1, Math.round((endMin - startMin) / step));
+  const drift = end - start;
+  // Vertical room similar to SS (~25–35 pts around index level)
+  const amp = Math.max(Math.abs(drift) * 1.8, Math.abs(end) * 0.006, 14);
   const points: ChartPoint[] = [];
+
   for (let i = 0; i <= total; i += 1) {
     const mins = startMin + i * step;
     const t = i / total;
-    const wave =
-      Math.sin(t * Math.PI * 2.4) * Math.abs(end - start) * 0.12 +
-      Math.sin(t * Math.PI * 5.1) * Math.abs(end - start) * 0.04;
+    // Multi-hump session (not uniform sawtooth)
+    const session =
+      Math.sin(Math.PI * t) * 1.05 +
+      Math.sin(Math.PI * 2.15 * t + 0.35) * 0.42 +
+      Math.sin(Math.PI * 3.6 * t + 1.1) * 0.22 +
+      Math.sin(Math.PI * 7.2 * t + 0.2) * 0.08 +
+      Math.sin(Math.PI * 14 * t + 0.8) * 0.035;
+    const hash = ((i * 1664525 + 1013904223) >>> 0) / 0xffffffff;
+    const micro = (hash - 0.5) * 0.03;
     const value =
       i === total
         ? end
-        : start + (end - start) * t + wave * (1 - Math.abs(t - 0.5) * 1.2);
+        : start + drift * (0.15 + 0.85 * t) + amp * (session * 0.5 + micro);
+    const h = Math.floor(mins / 60);
+    const m = Math.round(mins % 60) % 60;
     points.push({
-      label: fmtClock(Math.floor(mins / 60), mins % 60),
-      value,
+      label: fmtClock(h, m),
+      value: Math.round(value * 100) / 100,
     });
   }
   return points;
+}
+
+/** Prefer regenerating a clean path when fallback is coarse / fake. */
+function densifyIntraday(points: ChartPoint[]): ChartPoint[] {
+  if (points.length < 2) return points;
+  const first = points[0]!.value;
+  const last = points[points.length - 1]!.value;
+  return syntheticIntraday(last, last - first);
 }
 
 function ensureAmPmLabels(points: ChartPoint[]): ChartPoint[] {
@@ -85,7 +109,7 @@ export async function loadIndexChartPoints(
 
   if (range === '1D') {
     if (sym === 'NEPSE' && intradayFallback.length >= 2) {
-      return ensureAmPmLabels(intradayFallback);
+      return densifyIntraday(ensureAmPmLabels(intradayFallback));
     }
     return syntheticIntraday(quote?.current ?? null, quote?.change ?? null);
   }

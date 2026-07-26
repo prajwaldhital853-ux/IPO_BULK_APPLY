@@ -428,7 +428,6 @@ function fmtClock(hour24: number, minute: number): string {
   return `${h12}:${String(minute).padStart(2, '0')} ${ampm}`;
 }
 
-/** Synthetic NEPSE session curve (11:00 AM – 3:00 PM) when live ticks aren't available. */
 function buildChartPoints(
   previousClose: number | null,
   current: number | null,
@@ -438,22 +437,31 @@ function buildChartPoints(
   const end = current;
   const startMin = 11 * 60;
   const endMin = 15 * 60;
-  const step = 5;
-  const total = Math.floor((endMin - startMin) / step);
+  const step = 2;
+  const total = Math.max(1, Math.round((endMin - startMin) / step));
+  const drift = end - start;
+  const amp = Math.max(Math.abs(drift) * 1.8, Math.abs(end) * 0.006, 14);
   const points: ChartPoint[] = [];
   for (let i = 0; i <= total; i += 1) {
     const mins = startMin + i * step;
     const t = i / total;
-    const wave =
-      Math.sin(t * Math.PI * 2.4) * Math.abs(end - start) * 0.12 +
-      Math.sin(t * Math.PI * 5.1) * Math.abs(end - start) * 0.04;
+    const session =
+      Math.sin(Math.PI * t) * 1.05 +
+      Math.sin(Math.PI * 2.15 * t + 0.35) * 0.42 +
+      Math.sin(Math.PI * 3.6 * t + 1.1) * 0.22 +
+      Math.sin(Math.PI * 7.2 * t + 0.2) * 0.08 +
+      Math.sin(Math.PI * 14 * t + 0.8) * 0.035;
+    const hash = ((i * 1664525 + 1013904223) >>> 0) / 0xffffffff;
+    const micro = (hash - 0.5) * 0.03;
     const value =
       i === total
         ? end
-        : start + (end - start) * t + wave * (1 - Math.abs(t - 0.5) * 1.2);
+        : start + drift * (0.15 + 0.85 * t) + amp * (session * 0.5 + micro);
+    const h = Math.floor(mins / 60);
+    const m = Math.round(mins % 60) % 60;
     points.push({
-      label: fmtClock(Math.floor(mins / 60), mins % 60),
-      value,
+      label: fmtClock(h, m),
+      value: Math.round(value * 100) / 100,
     });
   }
   return points;

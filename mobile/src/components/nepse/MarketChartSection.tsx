@@ -111,8 +111,8 @@ export function MarketChartSection({
         isDark={isDark}
         up={up}
         loading={chartLoading}
-        height={rs(210)}
-        backgroundColor={isDark ? colors.bg : '#F5F7F0'}
+        height={rs(230)}
+        backgroundColor={isDark ? '#121212' : '#F5F7F0'}
       />
 
       <Modal visible={indexMenuOpen} transparent animationType="fade">

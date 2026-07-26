@@ -18,6 +18,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), index=True)
     name: Mapped[str] = mapped_column(String(256), default='')
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Optional override for MeroShare account cap (null = plan default 10/50).
+    max_accounts: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

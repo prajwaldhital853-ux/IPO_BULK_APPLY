@@ -38,6 +38,7 @@ class PremiumOut(BaseModel):
     plan: str | None = None
     expires_at: str | None = Field(default=None, alias='expiresAt')
     status: str = 'free'
+    max_accounts: int = Field(default=10, alias='maxAccounts')
     pending_request: PendingRequestOut | None = Field(
         default=None,
         alias='pendingRequest',
@@ -108,7 +109,12 @@ class PinOtpVerifyOut(BaseModel):
     model_config = {'populate_by_name': True}
 
 
-def premium_from_row(plan: str | None, expires_at) -> PremiumOut:
+def premium_from_row(
+    plan: str | None,
+    expires_at,
+    *,
+    max_accounts: int = 10,
+) -> PremiumOut:
     from datetime import UTC, datetime
 
     active = False
@@ -120,5 +126,6 @@ def premium_from_row(plan: str | None, expires_at) -> PremiumOut:
         plan=plan if active else None,
         expiresAt=expires_at.isoformat() if expires_at and active else None,
         status='active' if active else 'free',
+        maxAccounts=max_accounts,
         pendingRequest=None,
     )

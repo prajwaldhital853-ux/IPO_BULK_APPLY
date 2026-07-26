@@ -12,6 +12,7 @@ from ..auth.jwt_tokens import create_admin_token
 from ..auth.subscription import (
     PLAN_CATALOG,
     clear_premium,
+    effective_max_accounts,
     expire_premium_if_needed,
     get_pending_request,
     load_user_with_premium,
@@ -28,6 +29,7 @@ from .schemas import (
     AdminForgotPasswordIn,
     AdminLoginRequest,
     AdminLoginResponse,
+    AdminMaxAccountsIn,
     AdminPasswordChangeIn,
     AdminPendingBrief,
     AdminResetPasswordIn,
@@ -144,6 +146,7 @@ async def _user_row(db: AsyncSession, user: User) -> AdminUserRow:
         premiumPlan=premium.plan if active and premium else None,
         premiumExpiresAt=expires_iso,
         premiumSource=premium.source if premium else None,
+        maxAccounts=effective_max_accounts(user, premium_active=active),
         pendingRequest=(
             AdminPendingBrief(
                 id=pending.id,
@@ -832,6 +835,23 @@ async def admin_deactivate_user(
             latest.status = 'rejected'
     await db.commit()
     return {'ok': True}
+
+
+@router.put('/users/{user_id}/max-accounts', response_model=AdminUserRow)
+async def admin_set_user_max_accounts(
+    user_id: str,
+    body: AdminMaxAccountsIn,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminUserRow:
+    user = await load_user_with_premium(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail='User not found')
+    user.max_accounts = int(body.max_accounts)
+    await db.commit()
+    user = await load_user_with_premium(db, user_id)
+    assert user is not None
+    return await _user_row(db, user)
 
 
 @router.delete('/users/{user_id}/subscription')

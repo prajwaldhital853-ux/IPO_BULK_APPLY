@@ -24,7 +24,6 @@ import { useSubscription } from '../context/SubscriptionContext';
 import { useAccounts } from '../context/AccountsContext';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { accountLimitForPlan } from '../storage/subscriptionStorage';
 import {
   exportAccountsFile,
   parseImportedAccounts,
@@ -268,7 +267,7 @@ export function ProfileScreen() {
           (a) => `${(a.dpCode ?? a.dpId ?? '').trim()}:${a.username.trim().toLowerCase()}`,
         ),
       );
-      const max = accountLimitForPlan(isPremium);
+      const max = maxAccounts;
       let added = 0;
       let skippedDup = 0;
       let skippedLimit = 0;

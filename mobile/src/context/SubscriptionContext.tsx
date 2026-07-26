@@ -280,6 +280,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     auth.isAuthenticated &&
     (auth.premium.status === 'pending' || serverStatus?.status === 'pending');
 
+  const maxAccounts = accountLimitForPlan(
+    isPremium,
+    serverStatus?.maxAccounts ?? auth.premium?.maxAccounts ?? null,
+  );
+
   const value = useMemo(
     () => ({
       state,
@@ -288,7 +293,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       isPremium,
       isPending,
       daysLeft: subscriptionDaysLeft(state),
-      maxAccounts: accountLimitForPlan(isPremium),
+      maxAccounts,
       refresh,
       requestPlan,
       cancelPending,
@@ -299,6 +304,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       loading,
       isPremium,
       isPending,
+      maxAccounts,
       refresh,
       requestPlan,
       cancelPending,

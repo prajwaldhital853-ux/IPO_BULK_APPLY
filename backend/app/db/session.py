@@ -30,6 +30,12 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     "ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'new'"
                 )
             )
+    if 'users' in tables:
+        cols = {c['name'] for c in insp.get_columns('users')}
+        if 'max_accounts' not in cols:
+            sync_conn.execute(
+                text('ALTER TABLE users ADD COLUMN max_accounts INTEGER')
+            )
     if 'site_settings' in tables:
         cols = {c['name'] for c in insp.get_columns('site_settings')}
         if 'payment_qr_image_b64' not in cols:
@@ -88,6 +94,15 @@ async def init_db() -> None:
 def _apply_postgres_patches(sync_conn) -> None:
     insp = inspect(sync_conn)
     tables = set(insp.get_table_names())
+    if 'users' in tables:
+        cols = {c['name'] for c in insp.get_columns('users')}
+        if 'max_accounts' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE users '
+                    'ADD COLUMN IF NOT EXISTS max_accounts INTEGER'
+                )
+            )
     if 'site_settings' not in tables:
         return
     cols = {c['name'] for c in insp.get_columns('site_settings')}

@@ -9,22 +9,26 @@ import {
 export function guardAddAccount(opts: {
   currentCount: number;
   isPremium: boolean;
+  maxAccounts?: number;
   onUpgrade?: () => void;
 }): boolean {
-  const max = accountLimitForPlan(opts.isPremium);
+  const max =
+    opts.maxAccounts != null && opts.maxAccounts > 0
+      ? opts.maxAccounts
+      : accountLimitForPlan(opts.isPremium);
   if (opts.currentCount < max) return true;
 
   if (opts.isPremium) {
     Alert.alert(
       'Account limit reached',
-      `Premium allows up to ${PREMIUM_ACCOUNT_LIMIT} MeroShare accounts.`,
+      `Your plan allows up to ${max} MeroShare accounts.\n\nNeed more? Open Subscription and tap “Contact us for more than 50 accounts” on WhatsApp.`,
     );
     return false;
   }
 
   Alert.alert(
     'Free plan limit',
-    `Free users can add up to ${FREE_ACCOUNT_LIMIT} accounts.\n\nUpgrade to add up to ${PREMIUM_ACCOUNT_LIMIT} accounts:\n• Rs 300 / 6 months\n• Rs 500 / year`,
+    `Free users can add up to ${FREE_ACCOUNT_LIMIT} accounts.\n\nUpgrade to add up to ${PREMIUM_ACCOUNT_LIMIT} accounts:\n• Rs 300 / 6 months\n• Rs 500 / year\n\nNeed more than 50? Contact admin on WhatsApp from the Subscription page.`,
     opts.onUpgrade
       ? [
           { text: 'Cancel', style: 'cancel' },

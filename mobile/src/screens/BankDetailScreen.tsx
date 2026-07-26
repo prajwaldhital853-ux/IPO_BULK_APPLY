@@ -95,7 +95,7 @@ export function BankDetailScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { draft, addAccount, accounts } = useAccounts();
-  const { isPremium } = useSubscription();
+  const { isPremium, maxAccounts } = useSubscription();
   const sensitive = useSensitiveAction();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -248,6 +248,7 @@ export function BankDetailScreen() {
           !guardAddAccount({
             currentCount: accounts.length,
             isPremium,
+            maxAccounts,
             onUpgrade: () => navigation.navigate('Subscription'),
           })
         ) {

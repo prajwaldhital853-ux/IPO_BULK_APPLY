@@ -121,13 +121,14 @@ export function HomeScreen() {
       !guardAddAccount({
         currentCount: accounts.length,
         isPremium,
+        maxAccounts,
         onUpgrade: () => navigation.navigate('Subscription'),
       })
     ) {
       return;
     }
     navigation.navigate('AddCapital');
-  }, [accounts.length, isPremium, navigation]);
+  }, [accounts.length, isPremium, maxAccounts, navigation]);
   const [tab, setTab] = useState<'Accounts' | 'Market'>('Accounts');
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);

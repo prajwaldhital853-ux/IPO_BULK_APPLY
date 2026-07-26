@@ -52,7 +52,7 @@ export function ApplyScreen() {
   const openDrawer = useOpenDrawer();
   const { accounts, updateAccountMeta } = useAccounts();
   const { user } = useAuth();
-  const { isPremium } = useSubscription();
+  const { isPremium, maxAccounts } = useSubscription();
   const { colors } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -62,13 +62,14 @@ export function ApplyScreen() {
       !guardAddAccount({
         currentCount: accounts.length,
         isPremium,
+        maxAccounts,
         onUpgrade: () => navigation.navigate('Subscription'),
       })
     ) {
       return;
     }
     navigation.navigate('AddCapital');
-  }, [accounts.length, isPremium, navigation]);
+  }, [accounts.length, isPremium, maxAccounts, navigation]);
   const [mode, setMode] = useState<'Bulk' | 'Single'>('Bulk');
   const [hideValues, setHideValues] = useState(false);
   const [accountsModalOpen, setAccountsModalOpen] = useState(false);

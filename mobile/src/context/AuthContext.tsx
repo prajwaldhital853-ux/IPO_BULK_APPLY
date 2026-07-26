@@ -64,6 +64,7 @@ const defaultPremium: PremiumInfo = {
   plan: null,
   expiresAt: null,
   status: 'free',
+  maxAccounts: 10,
   pendingRequest: null,
 };
 

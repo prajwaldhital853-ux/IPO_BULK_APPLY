@@ -53,6 +53,7 @@ export function SubscriptionScreen() {
     requestPlan,
     cancelPending,
     refresh,
+    maxAccounts,
   } = useSubscription();
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
   const [paymentNote, setPaymentNote] = useState('');
@@ -238,6 +239,23 @@ export function SubscriptionScreen() {
     });
   }, [paymentInfo?.whatsappUrl, pending]);
 
+  const openMoreAccountsWhatsApp = useCallback(async () => {
+    const url = paymentInfo?.whatsappUrl ?? 'https://wa.me/9779709133067';
+    const email = auth.user?.email ?? '';
+    const msg = [
+      'Hi, I need more than 50 MeroShare accounts on NEPSE GHAR Premium.',
+      email ? `My email: ${email}` : null,
+      `Current limit: ${maxAccounts} accounts.`,
+      'Please tell me the price for 100 / 200 accounts (or custom). I can pay offline.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const full = `${url}?text=${encodeURIComponent(msg)}`;
+    await Linking.openURL(full).catch(() => {
+      Alert.alert('WhatsApp', 'Could not open WhatsApp.');
+    });
+  }, [paymentInfo?.whatsappUrl, auth.user?.email, maxAccounts]);
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -269,6 +287,7 @@ export function SubscriptionScreen() {
               {daysLeft != null
                 ? `${daysLeft} day(s) remaining · ${state.productId ?? 'premium'}`
                 : 'Active subscription'}
+              {` · up to ${maxAccounts} accounts`}
             </Text>
           ) : isPending && pending ? (
             <Text style={styles.heroSub}>
@@ -279,10 +298,28 @@ export function SubscriptionScreen() {
           ) : (
             <Text style={styles.heroSub}>
               Free plan: up to 10 accounts. Premium: up to 50 accounts — Rs 300 /
-              6 months or Rs 500 / year. Pay via QR, send screenshot on WhatsApp,
-              then submit here.
+              6 months or Rs 500 / year. Need more than 50? Contact us on WhatsApp
+              after subscribing — admin can raise your limit (e.g. 100 / 200) after
+              payment.
             </Text>
           )}
+        </View>
+
+        <View style={styles.moreAccountsCard}>
+          <Text style={styles.moreAccountsTitle}>Need more than 50 accounts?</Text>
+          <Text style={styles.moreAccountsText}>
+            Premium includes up to 50 MeroShare accounts by default. If you need 60,
+            100, 200, or any higher limit, message us on WhatsApp. Pay as agreed
+            offline — after payment, admin raises your account limit immediately in
+            the app.
+          </Text>
+          <Pressable
+            style={styles.moreAccountsBtn}
+            onPress={() => void openMoreAccountsWhatsApp()}
+          >
+            <Ionicons name="logo-whatsapp" size={rs(18)} color="#fff" />
+            <Text style={styles.waBtnText}>Contact us for more than 50 accounts</Text>
+          </Pressable>
         </View>
 
         {needsSignIn && !isPremium ? (
@@ -438,6 +475,35 @@ function makeStyles(c: ThemeColors) {
       textAlign: 'center',
       fontSize: rs(13),
       lineHeight: rs(18),
+    },
+    moreAccountsCard: {
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+      borderRadius: rs(14),
+      padding: rs(16),
+      marginBottom: rs(16),
+      gap: rs(10),
+    },
+    moreAccountsTitle: {
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(15),
+    },
+    moreAccountsText: {
+      color: c.textSecondary,
+      fontSize: rs(13),
+      lineHeight: rs(18),
+    },
+    moreAccountsBtn: {
+      backgroundColor: '#25D366',
+      borderRadius: rs(12),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(14),
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      justifyContent: 'center',
     },
     signInCard: {
       borderWidth: 1,

@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -57,6 +59,15 @@ const SOCIAL_PLATFORMS = [
 ] as const;
 
 type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
+
+type SettingsTab = 'notices' | 'payment' | 'social' | 'password';
+
+const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+  { id: 'notices', label: 'Notices' },
+  { id: 'payment', label: 'Payment' },
+  { id: 'social', label: 'Social' },
+  { id: 'password', label: 'Password' },
+];
 
 type PlatformLinkDraft = {
   id: string;
@@ -170,6 +181,11 @@ export function AdminSettingsScreen() {
   const [noticeItems, setNoticeItems] = useState<
     { id: string; imageUrl: string }[]
   >([]);
+  const [previewNotice, setPreviewNotice] = useState<{
+    id: string;
+    imageUrl: string;
+    rank: number;
+  } | null>(null);
 
   const [qrText, setQrText] = useState('');
   const [bankName, setBankName] = useState('');
@@ -188,6 +204,7 @@ export function AdminSettingsScreen() {
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('notices');
 
   const applySettings = useCallback((s: AdminSettings) => {
     setSettings(s);
@@ -500,234 +517,452 @@ export function AdminSettingsScreen() {
       {loading ? (
         <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <>
           {settings ? (
             <Text style={styles.hint}>Admin: {settings.adminEmail}</Text>
           ) : null}
 
-          <Text style={styles.section}>Startup popup notices</Text>
-          <Text style={styles.help}>
-            Add multiple notice images from gallery. Users see them one by one when
-            the app opens (1 → 2 → 3…). Close with × or by tapping beside the
-            notice. Up to 10 notices.
-          </Text>
-
-          <View style={styles.qrPreview}>
-            <Text style={styles.qrPreviewLabel}>
-              {noticeItems.length
-                ? `${noticeItems.length} notice(s) — shown in this order`
-                : 'No notices set'}
-            </Text>
-            {noticeItems.length ? (
-              noticeItems.map((item, i) => (
-                <View key={item.id} style={styles.noticeRow}>
-                  <Text style={styles.noticeRank}>#{i + 1}</Text>
-                  <Image
-                    source={{ uri: item.imageUrl }}
-                    style={styles.noticeThumb}
-                    resizeMode="cover"
-                  />
-                  <Pressable
-                    style={[styles.noticeDeleteBtn, noticeBusy && styles.btnDisabled]}
-                    disabled={noticeBusy}
-                    onPress={() => onDeleteNotice(item.id)}
-                  >
-                    <Ionicons name="trash-outline" size={rs(16)} color="#fff" />
-                  </Pressable>
-                </View>
-              ))
-            ) : (
-              <View style={styles.noticeEmpty}>
-                <Ionicons name="image-outline" size={rs(36)} color={colors.textMuted} />
-                <Text style={styles.noticeEmptyText}>
-                  Add notice images from gallery
-                </Text>
-              </View>
-            )}
-            <View style={styles.qrActions}>
-              <Pressable
-                style={[styles.qrBtn, noticeBusy && styles.btnDisabled]}
-                disabled={noticeBusy}
-                onPress={() => void onPickNoticeFromGallery()}
-              >
-                {noticeBusy ? (
-                  <ActivityIndicator color={colors.fabIcon} />
-                ) : (
-                  <>
-                    <Ionicons name="images-outline" size={rs(16)} color={colors.fabIcon} />
-                    <Text style={styles.qrBtnText}>Add from gallery</Text>
-                  </>
-                )}
-              </Pressable>
-              {noticeItems.length ? (
-                <Pressable
-                  style={[styles.qrBtnDanger, noticeBusy && styles.btnDisabled]}
-                  disabled={noticeBusy}
-                  onPress={onClearAllNotices}
-                >
-                  <Ionicons name="trash-outline" size={rs(16)} color="#fff" />
-                  <Text style={styles.qrBtnText}>Delete all</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-
-          <Text style={styles.section}>Payment QR & bank details</Text>
-          <Text style={styles.help}>
-            Upload your eSewa / bank QR from gallery. This image is shown on the Premium
-            Subscription screen. You can also delete it anytime.
-          </Text>
-
-          <View style={styles.qrPreview}>
-            <Text style={styles.qrPreviewLabel}>
-              {qrImageUrl ? 'Uploaded QR (from gallery)' : 'Preview (from QR text)'}
-            </Text>
-            <Image
-              source={{
-                uri: qrImageUrl ?? qrPreviewUrl(qrText),
-              }}
-              style={styles.qrImage}
-            />
-            <View style={styles.qrActions}>
-              <Pressable
-                style={[styles.qrBtn, qrBusy && styles.btnDisabled]}
-                disabled={qrBusy}
-                onPress={() => void onPickQrFromGallery()}
-              >
-                {qrBusy ? (
-                  <ActivityIndicator color={colors.fabIcon} />
-                ) : (
-                  <>
-                    <Ionicons name="images-outline" size={rs(16)} color={colors.fabIcon} />
-                    <Text style={styles.qrBtnText}>
-                      {qrImageUrl ? 'Replace from gallery' : 'Add from gallery'}
-                    </Text>
-                  </>
-                )}
-              </Pressable>
-              {qrImageUrl ? (
-                <Pressable
-                  style={[styles.qrBtnDanger, qrBusy && styles.btnDisabled]}
-                  disabled={qrBusy}
-                  onPress={onDeleteQrImage}
-                >
-                  <Ionicons name="trash-outline" size={rs(16)} color="#fff" />
-                  <Text style={styles.qrBtnText}>Delete QR</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-
-          <Field
-            label="QR payment text (optional fallback if no image)"
-            value={qrText}
-            onChangeText={setQrText}
-            colors={colors}
-            multiline
-          />
-          <Field label="Bank name" value={bankName} onChangeText={setBankName} colors={colors} />
-          <Field label="Account name" value={accountName} onChangeText={setAccountName} colors={colors} />
-          <Field label="Account number" value={accountNumber} onChangeText={setAccountNumber} colors={colors} />
-          <Field
-            label="WhatsApp (digits only, e.g. 9779709133067)"
-            value={paymentWhatsapp}
-            onChangeText={setPaymentWhatsapp}
-            colors={colors}
-            keyboardType="phone-pad"
-          />
-
-          <Text style={styles.section}>Contact & social</Text>
-          <Field label="Company name" value={companyName} onChangeText={setCompanyName} colors={colors} />
-          <Field
-            label="Public email"
-            value={contactEmail}
-            onChangeText={setContactEmail}
-            colors={colors}
-            keyboardType="email-address"
-          />
-          <Field label="WhatsApp display number" value={contactWhatsapp} onChangeText={setContactWhatsapp} colors={colors} />
-          <Field label="WhatsApp link" value={whatsappUrl} onChangeText={setWhatsappUrl} colors={colors} keyboardType="url" />
-
-          <Text style={styles.section}>Social & extra contact links</Text>
-          <Text style={styles.help}>
-            Tap a platform (Instagram, Viber, …), then enter that platform’s own
-            label and URL. Switching platforms does not copy data — each one is
-            saved separately and shown one-by-one in Profile → Connect With Us.
-          </Text>
-
-          <Text style={styles.chipLabel}>Choose platform to edit</Text>
-          <View style={styles.chipWrap}>
-            {SOCIAL_PLATFORMS.map((p) => {
-              const active = activePlatform === p;
-              const hasData = Boolean(socialByPlatform[p]?.url?.trim());
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabRow}
+            style={styles.tabBar}
+          >
+            {SETTINGS_TABS.map((tab) => {
+              const active = settingsTab === tab.id;
               return (
                 <Pressable
-                  key={`plat-${p}`}
-                  style={[styles.chip, active && styles.chipOn]}
-                  onPress={() => selectPlatform(p)}
+                  key={tab.id}
+                  style={[styles.tabChip, active && styles.tabChipActive]}
+                  onPress={() => setSettingsTab(tab.id)}
                 >
-                  <Text style={[styles.chipText, active && styles.chipTextOn]}>
-                    {hasData ? `● ${p}` : p}
+                  <Text
+                    style={[
+                      styles.tabChipText,
+                      active && styles.tabChipTextActive,
+                    ]}
+                  >
+                    {tab.label}
                   </Text>
                 </Pressable>
               );
             })}
-          </View>
+          </ScrollView>
 
-          <View style={styles.socialCard}>
-            <View style={styles.socialHead}>
-              <Text style={styles.socialTitle}>
-                Editing: {activePlatform}
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            keyboardShouldPersistTaps="handled"
+          >
+            {settingsTab === 'notices' ? (
+              <>
+                <Text style={styles.section}>Startup popup notices</Text>
+                <Text style={styles.help}>
+                  Add multiple notice images from gallery. Users see them one by
+                  one when the app opens (1 → 2 → 3…). Close with × or by tapping
+                  beside the notice. Up to 10 notices.
+                </Text>
+
+                <View style={styles.qrPreview}>
+                  <Text style={styles.qrPreviewLabel}>
+                    {noticeItems.length
+                      ? `${noticeItems.length} notice(s) — shown in this order`
+                      : 'No notices set'}
+                  </Text>
+                  {noticeItems.length ? (
+                    noticeItems.map((item, i) => (
+                      <View key={item.id} style={styles.noticeRow}>
+                        <Text style={styles.noticeRank}>#{i + 1}</Text>
+                        <Pressable
+                          style={styles.noticeThumbWrap}
+                          onPress={() =>
+                            setPreviewNotice({
+                              id: item.id,
+                              imageUrl: item.imageUrl,
+                              rank: i + 1,
+                            })
+                          }
+                        >
+                          <Image
+                            source={{ uri: item.imageUrl }}
+                            style={styles.noticeThumb}
+                            resizeMode="cover"
+                          />
+                          <View style={styles.noticeViewBadge}>
+                            <Ionicons
+                              name="eye-outline"
+                              size={rs(14)}
+                              color="#fff"
+                            />
+                            <Text style={styles.noticeViewText}>View</Text>
+                          </View>
+                        </Pressable>
+                        <Pressable
+                          style={[
+                            styles.noticeDeleteBtn,
+                            noticeBusy && styles.btnDisabled,
+                          ]}
+                          disabled={noticeBusy}
+                          onPress={() => onDeleteNotice(item.id)}
+                        >
+                          <Ionicons
+                            name="trash-outline"
+                            size={rs(16)}
+                            color="#fff"
+                          />
+                        </Pressable>
+                      </View>
+                    ))
+                  ) : (
+                    <View style={styles.noticeEmpty}>
+                      <Ionicons
+                        name="image-outline"
+                        size={rs(36)}
+                        color={colors.textMuted}
+                      />
+                      <Text style={styles.noticeEmptyText}>
+                        Add notice images from gallery
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.qrActions}>
+                    <Pressable
+                      style={[styles.qrBtn, noticeBusy && styles.btnDisabled]}
+                      disabled={noticeBusy}
+                      onPress={() => void onPickNoticeFromGallery()}
+                    >
+                      {noticeBusy ? (
+                        <ActivityIndicator color={colors.fabIcon} />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name="images-outline"
+                            size={rs(16)}
+                            color={colors.fabIcon}
+                          />
+                          <Text style={styles.qrBtnText}>Add from gallery</Text>
+                        </>
+                      )}
+                    </Pressable>
+                    {noticeItems.length ? (
+                      <Pressable
+                        style={[
+                          styles.qrBtnDanger,
+                          noticeBusy && styles.btnDisabled,
+                        ]}
+                        disabled={noticeBusy}
+                        onPress={onClearAllNotices}
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={rs(16)}
+                          color="#fff"
+                        />
+                        <Text style={styles.qrBtnText}>Delete all</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+              </>
+            ) : null}
+
+            {settingsTab === 'payment' ? (
+              <>
+                <Text style={styles.section}>Payment QR & bank details</Text>
+                <Text style={styles.help}>
+                  Upload your eSewa / bank QR from gallery. This image is shown on
+                  the Premium Subscription screen. You can also delete it anytime.
+                </Text>
+
+                <View style={styles.qrPreview}>
+                  <Text style={styles.qrPreviewLabel}>
+                    {qrImageUrl
+                      ? 'Uploaded QR (from gallery)'
+                      : 'Preview (from QR text)'}
+                  </Text>
+                  <Image
+                    source={{
+                      uri: qrImageUrl ?? qrPreviewUrl(qrText),
+                    }}
+                    style={styles.qrImage}
+                  />
+                  <View style={styles.qrActions}>
+                    <Pressable
+                      style={[styles.qrBtn, qrBusy && styles.btnDisabled]}
+                      disabled={qrBusy}
+                      onPress={() => void onPickQrFromGallery()}
+                    >
+                      {qrBusy ? (
+                        <ActivityIndicator color={colors.fabIcon} />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name="images-outline"
+                            size={rs(16)}
+                            color={colors.fabIcon}
+                          />
+                          <Text style={styles.qrBtnText}>
+                            {qrImageUrl
+                              ? 'Replace from gallery'
+                              : 'Add from gallery'}
+                          </Text>
+                        </>
+                      )}
+                    </Pressable>
+                    {qrImageUrl ? (
+                      <Pressable
+                        style={[
+                          styles.qrBtnDanger,
+                          qrBusy && styles.btnDisabled,
+                        ]}
+                        disabled={qrBusy}
+                        onPress={onDeleteQrImage}
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={rs(16)}
+                          color="#fff"
+                        />
+                        <Text style={styles.qrBtnText}>Delete QR</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+
+                <Field
+                  label="QR payment text (optional fallback if no image)"
+                  value={qrText}
+                  onChangeText={setQrText}
+                  colors={colors}
+                  multiline
+                />
+                <Field
+                  label="Bank name"
+                  value={bankName}
+                  onChangeText={setBankName}
+                  colors={colors}
+                />
+                <Field
+                  label="Account name"
+                  value={accountName}
+                  onChangeText={setAccountName}
+                  colors={colors}
+                />
+                <Field
+                  label="Account number"
+                  value={accountNumber}
+                  onChangeText={setAccountNumber}
+                  colors={colors}
+                />
+                <Field
+                  label="WhatsApp (digits only, e.g. 9779709133067)"
+                  value={paymentWhatsapp}
+                  onChangeText={setPaymentWhatsapp}
+                  colors={colors}
+                  keyboardType="phone-pad"
+                />
+
+                <Pressable
+                  style={styles.btn}
+                  onPress={() => void onSave()}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <ActivityIndicator color={colors.fabIcon} />
+                  ) : (
+                    <Text style={styles.btnText}>Save payment</Text>
+                  )}
+                </Pressable>
+              </>
+            ) : null}
+
+            {settingsTab === 'social' ? (
+              <>
+                <Text style={styles.section}>Contact & social</Text>
+                <Field
+                  label="Company name"
+                  value={companyName}
+                  onChangeText={setCompanyName}
+                  colors={colors}
+                />
+                <Field
+                  label="Public email"
+                  value={contactEmail}
+                  onChangeText={setContactEmail}
+                  colors={colors}
+                  keyboardType="email-address"
+                />
+                <Field
+                  label="WhatsApp display number"
+                  value={contactWhatsapp}
+                  onChangeText={setContactWhatsapp}
+                  colors={colors}
+                />
+                <Field
+                  label="WhatsApp link"
+                  value={whatsappUrl}
+                  onChangeText={setWhatsappUrl}
+                  colors={colors}
+                  keyboardType="url"
+                />
+
+                <Text style={styles.section}>Social & extra contact links</Text>
+                <Text style={styles.help}>
+                  Tap a platform (Instagram, Viber, …), then enter that
+                  platform’s own label and URL. Switching platforms does not copy
+                  data — each one is saved separately and shown one-by-one in
+                  Profile → Connect With Us.
+                </Text>
+
+                <Text style={styles.chipLabel}>Choose platform to edit</Text>
+                <View style={styles.chipWrap}>
+                  {SOCIAL_PLATFORMS.map((p) => {
+                    const active = activePlatform === p;
+                    const hasData = Boolean(socialByPlatform[p]?.url?.trim());
+                    return (
+                      <Pressable
+                        key={`plat-${p}`}
+                        style={[styles.chip, active && styles.chipOn]}
+                        onPress={() => selectPlatform(p)}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            active && styles.chipTextOn,
+                          ]}
+                        >
+                          {hasData ? `● ${p}` : p}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.socialCard}>
+                  <View style={styles.socialHead}>
+                    <Text style={styles.socialTitle}>
+                      Editing: {activePlatform}
+                    </Text>
+                    <Pressable onPress={clearActivePlatform} hitSlop={8}>
+                      <Ionicons
+                        name="trash-outline"
+                        size={rs(18)}
+                        color={colors.danger}
+                      />
+                    </Pressable>
+                  </View>
+                  <Field
+                    fieldKey={`${activePlatform}-label`}
+                    label="Display label"
+                    value={activeDraft.label}
+                    onChangeText={(t) => patchActivePlatform({ label: t })}
+                    colors={colors}
+                  />
+                  <Field
+                    fieldKey={`${activePlatform}-detail`}
+                    label="Subtitle (handle / phone)"
+                    value={activeDraft.detail}
+                    onChangeText={(t) => patchActivePlatform({ detail: t })}
+                    colors={colors}
+                  />
+                  <Field
+                    fieldKey={`${activePlatform}-url`}
+                    label="URL / deep link"
+                    value={activeDraft.url}
+                    onChangeText={(t) => patchActivePlatform({ url: t })}
+                    colors={colors}
+                    keyboardType="url"
+                  />
+                  <Text style={styles.filledHint}>
+                    Filled platforms:{' '}
+                    {SOCIAL_PLATFORMS.filter((p) =>
+                      socialByPlatform[p]?.url?.trim(),
+                    ).join(', ') || 'none yet'}
+                  </Text>
+                </View>
+
+                <Pressable
+                  style={styles.btn}
+                  onPress={() => void onSave()}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <ActivityIndicator color={colors.fabIcon} />
+                  ) : (
+                    <Text style={styles.btnText}>Save contact & social</Text>
+                  )}
+                </Pressable>
+              </>
+            ) : null}
+
+            {settingsTab === 'password' ? (
+              <>
+                <Text style={styles.section}>Change password</Text>
+                <Field
+                  label="Current password"
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  colors={colors}
+                />
+                <Field
+                  label="New password (min 8)"
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  colors={colors}
+                />
+                <Pressable
+                  style={styles.btnSecondary}
+                  onPress={() => void onChangePassword()}
+                  disabled={saving}
+                >
+                  <Text style={styles.btnSecondaryText}>Update password</Text>
+                </Pressable>
+              </>
+            ) : null}
+          </ScrollView>
+        </>
+      )}
+
+      <Modal
+        visible={!!previewNotice}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewNotice(null)}
+      >
+        <View style={styles.previewBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setPreviewNotice(null)}
+          />
+          <View style={styles.previewCard}>
+            <View style={styles.previewHead}>
+              <Text style={styles.previewTitle}>
+                Notice #{previewNotice?.rank ?? ''}
               </Text>
-              <Pressable onPress={clearActivePlatform} hitSlop={8}>
-                <Ionicons name="trash-outline" size={rs(18)} color={colors.danger} />
+              <Pressable
+                onPress={() => setPreviewNotice(null)}
+                hitSlop={12}
+                style={styles.previewClose}
+              >
+                <Ionicons name="close" size={rs(22)} color={colors.text} />
               </Pressable>
             </View>
-            <Field
-              fieldKey={`${activePlatform}-label`}
-              label="Display label"
-              value={activeDraft.label}
-              onChangeText={(t) => patchActivePlatform({ label: t })}
-              colors={colors}
-            />
-            <Field
-              fieldKey={`${activePlatform}-detail`}
-              label="Subtitle (handle / phone)"
-              value={activeDraft.detail}
-              onChangeText={(t) => patchActivePlatform({ detail: t })}
-              colors={colors}
-            />
-            <Field
-              fieldKey={`${activePlatform}-url`}
-              label="URL / deep link"
-              value={activeDraft.url}
-              onChangeText={(t) => patchActivePlatform({ url: t })}
-              colors={colors}
-              keyboardType="url"
-            />
-            <Text style={styles.filledHint}>
-              Filled platforms:{' '}
-              {SOCIAL_PLATFORMS.filter((p) => socialByPlatform[p]?.url?.trim())
-                .join(', ') || 'none yet'}
-            </Text>
+            {previewNotice ? (
+              <ScrollView
+                style={styles.previewScroll}
+                contentContainerStyle={styles.previewScrollContent}
+                showsVerticalScrollIndicator
+              >
+                <Image
+                  source={{ uri: previewNotice.imageUrl }}
+                  style={styles.previewImage}
+                  resizeMode="contain"
+                />
+              </ScrollView>
+            ) : null}
+            <Text style={styles.previewHint}>Tap outside or × to close</Text>
           </View>
-
-          <Pressable style={styles.btn} onPress={() => void onSave()} disabled={saving}>
-            {saving ? (
-              <ActivityIndicator color={colors.fabIcon} />
-            ) : (
-              <Text style={styles.btnText}>Save payment & contact</Text>
-            )}
-          </Pressable>
-
-          <Text style={styles.section}>Change password</Text>
-          <Field label="Current password" value={currentPassword} onChangeText={setCurrentPassword} colors={colors} />
-          <Field label="New password (min 8)" value={newPassword} onChangeText={setNewPassword} colors={colors} />
-          <Pressable style={styles.btnSecondary} onPress={() => void onChangePassword()} disabled={saving}>
-            <Text style={styles.btnSecondaryText}>Update password</Text>
-          </Pressable>
-        </ScrollView>
-      )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -760,13 +995,38 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(12),
     },
     title: { color: c.text, fontWeight: '800', fontSize: rs(16) },
+    hint: {
+      color: c.textMuted,
+      fontSize: rs(12),
+      paddingHorizontal: rs(16),
+      marginBottom: rs(8),
+    },
+    tabBar: { flexGrow: 0, marginBottom: rs(4) },
+    tabRow: {
+      gap: rs(8),
+      paddingHorizontal: rs(16),
+      paddingBottom: rs(10),
+    },
+    tabChip: {
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(8),
+      borderRadius: rs(18),
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+    },
+    tabChipActive: {
+      backgroundColor: c.primarySoft,
+      borderColor: c.primary,
+    },
+    tabChipText: { color: c.textMuted, fontWeight: '700', fontSize: rs(12) },
+    tabChipTextActive: { color: c.text },
     scroll: { padding: rs(16), paddingBottom: rs(40) },
-    hint: { color: c.textMuted, fontSize: rs(12), marginBottom: rs(12) },
     section: {
       color: c.text,
       fontWeight: '800',
       fontSize: rs(15),
-      marginTop: rs(8),
+      marginTop: rs(4),
       marginBottom: rs(10),
     },
     help: {
@@ -815,11 +1075,33 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(12),
       width: rs(28),
     },
-    noticeThumb: {
+    noticeThumbWrap: {
       flex: 1,
       height: rs(72),
       borderRadius: rs(8),
+      overflow: 'hidden',
       backgroundColor: c.surfaceAlt,
+    },
+    noticeThumb: {
+      width: '100%',
+      height: '100%',
+    },
+    noticeViewBadge: {
+      position: 'absolute',
+      right: rs(6),
+      bottom: rs(6),
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(4),
+      backgroundColor: 'rgba(0,0,0,0.55)',
+      paddingHorizontal: rs(8),
+      paddingVertical: rs(4),
+      borderRadius: rs(10),
+    },
+    noticeViewText: {
+      color: '#fff',
+      fontSize: rs(10),
+      fontWeight: '700',
     },
     noticeDeleteBtn: {
       width: rs(36),
@@ -828,6 +1110,53 @@ function makeStyles(c: ThemeColors) {
       backgroundColor: c.danger,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    previewBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.65)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: rs(16),
+    },
+    previewCard: {
+      width: '100%',
+      maxWidth: rs(420),
+      maxHeight: Dimensions.get('window').height * 0.82,
+      backgroundColor: c.surface,
+      borderRadius: rs(14),
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      zIndex: 2,
+    },
+    previewHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(12),
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.borderMuted,
+    },
+    previewTitle: { color: c.text, fontWeight: '800', fontSize: rs(15) },
+    previewClose: {
+      width: rs(32),
+      height: rs(32),
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    previewScroll: { maxHeight: Dimensions.get('window').height * 0.62 },
+    previewScrollContent: { padding: rs(10), alignItems: 'center' },
+    previewImage: {
+      width: '100%',
+      height: Dimensions.get('window').height * 0.55,
+      backgroundColor: c.bg,
+    },
+    previewHint: {
+      textAlign: 'center',
+      color: c.textMuted,
+      fontSize: rs(11),
+      paddingVertical: rs(10),
     },
     noticeEmpty: {
       width: '100%',

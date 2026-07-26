@@ -31,6 +31,7 @@ export type AdminUserRow = {
   premiumPlan: string | null;
   premiumExpiresAt: string | null;
   premiumSource: string | null;
+  maxAccounts: number;
   pendingRequest: {
     id: string;
     planId: string;
@@ -192,6 +193,7 @@ function mapUserRow(json: Record<string, unknown>): AdminUserRow {
     premiumPlan: json.premiumPlan ? String(json.premiumPlan) : null,
     premiumExpiresAt: json.premiumExpiresAt ? String(json.premiumExpiresAt) : null,
     premiumSource: json.premiumSource ? String(json.premiumSource) : null,
+    maxAccounts: Number(json.maxAccounts ?? json.max_accounts ?? 10) || 10,
     pendingRequest: pendingRaw
       ? {
           id: String(pendingRaw.id),
@@ -275,6 +277,20 @@ export async function rejectSubscription(
   });
   if (!res.ok) throw new Error(await parseError(res));
   return mapRow((await res.json()) as Record<string, unknown>);
+}
+
+export async function setAdminUserMaxAccounts(
+  token: string,
+  userId: string,
+  maxAccounts: number,
+): Promise<AdminUserRow> {
+  const res = await adminFetch(`/admin/users/${userId}/max-accounts`, token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ maxAccounts }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapUserRow((await res.json()) as Record<string, unknown>);
 }
 
 export async function deactivateUserPremium(

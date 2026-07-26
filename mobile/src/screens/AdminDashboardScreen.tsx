@@ -7,6 +7,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +24,7 @@ import {
   fetchAdminSubscriptions,
   fetchAdminUsers,
   rejectSubscription,
+  setAdminUserMaxAccounts,
   updateAdminFeedbackStatus,
   type AdminFeedbackRow,
   type AdminStats,
@@ -89,6 +91,7 @@ export function AdminDashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailItem | null>(null);
+  const [customMaxAccounts, setCustomMaxAccounts] = useState('');
 
   const load = useCallback(
     async (
@@ -152,7 +155,37 @@ export function AdminDashboardScreen() {
     token &&
     void load(token, tab, subFilter, userFilter, feedbackFilter, feedbackKind);
 
-  const closeDetail = () => setDetail(null);
+  const closeDetail = () => {
+    setDetail(null);
+    setCustomMaxAccounts('');
+  };
+
+  const onSetMaxAccounts = (user: AdminUserRow, maxAccounts: number) => {
+    if (!Number.isFinite(maxAccounts) || maxAccounts < 1 || maxAccounts > 500) {
+      Alert.alert('Invalid limit', 'Enter a number between 1 and 500.');
+      return;
+    }
+    void (async () => {
+      if (!token) return;
+      setBusyId(`max-${user.id}`);
+      try {
+        const updated = await setAdminUserMaxAccounts(token, user.id, maxAccounts);
+        setUsers((prev) =>
+          prev.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)),
+        );
+        setDetail({ kind: 'user', data: { ...user, ...updated } });
+        setCustomMaxAccounts('');
+        Alert.alert('Updated', `Account limit set to ${updated.maxAccounts}. User can add accounts up to this limit immediately.`);
+      } catch (e) {
+        Alert.alert(
+          'Failed',
+          e instanceof Error ? e.message : 'Could not update account limit.',
+        );
+      } finally {
+        setBusyId(null);
+      }
+    })();
+  };
 
   const runSubAction = async (
     row: AdminSubscriptionRow,
@@ -279,7 +312,10 @@ export function AdminDashboardScreen() {
     return (
       <Pressable
         style={styles.compactRow}
-        onPress={() => setDetail({ kind: 'user', data: item })}
+        onPress={() => {
+          setCustomMaxAccounts('');
+          setDetail({ kind: 'user', data: item });
+        }}
       >
         <View style={[styles.avatar, { backgroundColor: `${tint}22` }]}>
           <Text style={[styles.avatarText, { color: tint }]}>
@@ -291,7 +327,7 @@ export function AdminDashboardScreen() {
             {item.name || item.email}
           </Text>
           <Text style={styles.rowSub} numberOfLines={1}>
-            {item.email}
+            {item.email} · {item.maxAccounts} accts
           </Text>
         </View>
         <View style={[styles.badge, { backgroundColor: `${tint}18` }]}>
@@ -378,6 +414,8 @@ export function AdminDashboardScreen() {
 
     if (detail.kind === 'user') {
       const item = detail.data;
+      const limitBusy = busy || busyId === `max-${item.id}`;
+      const limitPresets = [50, 60, 100, 150, 200];
       return (
         <>
           <Text style={styles.detailName}>{item.name || '—'}</Text>
@@ -385,6 +423,11 @@ export function AdminDashboardScreen() {
           <View style={styles.detailGrid}>
             <DetailCell styles={styles} label="Status" value={accessLabel(item.accessLevel)} />
             <DetailCell styles={styles} label="Joined" value={fmtDate(item.createdAt)} />
+            <DetailCell
+              styles={styles}
+              label="Account limit"
+              value={`${item.maxAccounts} accounts`}
+            />
             {item.premiumPlan ? (
               <DetailCell
                 styles={styles}
@@ -400,6 +443,56 @@ export function AdminDashboardScreen() {
               />
             ) : null}
           </View>
+
+          <View style={styles.limitBox}>
+            <Text style={styles.limitTitle}>Set account limit</Text>
+            <Text style={styles.limitHint}>
+              Premium default is 50. Raise after offline payment (e.g. 100 / 200). Applies immediately.
+            </Text>
+            <View style={styles.limitChips}>
+              {limitPresets.map((n) => (
+                <Pressable
+                  key={n}
+                  style={[
+                    styles.limitChip,
+                    item.maxAccounts === n && styles.limitChipActive,
+                  ]}
+                  disabled={limitBusy}
+                  onPress={() => onSetMaxAccounts(item, n)}
+                >
+                  <Text
+                    style={[
+                      styles.limitChipText,
+                      item.maxAccounts === n && styles.limitChipTextActive,
+                    ]}
+                  >
+                    {n}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.limitCustomRow}>
+              <TextInput
+                style={styles.limitInput}
+                keyboardType="number-pad"
+                placeholder="Custom (1–500)"
+                placeholderTextColor={colors.textMuted}
+                value={customMaxAccounts}
+                onChangeText={setCustomMaxAccounts}
+                editable={!limitBusy}
+              />
+              <Pressable
+                style={[styles.limitApplyBtn, limitBusy && { opacity: 0.5 }]}
+                disabled={limitBusy}
+                onPress={() =>
+                  onSetMaxAccounts(item, Number.parseInt(customMaxAccounts.trim(), 10))
+                }
+              >
+                <Text style={styles.limitApplyText}>Apply</Text>
+              </Pressable>
+            </View>
+          </View>
+
           <View style={styles.detailActions}>
             {item.accessLevel === 'pending' && item.pendingRequest ? (
               <>
@@ -1000,6 +1093,66 @@ function makeStyles(c: ThemeColors) {
       gap: rs(8),
       marginTop: rs(16),
     },
+    limitBox: {
+      marginTop: rs(14),
+      padding: rs(12),
+      borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+      gap: rs(8),
+    },
+    limitTitle: { color: c.text, fontWeight: '800', fontSize: rs(13) },
+    limitHint: {
+      color: c.textSecondary,
+      fontSize: rs(12),
+      lineHeight: rs(16),
+    },
+    limitChips: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: rs(8),
+    },
+    limitChip: {
+      minWidth: rs(48),
+      paddingVertical: rs(8),
+      paddingHorizontal: rs(12),
+      borderRadius: rs(10),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      alignItems: 'center',
+      backgroundColor: c.bg,
+    },
+    limitChipActive: {
+      borderColor: c.primary,
+      backgroundColor: c.primary,
+    },
+    limitChipText: { color: c.text, fontWeight: '700', fontSize: rs(13) },
+    limitChipTextActive: { color: '#fff' },
+    limitCustomRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      marginTop: rs(4),
+    },
+    limitInput: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderRadius: rs(10),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
+      color: c.text,
+      fontSize: rs(13),
+      backgroundColor: c.bg,
+    },
+    limitApplyBtn: {
+      backgroundColor: c.primary,
+      borderRadius: rs(10),
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(10),
+    },
+    limitApplyText: { color: '#fff', fontWeight: '800', fontSize: rs(13) },
     modalClose: {
       marginTop: rs(16),
       alignItems: 'center',

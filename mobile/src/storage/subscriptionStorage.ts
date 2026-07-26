@@ -128,11 +128,17 @@ export async function clearPremiumCache(): Promise<void> {
   await AsyncStorage.removeItem(CACHE_KEY);
 }
 
-/** Free plan account cap. Paid plans unlock more. */
+/** Free plan account cap. Paid plans unlock more (default 50; admin can raise). */
 export const FREE_ACCOUNT_LIMIT = 10;
 export const PREMIUM_ACCOUNT_LIMIT = 50;
 
-export function accountLimitForPlan(isPremium: boolean): number {
+export function accountLimitForPlan(
+  isPremium: boolean,
+  override?: number | null,
+): number {
+  if (override != null && Number.isFinite(override) && override > 0) {
+    return Math.floor(override);
+  }
   return isPremium ? PREMIUM_ACCOUNT_LIMIT : FREE_ACCOUNT_LIMIT;
 }
 

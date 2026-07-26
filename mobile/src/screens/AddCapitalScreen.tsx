@@ -55,7 +55,7 @@ export function AddCapitalScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { setDraft, accounts } = useAccounts();
-  const { isPremium } = useSubscription();
+  const { isPremium, maxAccounts } = useSubscription();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const scrollRef = useRef<ScrollView>(null);
@@ -125,6 +125,7 @@ export function AddCapitalScreen() {
       !guardAddAccount({
         currentCount: accounts.length,
         isPremium,
+        maxAccounts,
         onUpgrade: () => navigation.navigate('Subscription'),
       })
     ) {

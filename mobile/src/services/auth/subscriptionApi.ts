@@ -16,6 +16,7 @@ export type SubscriptionStatus = {
   plan: string | null;
   expiresAt: string | null;
   status: 'free' | 'pending' | 'active';
+  maxAccounts: number;
   pendingRequest: PendingSubscription | null;
 };
 
@@ -34,6 +35,7 @@ function mapStatus(json: Record<string, unknown>): SubscriptionStatus {
     (json.pending_request as Record<string, unknown> | null | undefined);
   const expiresAtRaw = json.expiresAt ?? json.expires_at;
   const active = Boolean(json.active);
+  const maxRaw = json.maxAccounts ?? json.max_accounts;
   return {
     active,
     plan: json.plan ? String(json.plan) : null,
@@ -41,6 +43,7 @@ function mapStatus(json: Record<string, unknown>): SubscriptionStatus {
     status:
       (json.status as SubscriptionStatus['status']) ??
       (active ? 'active' : pendingRaw ? 'pending' : 'free'),
+    maxAccounts: Number(maxRaw ?? (active ? 50 : 10)) || (active ? 50 : 10),
     pendingRequest: pendingRaw
       ? {
           id: String(pendingRaw.id),

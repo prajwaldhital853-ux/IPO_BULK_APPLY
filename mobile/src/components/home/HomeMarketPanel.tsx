@@ -49,6 +49,7 @@ const LIST_TABS: {
   metric: string;
   accent: string;
   headerBg: string;
+  headerBgDark: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
 }[] = [
   {
@@ -57,6 +58,7 @@ const LIST_TABS: {
     metric: 'Change %',
     accent: '#2E7D32',
     headerBg: '#E8F5E9',
+    headerBgDark: '#1B3320',
     icon: 'trending-up',
   },
   {
@@ -65,6 +67,7 @@ const LIST_TABS: {
     metric: 'Change %',
     accent: '#C62828',
     headerBg: '#FFEBEE',
+    headerBgDark: '#3A1B1B',
     icon: 'trending-down',
   },
   {
@@ -73,6 +76,7 @@ const LIST_TABS: {
     metric: 'Turnover',
     accent: '#1565C0',
     headerBg: '#E3F2FD',
+    headerBgDark: '#0D2137',
     icon: 'cash-multiple',
   },
   {
@@ -81,6 +85,7 @@ const LIST_TABS: {
     metric: 'Shares Traded',
     accent: '#00897B',
     headerBg: '#E0F2F1',
+    headerBgDark: '#0D2A28',
     icon: 'chart-bar',
   },
   {
@@ -89,6 +94,7 @@ const LIST_TABS: {
     metric: 'Transactions',
     accent: '#F57C00',
     headerBg: '#FFE8CC',
+    headerBgDark: '#3A2A12',
     icon: 'swap-horizontal',
   },
 ];
@@ -408,7 +414,13 @@ export function HomeMarketPanel({ active }: Props) {
         style={[
           styles.indexPill,
           {
-            backgroundColor: indexUp ? '#E8F5E9' : '#FFEBEE',
+            backgroundColor: isDark
+              ? indexUp
+                ? '#1B3320'
+                : '#3A1B1B'
+              : indexUp
+                ? '#E8F5E9'
+                : '#FFEBEE',
             borderColor: indexTint,
           },
         ]}
@@ -416,7 +428,14 @@ export function HomeMarketPanel({ active }: Props) {
         <Text style={[styles.indexName, { color: indexTint }]}>
           {indexQuote.name}
         </Text>
-        <Text style={styles.indexValue}>{fmtNum(indexQuote.current)}</Text>
+        <Text
+          style={[
+            styles.indexValue,
+            { color: isDark ? '#F5F5F5' : '#1A1A1A' },
+          ]}
+        >
+          {fmtNum(indexQuote.current)}
+        </Text>
         <Text style={[styles.indexChange, { color: indexTint }]}>
           {indexQuote.change != null
             ? `${indexQuote.change >= 0 ? '+ ' : ''}${fmtNum(indexQuote.change)}`
@@ -433,9 +452,9 @@ export function HomeMarketPanel({ active }: Props) {
         onPress={() => goMoversPage(0)}
       >
         <MaterialCommunityIcons
-          name="chart-line-variant"
-          size={rs(20)}
-          color="#2E7D32"
+          name="arrow-top-right"
+          size={rs(24)}
+          color={isDark ? '#81C784' : '#2E7D32'}
         />
       </Pressable>
       <Pressable
@@ -443,10 +462,9 @@ export function HomeMarketPanel({ active }: Props) {
         onPress={() => goMoversPage(1)}
       >
         <MaterialCommunityIcons
-          name="chart-line-variant"
-          size={rs(20)}
-          color="#C62828"
-          style={{ transform: [{ scaleY: -1 }] }}
+          name="arrow-bottom-right"
+          size={rs(24)}
+          color={isDark ? '#EF9A9A' : '#C62828'}
         />
       </Pressable>
     </View>
@@ -500,7 +518,13 @@ export function HomeMarketPanel({ active }: Props) {
             style={[
               styles.statusBadge,
               {
-                backgroundColor: isOpen ? '#E8F5E9' : '#FFEBEE',
+                backgroundColor: isDark
+                  ? isOpen
+                    ? '#1B3320'
+                    : '#3A1B1B'
+                  : isOpen
+                    ? '#E8F5E9'
+                    : '#FFEBEE',
               },
             ]}
           >
@@ -641,7 +665,14 @@ export function HomeMarketPanel({ active }: Props) {
               },
             ]}
           >
-            <View style={[styles.moverCardHead, { backgroundColor: tab.headerBg }]}>
+            <View
+              style={[
+                styles.moverCardHead,
+                {
+                  backgroundColor: isDark ? tab.headerBgDark : tab.headerBg,
+                },
+              ]}
+            >
               <View style={styles.moverCardTitleRow}>
                 <MaterialCommunityIcons
                   name={tab.icon}
@@ -683,7 +714,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     scroll: {
       paddingHorizontal: HOME_H_PAD,
-      paddingBottom: rs(100),
+      paddingBottom: rs(28),
       paddingTop: rs(4),
     },
     center: {
@@ -711,32 +742,32 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderWidth: 1.5,
     },
     indexName: { fontWeight: '800', fontSize: rs(13) },
-    indexValue: { color: c.text, fontWeight: '800', fontSize: rs(15) },
+    indexValue: { fontWeight: '800', fontSize: rs(15) },
     indexChange: { fontWeight: '700', fontSize: rs(12) },
     indexPct: { fontWeight: '700', fontSize: rs(12) },
     shortcutBtn: {
-      width: rs(42),
-      height: rs(42),
+      width: rs(44),
+      height: rs(44),
       borderRadius: rs(12),
       alignItems: 'center',
       justifyContent: 'center',
-      borderWidth: 1,
+      borderWidth: 1.5,
     },
     shortcutUp: {
       backgroundColor: isDark ? '#1B3A24' : '#E8F5E9',
-      borderColor: '#A5D6A7',
+      borderColor: isDark ? '#2E7D32' : '#A5D6A7',
     },
     shortcutDown: {
       backgroundColor: isDark ? '#3A1B1B' : '#FFEBEE',
-      borderColor: '#EF9A9A',
+      borderColor: isDark ? '#C62828' : '#EF9A9A',
     },
 
     summaryCard: {
       marginTop: rs(14),
       borderRadius: rs(16),
       borderWidth: 1,
-      borderColor: isDark ? c.borderMuted : '#E8C4C4',
-      backgroundColor: c.surface,
+      borderColor: isDark ? '#3A3A3A' : '#E8C4C4',
+      backgroundColor: isDark ? '#1C1C1C' : c.surface,
       padding: rs(14),
     },
     summaryHead: {
@@ -775,7 +806,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     kpiBox: {
       width: '48%',
       flexGrow: 1,
-      backgroundColor: isDark ? c.surfaceAlt : '#F3F5F0',
+      backgroundColor: isDark ? '#262626' : '#F3F5F0',
       borderRadius: rs(12),
       paddingHorizontal: rs(12),
       paddingVertical: rs(12),
@@ -830,11 +861,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     moversCarousel: {
       gap: rs(CARD_GAP),
       paddingRight: rs(CARD_PEEK),
+      alignItems: 'flex-start',
     },
     moverCard: {
       borderRadius: rs(18),
       borderWidth: 1,
-      backgroundColor: c.surface,
+      backgroundColor: isDark ? '#1C1C1C' : c.surface,
       overflow: 'hidden',
     },
     moverCardHead: {
@@ -851,18 +883,18 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     moverCardTitle: { fontWeight: '800', fontSize: rs(14) },
     moverCardMetric: {
-      color: '#9E9E9E',
+      color: isDark ? '#9E9E9E' : '#9E9E9E',
       fontSize: rs(12),
       fontWeight: '500',
     },
-    moverCardBody: { paddingHorizontal: rs(10), paddingBottom: rs(6) },
+    moverCardBody: { paddingHorizontal: rs(10), paddingBottom: rs(4) },
 
     listRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: rs(10),
+      paddingVertical: rs(9),
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.borderMuted,
+      borderBottomColor: isDark ? '#2A2A2A' : c.borderMuted,
       gap: rs(8),
     },
     rank: {
@@ -888,7 +920,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     price: { color: c.text, fontWeight: '800', fontSize: rs(13) },
     metric: { fontWeight: '700', fontSize: rs(11), marginTop: rs(2) },
     pctSmall: { fontSize: rs(10), fontWeight: '700', marginTop: rs(1) },
-    moreLink: { marginTop: rs(16), alignItems: 'center', paddingBottom: rs(8) },
+    moreLink: { marginTop: rs(10), alignItems: 'center', paddingBottom: rs(4) },
     moreLinkText: { color: c.primary, fontWeight: '700', fontSize: rs(13) },
   });
 }

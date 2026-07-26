@@ -13,6 +13,7 @@ export type PremiumInfo = {
   plan: string | null;
   expiresAt: string | null;
   status: 'free' | 'pending' | 'active';
+  maxAccounts: number;
   pendingRequest: PendingPremiumInfo | null;
 };
 
@@ -66,6 +67,7 @@ function mapPremium(raw: Record<string, unknown>): PremiumInfo {
     (raw.pending_request as Record<string, unknown> | null | undefined);
   const expiresAtRaw = raw.expiresAt ?? raw.expires_at;
   const active = Boolean(raw.active);
+  const maxRaw = raw.maxAccounts ?? raw.max_accounts;
   return {
     active,
     plan: raw.plan ? String(raw.plan) : null,
@@ -73,6 +75,7 @@ function mapPremium(raw: Record<string, unknown>): PremiumInfo {
     status:
       (raw.status as PremiumInfo['status']) ??
       (active ? 'active' : pendingRaw ? 'pending' : 'free'),
+    maxAccounts: Number(maxRaw ?? (active ? 50 : 10)) || (active ? 50 : 10),
     pendingRequest: pendingRaw
       ? {
           id: String(pendingRaw.id),

@@ -9,28 +9,44 @@ from sqlalchemy.orm import selectinload
 from ..db.models import PremiumEntitlement, SubscriptionRequest, User
 from .schemas import PendingRequestOut, PremiumOut, premium_from_row
 
-# Free tier: 10 MeroShare accounts. Paid plans unlock 50 accounts.
+# Free tier: 10 MeroShare accounts. Paid plans unlock 50 by default.
+# Admin can raise a user's cap (e.g. 100 / 200) via users.max_accounts.
+FREE_ACCOUNT_LIMIT = 10
+PREMIUM_ACCOUNT_LIMIT = 50
+
 PLAN_CATALOG: dict[str, dict[str, object]] = {
     'premium_6month': {
         'title': 'Premium 6 Months',
         'days': 180,
         'amountNpr': 300,
-        'maxAccounts': 50,
+        'maxAccounts': PREMIUM_ACCOUNT_LIMIT,
     },
     'premium_yearly': {
         'title': 'Premium Yearly',
         'days': 365,
         'amountNpr': 500,
-        'maxAccounts': 50,
+        'maxAccounts': PREMIUM_ACCOUNT_LIMIT,
     },
     # Legacy aliases (pending requests / old clients)
     'premium_monthly': {
         'title': 'Premium 6 Months',
         'days': 180,
         'amountNpr': 300,
-        'maxAccounts': 50,
+        'maxAccounts': PREMIUM_ACCOUNT_LIMIT,
     },
 }
+
+
+def effective_max_accounts(user: User, *, premium_active: bool) -> int:
+    override = getattr(user, 'max_accounts', None)
+    if override is not None:
+        try:
+            n = int(override)
+            if n > 0:
+                return n
+        except (TypeError, ValueError):
+            pass
+    return PREMIUM_ACCOUNT_LIMIT if premium_active else FREE_ACCOUNT_LIMIT
 
 
 def plan_info(plan_id: str) -> dict[str, object]:
@@ -98,15 +114,24 @@ async def build_premium_out(
     base = premium_from_row(
         user.premium.plan if user.premium else None,
         user.premium.expires_at if user.premium else None,
+        max_accounts=FREE_ACCOUNT_LIMIT,
     )
+    max_acc = effective_max_accounts(user, premium_active=base.active)
     if base.active:
-        return base.model_copy(update={'status': 'active', 'pending_request': None})
+        return base.model_copy(
+            update={
+                'status': 'active',
+                'pending_request': None,
+                'max_accounts': max_acc,
+            }
+        )
     if pending is not None:
         return PremiumOut(
             active=False,
             plan=None,
             expires_at=None,
             status='pending',
+            maxAccounts=max_acc,
             pending_request=_pending_out(pending),
         )
     return PremiumOut(
@@ -114,6 +139,7 @@ async def build_premium_out(
         plan=None,
         expires_at=None,
         status='free',
+        maxAccounts=max_acc,
         pending_request=None,
     )
 
