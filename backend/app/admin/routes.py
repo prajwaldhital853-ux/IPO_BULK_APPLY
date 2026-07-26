@@ -245,8 +245,10 @@ async def admin_update_settings(
     popup_notice = None
     if body.popup_notice is not None:
         popup_notice = {}
-        if body.popup_notice.clear_image:
-            popup_notice['clear_image'] = '1'
+        if body.popup_notice.clear_all or body.popup_notice.clear_image:
+            popup_notice['clear_all'] = '1'
+        elif body.popup_notice.delete_id:
+            popup_notice['delete_id'] = body.popup_notice.delete_id
         elif body.popup_notice.image_base64:
             popup_notice['image_base64'] = body.popup_notice.image_base64
             popup_notice['image_mime'] = 'image/jpeg'
@@ -329,6 +331,13 @@ async def admin_upload_popup_notice(
     db: AsyncSession = Depends(get_db),
 ) -> AdminSettingsOut:
     import base64
+    import uuid as _uuid
+
+    from ..public_settings import (
+        _MAX_POPUP_NOTICES,
+        load_popup_notice_items,
+        serialize_popup_notices,
+    )
 
     mime = (file.content_type or '').lower().strip()
     if mime not in _ALLOWED_QR_MIME:
@@ -343,8 +352,22 @@ async def admin_upload_popup_notice(
         raise HTTPException(status_code=400, detail='Image too large (max 4 MB)')
 
     row = await get_or_create_settings(db)
-    row.popup_notice_image_b64 = base64.b64encode(raw).decode('ascii')
-    row.popup_notice_image_mime = 'image/jpeg' if mime == 'image/jpg' else mime
+    items = load_popup_notice_items(row)
+    if len(items) >= _MAX_POPUP_NOTICES:
+        raise HTTPException(
+            status_code=400,
+            detail=f'Maximum {_MAX_POPUP_NOTICES} notices allowed',
+        )
+    items.append(
+        {
+            'id': str(_uuid.uuid4()),
+            'image_b64': base64.b64encode(raw).decode('ascii'),
+            'mime': 'image/jpeg' if mime == 'image/jpg' else mime,
+        }
+    )
+    row.popup_notices_json = serialize_popup_notices(items)
+    row.popup_notice_image_b64 = None
+    row.popup_notice_image_mime = None
     row.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(row)
@@ -352,13 +375,34 @@ async def admin_upload_popup_notice(
 
 
 @router.delete('/settings/popup-notice', response_model=AdminSettingsOut)
-async def admin_delete_popup_notice(
+async def admin_delete_all_popup_notices(
     _: AdminUser = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> AdminSettingsOut:
     row = await get_or_create_settings(db)
+    row.popup_notices_json = '[]'
     row.popup_notice_image_b64 = None
     row.popup_notice_image_mime = None
+    row.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(row)
+    return _settings_out(row)
+
+
+@router.delete('/settings/popup-notice/{notice_id}', response_model=AdminSettingsOut)
+async def admin_delete_popup_notice(
+    notice_id: str,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminSettingsOut:
+    from ..public_settings import load_popup_notice_items, serialize_popup_notices
+
+    row = await get_or_create_settings(db)
+    items = [x for x in load_popup_notice_items(row) if x['id'] != notice_id]
+    row.popup_notices_json = serialize_popup_notices(items)
+    if notice_id == 'legacy' or not items:
+        row.popup_notice_image_b64 = None
+        row.popup_notice_image_mime = None
     row.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(row)

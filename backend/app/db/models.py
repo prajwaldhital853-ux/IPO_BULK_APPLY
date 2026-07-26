@@ -113,8 +113,11 @@ class SiteSettings(Base):
     payment_whatsapp: Mapped[str] = mapped_column(String(32), default='')
 
     # Startup popup notice image (shown when app opens). Null = no notice.
+    # Legacy single-image fields (migrated into popup_notices_json on read).
     popup_notice_image_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
     popup_notice_image_mime: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # JSON array of {id, image_b64, mime} — shown serially on app open.
+    popup_notices_json: Mapped[str] = mapped_column(Text, default='[]')
 
     contact_company_name: Mapped[str] = mapped_column(String(256), default='')
     contact_email: Mapped[str] = mapped_column(String(320), default='')

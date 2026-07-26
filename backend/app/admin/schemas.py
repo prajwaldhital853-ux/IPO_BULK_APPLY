@@ -149,14 +149,26 @@ class ContactSettingsIn(BaseModel):
     model_config = {'populate_by_name': True}
 
 
-class PopupNoticeOut(BaseModel):
-    image_url: str | None = Field(default=None, alias='imageUrl')
+class PopupNoticeItemOut(BaseModel):
+    id: str
+    image_url: str = Field(alias='imageUrl')
+
+    model_config = {'populate_by_name': True}
+
+
+class PopupNoticesOut(BaseModel):
+    items: list[PopupNoticeItemOut] = Field(default_factory=list)
 
     model_config = {'populate_by_name': True}
 
 
 class PopupNoticeIn(BaseModel):
+    """Append, delete one, or clear all startup notices."""
+
     image_base64: str | None = Field(default=None, alias='imageBase64')
+    delete_id: str | None = Field(default=None, alias='deleteId')
+    clear_all: bool = Field(default=False, alias='clearAll')
+    # Legacy aliases kept for older clients
     clear_image: bool = Field(default=False, alias='clearImage')
 
     model_config = {'populate_by_name': True}
@@ -166,7 +178,7 @@ class AdminSettingsOut(BaseModel):
     admin_email: str = Field(alias='adminEmail')
     payment: PaymentSettingsOut
     contact: ContactSettingsOut
-    popup_notice: PopupNoticeOut = Field(alias='popupNotice')
+    popup_notice: PopupNoticesOut = Field(alias='popupNotice')
 
     model_config = {'populate_by_name': True}
 
@@ -201,8 +213,8 @@ class AdminResetPasswordIn(BaseModel):
 class PublicAppSettingsOut(BaseModel):
     payment: PaymentSettingsOut
     contact: ContactSettingsOut
-    popup_notice: PopupNoticeOut = Field(
-        default_factory=lambda: PopupNoticeOut(imageUrl=None),
+    popup_notice: PopupNoticesOut = Field(
+        default_factory=PopupNoticesOut,
         alias='popupNotice',
     )
 

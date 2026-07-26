@@ -106,20 +106,48 @@ async def payment_qr_image(db: AsyncSession = Depends(get_db)) -> Response:
 
 
 @router.get('/popup-notice')
-async def popup_notice_image(db: AsyncSession = Depends(get_db)) -> Response:
+async def popup_notice_image_legacy(db: AsyncSession = Depends(get_db)) -> Response:
+    """Serve first notice (legacy single URL). Prefer /popup-notice/{id}."""
+    from .public_settings import load_popup_notice_items
+
     row = await get_or_create_settings(db)
-    if not getattr(row, 'popup_notice_image_b64', None):
+    items = load_popup_notice_items(row)
+    if not items:
         raise HTTPException(status_code=404, detail='No popup notice uploaded')
     import base64
 
+    first = items[0]
     try:
-        data = base64.b64decode(row.popup_notice_image_b64)
+        data = base64.b64decode(first['image_b64'])
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail='Invalid notice image data') from e
-    mime = row.popup_notice_image_mime or 'image/jpeg'
     return Response(
         content=data,
-        media_type=mime,
+        media_type=first.get('mime') or 'image/jpeg',
+        headers={'Cache-Control': 'public, max-age=300'},
+    )
+
+
+@router.get('/popup-notice/{notice_id}')
+async def popup_notice_image(
+    notice_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    from .public_settings import find_popup_notice
+
+    row = await get_or_create_settings(db)
+    item = find_popup_notice(row, notice_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail='Notice not found')
+    import base64
+
+    try:
+        data = base64.b64decode(item['image_b64'])
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail='Invalid notice image data') from e
+    return Response(
+        content=data,
+        media_type=item.get('mime') or 'image/jpeg',
         headers={'Cache-Control': 'public, max-age=300'},
     )
 

@@ -6,11 +6,14 @@ import uuid
 from .admin.schemas import (
     ContactSettingsOut,
     PaymentSettingsOut,
-    PopupNoticeOut,
+    PopupNoticeItemOut,
+    PopupNoticesOut,
     PublicAppSettingsOut,
     SocialLinkOut,
 )
 from .db.models import SiteSettings
+
+_MAX_POPUP_NOTICES = 10
 
 
 def payment_qr_public_path(row: SiteSettings) -> str | None:
@@ -20,11 +23,73 @@ def payment_qr_public_path(row: SiteSettings) -> str | None:
     return None
 
 
-def popup_notice_public_path(row: SiteSettings) -> str | None:
-    if getattr(row, 'popup_notice_image_b64', None):
-        stamp = int(row.updated_at.timestamp()) if row.updated_at else 0
-        return f'/app/popup-notice?v={stamp}'
+def _notice_stamp(row: SiteSettings) -> int:
+    return int(row.updated_at.timestamp()) if row.updated_at else 0
+
+
+def load_popup_notice_items(row: SiteSettings) -> list[dict]:
+    """Return raw notice dicts [{id, image_b64, mime}, ...] including legacy migrate."""
+    raw = getattr(row, 'popup_notices_json', None) or '[]'
+    items: list[dict] = []
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            for entry in data:
+                if not isinstance(entry, dict):
+                    continue
+                nid = str(entry.get('id') or '').strip()
+                b64 = str(entry.get('image_b64') or '').strip()
+                if not nid or not b64:
+                    continue
+                items.append(
+                    {
+                        'id': nid,
+                        'image_b64': b64,
+                        'mime': str(entry.get('mime') or 'image/jpeg'),
+                    }
+                )
+    except json.JSONDecodeError:
+        items = []
+
+    # Migrate legacy single-image columns into the list when JSON is empty.
+    legacy_b64 = getattr(row, 'popup_notice_image_b64', None)
+    if not items and legacy_b64:
+        items.append(
+            {
+                'id': 'legacy',
+                'image_b64': legacy_b64,
+                'mime': getattr(row, 'popup_notice_image_mime', None) or 'image/jpeg',
+            }
+        )
+    return items
+
+
+def serialize_popup_notices(items: list[dict]) -> str:
+    payload = []
+    for entry in items:
+        nid = str(entry.get('id') or '').strip() or str(uuid.uuid4())
+        b64 = str(entry.get('image_b64') or '').strip()
+        if not b64:
+            continue
+        payload.append(
+            {
+                'id': nid,
+                'image_b64': b64,
+                'mime': str(entry.get('mime') or 'image/jpeg'),
+            }
+        )
+    return json.dumps(payload)
+
+
+def find_popup_notice(row: SiteSettings, notice_id: str) -> dict | None:
+    for item in load_popup_notice_items(row):
+        if item['id'] == notice_id:
+            return item
     return None
+
+
+def popup_notice_item_path(row: SiteSettings, notice_id: str) -> str:
+    return f'/app/popup-notice/{notice_id}?v={_notice_stamp(row)}'
 
 
 def _payment_out(row: SiteSettings) -> PaymentSettingsOut:
@@ -156,8 +221,15 @@ def _contact_out(row: SiteSettings) -> ContactSettingsOut:
     )
 
 
-def _popup_notice_out(row: SiteSettings) -> PopupNoticeOut:
-    return PopupNoticeOut(imageUrl=popup_notice_public_path(row))
+def _popup_notice_out(row: SiteSettings) -> PopupNoticesOut:
+    items = [
+        PopupNoticeItemOut(
+            id=item['id'],
+            imageUrl=popup_notice_item_path(row, item['id']),
+        )
+        for item in load_popup_notice_items(row)
+    ]
+    return PopupNoticesOut(items=items)
 
 
 def settings_to_public(row: SiteSettings) -> PublicAppSettingsOut:

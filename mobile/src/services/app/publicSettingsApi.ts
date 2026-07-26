@@ -28,10 +28,15 @@ export type ContactSettings = {
   socialLinks: SocialLink[];
 };
 
+export type PopupNoticeItem = {
+  id: string;
+  imageUrl: string;
+};
+
 export type PublicAppSettings = {
   payment: PaymentSettings;
   contact: ContactSettings;
-  popupNotice: { imageUrl: string | null };
+  popupNotice: { items: PopupNoticeItem[] };
 };
 
 const FALLBACK: PublicAppSettings = {
@@ -61,7 +66,7 @@ const FALLBACK: PublicAppSettings = {
       },
     ],
   },
-  popupNotice: { imageUrl: null },
+  popupNotice: { items: [] },
 };
 
 function mapPayment(json: Record<string, unknown>): PaymentSettings {
@@ -148,13 +153,25 @@ export async function fetchPublicAppSettings(): Promise<PublicAppSettings> {
       string,
       unknown
     >;
-    const rawNotice = notice.imageUrl ?? notice.image_url;
+    const rawItems = Array.isArray(notice.items) ? notice.items : [];
+    const items: PopupNoticeItem[] = rawItems
+      .map((entry, i) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const row = entry as Record<string, unknown>;
+        const id = String(row.id ?? '').trim() || `notice-${i}`;
+        const rawImage = row.imageUrl ?? row.image_url;
+        if (!rawImage) return null;
+        return { id, imageUrl: String(rawImage) };
+      })
+      .filter(Boolean) as PopupNoticeItem[];
+    if (!items.length) {
+      const legacy = notice.imageUrl ?? notice.image_url;
+      if (legacy) items.push({ id: 'legacy', imageUrl: String(legacy) });
+    }
     return {
       payment: mapPayment((json.payment as Record<string, unknown>) ?? {}),
       contact: mapContact((json.contact as Record<string, unknown>) ?? {}),
-      popupNotice: {
-        imageUrl: rawNotice ? String(rawNotice) : null,
-      },
+      popupNotice: { items },
     };
   } catch {
     return FALLBACK;

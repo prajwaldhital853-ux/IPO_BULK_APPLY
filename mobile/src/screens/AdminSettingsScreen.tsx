@@ -167,7 +167,9 @@ export function AdminSettingsScreen() {
   const [noticeBusy, setNoticeBusy] = useState(false);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
-  const [noticeImageUrl, setNoticeImageUrl] = useState<string | null>(null);
+  const [noticeItems, setNoticeItems] = useState<
+    { id: string; imageUrl: string }[]
+  >([]);
 
   const [qrText, setQrText] = useState('');
   const [bankName, setBankName] = useState('');
@@ -191,7 +193,12 @@ export function AdminSettingsScreen() {
     setSettings(s);
     setQrText(s.payment.qrText);
     setQrImageUrl(resolveQrImageUrl(s.payment.qrImageUrl));
-    setNoticeImageUrl(resolveQrImageUrl(s.popupNotice?.imageUrl));
+    setNoticeItems(
+      (s.popupNotice?.items ?? []).map((item) => ({
+        id: item.id,
+        imageUrl: resolveQrImageUrl(item.imageUrl) ?? item.imageUrl,
+      })),
+    );
     setBankName(s.payment.bankName);
     setAccountName(s.payment.accountName);
     setAccountNumber(s.payment.accountNumber);
@@ -296,6 +303,10 @@ export function AdminSettingsScreen() {
 
   const onPickNoticeFromGallery = async () => {
     if (!token) return;
+    if (noticeItems.length >= 10) {
+      Alert.alert('Limit reached', 'You can add up to 10 startup notices.');
+      return;
+    }
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert(
@@ -318,8 +329,8 @@ export function AdminSettingsScreen() {
       const updated = await uploadAdminPopupNotice(token, asset.uri, mime);
       applySettings(updated);
       Alert.alert(
-        'Uploaded',
-        'Startup notice updated. Users will see it when they open the app.',
+        'Added',
+        `Notice ${updated.popupNotice.items.length} added. Users see notices in order when they open the app.`,
       );
     } catch (e) {
       Alert.alert('Upload failed', e instanceof Error ? e.message : 'Try again');
@@ -328,11 +339,11 @@ export function AdminSettingsScreen() {
     }
   };
 
-  const onDeleteNotice = () => {
+  const onDeleteNotice = (noticeId: string) => {
     if (!token) return;
     Alert.alert(
-      'Remove startup notice?',
-      'Users will no longer see a popup when they open the app.',
+      'Remove this notice?',
+      'It will no longer appear in the startup popup sequence.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -340,10 +351,39 @@ export function AdminSettingsScreen() {
           style: 'destructive',
           onPress: () => {
             setNoticeBusy(true);
+            void deleteAdminPopupNotice(token, noticeId)
+              .then((updated) => {
+                applySettings(updated);
+              })
+              .catch((e: unknown) =>
+                Alert.alert(
+                  'Delete failed',
+                  e instanceof Error ? e.message : 'Try again',
+                ),
+              )
+              .finally(() => setNoticeBusy(false));
+          },
+        },
+      ],
+    );
+  };
+
+  const onClearAllNotices = () => {
+    if (!token || !noticeItems.length) return;
+    Alert.alert(
+      'Remove all notices?',
+      'Users will no longer see any startup popup.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete all',
+          style: 'destructive',
+          onPress: () => {
+            setNoticeBusy(true);
             void deleteAdminPopupNotice(token)
               .then((updated) => {
                 applySettings(updated);
-                Alert.alert('Removed', 'Startup notice deleted.');
+                Alert.alert('Removed', 'All startup notices deleted.');
               })
               .catch((e: unknown) =>
                 Alert.alert(
@@ -465,27 +505,42 @@ export function AdminSettingsScreen() {
             <Text style={styles.hint}>Admin: {settings.adminEmail}</Text>
           ) : null}
 
-          <Text style={styles.section}>Startup popup notice</Text>
+          <Text style={styles.section}>Startup popup notices</Text>
           <Text style={styles.help}>
-            Upload an image from your gallery. It appears as a centered popup when
-            users open the app (they can close it with ×). Delete to show nothing.
+            Add multiple notice images from gallery. Users see them one by one when
+            the app opens (1 → 2 → 3…). Close with × or by tapping beside the
+            notice. Up to 10 notices.
           </Text>
 
           <View style={styles.qrPreview}>
             <Text style={styles.qrPreviewLabel}>
-              {noticeImageUrl ? 'Current notice' : 'No notice set'}
+              {noticeItems.length
+                ? `${noticeItems.length} notice(s) — shown in this order`
+                : 'No notices set'}
             </Text>
-            {noticeImageUrl ? (
-              <Image
-                source={{ uri: noticeImageUrl }}
-                style={styles.noticeImage}
-                resizeMode="contain"
-              />
+            {noticeItems.length ? (
+              noticeItems.map((item, i) => (
+                <View key={item.id} style={styles.noticeRow}>
+                  <Text style={styles.noticeRank}>#{i + 1}</Text>
+                  <Image
+                    source={{ uri: item.imageUrl }}
+                    style={styles.noticeThumb}
+                    resizeMode="cover"
+                  />
+                  <Pressable
+                    style={[styles.noticeDeleteBtn, noticeBusy && styles.btnDisabled]}
+                    disabled={noticeBusy}
+                    onPress={() => onDeleteNotice(item.id)}
+                  >
+                    <Ionicons name="trash-outline" size={rs(16)} color="#fff" />
+                  </Pressable>
+                </View>
+              ))
             ) : (
               <View style={styles.noticeEmpty}>
                 <Ionicons name="image-outline" size={rs(36)} color={colors.textMuted} />
                 <Text style={styles.noticeEmptyText}>
-                  Add a poster / notice image
+                  Add notice images from gallery
                 </Text>
               </View>
             )}
@@ -500,20 +555,18 @@ export function AdminSettingsScreen() {
                 ) : (
                   <>
                     <Ionicons name="images-outline" size={rs(16)} color={colors.fabIcon} />
-                    <Text style={styles.qrBtnText}>
-                      {noticeImageUrl ? 'Replace from gallery' : 'Add from gallery'}
-                    </Text>
+                    <Text style={styles.qrBtnText}>Add from gallery</Text>
                   </>
                 )}
               </Pressable>
-              {noticeImageUrl ? (
+              {noticeItems.length ? (
                 <Pressable
                   style={[styles.qrBtnDanger, noticeBusy && styles.btnDisabled]}
                   disabled={noticeBusy}
-                  onPress={onDeleteNotice}
+                  onPress={onClearAllNotices}
                 >
                   <Ionicons name="trash-outline" size={rs(16)} color="#fff" />
-                  <Text style={styles.qrBtnText}>Delete notice</Text>
+                  <Text style={styles.qrBtnText}>Delete all</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -748,6 +801,33 @@ function makeStyles(c: ThemeColors) {
       height: rs(220),
       borderRadius: rs(8),
       backgroundColor: '#fff',
+    },
+    noticeRow: {
+      alignSelf: 'stretch',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      marginBottom: rs(10),
+    },
+    noticeRank: {
+      color: c.textMuted,
+      fontWeight: '800',
+      fontSize: rs(12),
+      width: rs(28),
+    },
+    noticeThumb: {
+      flex: 1,
+      height: rs(72),
+      borderRadius: rs(8),
+      backgroundColor: c.surfaceAlt,
+    },
+    noticeDeleteBtn: {
+      width: rs(36),
+      height: rs(36),
+      borderRadius: rs(10),
+      backgroundColor: c.danger,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     noticeEmpty: {
       width: '100%',

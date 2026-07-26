@@ -64,6 +64,13 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     'ADD COLUMN popup_notice_image_mime VARCHAR(64)'
                 )
             )
+        if 'popup_notices_json' not in cols:
+            sync_conn.execute(
+                text(
+                    "ALTER TABLE site_settings "
+                    "ADD COLUMN popup_notices_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            )
 
 
 async def init_db() -> None:
@@ -104,6 +111,14 @@ def _apply_postgres_patches(sync_conn) -> None:
             text(
                 'ALTER TABLE site_settings '
                 'ADD COLUMN IF NOT EXISTS popup_notice_image_mime VARCHAR(64)'
+            )
+        )
+    if 'popup_notices_json' not in cols:
+        sync_conn.execute(
+            text(
+                "ALTER TABLE site_settings "
+                "ADD COLUMN IF NOT EXISTS popup_notices_json TEXT "
+                "NOT NULL DEFAULT '[]'"
             )
         )
 

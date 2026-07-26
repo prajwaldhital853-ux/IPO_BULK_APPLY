@@ -78,8 +78,13 @@ export type AdminContactSettings = {
   socialLinks: AdminSocialLink[];
 };
 
+export type AdminPopupNoticeItem = {
+  id: string;
+  imageUrl: string;
+};
+
 export type AdminPopupNotice = {
-  imageUrl: string | null;
+  items: AdminPopupNoticeItem[];
 };
 
 export type AdminSettings = {
@@ -369,14 +374,29 @@ function mapAdminSettings(json: Record<string, unknown>): AdminSettings {
     string,
     unknown
   >;
-  const rawImage = notice.imageUrl ?? notice.image_url;
+  const rawItems = Array.isArray(notice.items) ? notice.items : [];
+  const items: AdminPopupNoticeItem[] = rawItems
+    .map((entry, i) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const row = entry as Record<string, unknown>;
+      const id = String(row.id ?? '').trim() || `notice-${i}`;
+      const rawImage = row.imageUrl ?? row.image_url;
+      if (!rawImage) return null;
+      return { id, imageUrl: String(rawImage) };
+    })
+    .filter(Boolean) as AdminPopupNoticeItem[];
+  // Legacy single imageUrl support
+  if (!items.length) {
+    const legacy = notice.imageUrl ?? notice.image_url;
+    if (legacy) {
+      items.push({ id: 'legacy', imageUrl: String(legacy) });
+    }
+  }
   return {
     adminEmail: String(json.adminEmail ?? ''),
     payment: mapPaymentSettings((json.payment as Record<string, unknown>) ?? {}),
     contact: mapContactSettings((json.contact as Record<string, unknown>) ?? {}),
-    popupNotice: {
-      imageUrl: rawImage ? String(rawImage) : null,
-    },
+    popupNotice: { items },
   };
 }
 
@@ -396,6 +416,8 @@ export async function updateAdminSettings(
     contact?: AdminContactSettings;
     popupNotice?: {
       imageBase64?: string;
+      deleteId?: string;
+      clearAll?: boolean;
       clearImage?: boolean;
     };
   },
@@ -493,9 +515,15 @@ export async function uploadAdminPopupNotice(
 
 export async function deleteAdminPopupNotice(
   token: string,
+  noticeId?: string,
 ): Promise<AdminSettings> {
+  if (noticeId) {
+    return updateAdminSettings(token, {
+      popupNotice: { deleteId: noticeId },
+    });
+  }
   return updateAdminSettings(token, {
-    popupNotice: { clearImage: true },
+    popupNotice: { clearAll: true },
   });
 }
 

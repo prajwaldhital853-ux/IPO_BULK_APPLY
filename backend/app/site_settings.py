@@ -298,10 +298,32 @@ async def update_site_settings(
             row.contact_tiktok_url = tt_link or None
 
     if popup_notice is not None:
-        if popup_notice.get('clear_image'):
+        from .public_settings import (
+            _MAX_POPUP_NOTICES,
+            load_popup_notice_items,
+            serialize_popup_notices,
+        )
+        import uuid as _uuid
+
+        if popup_notice.get('clear_all') or popup_notice.get('clear_image'):
+            row.popup_notices_json = '[]'
             row.popup_notice_image_b64 = None
             row.popup_notice_image_mime = None
+        elif popup_notice.get('delete_id'):
+            delete_id = str(popup_notice['delete_id']).strip()
+            items = [
+                x
+                for x in load_popup_notice_items(row)
+                if x['id'] != delete_id
+            ]
+            row.popup_notices_json = serialize_popup_notices(items)
+            if delete_id == 'legacy' or not items:
+                row.popup_notice_image_b64 = None
+                row.popup_notice_image_mime = None
         elif popup_notice.get('image_base64'):
+            items = load_popup_notice_items(row)
+            if len(items) >= _MAX_POPUP_NOTICES:
+                raise ValueError(f'Maximum {_MAX_POPUP_NOTICES} notices allowed')
             encoded, mime = _decode_uploaded_image(
                 str(popup_notice['image_base64']),
                 default_mime=str(
@@ -309,8 +331,17 @@ async def update_site_settings(
                 ),
                 max_bytes=4 * 1024 * 1024,
             )
-            row.popup_notice_image_b64 = encoded
-            row.popup_notice_image_mime = mime
+            items.append(
+                {
+                    'id': str(_uuid.uuid4()),
+                    'image_b64': encoded,
+                    'mime': mime,
+                }
+            )
+            row.popup_notices_json = serialize_popup_notices(items)
+            # Clear legacy single slot once multi-list is in use.
+            row.popup_notice_image_b64 = None
+            row.popup_notice_image_mime = None
 
     row.updated_at = datetime.now(UTC)
     await db.flush()
