@@ -422,6 +422,13 @@ async function fetchAllSecurities(): Promise<SecurityQuote[]> {
   return [];
 }
 
+function fmtClock(hour24: number, minute: number): string {
+  const h12 = hour24 % 12 || 12;
+  const ampm = hour24 >= 12 ? 'PM' : 'AM';
+  return `${h12}:${String(minute).padStart(2, '0')} ${ampm}`;
+}
+
+/** Synthetic NEPSE session curve (11:00 AM – 3:00 PM) when live ticks aren't available. */
 function buildChartPoints(
   previousClose: number | null,
   current: number | null,
@@ -429,15 +436,26 @@ function buildChartPoints(
   if (previousClose == null || current == null) return [];
   const start = previousClose;
   const end = current;
-  const labels = ['11:00', '11:15', '11:30', '11:45', '12:00', '12:15', '12:30', '12:45', '13:00', '13:15'];
+  const startMin = 11 * 60;
+  const endMin = 15 * 60;
+  const step = 5;
+  const total = Math.floor((endMin - startMin) / step);
   const points: ChartPoint[] = [];
-  for (let i = 0; i < labels.length; i += 1) {
-    const t = i / (labels.length - 1);
-    const wave = Math.sin(t * Math.PI * 1.6) * Math.abs(end - start) * 0.08;
-    const value = start + (end - start) * t + wave * (1 - Math.abs(t - 0.5) * 2);
-    points.push({ label: labels[i]!, value });
+  for (let i = 0; i <= total; i += 1) {
+    const mins = startMin + i * step;
+    const t = i / total;
+    const wave =
+      Math.sin(t * Math.PI * 2.4) * Math.abs(end - start) * 0.12 +
+      Math.sin(t * Math.PI * 5.1) * Math.abs(end - start) * 0.04;
+    const value =
+      i === total
+        ? end
+        : start + (end - start) * t + wave * (1 - Math.abs(t - 0.5) * 1.2);
+    points.push({
+      label: fmtClock(Math.floor(mins / 60), mins % 60),
+      value,
+    });
   }
-  points[points.length - 1] = { label: labels[labels.length - 1]!, value: end };
   return points;
 }
 

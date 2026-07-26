@@ -187,11 +187,48 @@ async def reset_password_with_otp(
     await db.delete(otp_row)
 
 
+def _decode_uploaded_image(
+    raw_b64: str,
+    *,
+    default_mime: str = 'image/jpeg',
+    max_bytes: int = 4 * 1024 * 1024,
+) -> tuple[str, str]:
+    """Return (ascii_b64, mime) after validating an uploaded image payload."""
+    import base64
+    import re
+
+    mime = default_mime.strip().lower()
+    payload = raw_b64.strip()
+    match = re.match(
+        r'^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$',
+        payload,
+        flags=re.DOTALL,
+    )
+    if match:
+        mime = match.group(1).lower()
+        payload = match.group(2)
+    payload = re.sub(r'\s+', '', payload)
+    try:
+        data = base64.b64decode(payload, validate=False)
+    except Exception as e:  # noqa: BLE001
+        raise ValueError('Invalid image data') from e
+    if not data:
+        raise ValueError('Empty image')
+    if len(data) > max_bytes:
+        raise ValueError(f'Image too large (max {max_bytes // (1024 * 1024)} MB)')
+    if mime == 'image/jpg':
+        mime = 'image/jpeg'
+    if mime not in {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}:
+        raise ValueError('Upload a JPG, PNG, WEBP, or GIF image')
+    return base64.b64encode(data).decode('ascii'), mime
+
+
 async def update_site_settings(
     db: AsyncSession,
     *,
     payment: dict[str, str] | None = None,
     contact: dict[str, str | None] | None = None,
+    popup_notice: dict[str, str] | None = None,
 ) -> SiteSettings:
     row = await get_or_create_settings(db)
 
@@ -208,38 +245,12 @@ async def update_site_settings(
             row.payment_qr_image_b64 = None
             row.payment_qr_image_mime = None
         elif payment.get('qr_image_base64'):
-            import base64
-            import re
-
-            raw_b64 = str(payment['qr_image_base64']).strip()
-            mime = str(payment.get('qr_image_mime') or 'image/jpeg').strip().lower()
-            match = re.match(
-                r'^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$',
-                raw_b64,
-                flags=re.DOTALL,
+            encoded, mime = _decode_uploaded_image(
+                str(payment['qr_image_base64']),
+                default_mime=str(payment.get('qr_image_mime') or 'image/jpeg'),
+                max_bytes=2 * 1024 * 1024,
             )
-            if match:
-                mime = match.group(1).lower()
-                raw_b64 = match.group(2)
-            raw_b64 = re.sub(r'\s+', '', raw_b64)
-            try:
-                data = base64.b64decode(raw_b64, validate=False)
-            except Exception as e:  # noqa: BLE001
-                raise ValueError('Invalid QR image data') from e
-            if not data:
-                raise ValueError('Empty QR image')
-            if len(data) > 2 * 1024 * 1024:
-                raise ValueError('Image too large (max 2 MB)')
-            if mime == 'image/jpg':
-                mime = 'image/jpeg'
-            if mime not in {
-                'image/jpeg',
-                'image/png',
-                'image/webp',
-                'image/gif',
-            }:
-                raise ValueError('Upload a JPG, PNG, WEBP, or GIF image')
-            row.payment_qr_image_b64 = base64.b64encode(data).decode('ascii')
+            row.payment_qr_image_b64 = encoded
             row.payment_qr_image_mime = mime
 
     if contact is not None:
@@ -285,6 +296,21 @@ async def update_site_settings(
             )
             row.contact_facebook_url = fb_link or None
             row.contact_tiktok_url = tt_link or None
+
+    if popup_notice is not None:
+        if popup_notice.get('clear_image'):
+            row.popup_notice_image_b64 = None
+            row.popup_notice_image_mime = None
+        elif popup_notice.get('image_base64'):
+            encoded, mime = _decode_uploaded_image(
+                str(popup_notice['image_base64']),
+                default_mime=str(
+                    popup_notice.get('image_mime') or 'image/jpeg',
+                ),
+                max_bytes=4 * 1024 * 1024,
+            )
+            row.popup_notice_image_b64 = encoded
+            row.popup_notice_image_mime = mime
 
     row.updated_at = datetime.now(UTC)
     await db.flush()

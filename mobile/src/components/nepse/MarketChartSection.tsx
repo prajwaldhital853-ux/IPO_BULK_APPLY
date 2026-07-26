@@ -85,21 +85,23 @@ export function MarketChartSection({
           style={styles.dropdown}
           onPress={() => setIndexMenuOpen(true)}
         >
+          <Ionicons name="options-outline" size={rs(14)} color={colors.primary} />
           <Text style={styles.dropdownText} numberOfLines={1}>
             {indexQuote.name}
           </Text>
-          <Ionicons name="chevron-down" size={rs(14)} color={colors.textMuted} />
+          <Ionicons name="chevron-down" size={rs(14)} color={colors.primary} />
         </Pressable>
         <Pressable
           style={styles.dropdown}
           onPress={() => setRangeMenuOpen(true)}
         >
+          <Ionicons name="calendar-outline" size={rs(14)} color={colors.primary} />
           <Text style={styles.dropdownText}>{rangeLabel}</Text>
-          <Ionicons name="chevron-down" size={rs(14)} color={colors.textMuted} />
+          <Ionicons name="chevron-down" size={rs(14)} color={colors.primary} />
         </Pressable>
         {onSearchPress ? (
           <Pressable style={styles.searchBtn} onPress={onSearchPress} hitSlop={8}>
-            <Ionicons name="search" size={rs(18)} color={colors.text} />
+            <Ionicons name="search" size={rs(18)} color="#fff" />
           </Pressable>
         ) : null}
       </View>
@@ -109,7 +111,8 @@ export function MarketChartSection({
         isDark={isDark}
         up={up}
         loading={chartLoading}
-        height={rs(200)}
+        height={rs(210)}
+        backgroundColor={isDark ? colors.bg : '#F5F7F0'}
       />
 
       <Modal visible={indexMenuOpen} transparent animationType="fade">
@@ -188,15 +191,30 @@ function makeStyles(c: ThemeColors) {
     dropdown: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(4),
-      paddingHorizontal: rs(10),
-      paddingVertical: rs(7),
-      borderRadius: rs(8),
+      gap: rs(5),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(9),
+      borderRadius: rs(12),
       backgroundColor: c.surfaceAlt,
-      maxWidth: rs(130),
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.borderMuted,
+      maxWidth: rs(140),
     },
-    dropdownText: { color: c.text, fontSize: rs(12), fontWeight: '600', flexShrink: 1 },
-    searchBtn: { marginLeft: 'auto', padding: rs(6) },
+    dropdownText: {
+      color: c.primary,
+      fontSize: rs(12),
+      fontWeight: '700',
+      flexShrink: 1,
+    },
+    searchBtn: {
+      marginLeft: 'auto',
+      width: rs(40),
+      height: rs(40),
+      borderRadius: rs(20),
+      backgroundColor: c.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     modalRoot: { flex: 1, justifyContent: 'center', paddingHorizontal: rs(24) },
     menuSheet: {
       backgroundColor: c.surface,

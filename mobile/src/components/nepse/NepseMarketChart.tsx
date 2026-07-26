@@ -10,6 +10,8 @@ type Props = {
   up?: boolean;
   height?: number;
   loading?: boolean;
+  /** Chart canvas background (defaults to cream / dark surface). */
+  backgroundColor?: string;
 };
 
 /** NEPSE area chart with Y-axis price labels and X-axis time labels. */
@@ -17,18 +19,21 @@ export function NepseMarketChart({
   points,
   isDark,
   up = true,
-  height = rs(200),
+  height = rs(210),
   loading = false,
+  backgroundColor,
 }: Props) {
-  const lineColor = up ? '#26a69a' : '#ef5350';
-  const bg = isDark ? '#121212' : '#ffffff';
-  const grid = isDark ? '#2a2a2a' : '#e8e8e8';
-  const text = isDark ? '#888888' : '#666666';
+  const lineColor = up ? '#2E7D32' : '#C62828';
+  const bg = backgroundColor ?? (isDark ? '#1E1E1E' : '#F5F7F0');
+  const grid = isDark ? '#3A3A3A' : '#C8D0C0';
+  const text = isDark ? '#A0A0A0' : '#5A6358';
 
   const html = useMemo(() => {
     const values = points.map((p) => p.value);
     const labels = points.map((p) => p.label);
     const chartHeight = Math.round(height);
+    // ~6 ticks like the reference SS (11:02 AM … 2:57 PM)
+    const xTickCount = Math.min(6, Math.max(2, labels.length));
 
     return `<!DOCTYPE html>
 <html><head>
@@ -49,28 +54,32 @@ export function NepseMarketChart({
   var grid = '${grid}';
   var text = '${text}';
   var H = ${chartHeight};
+  var xTicks = ${xTickCount};
   var canvas = document.getElementById('c');
   function draw(){
     var w = canvas.clientWidth || window.innerWidth || 320;
-    canvas.width = w;
-    canvas.height = H;
+    canvas.width = w * (window.devicePixelRatio || 1);
+    canvas.height = H * (window.devicePixelRatio || 1);
     var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    ctx.scale(dpr, dpr);
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, H);
     if (data.length < 2) return;
     var min = Math.min.apply(null, data);
     var max = Math.max.apply(null, data);
-    var pad = (max - min) * 0.08 || 1;
+    var pad = (max - min) * 0.1 || 1;
     min -= pad; max += pad;
     var span = max - min || 1;
-    var padL = 44, padR = 8, padT = 8, padB = 22;
+    var padL = 40, padR = 6, padT = 10, padB = 26;
     var plotW = w - padL - padR;
     var plotH = H - padT - padB;
     function x(i){ return padL + (i / (data.length - 1)) * plotW; }
     function y(v){ return padT + plotH - ((v - min) / span) * plotH; }
     ctx.strokeStyle = grid;
     ctx.lineWidth = 1;
-    ctx.font = '10px sans-serif';
+    ctx.setLineDash([3, 4]);
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.fillStyle = text;
     ctx.textAlign = 'right';
     for (var g = 0; g < 4; g++) {
@@ -80,11 +89,14 @@ export function NepseMarketChart({
       ctx.moveTo(padL, gy);
       ctx.lineTo(w - padR, gy);
       ctx.stroke();
-      ctx.fillText(gv.toFixed(gv >= 100 ? 0 : 2), padL - 4, gy + 3);
+      var label = gv >= 100 ? String(Math.round(gv)) : gv.toFixed(2);
+      ctx.fillText(label, padL - 4, gy + 3);
     }
+    ctx.setLineDash([]);
     var grad = ctx.createLinearGradient(0, padT, 0, H - padB);
-    grad.addColorStop(0, color + '55');
-    grad.addColorStop(1, color + '08');
+    grad.addColorStop(0, color + '66');
+    grad.addColorStop(0.55, color + '28');
+    grad.addColorStop(1, color + '05');
     ctx.beginPath();
     ctx.moveTo(x(0), y(data[0]));
     for (var i = 1; i < data.length; i++) ctx.lineTo(x(i), y(data[i]));
@@ -97,17 +109,21 @@ export function NepseMarketChart({
     ctx.moveTo(x(0), y(data[0]));
     for (var j = 1; j < data.length; j++) ctx.lineTo(x(j), y(data[j]));
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.25;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     ctx.stroke();
     ctx.textAlign = 'center';
-    var step = Math.max(1, Math.floor((labels.length - 1) / 4));
-    for (var k = 0; k < labels.length; k += step) {
-      ctx.fillText(labels[k], x(k), H - 4);
-    }
-    if ((labels.length - 1) % step !== 0) {
-      ctx.fillText(labels[labels.length - 1], x(labels.length - 1), H - 4);
+    ctx.fillStyle = text;
+    ctx.font = '9px -apple-system, BlinkMacSystemFont, sans-serif';
+    var last = data.length - 1;
+    for (var t = 0; t < xTicks; t++) {
+      var idx = Math.round((t / (xTicks - 1)) * last);
+      var tx = x(idx);
+      if (t === 0) ctx.textAlign = 'left';
+      else if (t === xTicks - 1) ctx.textAlign = 'right';
+      else ctx.textAlign = 'center';
+      ctx.fillText(labels[idx] || '', tx, H - 6);
     }
   }
   draw();

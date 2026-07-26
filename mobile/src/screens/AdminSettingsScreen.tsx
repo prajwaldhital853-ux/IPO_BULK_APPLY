@@ -18,9 +18,11 @@ import { useTheme } from '../context/ThemeContext';
 import {
   changeAdminPassword,
   deleteAdminPaymentQr,
+  deleteAdminPopupNotice,
   fetchAdminSettings,
   updateAdminSettings,
   uploadAdminPaymentQr,
+  uploadAdminPopupNotice,
   type AdminSettings,
   type AdminSocialLink,
 } from '../services/admin/adminApi';
@@ -162,8 +164,10 @@ export function AdminSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [qrBusy, setQrBusy] = useState(false);
+  const [noticeBusy, setNoticeBusy] = useState(false);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  const [noticeImageUrl, setNoticeImageUrl] = useState<string | null>(null);
 
   const [qrText, setQrText] = useState('');
   const [bankName, setBankName] = useState('');
@@ -187,6 +191,7 @@ export function AdminSettingsScreen() {
     setSettings(s);
     setQrText(s.payment.qrText);
     setQrImageUrl(resolveQrImageUrl(s.payment.qrImageUrl));
+    setNoticeImageUrl(resolveQrImageUrl(s.popupNotice?.imageUrl));
     setBankName(s.payment.bankName);
     setAccountName(s.payment.accountName);
     setAccountNumber(s.payment.accountNumber);
@@ -283,6 +288,70 @@ export function AdminSettingsScreen() {
                 ),
               )
               .finally(() => setQrBusy(false));
+          },
+        },
+      ],
+    );
+  };
+
+  const onPickNoticeFromGallery = async () => {
+    if (!token) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        'Permission needed',
+        'Allow photo access so you can upload a startup notice from your gallery.',
+      );
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.85,
+      allowsEditing: false,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+
+    const asset = result.assets[0];
+    setNoticeBusy(true);
+    try {
+      const mime = asset.mimeType ?? 'image/jpeg';
+      const updated = await uploadAdminPopupNotice(token, asset.uri, mime);
+      applySettings(updated);
+      Alert.alert(
+        'Uploaded',
+        'Startup notice updated. Users will see it when they open the app.',
+      );
+    } catch (e) {
+      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Try again');
+    } finally {
+      setNoticeBusy(false);
+    }
+  };
+
+  const onDeleteNotice = () => {
+    if (!token) return;
+    Alert.alert(
+      'Remove startup notice?',
+      'Users will no longer see a popup when they open the app.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setNoticeBusy(true);
+            void deleteAdminPopupNotice(token)
+              .then((updated) => {
+                applySettings(updated);
+                Alert.alert('Removed', 'Startup notice deleted.');
+              })
+              .catch((e: unknown) =>
+                Alert.alert(
+                  'Delete failed',
+                  e instanceof Error ? e.message : 'Try again',
+                ),
+              )
+              .finally(() => setNoticeBusy(false));
           },
         },
       ],
@@ -395,6 +464,60 @@ export function AdminSettingsScreen() {
           {settings ? (
             <Text style={styles.hint}>Admin: {settings.adminEmail}</Text>
           ) : null}
+
+          <Text style={styles.section}>Startup popup notice</Text>
+          <Text style={styles.help}>
+            Upload an image from your gallery. It appears as a centered popup when
+            users open the app (they can close it with ×). Delete to show nothing.
+          </Text>
+
+          <View style={styles.qrPreview}>
+            <Text style={styles.qrPreviewLabel}>
+              {noticeImageUrl ? 'Current notice' : 'No notice set'}
+            </Text>
+            {noticeImageUrl ? (
+              <Image
+                source={{ uri: noticeImageUrl }}
+                style={styles.noticeImage}
+                resizeMode="contain"
+              />
+            ) : (
+              <View style={styles.noticeEmpty}>
+                <Ionicons name="image-outline" size={rs(36)} color={colors.textMuted} />
+                <Text style={styles.noticeEmptyText}>
+                  Add a poster / notice image
+                </Text>
+              </View>
+            )}
+            <View style={styles.qrActions}>
+              <Pressable
+                style={[styles.qrBtn, noticeBusy && styles.btnDisabled]}
+                disabled={noticeBusy}
+                onPress={() => void onPickNoticeFromGallery()}
+              >
+                {noticeBusy ? (
+                  <ActivityIndicator color={colors.fabIcon} />
+                ) : (
+                  <>
+                    <Ionicons name="images-outline" size={rs(16)} color={colors.fabIcon} />
+                    <Text style={styles.qrBtnText}>
+                      {noticeImageUrl ? 'Replace from gallery' : 'Add from gallery'}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+              {noticeImageUrl ? (
+                <Pressable
+                  style={[styles.qrBtnDanger, noticeBusy && styles.btnDisabled]}
+                  disabled={noticeBusy}
+                  onPress={onDeleteNotice}
+                >
+                  <Ionicons name="trash-outline" size={rs(16)} color="#fff" />
+                  <Text style={styles.qrBtnText}>Delete notice</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
 
           <Text style={styles.section}>Payment QR & bank details</Text>
           <Text style={styles.help}>
@@ -620,6 +743,25 @@ function makeStyles(c: ThemeColors) {
       borderRadius: rs(8),
       backgroundColor: '#fff',
     },
+    noticeImage: {
+      width: '100%',
+      height: rs(220),
+      borderRadius: rs(8),
+      backgroundColor: '#fff',
+    },
+    noticeEmpty: {
+      width: '100%',
+      height: rs(140),
+      borderRadius: rs(8),
+      borderWidth: 1,
+      borderStyle: 'dashed',
+      borderColor: c.borderMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(8),
+      backgroundColor: c.surfaceAlt,
+    },
+    noticeEmptyText: { color: c.textMuted, fontSize: rs(12), fontWeight: '600' },
     qrActions: {
       alignSelf: 'stretch',
       gap: rs(8),

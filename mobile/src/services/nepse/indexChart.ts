@@ -17,29 +17,51 @@ function fmtDayLabel(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function fmtTimeLabel(ms: number): string {
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+function fmtClock(hour24: number, minute: number): string {
+  const h12 = hour24 % 12 || 12;
+  const ampm = hour24 >= 12 ? 'PM' : 'AM';
+  return `${h12}:${String(minute).padStart(2, '0')} ${ampm}`;
 }
 
 function syntheticIntraday(
   current: number | null,
   change: number | null,
-  labels: string[],
 ): ChartPoint[] {
   if (current == null || change == null) return [];
   const end = current;
   const start = end - change;
-  return labels.map((label, i) => {
-    const t = i / (labels.length - 1);
-    const wave = Math.sin(t * Math.PI * 1.6) * Math.abs(end - start) * 0.06;
-    const value = start + (end - start) * t + wave * (1 - Math.abs(t - 0.5) * 2);
-    return { label, value: i === labels.length - 1 ? end : value };
+  const startMin = 11 * 60;
+  const endMin = 15 * 60;
+  const step = 5;
+  const total = Math.floor((endMin - startMin) / step);
+  const points: ChartPoint[] = [];
+  for (let i = 0; i <= total; i += 1) {
+    const mins = startMin + i * step;
+    const t = i / total;
+    const wave =
+      Math.sin(t * Math.PI * 2.4) * Math.abs(end - start) * 0.12 +
+      Math.sin(t * Math.PI * 5.1) * Math.abs(end - start) * 0.04;
+    const value =
+      i === total
+        ? end
+        : start + (end - start) * t + wave * (1 - Math.abs(t - 0.5) * 1.2);
+    points.push({
+      label: fmtClock(Math.floor(mins / 60), mins % 60),
+      value,
+    });
+  }
+  return points;
+}
+
+function ensureAmPmLabels(points: ChartPoint[]): ChartPoint[] {
+  return points.map((p) => {
+    if (/AM|PM/i.test(p.label)) return p;
+    const m = /^(\d{1,2}):(\d{2})$/.exec(p.label.trim());
+    if (!m) return p;
+    const hour24 = Number(m[1]);
+    const minute = Number(m[2]);
+    if (!Number.isFinite(hour24) || !Number.isFinite(minute)) return p;
+    return { ...p, label: fmtClock(hour24, minute) };
   });
 }
 
@@ -62,24 +84,10 @@ export async function loadIndexChartPoints(
   const sym = symbol.toUpperCase();
 
   if (range === '1D') {
-    const labels = [
-      '11:00 AM',
-      '11:15 AM',
-      '11:30 AM',
-      '11:45 AM',
-      '12:00 PM',
-      '12:15 PM',
-      '12:30 PM',
-      '12:45 PM',
-      '1:00 PM',
-      '1:15 PM',
-    ];
-    if (sym === 'NEPSE' && intradayFallback.length >= 2) return intradayFallback;
-    return syntheticIntraday(
-      quote?.current ?? null,
-      quote?.change ?? null,
-      labels,
-    );
+    if (sym === 'NEPSE' && intradayFallback.length >= 2) {
+      return ensureAmPmLabels(intradayFallback);
+    }
+    return syntheticIntraday(quote?.current ?? null, quote?.change ?? null);
   }
 
   if (range === '1W') {
@@ -113,7 +121,7 @@ export async function loadIndexChartPoints(
     label:
       range === '1M' || range === '1W'
         ? fmtDayLabel(new Date(c.time).toISOString())
-        : fmtTimeLabel(c.time) || fmtDayLabel(new Date(c.time).toISOString()),
+        : fmtDayLabel(new Date(c.time).toISOString()),
     value: c.close,
   }));
 

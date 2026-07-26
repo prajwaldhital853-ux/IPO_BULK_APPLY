@@ -57,7 +57,7 @@ from ..market_closures import (
     list_market_closures,
     update_market_closure,
 )
-from ..public_settings import _contact_out, _payment_out
+from ..public_settings import _contact_out, _payment_out, _popup_notice_out
 from ..site_settings import (
     get_or_create_settings,
     request_password_reset,
@@ -184,6 +184,7 @@ def _settings_out(row) -> AdminSettingsOut:
         adminEmail=row.admin_email,
         payment=_payment_out(row),
         contact=_contact_out(row),
+        popupNotice=_popup_notice_out(row),
     )
 
 
@@ -241,8 +242,21 @@ async def admin_update_settings(
         # Drop None social_links key so update skips when omitted
         if contact['social_links'] is None:
             contact.pop('social_links')
+    popup_notice = None
+    if body.popup_notice is not None:
+        popup_notice = {}
+        if body.popup_notice.clear_image:
+            popup_notice['clear_image'] = '1'
+        elif body.popup_notice.image_base64:
+            popup_notice['image_base64'] = body.popup_notice.image_base64
+            popup_notice['image_mime'] = 'image/jpeg'
     try:
-        row = await update_site_settings(db, payment=payment, contact=contact)
+        row = await update_site_settings(
+            db,
+            payment=payment,
+            contact=contact,
+            popup_notice=popup_notice,
+        )
         await db.commit()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -299,6 +313,52 @@ async def admin_delete_payment_qr(
     row = await get_or_create_settings(db)
     row.payment_qr_image_b64 = None
     row.payment_qr_image_mime = None
+    row.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(row)
+    return _settings_out(row)
+
+
+_MAX_NOTICE_BYTES = 4 * 1024 * 1024
+
+
+@router.post('/settings/popup-notice', response_model=AdminSettingsOut)
+async def admin_upload_popup_notice(
+    file: UploadFile = File(...),
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminSettingsOut:
+    import base64
+
+    mime = (file.content_type or '').lower().strip()
+    if mime not in _ALLOWED_QR_MIME:
+        raise HTTPException(
+            status_code=400,
+            detail='Upload a JPG, PNG, WEBP, or GIF image from your gallery.',
+        )
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail='Empty image file')
+    if len(raw) > _MAX_NOTICE_BYTES:
+        raise HTTPException(status_code=400, detail='Image too large (max 4 MB)')
+
+    row = await get_or_create_settings(db)
+    row.popup_notice_image_b64 = base64.b64encode(raw).decode('ascii')
+    row.popup_notice_image_mime = 'image/jpeg' if mime == 'image/jpg' else mime
+    row.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(row)
+    return _settings_out(row)
+
+
+@router.delete('/settings/popup-notice', response_model=AdminSettingsOut)
+async def admin_delete_popup_notice(
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminSettingsOut:
+    row = await get_or_create_settings(db)
+    row.popup_notice_image_b64 = None
+    row.popup_notice_image_mime = None
     row.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(row)

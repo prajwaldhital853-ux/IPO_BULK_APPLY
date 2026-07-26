@@ -105,6 +105,25 @@ async def payment_qr_image(db: AsyncSession = Depends(get_db)) -> Response:
     )
 
 
+@router.get('/popup-notice')
+async def popup_notice_image(db: AsyncSession = Depends(get_db)) -> Response:
+    row = await get_or_create_settings(db)
+    if not getattr(row, 'popup_notice_image_b64', None):
+        raise HTTPException(status_code=404, detail='No popup notice uploaded')
+    import base64
+
+    try:
+        data = base64.b64decode(row.popup_notice_image_b64)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail='Invalid notice image data') from e
+    mime = row.popup_notice_image_mime or 'image/jpeg'
+    return Response(
+        content=data,
+        media_type=mime,
+        headers={'Cache-Control': 'public, max-age=300'},
+    )
+
+
 @router.post('/feedback', response_model=FeedbackSubmitOut)
 async def submit_feedback(
     body: FeedbackSubmitIn,

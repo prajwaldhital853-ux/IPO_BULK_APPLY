@@ -1,7 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Image,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,7 +12,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MarketChartSection } from '../nepse/MarketChartSection';
@@ -31,9 +34,7 @@ import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 import { HOME_H_PAD } from './homeLayout';
 
-type Props = {
-  active: boolean;
-};
+type Props = { active: boolean };
 
 type ListTab =
   | 'gainers'
@@ -46,14 +47,57 @@ const LIST_TABS: {
   id: ListTab;
   label: string;
   metric: string;
-  color: string;
+  accent: string;
+  headerBg: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
 }[] = [
-  { id: 'gainers', label: 'Top Gainers', metric: 'Change %', color: 'green' },
-  { id: 'losers', label: 'Top Losers', metric: 'Change %', color: 'red' },
-  { id: 'turnover', label: 'Top Turnover', metric: 'Turnover', color: 'blue' },
-  { id: 'traded', label: 'Top Traded', metric: 'Volume', color: 'teal' },
-  { id: 'transactions', label: 'Top Txns', metric: 'Trades', color: 'orange' },
+  {
+    id: 'gainers',
+    label: 'Top Gainers',
+    metric: 'Change %',
+    accent: '#2E7D32',
+    headerBg: '#E8F5E9',
+    icon: 'trending-up',
+  },
+  {
+    id: 'losers',
+    label: 'Top Losers',
+    metric: 'Change %',
+    accent: '#C62828',
+    headerBg: '#FFEBEE',
+    icon: 'trending-down',
+  },
+  {
+    id: 'turnover',
+    label: 'Top Turnover',
+    metric: 'Turnover',
+    accent: '#1565C0',
+    headerBg: '#E3F2FD',
+    icon: 'cash-multiple',
+  },
+  {
+    id: 'traded',
+    label: 'Top Traded Shares',
+    metric: 'Shares Traded',
+    accent: '#00897B',
+    headerBg: '#E0F2F1',
+    icon: 'chart-bar',
+  },
+  {
+    id: 'transactions',
+    label: 'Top Transactions',
+    metric: 'Transactions',
+    accent: '#F57C00',
+    headerBg: '#FFE8CC',
+    icon: 'swap-horizontal',
+  },
 ];
+
+const SCREEN_W = Dimensions.get('window').width;
+/** Slightly narrower so next/prev card peeks at the edge (matches SS carousel). */
+const CARD_GAP = 12;
+const CARD_PEEK = 18;
+const CARD_W = SCREEN_W - HOME_H_PAD * 2 - CARD_PEEK;
 
 function fmtQty(n: number | null): string {
   if (n == null || !Number.isFinite(n)) return '—';
@@ -101,13 +145,14 @@ export function HomeMarketPanel({ active }: Props) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors, isDark } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const [data, setData] = useState<NepseMarketSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [listTab, setListTab] = useState<ListTab>('gainers');
+  const [moverPage, setMoverPage] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState<IndexQuote | null>(null);
+  const moversRef = useRef<ScrollView>(null);
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -166,13 +211,31 @@ export function HomeMarketPanel({ active }: Props) {
     return [nepse, ...(data?.subIndices ?? [])];
   }, [data]);
 
-  const activeListMeta = LIST_TABS.find((t) => t.id === listTab)!;
+  const advanced = data?.summary.advanced ?? 0;
+  const declined = data?.summary.declined ?? 0;
+  const unchanged = data?.summary.unchanged ?? 0;
+  const breadthTotal = Math.max(advanced + declined + unchanged, 1);
 
   const openStock = (symbol: string) => {
     navigation.navigate('StockDetail', { symbol });
   };
 
-  const renderMoverRow = (item: MoverRow, rank: number) => (
+  const moversSnap = CARD_W + rs(CARD_GAP);
+
+  const goMoversPage = (page: number) => {
+    setMoverPage(page);
+    moversRef.current?.scrollTo({ x: page * moversSnap, animated: true });
+  };
+
+  const onMoversScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const x = e.nativeEvent.contentOffset.x;
+    const page = Math.round(x / moversSnap);
+    if (page !== moverPage && page >= 0 && page < LIST_TABS.length) {
+      setMoverPage(page);
+    }
+  };
+
+  const renderMoverRow = (item: MoverRow, rank: number, metricColor?: string) => (
     <Pressable
       key={`${item.symbol}-${rank}`}
       style={styles.listRow}
@@ -181,15 +244,26 @@ export function HomeMarketPanel({ active }: Props) {
       <Text style={styles.rank}>#{rank}</Text>
       <StockLogo symbol={item.symbol} iconUrl={item.iconUrl} styles={styles} />
       <View style={styles.rowMid}>
-        <Text style={styles.sym} numberOfLines={1}>{item.symbol}</Text>
-        <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.sym} numberOfLines={1}>
+          {item.symbol}
+        </Text>
+        <Text style={styles.name} numberOfLines={1}>
+          {item.name}
+        </Text>
       </View>
       <View style={styles.rowRight}>
         <Text style={styles.price}>
           {fmtNum(item.ltp, item.ltp != null && item.ltp % 1 === 0 ? 0 : 2)}
         </Text>
-        <Text style={[styles.metric, { color: changeColor(item.pct, colors) }]}>
-          {item.pct != null ? `${item.pct >= 0 ? '+' : ''}${fmtNum(item.pct)}%` : '—'}
+        <Text
+          style={[
+            styles.metric,
+            { color: metricColor ?? changeColor(item.pct, colors) },
+          ]}
+        >
+          {item.pct != null
+            ? `${item.pct >= 0 ? '+' : ''}${fmtNum(item.pct)}%`
+            : '—'}
         </Text>
       </View>
     </Pressable>
@@ -204,40 +278,20 @@ export function HomeMarketPanel({ active }: Props) {
       <Text style={styles.rank}>#{rank}</Text>
       <StockLogo symbol={item.symbol} iconUrl={item.iconUrl} styles={styles} />
       <View style={styles.rowMid}>
-        <Text style={styles.sym} numberOfLines={1}>{item.symbol}</Text>
-        <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.sym} numberOfLines={1}>
+          {item.symbol}
+        </Text>
+        <Text style={styles.name} numberOfLines={1}>
+          {item.name}
+        </Text>
       </View>
       <View style={styles.rowRight}>
         <Text style={styles.price}>
           {fmtNum(item.ltp, item.ltp != null && item.ltp % 1 === 0 ? 0 : 2)}
         </Text>
-        <Text style={[styles.metric, styles.metricBlue]}>{fmtMcap(item.turnover)}</Text>
-        {item.pct != null ? (
-          <Text style={[styles.pctSmall, { color: changeColor(item.pct, colors) }]}>
-            {`${item.pct >= 0 ? '+' : ''}${fmtNum(item.pct)}%`}
-          </Text>
-        ) : null}
-      </View>
-    </Pressable>
-  );
-
-  const renderTransactionRow = (item: TransactionRow, rank: number) => (
-    <Pressable
-      key={`${item.symbol}-${rank}`}
-      style={styles.listRow}
-      onPress={() => openStock(item.symbol)}
-    >
-      <Text style={styles.rank}>#{rank}</Text>
-      <StockLogo symbol={item.symbol} iconUrl={item.iconUrl} styles={styles} />
-      <View style={styles.rowMid}>
-        <Text style={styles.sym} numberOfLines={1}>{item.symbol}</Text>
-        <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-      </View>
-      <View style={styles.rowRight}>
-        <Text style={styles.price}>
-          {fmtNum(item.ltp, item.ltp != null && item.ltp % 1 === 0 ? 0 : 2)}
+        <Text style={[styles.metric, { color: '#1565C0' }]}>
+          {fmtMcap(item.turnover)}
         </Text>
-        <Text style={[styles.metric, styles.metricOrange]}>{fmtQty(item.trades)}</Text>
         {item.pct != null ? (
           <Text style={[styles.pctSmall, { color: changeColor(item.pct, colors) }]}>
             {`${item.pct >= 0 ? '+' : ''}${fmtNum(item.pct)}%`}
@@ -256,14 +310,20 @@ export function HomeMarketPanel({ active }: Props) {
       <Text style={styles.rank}>#{rank}</Text>
       <StockLogo symbol={item.symbol} iconUrl={item.iconUrl} styles={styles} />
       <View style={styles.rowMid}>
-        <Text style={styles.sym} numberOfLines={1}>{item.symbol}</Text>
-        <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.sym} numberOfLines={1}>
+          {item.symbol}
+        </Text>
+        <Text style={styles.name} numberOfLines={1}>
+          {item.name}
+        </Text>
       </View>
       <View style={styles.rowRight}>
         <Text style={styles.price}>
           {fmtNum(item.ltp, item.ltp != null && item.ltp % 1 === 0 ? 0 : 2)}
         </Text>
-        <Text style={[styles.metric, styles.metricTeal]}>{fmtQty(item.shares)}</Text>
+        <Text style={[styles.metric, { color: '#00897B' }]}>
+          {fmtMcap(item.shares)}
+        </Text>
         {item.pct != null ? (
           <Text style={[styles.pctSmall, { color: changeColor(item.pct, colors) }]}>
             {`${item.pct >= 0 ? '+' : ''}${fmtNum(item.pct)}%`}
@@ -273,19 +333,59 @@ export function HomeMarketPanel({ active }: Props) {
     </Pressable>
   );
 
-  const renderListBody = () => {
+  const renderTransactionRow = (item: TransactionRow, rank: number) => (
+    <Pressable
+      key={`${item.symbol}-${rank}`}
+      style={styles.listRow}
+      onPress={() => openStock(item.symbol)}
+    >
+      <Text style={styles.rank}>#{rank}</Text>
+      <StockLogo symbol={item.symbol} iconUrl={item.iconUrl} styles={styles} />
+      <View style={styles.rowMid}>
+        <Text style={styles.sym} numberOfLines={1}>
+          {item.symbol}
+        </Text>
+        <Text style={styles.name} numberOfLines={1}>
+          {item.name}
+        </Text>
+      </View>
+      <View style={styles.rowRight}>
+        <Text style={styles.price}>
+          {fmtNum(item.ltp, item.ltp != null && item.ltp % 1 === 0 ? 0 : 2)}
+        </Text>
+        <Text style={[styles.metric, { color: '#F57C00' }]}>
+          {fmtQty(item.trades)}
+        </Text>
+        {item.pct != null ? (
+          <Text style={[styles.pctSmall, { color: changeColor(item.pct, colors) }]}>
+            {`${item.pct >= 0 ? '+' : ''}${fmtNum(item.pct)}%`}
+          </Text>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+
+  const renderCardBody = (tab: ListTab) => {
     if (!data) return null;
-    switch (listTab) {
+    switch (tab) {
       case 'gainers':
-        return (data.gainers ?? []).slice(0, 10).map((r, i) => renderMoverRow(r, i + 1));
+        return (data.gainers ?? [])
+          .slice(0, 10)
+          .map((r, i) => renderMoverRow(r, i + 1));
       case 'losers':
-        return (data.losers ?? []).slice(0, 10).map((r, i) => renderMoverRow(r, i + 1));
+        return (data.losers ?? [])
+          .slice(0, 10)
+          .map((r, i) => renderMoverRow(r, i + 1));
       case 'turnover':
-        return (data.turnovers ?? []).slice(0, 10).map((r, i) => renderTurnoverRow(r, i + 1));
+        return (data.turnovers ?? [])
+          .slice(0, 10)
+          .map((r, i) => renderTurnoverRow(r, i + 1));
       case 'traded':
         return tradedRows.slice(0, 10).map((r, i) => renderTradedRow(r, i + 1));
       case 'transactions':
-        return (data.transactions ?? []).slice(0, 10).map((r, i) => renderTransactionRow(r, i + 1));
+        return (data.transactions ?? [])
+          .slice(0, 10)
+          .map((r, i) => renderTransactionRow(r, i + 1));
       default:
         return null;
     }
@@ -300,45 +400,76 @@ export function HomeMarketPanel({ active }: Props) {
     );
   }
 
-  return (
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={styles.scroll}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            void refresh(true);
-          }}
-          tintColor={colors.primary}
-        />
-      }
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.indexRow}>
-        <Text style={[styles.indexLabel, { color: indexTint }]}>{indexQuote.name}</Text>
-        <Text style={[styles.indexValue, { color: colors.text }]}>
-          {fmtNum(indexQuote.current)}
+  const isOpen = data?.status === 'open';
+
+  const indexHeader = (
+    <View style={styles.indexBar}>
+      <View
+        style={[
+          styles.indexPill,
+          {
+            backgroundColor: indexUp ? '#E8F5E9' : '#FFEBEE',
+            borderColor: indexTint,
+          },
+        ]}
+      >
+        <Text style={[styles.indexName, { color: indexTint }]}>
+          {indexQuote.name}
         </Text>
+        <Text style={styles.indexValue}>{fmtNum(indexQuote.current)}</Text>
         <Text style={[styles.indexChange, { color: indexTint }]}>
           {indexQuote.change != null
-            ? `${indexQuote.change >= 0 ? '+' : ''}${fmtNum(indexQuote.change)}`
+            ? `${indexQuote.change >= 0 ? '+ ' : ''}${fmtNum(indexQuote.change)}`
             : '—'}
         </Text>
         <Text style={[styles.indexPct, { color: indexTint }]}>
           {indexQuote.pct != null
-            ? `${indexQuote.pct >= 0 ? '+' : ''}${fmtNum(indexQuote.pct)}%`
+            ? `${indexQuote.pct >= 0 ? '+ ' : ''}${fmtNum(indexQuote.pct)}%`
             : ''}
         </Text>
-        <Pressable
-          style={styles.liveLink}
-          onPress={() => navigation.navigate('NepseData')}
-        >
-          <Ionicons name="open-outline" size={rs(16)} color={colors.primary} />
-        </Pressable>
       </View>
+      <Pressable
+        style={[styles.shortcutBtn, styles.shortcutUp]}
+        onPress={() => goMoversPage(0)}
+      >
+        <MaterialCommunityIcons
+          name="chart-line-variant"
+          size={rs(20)}
+          color="#2E7D32"
+        />
+      </Pressable>
+      <Pressable
+        style={[styles.shortcutBtn, styles.shortcutDown]}
+        onPress={() => goMoversPage(1)}
+      >
+        <MaterialCommunityIcons
+          name="chart-line-variant"
+          size={rs(20)}
+          color="#C62828"
+          style={{ transform: [{ scaleY: -1 }] }}
+        />
+      </Pressable>
+    </View>
+  );
 
+  return (
+    <View style={styles.root}>
+      <View style={styles.indexSticky}>{indexHeader}</View>
+      <ScrollView
+        style={styles.scrollFlex}
+        contentContainerStyle={styles.scroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              void refresh(true);
+            }}
+            tintColor={colors.primary}
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      >
       {data ? (
         <MarketChartSection
           indexQuote={indexQuote}
@@ -354,105 +485,179 @@ export function HomeMarketPanel({ active }: Props) {
         />
       ) : null}
 
-      <View style={styles.summaryHead}>
-        <Text style={styles.sectionTitle}>Market Summary</Text>
-        <View style={styles.statusRow}>
+      {/* Summary card */}
+      <View style={styles.summaryCard}>
+        <View style={styles.summaryHead}>
+          <View style={styles.summaryTitleRow}>
+            <MaterialCommunityIcons
+              name="chart-bar"
+              size={rs(18)}
+              color={colors.accentGreen}
+            />
+            <Text style={styles.summaryTitle}>Summary</Text>
+          </View>
           <View
             style={[
-              styles.statusDot,
+              styles.statusBadge,
               {
-                backgroundColor:
-                  data?.status === 'open' ? colors.accentGreen : colors.danger,
-              },
-            ]}
-          />
-          <Text
-            style={[
-              styles.statusText,
-              {
-                color:
-                  data?.status === 'open' ? colors.accentGreen : colors.danger,
+                backgroundColor: isOpen ? '#E8F5E9' : '#FFEBEE',
               },
             ]}
           >
-            {data?.status === 'open' ? 'OPEN' : 'CLOSED'}
-          </Text>
-          <Text style={styles.statusTime}>
-            {fmtAsOf(data?.asOf ?? data?.fetchedAt ?? null)}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.summaryGrid}>
-        <View style={styles.summaryItem}>
-          <Text style={styles.summaryLabel}>Total Turnover</Text>
-          <Text style={styles.summaryValue}>{fmtMcap(data?.summary.turnover ?? null)}</Text>
-        </View>
-        <View style={styles.summaryItem}>
-          <Text style={styles.summaryLabel}>Traded Shares</Text>
-          <Text style={styles.summaryValue}>{fmtMcap(data?.summary.tradedShares ?? null)}</Text>
-        </View>
-        <View style={styles.summaryItem}>
-          <Text style={styles.summaryLabel}>Transactions</Text>
-          <Text style={styles.summaryValue}>{fmtQty(data?.summary.transactions ?? null)}</Text>
-        </View>
-        <View style={styles.summaryItem}>
-          <Text style={styles.summaryLabel}>Scripts Traded</Text>
-          <Text style={styles.summaryValue}>{fmtQty(data?.summary.scripsTraded ?? null)}</Text>
-        </View>
-      </View>
-
-      <View style={styles.breadthRow}>
-        <View style={styles.breadthItem}>
-          <Text style={[styles.breadthNum, { color: colors.accentGreen }]}>
-            {data?.summary.advanced ?? '—'}
-          </Text>
-          <Text style={styles.breadthLabel}>Advanced</Text>
-        </View>
-        <View style={styles.breadthItem}>
-          <Text style={[styles.breadthNum, { color: colors.danger }]}>
-            {data?.summary.declined ?? '—'}
-          </Text>
-          <Text style={styles.breadthLabel}>Declined</Text>
-        </View>
-        <View style={styles.breadthItem}>
-          <Text style={[styles.breadthNum, { color: '#42A5F5' }]}>
-            {data?.summary.unchanged ?? '—'}
-          </Text>
-          <Text style={styles.breadthLabel}>Unchanged</Text>
-        </View>
-      </View>
-
-      <View style={styles.divider} />
-
-      <Text style={styles.sectionTitle}>Market Movers</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tabRow}
-      >
-        {LIST_TABS.map((t) => {
-          const activeTab = listTab === t.id;
-          return (
-            <Pressable
-              key={t.id}
-              style={[styles.tabChip, activeTab && styles.tabChipActive]}
-              onPress={() => setListTab(t.id)}
+            <View
+              style={[
+                styles.statusDot,
+                {
+                  backgroundColor: isOpen ? colors.accentGreen : colors.danger,
+                },
+              ]}
+            />
+            <Text
+              style={[
+                styles.statusBadgeText,
+                { color: isOpen ? colors.accentGreen : colors.danger },
+              ]}
             >
-              <Text style={[styles.tabChipText, activeTab && styles.tabChipTextActive]}>
-                {t.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+              {isOpen ? 'OPEN' : 'CLOSE'} |{' '}
+              {fmtAsOf(data?.asOf ?? data?.fetchedAt ?? null)}
+            </Text>
+          </View>
+        </View>
 
-      <View style={styles.listHead}>
-        <Text style={styles.listTitle}>{activeListMeta.label}</Text>
-        <Text style={styles.listMetric}>{activeListMeta.metric}</Text>
+        <View style={styles.kpiGrid}>
+          <View style={styles.kpiBox}>
+            <Text style={styles.kpiLabel}>TOTAL TURNOVER</Text>
+            <Text style={styles.kpiValue}>
+              {fmtMcap(data?.summary.turnover ?? null)}
+            </Text>
+          </View>
+          <View style={styles.kpiBox}>
+            <Text style={styles.kpiLabel}>TOTAL TRADED SHARES</Text>
+            <Text style={styles.kpiValue}>
+              {fmtMcap(data?.summary.tradedShares ?? null)}
+            </Text>
+          </View>
+          <View style={styles.kpiBox}>
+            <Text style={styles.kpiLabel}>TOTAL TRANSACTIONS</Text>
+            <Text style={styles.kpiValue}>
+              {fmtQty(data?.summary.transactions ?? null)}
+            </Text>
+          </View>
+          <View style={styles.kpiBox}>
+            <Text style={styles.kpiLabel}>TOTAL SCRIPTS TRADED</Text>
+            <Text style={styles.kpiValue}>
+              {fmtQty(data?.summary.scripsTraded ?? null)}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.breadthLabels}>
+          <Text style={[styles.breadthText, { color: colors.accentGreen }]}>
+            {advanced} Advancing
+          </Text>
+          <Text style={[styles.breadthText, { color: colors.textMuted }]}>
+            {unchanged} Unchanged
+          </Text>
+          <Text style={[styles.breadthText, { color: colors.danger }]}>
+            {declined} Declining
+          </Text>
+        </View>
+        <View style={styles.breadthBar}>
+          <View
+            style={[
+              styles.breadthSeg,
+              {
+                flex: advanced / breadthTotal,
+                backgroundColor: colors.accentGreen,
+                borderTopLeftRadius: rs(6),
+                borderBottomLeftRadius: rs(6),
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.breadthSeg,
+              {
+                flex: unchanged / breadthTotal,
+                backgroundColor: '#B0BEC5',
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.breadthSeg,
+              {
+                flex: declined / breadthTotal,
+                backgroundColor: colors.danger,
+                borderTopRightRadius: rs(6),
+                borderBottomRightRadius: rs(6),
+              },
+            ]}
+          />
+        </View>
       </View>
 
-      {renderListBody()}
+      {/* Market Movers carousel */}
+      <View style={styles.moversHead}>
+        <Text style={styles.moversTitle}>Market Movers</Text>
+        <Text style={styles.moversPage}>
+          {moverPage + 1}/{LIST_TABS.length}
+        </Text>
+      </View>
+      <View style={styles.dotsRow}>
+        {LIST_TABS.map((t, i) => (
+          <Pressable key={t.id} onPress={() => goMoversPage(i)} hitSlop={6}>
+            <View
+              style={[
+                styles.dot,
+                i === moverPage ? styles.dotActive : styles.dotIdle,
+              ]}
+            />
+          </Pressable>
+        ))}
+      </View>
+
+      <ScrollView
+        ref={moversRef}
+        horizontal
+        pagingEnabled={false}
+        decelerationRate="fast"
+        snapToInterval={moversSnap}
+        snapToAlignment="start"
+        disableIntervalMomentum
+        showsHorizontalScrollIndicator={false}
+        onScroll={onMoversScroll}
+        scrollEventThrottle={16}
+        contentContainerStyle={styles.moversCarousel}
+      >
+        {LIST_TABS.map((tab) => (
+          <View
+            key={tab.id}
+            style={[
+              styles.moverCard,
+              {
+                width: CARD_W,
+                borderColor: isDark ? colors.borderMuted : `${tab.accent}55`,
+              },
+            ]}
+          >
+            <View style={[styles.moverCardHead, { backgroundColor: tab.headerBg }]}>
+              <View style={styles.moverCardTitleRow}>
+                <MaterialCommunityIcons
+                  name={tab.icon}
+                  size={rs(18)}
+                  color={tab.accent}
+                />
+                <Text style={[styles.moverCardTitle, { color: tab.accent }]}>
+                  {tab.label}
+                </Text>
+              </View>
+              <Text style={styles.moverCardMetric}>{tab.metric}</Text>
+            </View>
+            <View style={styles.moverCardBody}>{renderCardBody(tab.id)}</View>
+          </View>
+        ))}
+      </ScrollView>
 
       <Pressable
         style={styles.moreLink}
@@ -460,17 +665,26 @@ export function HomeMarketPanel({ active }: Props) {
       >
         <Text style={styles.moreLinkText}>See full market data →</Text>
       </Pressable>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     root: { flex: 1 },
+    scrollFlex: { flex: 1 },
+    indexSticky: {
+      paddingHorizontal: HOME_H_PAD,
+      paddingTop: rs(8),
+      paddingBottom: rs(6),
+      backgroundColor: c.bg,
+      zIndex: 2,
+    },
     scroll: {
       paddingHorizontal: HOME_H_PAD,
       paddingBottom: rs(100),
-      paddingTop: rs(8),
+      paddingTop: rs(4),
     },
     center: {
       flex: 1,
@@ -479,74 +693,170 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(48),
     },
     loadingText: { color: c.textMuted, marginTop: rs(12), fontSize: rs(13) },
-    indexRow: {
+
+    indexBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+    },
+    indexPill: {
+      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
       flexWrap: 'wrap',
-      gap: rs(8),
-      paddingVertical: rs(6),
+      gap: rs(6),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
+      borderRadius: rs(22),
+      borderWidth: 1.5,
     },
-    indexLabel: { fontWeight: '800', fontSize: rs(14) },
-    indexValue: { fontWeight: '800', fontSize: rs(18) },
-    indexChange: { fontWeight: '700', fontSize: rs(13) },
-    indexPct: { fontWeight: '700', fontSize: rs(13) },
-    liveLink: { marginLeft: 'auto', padding: rs(4) },
+    indexName: { fontWeight: '800', fontSize: rs(13) },
+    indexValue: { color: c.text, fontWeight: '800', fontSize: rs(15) },
+    indexChange: { fontWeight: '700', fontSize: rs(12) },
+    indexPct: { fontWeight: '700', fontSize: rs(12) },
+    shortcutBtn: {
+      width: rs(42),
+      height: rs(42),
+      borderRadius: rs(12),
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+    },
+    shortcutUp: {
+      backgroundColor: isDark ? '#1B3A24' : '#E8F5E9',
+      borderColor: '#A5D6A7',
+    },
+    shortcutDown: {
+      backgroundColor: isDark ? '#3A1B1B' : '#FFEBEE',
+      borderColor: '#EF9A9A',
+    },
+
+    summaryCard: {
+      marginTop: rs(14),
+      borderRadius: rs(16),
+      borderWidth: 1,
+      borderColor: isDark ? c.borderMuted : '#E8C4C4',
+      backgroundColor: c.surface,
+      padding: rs(14),
+    },
     summaryHead: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginTop: rs(16),
-      marginBottom: rs(10),
+      marginBottom: rs(12),
+      gap: rs(8),
     },
-    sectionTitle: { color: c.text, fontWeight: '800', fontSize: rs(15) },
-    statusRow: { flexDirection: 'row', alignItems: 'center', gap: rs(4) },
+    summaryTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(6),
+    },
+    summaryTitle: { color: c.text, fontWeight: '800', fontSize: rs(15) },
+    statusBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(5),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(5),
+      borderRadius: rs(14),
+      maxWidth: '58%',
+    },
     statusDot: { width: rs(7), height: rs(7), borderRadius: rs(4) },
-    statusText: { fontWeight: '800', fontSize: rs(10) },
-    statusTime: { color: c.textMuted, fontSize: rs(10) },
-    summaryGrid: {
+    statusBadgeText: {
+      fontWeight: '700',
+      fontSize: rs(10),
+      flexShrink: 1,
+    },
+    kpiGrid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: rs(12),
+      gap: rs(8),
     },
-    summaryItem: { width: '47%' },
-    summaryLabel: { color: c.textMuted, fontSize: rs(11), fontWeight: '600' },
-    summaryValue: {
+    kpiBox: {
+      width: '48%',
+      flexGrow: 1,
+      backgroundColor: isDark ? c.surfaceAlt : '#F3F5F0',
+      borderRadius: rs(12),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(12),
+    },
+    kpiLabel: {
+      color: c.textMuted,
+      fontSize: rs(9),
+      fontWeight: '700',
+      letterSpacing: 0.3,
+    },
+    kpiValue: {
       color: c.text,
       fontWeight: '800',
       fontSize: rs(15),
-      marginTop: rs(3),
+      marginTop: rs(4),
     },
-    breadthRow: {
+    breadthLabels: {
       flexDirection: 'row',
+      justifyContent: 'space-between',
       marginTop: rs(14),
-      gap: rs(16),
+      marginBottom: rs(8),
     },
-    breadthItem: { flex: 1, alignItems: 'center' },
-    breadthNum: { fontWeight: '800', fontSize: rs(18) },
-    breadthLabel: { color: c.textMuted, fontSize: rs(10), marginTop: rs(2) },
-    divider: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: c.border,
-      marginVertical: rs(16),
+    breadthText: { fontWeight: '700', fontSize: rs(11) },
+    breadthBar: {
+      flexDirection: 'row',
+      height: rs(8),
+      borderRadius: rs(6),
+      overflow: 'hidden',
+      backgroundColor: c.borderMuted,
     },
-    tabRow: { gap: rs(8), paddingVertical: rs(10) },
-    tabChip: {
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(8),
-      borderRadius: rs(20),
-      backgroundColor: c.surfaceAlt,
-    },
-    tabChipActive: { backgroundColor: c.primarySoft },
-    tabChipText: { color: c.textMuted, fontWeight: '600', fontSize: rs(12) },
-    tabChipTextActive: { color: c.primary, fontWeight: '800' },
-    listHead: {
+    breadthSeg: { height: '100%' },
+
+    moversHead: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: rs(4),
+      marginTop: rs(20),
+      marginBottom: rs(10),
     },
-    listTitle: { color: c.text, fontWeight: '800', fontSize: rs(14) },
-    listMetric: { color: c.textMuted, fontSize: rs(11), fontWeight: '600' },
+    moversTitle: { color: c.text, fontWeight: '800', fontSize: rs(17) },
+    moversPage: { color: '#9E9E9E', fontWeight: '600', fontSize: rs(13) },
+    dotsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(7),
+      marginBottom: rs(14),
+    },
+    dot: { height: rs(8), borderRadius: rs(4) },
+    dotIdle: { width: rs(8), backgroundColor: '#D0D5DD' },
+    dotActive: { width: rs(22), backgroundColor: '#2196F3' },
+    moversCarousel: {
+      gap: rs(CARD_GAP),
+      paddingRight: rs(CARD_PEEK),
+    },
+    moverCard: {
+      borderRadius: rs(18),
+      borderWidth: 1,
+      backgroundColor: c.surface,
+      overflow: 'hidden',
+    },
+    moverCardHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(13),
+    },
+    moverCardTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+    },
+    moverCardTitle: { fontWeight: '800', fontSize: rs(14) },
+    moverCardMetric: {
+      color: '#9E9E9E',
+      fontSize: rs(12),
+      fontWeight: '500',
+    },
+    moverCardBody: { paddingHorizontal: rs(10), paddingBottom: rs(6) },
+
     listRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -555,7 +865,12 @@ function makeStyles(c: ThemeColors) {
       borderBottomColor: c.borderMuted,
       gap: rs(8),
     },
-    rank: { color: c.textMuted, fontSize: rs(11), width: rs(24), fontWeight: '700' },
+    rank: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      width: rs(24),
+      fontWeight: '700',
+    },
     logo: { width: rs(32), height: rs(32), borderRadius: rs(16) },
     logoFallback: {
       width: rs(32),
@@ -572,9 +887,6 @@ function makeStyles(c: ThemeColors) {
     rowRight: { alignItems: 'flex-end', minWidth: rs(72) },
     price: { color: c.text, fontWeight: '800', fontSize: rs(13) },
     metric: { fontWeight: '700', fontSize: rs(11), marginTop: rs(2) },
-    metricBlue: { color: '#42A5F5' },
-    metricTeal: { color: '#26a69a' },
-    metricOrange: { color: '#FF9800' },
     pctSmall: { fontSize: rs(10), fontWeight: '700', marginTop: rs(1) },
     moreLink: { marginTop: rs(16), alignItems: 'center', paddingBottom: rs(8) },
     moreLinkText: { color: c.primary, fontWeight: '700', fontSize: rs(13) },

@@ -6,6 +6,7 @@ import uuid
 from .admin.schemas import (
     ContactSettingsOut,
     PaymentSettingsOut,
+    PopupNoticeOut,
     PublicAppSettingsOut,
     SocialLinkOut,
 )
@@ -16,6 +17,13 @@ def payment_qr_public_path(row: SiteSettings) -> str | None:
     if row.payment_qr_image_b64:
         stamp = int(row.updated_at.timestamp()) if row.updated_at else 0
         return f'/app/payment-qr?v={stamp}'
+    return None
+
+
+def popup_notice_public_path(row: SiteSettings) -> str | None:
+    if getattr(row, 'popup_notice_image_b64', None):
+        stamp = int(row.updated_at.timestamp()) if row.updated_at else 0
+        return f'/app/popup-notice?v={stamp}'
     return None
 
 
@@ -148,8 +156,13 @@ def _contact_out(row: SiteSettings) -> ContactSettingsOut:
     )
 
 
+def _popup_notice_out(row: SiteSettings) -> PopupNoticeOut:
+    return PopupNoticeOut(imageUrl=popup_notice_public_path(row))
+
+
 def settings_to_public(row: SiteSettings) -> PublicAppSettingsOut:
     return PublicAppSettingsOut(
         payment=_payment_out(row),
         contact=_contact_out(row),
+        popupNotice=_popup_notice_out(row),
     )

@@ -10,6 +10,7 @@ import { AccountsProvider } from './src/context/AccountsContext';
 import { SubscriptionProvider } from './src/context/SubscriptionContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { AppWarmup } from './src/components/AppWarmup';
+import { StartupNoticeModal } from './src/components/StartupNoticeModal';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
 function AppShell() {
@@ -24,6 +25,7 @@ function AppShell() {
                 <StatusBar style={isDark ? 'light' : 'dark'} />
                 <AppWarmup />
                 <RootNavigator />
+                <StartupNoticeModal />
               </SubscriptionProvider>
             </AccountsProvider>
           </AppLockProvider>

@@ -78,10 +78,15 @@ export type AdminContactSettings = {
   socialLinks: AdminSocialLink[];
 };
 
+export type AdminPopupNotice = {
+  imageUrl: string | null;
+};
+
 export type AdminSettings = {
   adminEmail: string;
   payment: AdminPaymentSettings;
   contact: AdminContactSettings;
+  popupNotice: AdminPopupNotice;
 };
 
 async function parseError(res: Response): Promise<string> {
@@ -360,10 +365,18 @@ function mapContactSettings(json: Record<string, unknown>): AdminContactSettings
 }
 
 function mapAdminSettings(json: Record<string, unknown>): AdminSettings {
+  const notice = (json.popupNotice ?? json.popup_notice ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const rawImage = notice.imageUrl ?? notice.image_url;
   return {
     adminEmail: String(json.adminEmail ?? ''),
     payment: mapPaymentSettings((json.payment as Record<string, unknown>) ?? {}),
     contact: mapContactSettings((json.contact as Record<string, unknown>) ?? {}),
+    popupNotice: {
+      imageUrl: rawImage ? String(rawImage) : null,
+    },
   };
 }
 
@@ -381,6 +394,10 @@ export async function updateAdminSettings(
       clearQrImage?: boolean;
     };
     contact?: AdminContactSettings;
+    popupNotice?: {
+      imageBase64?: string;
+      clearImage?: boolean;
+    };
   },
 ): Promise<AdminSettings> {
   const res = await adminFetch('/admin/settings', token, {
@@ -439,6 +456,46 @@ export async function deleteAdminPaymentQr(token: string): Promise<AdminSettings
       clearQrImage: true,
     },
     contact: current.contact,
+  });
+}
+
+async function imageUriToDataUrl(
+  uri: string,
+  mimeType = 'image/jpeg',
+): Promise<string> {
+  const fileRes = await fetch(uri);
+  const blob = await fileRes.blob();
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = String(reader.result ?? '');
+      const raw = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+      if (!raw) reject(new Error('Could not read image'));
+      else resolve(raw);
+    };
+    reader.onerror = () => reject(new Error('Could not read image'));
+    reader.readAsDataURL(blob);
+  });
+  const mime = mimeType || blob.type || 'image/jpeg';
+  return `data:${mime};base64,${base64}`;
+}
+
+export async function uploadAdminPopupNotice(
+  token: string,
+  uri: string,
+  mimeType = 'image/jpeg',
+): Promise<AdminSettings> {
+  const dataUrl = await imageUriToDataUrl(uri, mimeType);
+  return updateAdminSettings(token, {
+    popupNotice: { imageBase64: dataUrl },
+  });
+}
+
+export async function deleteAdminPopupNotice(
+  token: string,
+): Promise<AdminSettings> {
+  return updateAdminSettings(token, {
+    popupNotice: { clearImage: true },
   });
 }
 

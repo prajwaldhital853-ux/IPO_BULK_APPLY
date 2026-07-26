@@ -112,6 +112,10 @@ class SiteSettings(Base):
     payment_account_number: Mapped[str] = mapped_column(String(64), default='')
     payment_whatsapp: Mapped[str] = mapped_column(String(32), default='')
 
+    # Startup popup notice image (shown when app opens). Null = no notice.
+    popup_notice_image_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    popup_notice_image_mime: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     contact_company_name: Mapped[str] = mapped_column(String(256), default='')
     contact_email: Mapped[str] = mapped_column(String(320), default='')
     contact_whatsapp: Mapped[str] = mapped_column(String(32), default='')

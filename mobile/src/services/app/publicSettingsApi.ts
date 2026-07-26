@@ -31,6 +31,7 @@ export type ContactSettings = {
 export type PublicAppSettings = {
   payment: PaymentSettings;
   contact: ContactSettings;
+  popupNotice: { imageUrl: string | null };
 };
 
 const FALLBACK: PublicAppSettings = {
@@ -60,6 +61,7 @@ const FALLBACK: PublicAppSettings = {
       },
     ],
   },
+  popupNotice: { imageUrl: null },
 };
 
 function mapPayment(json: Record<string, unknown>): PaymentSettings {
@@ -142,11 +144,28 @@ export async function fetchPublicAppSettings(): Promise<PublicAppSettings> {
     });
     if (!res.ok) return FALLBACK;
     const json = (await res.json()) as Record<string, unknown>;
+    const notice = (json.popupNotice ?? json.popup_notice ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const rawNotice = notice.imageUrl ?? notice.image_url;
     return {
       payment: mapPayment((json.payment as Record<string, unknown>) ?? {}),
       contact: mapContact((json.contact as Record<string, unknown>) ?? {}),
+      popupNotice: {
+        imageUrl: rawNotice ? String(rawNotice) : null,
+      },
     };
   } catch {
     return FALLBACK;
   }
+}
+
+/** Resolve relative API image paths against AUTH_API_BASE. */
+export function resolvePublicMediaUrl(
+  path: string | null | undefined,
+): string | null {
+  if (!path) return null;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  return `${AUTH_API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
 }

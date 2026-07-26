@@ -149,10 +149,24 @@ class ContactSettingsIn(BaseModel):
     model_config = {'populate_by_name': True}
 
 
+class PopupNoticeOut(BaseModel):
+    image_url: str | None = Field(default=None, alias='imageUrl')
+
+    model_config = {'populate_by_name': True}
+
+
+class PopupNoticeIn(BaseModel):
+    image_base64: str | None = Field(default=None, alias='imageBase64')
+    clear_image: bool = Field(default=False, alias='clearImage')
+
+    model_config = {'populate_by_name': True}
+
+
 class AdminSettingsOut(BaseModel):
     admin_email: str = Field(alias='adminEmail')
     payment: PaymentSettingsOut
     contact: ContactSettingsOut
+    popup_notice: PopupNoticeOut = Field(alias='popupNotice')
 
     model_config = {'populate_by_name': True}
 
@@ -160,6 +174,7 @@ class AdminSettingsOut(BaseModel):
 class AdminSettingsUpdateIn(BaseModel):
     payment: PaymentSettingsIn | None = None
     contact: ContactSettingsIn | None = None
+    popup_notice: PopupNoticeIn | None = Field(default=None, alias='popupNotice')
 
     model_config = {'populate_by_name': True}
 
@@ -186,6 +201,10 @@ class AdminResetPasswordIn(BaseModel):
 class PublicAppSettingsOut(BaseModel):
     payment: PaymentSettingsOut
     contact: ContactSettingsOut
+    popup_notice: PopupNoticeOut = Field(
+        default_factory=lambda: PopupNoticeOut(imageUrl=None),
+        alias='popupNotice',
+    )
 
     model_config = {'populate_by_name': True}
 
