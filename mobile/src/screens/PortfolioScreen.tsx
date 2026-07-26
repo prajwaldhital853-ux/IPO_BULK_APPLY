@@ -16,6 +16,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
+import { KeyboardSheetModal } from '../components/KeyboardSheetModal';
 import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { RootStackParamList } from '../navigation/types';
@@ -418,46 +419,45 @@ export function PortfolioScreen() {
           </Pressable>
         </Modal>
 
-        {/* Create portfolio */}
-        <Modal
+        {/* Create portfolio — lifts above keypad */}
+        <KeyboardSheetModal
           visible={createOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setCreateOpen(false)}
-        >
-          <Pressable
-            style={styles.backdrop}
-            onPress={() => setCreateOpen(false)}
-          >
-            <Pressable style={styles.createSheet} onPress={() => {}}>
-              <Text style={styles.sheetTitle}>New Portfolio</Text>
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                placeholder="Portfolio name"
-                placeholderTextColor={colors.textMuted}
-                style={styles.input}
-                autoFocus
-                editable={!creating}
-                onSubmitEditing={() => void onCreate()}
-              />
-              <Pressable
-                style={[styles.primaryBtn, creating && { opacity: 0.7 }]}
-                disabled={creating}
-                onPress={() => void onCreate()}
-              >
-                {creating ? (
-                  <View style={styles.btnBusy}>
-                    <ActivityIndicator size="small" color="#FFF" />
-                    <Text style={styles.primaryBtnText}>Creating…</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.primaryBtnText}>Create</Text>
-                )}
-              </Pressable>
+          onClose={() => {
+            if (!creating) setCreateOpen(false);
+          }}
+          title="New Portfolio"
+          bottomInset={insets.bottom}
+          sheetStyle={{ backgroundColor: colors.surface }}
+          titleStyle={{ color: colors.text }}
+          handleStyle={{ backgroundColor: colors.borderMuted }}
+          footer={
+            <Pressable
+              style={[styles.primaryBtn, creating && { opacity: 0.7 }]}
+              disabled={creating}
+              onPress={() => void onCreate()}
+            >
+              {creating ? (
+                <View style={styles.btnBusy}>
+                  <ActivityIndicator size="small" color="#FFF" />
+                  <Text style={styles.primaryBtnText}>Creating…</Text>
+                </View>
+              ) : (
+                <Text style={styles.primaryBtnText}>Create</Text>
+              )}
             </Pressable>
-          </Pressable>
-        </Modal>
+          }
+        >
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder="Portfolio name"
+            placeholderTextColor={colors.textMuted}
+            style={styles.input}
+            autoFocus
+            editable={!creating}
+            onSubmitEditing={() => void onCreate()}
+          />
+        </KeyboardSheetModal>
 
         {/* MeroShare picker */}
         <Modal

@@ -30,9 +30,18 @@ async def _enabled_tokens(db: AsyncSession) -> list[str]:
 
 async def run_market_open_job(db: AsyncSession) -> dict:
     if not is_weekday_npt():
-        return {'ok': True, 'skipped': 'weekend', 'sent': 0}
+        return {'ok': True, 'skipped': 'weekend', 'sent': 0, 'tokenCount': 0}
     title, body = await fetch_market_summary_text(kind='open')
     tokens = await _enabled_tokens(db)
+    if not tokens:
+        log.warning('market_open: no push devices registered (sent=0)')
+        return {
+            'ok': True,
+            'kind': 'open',
+            'sent': 0,
+            'tokenCount': 0,
+            'warning': 'No devices registered. Open the app, enable App notifications, allow OS permission.',
+        }
     result = await send_expo_push(
         tokens,
         title=title,
@@ -40,15 +49,24 @@ async def run_market_open_job(db: AsyncSession) -> dict:
         data={'type': 'market_open'},
         channel_id='market',
     )
-    log.info('market_open sent=%s', result.get('sent'))
-    return {'ok': True, 'kind': 'open', **result}
+    log.info('market_open sent=%s tokenCount=%s', result.get('sent'), len(tokens))
+    return {'ok': True, 'kind': 'open', 'tokenCount': len(tokens), **result}
 
 
 async def run_market_close_job(db: AsyncSession) -> dict:
     if not is_weekday_npt():
-        return {'ok': True, 'skipped': 'weekend', 'sent': 0}
+        return {'ok': True, 'skipped': 'weekend', 'sent': 0, 'tokenCount': 0}
     title, body = await fetch_market_summary_text(kind='close')
     tokens = await _enabled_tokens(db)
+    if not tokens:
+        log.warning('market_close: no push devices registered (sent=0)')
+        return {
+            'ok': True,
+            'kind': 'close',
+            'sent': 0,
+            'tokenCount': 0,
+            'warning': 'No devices registered. Open the app, enable App notifications, allow OS permission.',
+        }
     result = await send_expo_push(
         tokens,
         title=title,
@@ -56,8 +74,8 @@ async def run_market_close_job(db: AsyncSession) -> dict:
         data={'type': 'market_close'},
         channel_id='market',
     )
-    log.info('market_close sent=%s', result.get('sent'))
-    return {'ok': True, 'kind': 'close', **result}
+    log.info('market_close sent=%s tokenCount=%s', result.get('sent'), len(tokens))
+    return {'ok': True, 'kind': 'close', 'tokenCount': len(tokens), **result}
 
 
 async def run_price_alert_job(db: AsyncSession) -> dict:

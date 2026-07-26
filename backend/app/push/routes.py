@@ -50,6 +50,22 @@ def _require_cron(x_cron_secret: str = Header(default='', alias='X-Cron-Secret')
         raise HTTPException(status_code=401, detail='Invalid cron secret')
 
 
+@router.get('/status')
+async def push_status(
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_cron),
+) -> dict:
+    from sqlalchemy import func, select
+
+    from ..db.models import PushDevice
+
+    total = await db.scalar(select(func.count()).select_from(PushDevice)) or 0
+    enabled = await db.scalar(
+        select(func.count()).select_from(PushDevice).where(PushDevice.enabled.is_(True)),
+    ) or 0
+    return {'ok': True, 'devicesTotal': int(total), 'devicesEnabled': int(enabled)}
+
+
 @router.post('/register')
 async def register_push_token(
     body: PushTokenIn,

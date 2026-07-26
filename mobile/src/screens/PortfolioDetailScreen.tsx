@@ -21,6 +21,7 @@ import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
+import { KeyboardSheetModal } from '../components/KeyboardSheetModal';
 import type { RootStackParamList } from '../navigation/types';
 import {
   fmtNpr,
@@ -645,70 +646,70 @@ export function PortfolioDetailScreen() {
         </Pressable>
       </Modal>
 
-      {/* Rename */}
-      <Modal
+      {/* Rename — lifts above keypad */}
+      <KeyboardSheetModal
         visible={editOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEditOpen(false)}
-      >
-        <Pressable style={styles.backdrop} onPress={() => setEditOpen(false)}>
-          <Pressable style={styles.createSheet} onPress={() => {}}>
-            <Text style={styles.sheetTitle}>Edit Portfolio</Text>
-            <TextInput
-              value={editName}
-              onChangeText={setEditName}
-              style={styles.input}
-              autoFocus
-              placeholderTextColor={colors.textMuted}
-            />
-            <Pressable style={styles.primaryBtn} onPress={() => void onRename()}>
-              <Text style={styles.primaryBtnText}>Save</Text>
-            </Pressable>
+        onClose={() => setEditOpen(false)}
+        title="Edit Portfolio"
+        bottomInset={insets.bottom}
+        sheetStyle={{ backgroundColor: colors.surface }}
+        titleStyle={{ color: colors.text }}
+        handleStyle={{ backgroundColor: colors.borderMuted }}
+        footer={
+          <Pressable style={styles.primaryBtn} onPress={() => void onRename()}>
+            <Text style={styles.primaryBtnText}>Save</Text>
           </Pressable>
-        </Pressable>
-      </Modal>
+        }
+      >
+        <TextInput
+          value={editName}
+          onChangeText={setEditName}
+          style={styles.input}
+          autoFocus
+          placeholderTextColor={colors.textMuted}
+        />
+      </KeyboardSheetModal>
 
-      {/* Add holding */}
-      <Modal
+      {/* Add holding — lifts above keypad */}
+      <KeyboardSheetModal
         visible={addOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setAddOpen(false)}
-      >
-        <Pressable style={styles.backdrop} onPress={() => setAddOpen(false)}>
-          <Pressable style={styles.createSheet} onPress={() => {}}>
-            <Text style={styles.sheetTitle}>Add Holding</Text>
-            <TextInput
-              value={symbol}
-              onChangeText={setSymbol}
-              placeholder="Symbol"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="characters"
-              style={styles.input}
-            />
-            <TextInput
-              value={qty}
-              onChangeText={setQty}
-              placeholder="Quantity"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="numeric"
-              style={styles.input}
-            />
-            <TextInput
-              value={wacc}
-              onChangeText={setWacc}
-              placeholder="WACC / buy price"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="numeric"
-              style={styles.input}
-            />
-            <Pressable style={styles.primaryBtn} onPress={() => void onAdd()}>
-              <Text style={styles.primaryBtnText}>Add</Text>
-            </Pressable>
+        onClose={() => setAddOpen(false)}
+        title="Add Holding"
+        bottomInset={insets.bottom}
+        sheetStyle={{ backgroundColor: colors.surface }}
+        titleStyle={{ color: colors.text }}
+        handleStyle={{ backgroundColor: colors.borderMuted }}
+        footer={
+          <Pressable style={styles.primaryBtn} onPress={() => void onAdd()}>
+            <Text style={styles.primaryBtnText}>Add</Text>
           </Pressable>
-        </Pressable>
-      </Modal>
+        }
+      >
+        <TextInput
+          value={symbol}
+          onChangeText={setSymbol}
+          placeholder="Symbol"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="characters"
+          style={styles.input}
+        />
+        <TextInput
+          value={qty}
+          onChangeText={setQty}
+          placeholder="Quantity"
+          placeholderTextColor={colors.textMuted}
+          keyboardType="numeric"
+          style={styles.input}
+        />
+        <TextInput
+          value={wacc}
+          onChangeText={setWacc}
+          placeholder="WACC / buy price"
+          placeholderTextColor={colors.textMuted}
+          keyboardType="numeric"
+          style={styles.input}
+        />
+      </KeyboardSheetModal>
     </View>
   );
 }

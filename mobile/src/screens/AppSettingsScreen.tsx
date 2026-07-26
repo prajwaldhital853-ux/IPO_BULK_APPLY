@@ -54,13 +54,21 @@ export function AppSettingsScreen() {
     setBusyNotify(true);
     setNotifications(next);
     await saveNotificationsEnabled(next);
-    const ok = await registerPushTokenOnServer(next);
-    setBusyNotify(false);
-    if (next && !ok) {
-      Alert.alert(
-        'Permission needed',
-        'Allow notifications in phone settings so you can receive market open/close and price alerts.',
-      );
+    try {
+      const ok = await registerPushTokenOnServer(next);
+      if (next && !ok) {
+        Alert.alert(
+          'Could not register for push',
+          'Allow notifications in phone settings. Android also needs a production APK with FCM (Google) credentials on Expo.',
+        );
+      } else if (next && ok) {
+        Alert.alert(
+          'Notifications ready',
+          'This phone is registered for market open/close and price alerts.',
+        );
+      }
+    } finally {
+      setBusyNotify(false);
     }
   };
 
