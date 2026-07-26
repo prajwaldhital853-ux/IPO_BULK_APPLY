@@ -35,6 +35,7 @@ export type SecurityQuote = {
   change: number | null;
   pct: number | null;
   qty: number | null;
+  iconUrl?: string | null;
 };
 
 export type TurnoverRow = {

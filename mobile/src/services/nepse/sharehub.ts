@@ -131,6 +131,7 @@ type MiniScreenerRow = {
   change: number | null;
   changePercent: number | null;
   volume: number | null;
+  iconUrl?: string | null;
   lastUpdatedTime?: string;
 };
 type TodayPriceRow = {
@@ -356,9 +357,18 @@ function parseMiniScreener(rows: MiniScreenerRow[]): SecurityQuote[] {
         change: r.change,
         pct: r.changePercent,
         qty: r.volume,
+        iconUrl: iconUri(r.iconUrl ?? pickStr(raw, ['icon', 'iconUrl', 'logo'])),
       };
     })
     .sort((a, b) => a.symbol.localeCompare(b.symbol));
+}
+
+function pickStr(obj: Record<string, unknown>, keys: string[]): string | null {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return null;
 }
 
 function parseTodayPrice(rows: TodayPriceRow[]): SecurityQuote[] {
@@ -389,6 +399,87 @@ function countBreadth(securities: SecurityQuote[]): Pick<
     else unchanged += 1;
   }
   return { advanced, declined, unchanged };
+}
+
+/** Market Movers tab shows more than the home-page top-10 strip. */
+const MOVERS_LIMIT = 40;
+
+function buildIconMap(
+  securities: SecurityQuote[],
+  ...lists: Array<{ symbol: string; iconUrl: string | null }[]>
+): Map<string, string> {
+  const map = new Map<string, string>();
+  const put = (symbol: string, iconUrl: string | null | undefined) => {
+    const key = symbol.toUpperCase();
+    if (!key || !iconUrl || map.has(key)) return;
+    map.set(key, iconUrl);
+  };
+  for (const s of securities) put(s.symbol, s.iconUrl);
+  for (const list of lists) {
+    for (const row of list) put(row.symbol, row.iconUrl);
+  }
+  return map;
+}
+
+function withIcons<T extends { symbol: string; iconUrl: string | null }>(
+  rows: T[],
+  icons: Map<string, string>,
+): T[] {
+  return rows.map((r) => ({
+    ...r,
+    iconUrl: r.iconUrl ?? icons.get(r.symbol.toUpperCase()) ?? null,
+  }));
+}
+
+function securityToMover(s: SecurityQuote): MoverRow {
+  return {
+    symbol: s.symbol,
+    name: s.name,
+    ltp: s.ltp,
+    change: s.change,
+    pct: s.pct,
+    iconUrl: s.iconUrl ?? null,
+  };
+}
+
+function moversFromSecurities(securities: SecurityQuote[]): {
+  gainers: MoverRow[];
+  losers: MoverRow[];
+  turnovers: TurnoverRow[];
+} {
+  const traded = securities.filter((s) => Boolean(s.symbol));
+  const gainers = [...traded]
+    .filter((s) => (s.pct ?? s.change ?? 0) > 0)
+    .sort((a, b) => (b.pct ?? -Infinity) - (a.pct ?? -Infinity))
+    .slice(0, MOVERS_LIMIT)
+    .map(securityToMover);
+
+  const losers = [...traded]
+    .filter((s) => (s.pct ?? s.change ?? 0) < 0)
+    .sort((a, b) => (a.pct ?? Infinity) - (b.pct ?? Infinity))
+    .slice(0, MOVERS_LIMIT)
+    .map(securityToMover);
+
+  const turnovers = [...traded]
+    .map((s) => {
+      const turnover =
+        s.qty != null && s.ltp != null && Number.isFinite(s.qty * s.ltp)
+          ? s.qty * s.ltp
+          : s.qty;
+      return {
+        symbol: s.symbol,
+        name: s.name,
+        turnover,
+        ltp: s.ltp,
+        pct: s.pct,
+        iconUrl: s.iconUrl ?? null,
+      };
+    })
+    .filter((r) => (r.turnover ?? 0) > 0)
+    .sort((a, b) => (b.turnover ?? 0) - (a.turnover ?? 0))
+    .slice(0, MOVERS_LIMIT);
+
+  return { gainers, losers, turnovers };
 }
 
 async function fetchAllSecurities(): Promise<SecurityQuote[]> {
@@ -495,10 +586,11 @@ export async function fetchSharehubSnapshot(): Promise<{
     shFetch<StatusApi>('/market-status'),
     shFetch<SummaryRow[]>('/market-summary'),
     shFetch<IndexRow[]>('/index'),
-    shFetch<MoverApi[]>('/top-gainers'),
-    shFetch<MoverApi[]>('/top-losers'),
-    shFetch<TurnoverApi[]>('/top-turnover'),
-    shFetch<TransactionApi[]>('/top-transactions'),
+    // Request a larger top list when the API supports size/limit
+    shFetch<MoverApi[]>('/top-gainers?size=50'),
+    shFetch<MoverApi[]>('/top-losers?size=50'),
+    shFetch<TurnoverApi[]>('/top-turnover?size=50'),
+    shFetch<TransactionApi[]>('/top-transactions?size=50'),
     fetchHomePageData(),
     fetchAllSecurities(),
   ]);
@@ -527,19 +619,56 @@ export async function fetchSharehubSnapshot(): Promise<{
     ...breadth,
   };
 
-  const gainers = homePage?.topGainers?.length
-    ? parseHomeMovers(homePage.topGainers)
-    : parseMovers(gainersRaw ?? []);
-  const losers = homePage?.topLosers?.length
-    ? parseHomeMovers(homePage.topLosers)
-    : parseMovers(losersRaw ?? []);
-  const turnovers = homePage?.topTurnover?.length
-    ? parseHomeTurnovers(homePage.topTurnover)
-    : parseTurnovers(turnoverRaw ?? []);
-  const transactions = homePage?.topTransactions?.length
-    ? parseHomeTransactions(homePage.topTransactions)
-    : parseTransactions(transactionsRaw ?? []);
-  const tradedShares = parseHomeTradedShares(homePage?.topTradedShares);
+  const fromSecurities = moversFromSecurities(securities);
+
+  const homeGainers = parseHomeMovers(homePage?.topGainers);
+  const homeLosers = parseHomeMovers(homePage?.topLosers);
+  const homeTurnovers = parseHomeTurnovers(homePage?.topTurnover);
+  const apiGainers = parseMovers(gainersRaw ?? []);
+  const apiLosers = parseMovers(losersRaw ?? []);
+  const apiTurnovers = parseTurnovers(turnoverRaw ?? []);
+  const homeTransactions = parseHomeTransactions(homePage?.topTransactions);
+  const apiTransactions = parseTransactions(transactionsRaw ?? []);
+
+  // Use the longest available list (home strip is usually ~10; live list up to 40)
+  const icons = buildIconMap(
+    securities,
+    homeGainers,
+    homeLosers,
+    homeTurnovers,
+    homeTransactions,
+    parseHomeTradedShares(homePage?.topTradedShares),
+  );
+
+  const gainers = withIcons(
+    [fromSecurities.gainers, apiGainers, homeGainers].sort(
+      (a, b) => b.length - a.length,
+    )[0]!.slice(0, MOVERS_LIMIT),
+    icons,
+  );
+  const losers = withIcons(
+    [fromSecurities.losers, apiLosers, homeLosers].sort(
+      (a, b) => b.length - a.length,
+    )[0]!.slice(0, MOVERS_LIMIT),
+    icons,
+  );
+  const turnovers = withIcons(
+    [fromSecurities.turnovers, apiTurnovers, homeTurnovers].sort(
+      (a, b) => b.length - a.length,
+    )[0]!.slice(0, MOVERS_LIMIT),
+    icons,
+  );
+  const transactions = withIcons(
+    [apiTransactions, homeTransactions].sort((a, b) => b.length - a.length)[0]!.slice(
+      0,
+      MOVERS_LIMIT,
+    ),
+    icons,
+  );
+  const tradedShares = withIcons(
+    parseHomeTradedShares(homePage?.topTradedShares),
+    icons,
+  );
   const subIndices = parseHomeIndices(homePage?.subIndices);
 
   const homeNepse = homePage?.indices?.find((r) => r.symbol === 'NEPSE');

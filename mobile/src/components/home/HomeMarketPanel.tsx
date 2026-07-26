@@ -1,8 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
+  FlatList,
   Image,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,20 +13,9 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import Animated, {
-  Extrapolation,
-  interpolate,
-  interpolateColor,
-  runOnJS,
-  type SharedValue,
-  useAnimatedRef,
-  useAnimatedScrollHandler,
-  useAnimatedStyle,
-  useSharedValue,
-} from 'react-native-reanimated';
 import { MarketChartSection } from '../nepse/MarketChartSection';
 import { useTheme } from '../../context/ThemeContext';
 import {
@@ -146,13 +138,20 @@ function StockLogo({
   iconUrl: string | null | undefined;
   styles: ReturnType<typeof makeStyles>;
 }) {
-  if (iconUrl) {
-    return <Image source={{ uri: iconUrl }} style={styles.logo} />;
+  const [failed, setFailed] = useState(false);
+  if (!iconUrl || failed) {
+    return (
+      <View style={styles.logoFallback}>
+        <Text style={styles.logoLetter}>{symbol.slice(0, 1)}</Text>
+      </View>
+    );
   }
   return (
-    <View style={styles.logoFallback}>
-      <Text style={styles.logoLetter}>{symbol.slice(0, 1)}</Text>
-    </View>
+    <Image
+      source={{ uri: iconUrl }}
+      style={styles.logo}
+      onError={() => setFailed(true)}
+    />
   );
 }
 
@@ -160,86 +159,6 @@ const DOT_H = rs(8);
 const DOT_IDLE_W = rs(8);
 const DOT_ACTIVE_W = rs(22);
 const DOT_RADIUS = rs(4);
-
-function MoverDot({
-  index,
-  scrollX,
-  snap,
-  onPress,
-}: {
-  index: number;
-  scrollX: SharedValue<number>;
-  snap: number;
-  onPress: () => void;
-}) {
-  const style = useAnimatedStyle(() => {
-    const input = [(index - 1) * snap, index * snap, (index + 1) * snap];
-    const width = interpolate(
-      scrollX.value,
-      input,
-      [DOT_IDLE_W, DOT_ACTIVE_W, DOT_IDLE_W],
-      Extrapolation.CLAMP,
-    );
-    const backgroundColor = interpolateColor(scrollX.value, input, [
-      '#D0D5DD',
-      '#2196F3',
-      '#D0D5DD',
-    ]);
-    return { width, backgroundColor };
-  });
-
-  return (
-    <Pressable onPress={onPress} hitSlop={8}>
-      <Animated.View
-        style={[
-          {
-            height: DOT_H,
-            borderRadius: DOT_RADIUS,
-          },
-          style,
-        ]}
-      />
-    </Pressable>
-  );
-}
-
-function MoverCardShell({
-  index,
-  scrollX,
-  snap,
-  style,
-  children,
-}: {
-  index: number;
-  scrollX: SharedValue<number>;
-  snap: number;
-  style: object | object[];
-  children: React.ReactNode;
-}) {
-  const animStyle = useAnimatedStyle(() => {
-    const input = [(index - 1) * snap, index * snap, (index + 1) * snap];
-    const scale = interpolate(
-      scrollX.value,
-      input,
-      [0.965, 1, 0.965],
-      Extrapolation.CLAMP,
-    );
-    const opacity = interpolate(
-      scrollX.value,
-      input,
-      [0.78, 1, 0.78],
-      Extrapolation.CLAMP,
-    );
-    return {
-      transform: [{ scale }],
-      opacity,
-    };
-  });
-
-  return (
-    <Animated.View style={[style, animStyle]}>{children}</Animated.View>
-  );
-}
 
 export function HomeMarketPanel({ active }: Props) {
   const navigation =
@@ -252,8 +171,7 @@ export function HomeMarketPanel({ active }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [moverPage, setMoverPage] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState<IndexQuote | null>(null);
-  const moversRef = useAnimatedRef<Animated.ScrollView>();
-  const scrollX = useSharedValue(0);
+  const moversRef = useRef<FlatList<(typeof LIST_TABS)[number]>>(null);
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -297,7 +215,7 @@ export function HomeMarketPanel({ active }: Props) {
         ltp: s.ltp,
         shares: s.qty,
         pct: s.pct,
-        iconUrl: null,
+        iconUrl: s.iconUrl ?? null,
       }));
   }, [data]);
 
@@ -322,44 +240,28 @@ export function HomeMarketPanel({ active }: Props) {
   };
 
   const moversSnap = CARD_W + rs(CARD_GAP);
-  const moversOffsets = useMemo(
-    () => LIST_TABS.map((_, i) => i * moversSnap),
-    [moversSnap],
-  );
-
-  const syncMoverPage = useCallback((page: number) => {
-    const clamped = Math.max(0, Math.min(LIST_TABS.length - 1, page));
-    setMoverPage(clamped);
-  }, []);
 
   const goMoversPage = useCallback(
     (page: number) => {
       const clamped = Math.max(0, Math.min(LIST_TABS.length - 1, page));
       setMoverPage(clamped);
-      // Animated.ScrollView still supports imperative scrollTo from JS
-      moversRef.current?.scrollTo({
-        x: clamped * moversSnap,
-        y: 0,
+      moversRef.current?.scrollToOffset({
+        offset: clamped * moversSnap,
         animated: true,
       });
     },
-    [moversRef, moversSnap],
+    [moversSnap],
   );
 
-  const onMoversScroll = useAnimatedScrollHandler({
-    onScroll: (e) => {
-      scrollX.value = e.contentOffset.x;
+  const onMoversScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const page = Math.round(e.nativeEvent.contentOffset.x / moversSnap);
+      if (page >= 0 && page < LIST_TABS.length) {
+        setMoverPage((prev) => (prev === page ? prev : page));
+      }
     },
-    onMomentumEnd: (e) => {
-      const page = Math.round(e.contentOffset.x / moversSnap);
-      runOnJS(syncMoverPage)(page);
-    },
-    onEndDrag: (e) => {
-      // Soft settle when user lifts finger without much momentum
-      const page = Math.round(e.contentOffset.x / moversSnap);
-      runOnJS(syncMoverPage)(page);
-    },
-  });
+    [moversSnap],
+  );
 
   const renderMoverRow = (item: MoverRow, rank: number, metricColor?: string) => (
     <Pressable
@@ -747,68 +649,86 @@ export function HomeMarketPanel({ active }: Props) {
       </View>
       <View style={styles.dotsRow}>
         {LIST_TABS.map((t, i) => (
-          <MoverDot
-            key={t.id}
-            index={i}
-            scrollX={scrollX}
-            snap={moversSnap}
-            onPress={() => goMoversPage(i)}
-          />
+          <Pressable key={t.id} onPress={() => goMoversPage(i)} hitSlop={8}>
+            <View
+              style={{
+                height: DOT_H,
+                borderRadius: DOT_RADIUS,
+                width: i === moverPage ? DOT_ACTIVE_W : DOT_IDLE_W,
+                backgroundColor: i === moverPage ? '#2196F3' : '#D0D5DD',
+              }}
+            />
+          </Pressable>
         ))}
       </View>
 
-      <Animated.ScrollView
+      <FlatList
         ref={moversRef}
+        data={LIST_TABS}
+        keyExtractor={(t) => t.id}
         horizontal
         nestedScrollEnabled
-        decelerationRate={0.88}
-        snapToOffsets={moversOffsets}
+        decelerationRate="fast"
+        snapToInterval={moversSnap}
         snapToAlignment="start"
         disableIntervalMomentum
         showsHorizontalScrollIndicator={false}
-        onScroll={onMoversScroll}
-        scrollEventThrottle={16}
+        onMomentumScrollEnd={onMoversScroll}
+        onScrollEndDrag={onMoversScroll}
+        windowSize={3}
+        initialNumToRender={1}
+        maxToRenderPerBatch={1}
+        removeClippedSubviews
+        getItemLayout={(_, index) => ({
+          length: moversSnap,
+          offset: moversSnap * index,
+          index,
+        })}
         contentContainerStyle={styles.moversCarousel}
-      >
-        {LIST_TABS.map((tab, index) => (
-          <MoverCardShell
-            key={tab.id}
-            index={index}
-            scrollX={scrollX}
-            snap={moversSnap}
-            style={[
-              styles.moverCard,
-              {
-                width: CARD_W,
-                marginRight: index === LIST_TABS.length - 1 ? 0 : rs(CARD_GAP),
-                borderColor: isDark ? colors.borderMuted : `${tab.accent}55`,
-              },
-            ]}
-          >
+        renderItem={({ item: tab, index }) => {
+          const nearby = Math.abs(index - moverPage) <= 1;
+          return (
             <View
               style={[
-                styles.moverCardHead,
+                styles.moverCard,
                 {
-                  backgroundColor: isDark ? tab.headerBgDark : tab.headerBg,
+                  width: CARD_W,
+                  marginRight: index === LIST_TABS.length - 1 ? 0 : rs(CARD_GAP),
+                  borderColor: isDark ? colors.borderMuted : `${tab.accent}55`,
                 },
               ]}
             >
-              <View style={styles.moverCardTitleRow}>
-                <MaterialCommunityIcons
-                  name={tab.icon}
-                  size={rs(18)}
-                  color={tab.accent}
-                />
-                <Text style={[styles.moverCardTitle, { color: tab.accent }]}>
-                  {tab.label}
-                </Text>
+              <View
+                style={[
+                  styles.moverCardHead,
+                  {
+                    backgroundColor: isDark ? tab.headerBgDark : tab.headerBg,
+                  },
+                ]}
+              >
+                <View style={styles.moverCardTitleRow}>
+                  <MaterialCommunityIcons
+                    name={tab.icon}
+                    size={rs(18)}
+                    color={tab.accent}
+                  />
+                  <Text style={[styles.moverCardTitle, { color: tab.accent }]}>
+                    {tab.label}
+                  </Text>
+                </View>
+                <Text style={styles.moverCardMetric}>{tab.metric}</Text>
               </View>
-              <Text style={styles.moverCardMetric}>{tab.metric}</Text>
+              <View style={styles.moverCardBody}>
+                {nearby ? (
+                  renderCardBody(tab.id)
+                ) : (
+                  <View style={styles.moverCardPlaceholder} />
+                )}
+              </View>
             </View>
-            <View style={styles.moverCardBody}>{renderCardBody(tab.id)}</View>
-          </MoverCardShell>
-        ))}
-      </Animated.ScrollView>
+          );
+        }}
+      />
 
       <Pressable
         style={styles.moreLink}
@@ -1001,6 +921,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontWeight: '500',
     },
     moverCardBody: { paddingHorizontal: rs(10), paddingBottom: rs(4) },
+    moverCardPlaceholder: { height: rs(380) },
 
     listRow: {
       flexDirection: 'row',

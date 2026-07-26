@@ -2,6 +2,7 @@ import { nepseFetchJson } from './http';
 import { sessionStatus } from './calendar';
 import { nepalTodayIso, setAdminClosedDays } from './holidays';
 import { fetchMarketClosures } from './marketClosures';
+import { iconUri } from './screener';
 import { fetchSharehubSnapshot } from './sharehub';
 import type {
   ChartPoint,
@@ -67,6 +68,7 @@ function emptySummary(): MarketSummary {
 }
 
 function parseSecurity(row: Record<string, unknown>): SecurityQuote {
+  const iconRaw = pick(row, ['iconUrl', 'icon', 'logo', 'imageUrl']);
   return {
     symbol: str(pick(row, ['symbol', 'scrip', 'stockSymbol', 'securitySymbol'])),
     name: str(
@@ -94,6 +96,8 @@ function parseSecurity(row: Record<string, unknown>): SecurityQuote {
         'qty',
       ]),
     ),
+    iconUrl:
+      typeof iconRaw === 'string' ? iconUri(iconRaw) : null,
   };
 }
 
@@ -154,6 +158,7 @@ function mergeSecurityLists(
       change: prev.change ?? row.change,
       pct: prev.pct ?? row.pct,
       qty: prev.qty ?? row.qty,
+      iconUrl: row.iconUrl ?? prev.iconUrl ?? null,
     });
   }
   return [...map.values()].sort((a, b) => a.symbol.localeCompare(b.symbol));
