@@ -393,7 +393,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
         <Section title="IPO STATUS & RESULTS" items={ipo} styles={styles} />
         <Section title="RESOURCES & TOOLS" items={resources} styles={styles} />
 
-        <Text style={styles.version}>Version : 3.4.3 (48)</Text>
+        <Text style={styles.version}>Version : 3.4.4 (49)</Text>
       </ScrollView>
     </View>
   );
