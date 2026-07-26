@@ -30,13 +30,28 @@ export type ContactSettings = {
 
 export type PopupNoticeItem = {
   id: string;
-  imageUrl: string;
+  kind: 'image' | 'text';
+  imageUrl: string | null;
+  text: string | null;
+};
+
+export type PublicSubscriptionPlan = {
+  id: string;
+  title: string;
+  priceLabel: string;
+  amountNpr: number;
+  period: string;
+  days: number;
+  maxAccounts: number;
+  perks: string[];
 };
 
 export type PublicAppSettings = {
   payment: PaymentSettings;
   contact: ContactSettings;
   popupNotice: { items: PopupNoticeItem[] };
+  subscriptionPlans: PublicSubscriptionPlan[];
+  appLogoUrl: string | null;
 };
 
 const FALLBACK: PublicAppSettings = {
@@ -67,7 +82,43 @@ const FALLBACK: PublicAppSettings = {
     ],
   },
   popupNotice: { items: [] },
+  subscriptionPlans: [],
+  appLogoUrl: null,
 };
+
+function mapSubscriptionPlans(raw: unknown): PublicSubscriptionPlan[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PublicSubscriptionPlan[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Record<string, unknown>;
+    const id = String(row.id ?? '').trim();
+    if (!id) continue;
+    const amountNpr = Number(row.amountNpr ?? row.amount_npr ?? 0);
+    const days = Number(row.days ?? 0);
+    const maxAccounts = Number(row.maxAccounts ?? row.max_accounts ?? 50);
+    if (!Number.isFinite(amountNpr) || amountNpr < 1) continue;
+    const perksRaw = row.perks;
+    const perks: string[] = [];
+    if (Array.isArray(perksRaw)) {
+      for (const p of perksRaw) {
+        const s = String(p).trim();
+        if (s) perks.push(s);
+      }
+    }
+    out.push({
+      id,
+      title: String(row.title ?? id).trim() || id,
+      priceLabel: String(row.priceLabel ?? row.price_label ?? `Rs ${amountNpr}`),
+      amountNpr: Math.floor(amountNpr),
+      period: String(row.period ?? '').trim() || `${Math.max(1, Math.floor(days))} days`,
+      days: Math.max(1, Math.floor(days) || 30),
+      maxAccounts: Math.max(1, Math.floor(maxAccounts) || 50),
+      perks,
+    });
+  }
+  return out;
+}
 
 function mapPayment(json: Record<string, unknown>): PaymentSettings {
   const rawImage = json.qrImageUrl ?? json.qr_image_url;
@@ -159,19 +210,46 @@ export async function fetchPublicAppSettings(): Promise<PublicAppSettings> {
         if (!entry || typeof entry !== 'object') return null;
         const row = entry as Record<string, unknown>;
         const id = String(row.id ?? '').trim() || `notice-${i}`;
+        const text = String(row.text ?? '').trim();
         const rawImage = row.imageUrl ?? row.image_url;
+        const kind =
+          String(row.kind ?? '').toLowerCase() === 'text' || (text && !rawImage)
+            ? 'text'
+            : 'image';
+        if (kind === 'text') {
+          if (!text) return null;
+          return { id, kind: 'text' as const, imageUrl: null, text };
+        }
         if (!rawImage) return null;
-        return { id, imageUrl: String(rawImage) };
+        return {
+          id,
+          kind: 'image' as const,
+          imageUrl: String(rawImage),
+          text: null,
+        };
       })
       .filter(Boolean) as PopupNoticeItem[];
     if (!items.length) {
       const legacy = notice.imageUrl ?? notice.image_url;
-      if (legacy) items.push({ id: 'legacy', imageUrl: String(legacy) });
+      if (legacy) {
+        items.push({
+          id: 'legacy',
+          kind: 'image',
+          imageUrl: String(legacy),
+          text: null,
+        });
+      }
     }
     return {
       payment: mapPayment((json.payment as Record<string, unknown>) ?? {}),
       contact: mapContact((json.contact as Record<string, unknown>) ?? {}),
       popupNotice: { items },
+      subscriptionPlans: mapSubscriptionPlans(
+        json.subscriptionPlans ?? json.subscription_plans,
+      ),
+      appLogoUrl: json.appLogoUrl || json.app_logo_url
+        ? String(json.appLogoUrl ?? json.app_logo_url)
+        : null,
     };
   } catch {
     return FALLBACK;

@@ -81,11 +81,24 @@ export type AdminContactSettings = {
 
 export type AdminPopupNoticeItem = {
   id: string;
-  imageUrl: string;
+  kind: 'image' | 'text';
+  imageUrl: string | null;
+  text: string | null;
 };
 
 export type AdminPopupNotice = {
   items: AdminPopupNoticeItem[];
+};
+
+export type AdminSubscriptionPlan = {
+  id: string;
+  title: string;
+  priceLabel: string;
+  amountNpr: number;
+  period: string;
+  days: number;
+  maxAccounts: number;
+  perks: string[];
 };
 
 export type AdminSettings = {
@@ -93,6 +106,8 @@ export type AdminSettings = {
   payment: AdminPaymentSettings;
   contact: AdminContactSettings;
   popupNotice: AdminPopupNotice;
+  subscriptionPlans: AdminSubscriptionPlan[];
+  appLogoUrl: string | null;
 };
 
 async function parseError(res: Response): Promise<string> {
@@ -385,6 +400,40 @@ function mapContactSettings(json: Record<string, unknown>): AdminContactSettings
   };
 }
 
+function mapSubscriptionPlans(raw: unknown): AdminSubscriptionPlan[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AdminSubscriptionPlan[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Record<string, unknown>;
+    const id = String(row.id ?? '').trim();
+    if (!id) continue;
+    const amountNpr = Number(row.amountNpr ?? row.amount_npr ?? 0);
+    const days = Number(row.days ?? 0);
+    const maxAccounts = Number(row.maxAccounts ?? row.max_accounts ?? 50);
+    if (!Number.isFinite(amountNpr) || amountNpr < 1) continue;
+    const perksRaw = row.perks;
+    const perks: string[] = [];
+    if (Array.isArray(perksRaw)) {
+      for (const p of perksRaw) {
+        const s = String(p).trim();
+        if (s) perks.push(s);
+      }
+    }
+    out.push({
+      id,
+      title: String(row.title ?? id).trim() || id,
+      priceLabel: String(row.priceLabel ?? row.price_label ?? `Rs ${amountNpr}`),
+      amountNpr: Math.floor(amountNpr),
+      period: String(row.period ?? '').trim() || `${Math.max(1, Math.floor(days))} days`,
+      days: Math.max(1, Math.floor(days) || 30),
+      maxAccounts: Math.max(1, Math.floor(maxAccounts) || 50),
+      perks,
+    });
+  }
+  return out;
+}
+
 function mapAdminSettings(json: Record<string, unknown>): AdminSettings {
   const notice = (json.popupNotice ?? json.popup_notice ?? {}) as Record<
     string,
@@ -396,16 +445,35 @@ function mapAdminSettings(json: Record<string, unknown>): AdminSettings {
       if (!entry || typeof entry !== 'object') return null;
       const row = entry as Record<string, unknown>;
       const id = String(row.id ?? '').trim() || `notice-${i}`;
+      const text = String(row.text ?? '').trim();
       const rawImage = row.imageUrl ?? row.image_url;
+      const kind =
+        String(row.kind ?? '').toLowerCase() === 'text' || (text && !rawImage)
+          ? 'text'
+          : 'image';
+      if (kind === 'text') {
+        if (!text) return null;
+        return { id, kind: 'text' as const, imageUrl: null, text };
+      }
       if (!rawImage) return null;
-      return { id, imageUrl: String(rawImage) };
+      return {
+        id,
+        kind: 'image' as const,
+        imageUrl: String(rawImage),
+        text: null,
+      };
     })
     .filter(Boolean) as AdminPopupNoticeItem[];
   // Legacy single imageUrl support
   if (!items.length) {
     const legacy = notice.imageUrl ?? notice.image_url;
     if (legacy) {
-      items.push({ id: 'legacy', imageUrl: String(legacy) });
+      items.push({
+        id: 'legacy',
+        kind: 'image',
+        imageUrl: String(legacy),
+        text: null,
+      });
     }
   }
   return {
@@ -413,6 +481,12 @@ function mapAdminSettings(json: Record<string, unknown>): AdminSettings {
     payment: mapPaymentSettings((json.payment as Record<string, unknown>) ?? {}),
     contact: mapContactSettings((json.contact as Record<string, unknown>) ?? {}),
     popupNotice: { items },
+    subscriptionPlans: mapSubscriptionPlans(
+      json.subscriptionPlans ?? json.subscription_plans,
+    ),
+    appLogoUrl: json.appLogoUrl || json.app_logo_url
+      ? String(json.appLogoUrl ?? json.app_logo_url)
+      : null,
   };
 }
 
@@ -432,10 +506,14 @@ export async function updateAdminSettings(
     contact?: AdminContactSettings;
     popupNotice?: {
       imageBase64?: string;
+      text?: string;
       deleteId?: string;
       clearAll?: boolean;
       clearImage?: boolean;
     };
+    subscriptionPlans?: AdminSubscriptionPlan[];
+    appLogoBase64?: string;
+    clearAppLogo?: boolean;
   },
 ): Promise<AdminSettings> {
   const res = await adminFetch('/admin/settings', token, {
@@ -497,6 +575,33 @@ export async function deleteAdminPaymentQr(token: string): Promise<AdminSettings
   });
 }
 
+export async function uploadAdminAppLogo(
+  token: string,
+  uri: string,
+  mimeType = 'image/png',
+): Promise<AdminSettings> {
+  const fileRes = await fetch(uri);
+  const blob = await fileRes.blob();
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = String(reader.result ?? '');
+      const raw = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+      if (!raw) reject(new Error('Could not read image'));
+      else resolve(raw);
+    };
+    reader.onerror = () => reject(new Error('Could not read image'));
+    reader.readAsDataURL(blob);
+  });
+  return updateAdminSettings(token, {
+    appLogoBase64: `data:${mimeType || blob.type || 'image/png'};base64,${base64}`,
+  });
+}
+
+export async function deleteAdminAppLogo(token: string): Promise<AdminSettings> {
+  return updateAdminSettings(token, { clearAppLogo: true });
+}
+
 async function imageUriToDataUrl(
   uri: string,
   mimeType = 'image/jpeg',
@@ -526,6 +631,15 @@ export async function uploadAdminPopupNotice(
   const dataUrl = await imageUriToDataUrl(uri, mimeType);
   return updateAdminSettings(token, {
     popupNotice: { imageBase64: dataUrl },
+  });
+}
+
+export async function addAdminTextPopupNotice(
+  token: string,
+  text: string,
+): Promise<AdminSettings> {
+  return updateAdminSettings(token, {
+    popupNotice: { text: text.trim() },
   });
 }
 

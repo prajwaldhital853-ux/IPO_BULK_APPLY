@@ -77,6 +77,24 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     "ADD COLUMN popup_notices_json TEXT NOT NULL DEFAULT '[]'"
                 )
             )
+        if 'subscription_plans_json' not in cols:
+            sync_conn.execute(
+                text(
+                    "ALTER TABLE site_settings "
+                    "ADD COLUMN subscription_plans_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            )
+        if 'app_logo_b64' not in cols:
+            sync_conn.execute(
+                text('ALTER TABLE site_settings ADD COLUMN app_logo_b64 TEXT')
+            )
+        if 'app_logo_mime' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE site_settings '
+                    'ADD COLUMN app_logo_mime VARCHAR(64)'
+                )
+            )
 
 
 async def init_db() -> None:
@@ -134,6 +152,28 @@ def _apply_postgres_patches(sync_conn) -> None:
                 "ALTER TABLE site_settings "
                 "ADD COLUMN IF NOT EXISTS popup_notices_json TEXT "
                 "NOT NULL DEFAULT '[]'"
+            )
+        )
+    if 'subscription_plans_json' not in cols:
+        sync_conn.execute(
+            text(
+                "ALTER TABLE site_settings "
+                "ADD COLUMN IF NOT EXISTS subscription_plans_json TEXT "
+                "NOT NULL DEFAULT '[]'"
+            )
+        )
+    if 'app_logo_b64' not in cols:
+        sync_conn.execute(
+            text(
+                'ALTER TABLE site_settings '
+                'ADD COLUMN IF NOT EXISTS app_logo_b64 TEXT'
+            )
+        )
+    if 'app_logo_mime' not in cols:
+        sync_conn.execute(
+            text(
+                'ALTER TABLE site_settings '
+                'ADD COLUMN IF NOT EXISTS app_logo_mime VARCHAR(64)'
             )
         )
 

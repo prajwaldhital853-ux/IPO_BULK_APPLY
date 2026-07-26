@@ -13,19 +13,23 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   fetchPublicAppSettings,
   resolvePublicMediaUrl,
+  type PopupNoticeItem,
 } from '../services/app/publicSettingsApi';
 import { rs } from '../utils/responsive';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const NOTICE_MAX_W = Math.min(SCREEN_W - rs(40), rs(400));
 
+type NoticeSlide =
+  | { kind: 'image'; url: string }
+  | { kind: 'text'; text: string };
+
 /**
- * Shows admin-uploaded notice images on app open, one after another.
+ * Shows admin notices on app open (image and/or plain text), one after another.
  * Close via × or by tapping the dimmed area beside the notice.
- * Tall images scroll inside the notice area.
  */
 export function StartupNoticeModal() {
-  const [urls, setUrls] = useState<string[]>([]);
+  const [slides, setSlides] = useState<NoticeSlide[]>([]);
   const [index, setIndex] = useState(0);
   const [visible, setVisible] = useState(false);
   const [imgHeight, setImgHeight] = useState(SCREEN_H * 0.55);
@@ -35,11 +39,13 @@ export function StartupNoticeModal() {
     void (async () => {
       try {
         const settings = await fetchPublicAppSettings();
-        const resolved = (settings.popupNotice.items ?? [])
-          .map((item) => resolvePublicMediaUrl(item.imageUrl))
-          .filter((u): u is string => Boolean(u));
-        if (!cancelled && resolved.length) {
-          setUrls(resolved);
+        const next: NoticeSlide[] = [];
+        for (const item of settings.popupNotice.items ?? []) {
+          const slide = toSlide(item);
+          if (slide) next.push(slide);
+        }
+        if (!cancelled && next.length) {
+          setSlides(next);
           setIndex(0);
           setVisible(true);
         }
@@ -55,22 +61,22 @@ export function StartupNoticeModal() {
   const advance = useCallback(() => {
     setIndex((i) => {
       const next = i + 1;
-      if (next >= urls.length) {
+      if (next >= slides.length) {
         setVisible(false);
         return i;
       }
       return next;
     });
-  }, [urls.length]);
+  }, [slides.length]);
 
-  const currentUrl = urls[index] ?? null;
+  const current = slides[index] ?? null;
   const styles = useMemo(() => makeStyles(), []);
 
   useEffect(() => {
     setImgHeight(SCREEN_H * 0.55);
-  }, [currentUrl]);
+  }, [current]);
 
-  if (!currentUrl || !visible) return null;
+  if (!current || !visible) return null;
 
   return (
     <Modal
@@ -81,7 +87,6 @@ export function StartupNoticeModal() {
       onRequestClose={advance}
     >
       <View style={styles.backdrop}>
-        {/* Tap outside notice to close / advance */}
         <Pressable style={StyleSheet.absoluteFill} onPress={advance} />
 
         <View style={styles.noticeWrap} pointerEvents="box-none">
@@ -102,79 +107,89 @@ export function StartupNoticeModal() {
               bounces
               nestedScrollEnabled
             >
-              <Image
-                source={{ uri: currentUrl }}
-                style={{ width: NOTICE_MAX_W, height: imgHeight }}
-                resizeMode="contain"
-                onLoad={(e) => {
-                  const src = e.nativeEvent.source;
-                  const w = src?.width ?? 0;
-                  const h = src?.height ?? 0;
-                  if (w > 0 && h > 0) {
-                    setImgHeight((NOTICE_MAX_W / w) * h);
-                  }
-                }}
-              />
+              {current.kind === 'image' ? (
+                <Image
+                  source={{ uri: current.url }}
+                  style={{ width: NOTICE_MAX_W, height: imgHeight }}
+                  resizeMode="contain"
+                  onLoad={(e) => {
+                    const src = e.nativeEvent.source;
+                    const w = src?.width ?? 0;
+                    const h = src?.height ?? 0;
+                    if (w > 0 && h > 0) {
+                      setImgHeight((NOTICE_MAX_W / w) * h);
+                    }
+                  }}
+                />
+              ) : (
+                <View style={styles.textCard}>
+                  <Ionicons
+                    name="megaphone-outline"
+                    size={rs(22)}
+                    color="#2D5A27"
+                    style={{ marginBottom: rs(10) }}
+                  />
+                  <Text style={styles.textBody}>{current.text}</Text>
+                </View>
+              )}
             </ScrollView>
           </View>
-
-          {urls.length > 1 ? (
-            <Text style={styles.counter}>
-              {index + 1}/{urls.length}
-            </Text>
-          ) : null}
         </View>
       </View>
     </Modal>
   );
 }
 
+function toSlide(item: PopupNoticeItem): NoticeSlide | null {
+  if (item.kind === 'text') {
+    const text = (item.text ?? '').trim();
+    return text ? { kind: 'text', text } : null;
+  }
+  const url = resolvePublicMediaUrl(item.imageUrl);
+  return url ? { kind: 'image', url } : null;
+}
+
 function makeStyles() {
-  const maxH = SCREEN_H * 0.85;
   return StyleSheet.create({
     backdrop: {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.62)',
-      alignItems: 'center',
+      backgroundColor: 'rgba(0,0,0,0.72)',
       justifyContent: 'center',
-      paddingHorizontal: rs(16),
-      paddingVertical: rs(24),
+      alignItems: 'center',
+      padding: rs(20),
     },
     noticeWrap: {
       width: NOTICE_MAX_W,
-      maxHeight: maxH,
-      alignItems: 'center',
-      zIndex: 2,
-    },
-    noticeBody: {
-      width: NOTICE_MAX_W,
-      maxHeight: maxH - rs(48),
-      borderRadius: rs(4),
-      overflow: 'hidden',
-      backgroundColor: 'transparent',
-    },
-    scroll: {
-      width: NOTICE_MAX_W,
-      maxHeight: maxH - rs(48),
-    },
-    scrollContent: {
-      alignItems: 'center',
+      maxHeight: SCREEN_H * 0.82,
     },
     closeBtn: {
       alignSelf: 'flex-end',
       marginBottom: rs(8),
-      width: rs(34),
-      height: rs(34),
-      borderRadius: rs(17),
+      width: rs(36),
+      height: rs(36),
+      borderRadius: rs(18),
+      backgroundColor: 'rgba(0,0,0,0.45)',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.45)',
     },
-    counter: {
-      marginTop: rs(10),
-      color: 'rgba(255,255,255,0.85)',
-      fontSize: rs(12),
-      fontWeight: '700',
+    noticeBody: {
+      backgroundColor: '#F7FAF3',
+      borderRadius: rs(16),
+      overflow: 'hidden',
+      maxHeight: SCREEN_H * 0.72,
+    },
+    scroll: { maxHeight: SCREEN_H * 0.72 },
+    scrollContent: { alignItems: 'center', paddingVertical: rs(8) },
+    textCard: {
+      width: NOTICE_MAX_W,
+      paddingHorizontal: rs(18),
+      paddingVertical: rs(20),
+    },
+    textBody: {
+      color: '#1B1B1B',
+      fontSize: rs(15),
+      lineHeight: rs(22),
+      fontWeight: '600',
     },
   });
 }

@@ -335,7 +335,12 @@ async def subscription_request(
         )
 
     try:
-        info = plan_info(body.plan_id)
+        from ..site_settings import get_or_create_settings
+        from .subscription import load_subscription_plans, plans_to_catalog
+
+        settings_row = await get_or_create_settings(db)
+        catalog = plans_to_catalog(load_subscription_plans(settings_row))
+        info = plan_info(body.plan_id, catalog)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

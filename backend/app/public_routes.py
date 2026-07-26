@@ -105,6 +105,25 @@ async def payment_qr_image(db: AsyncSession = Depends(get_db)) -> Response:
     )
 
 
+@router.get('/logo')
+async def app_logo(db: AsyncSession = Depends(get_db)) -> Response:
+    row = await get_or_create_settings(db)
+    if not getattr(row, 'app_logo_b64', None):
+        raise HTTPException(status_code=404, detail='No app logo uploaded')
+    import base64
+
+    try:
+        data = base64.b64decode(row.app_logo_b64)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail='Invalid logo data') from e
+    mime = getattr(row, 'app_logo_mime', None) or 'image/png'
+    return Response(
+        content=data,
+        media_type=mime,
+        headers={'Cache-Control': 'public, max-age=300'},
+    )
+
+
 @router.get('/popup-notice')
 async def popup_notice_image_legacy(db: AsyncSession = Depends(get_db)) -> Response:
     """Serve first notice (legacy single URL). Prefer /popup-notice/{id}."""

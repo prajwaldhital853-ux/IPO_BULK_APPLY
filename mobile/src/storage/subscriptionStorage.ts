@@ -154,7 +154,17 @@ export function accountLimitForPlan(
   return isPremium ? PREMIUM_ACCOUNT_LIMIT : FREE_ACCOUNT_LIMIT;
 }
 
-export const PREMIUM_PLANS = [
+export type PremiumPlan = {
+  id: string;
+  title: string;
+  price: string;
+  period: string;
+  days: number;
+  maxAccounts: number;
+  perks: string[];
+};
+
+export const PREMIUM_PLANS: PremiumPlan[] = [
   {
     id: 'premium_6month',
     title: 'Premium 6 Months',
@@ -189,4 +199,4 @@ export const PREMIUM_PLANS = [
       'Priority data refresh',
     ],
   },
-] as const;
+];

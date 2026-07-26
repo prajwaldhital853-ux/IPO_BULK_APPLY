@@ -34,6 +34,7 @@ export type MiniScreenerRow = {
   fiftyTwoWeekHigh: number | null;
   fiftyTwoWeekLow: number | null;
   companyId?: number;
+  email?: string | null;
 };
 
 export type StockRankRow = {
@@ -275,7 +276,36 @@ export async function loadLiveQuote(
 ): Promise<MiniScreenerRow | null> {
   const sym = symbol.toUpperCase();
   const rows = await loadMiniScreener(true);
-  return rows.find((r) => r.symbol.toUpperCase() === sym) ?? null;
+  const row = rows.find((r) => r.symbol.toUpperCase() === sym) ?? null;
+  if (!row) return null;
+  const email = await loadCompanyEmail(sym);
+  return email ? { ...row, email } : row;
+}
+
+/** Best-effort company email from ShareSansar company page. */
+export async function loadCompanyEmail(symbol: string): Promise<string | null> {
+  const sym = symbol.trim().toLowerCase();
+  if (!sym) return null;
+  try {
+    const res = await fetch(`https://www.sharesansar.com/company/${sym}`, {
+      headers: {
+        Accept: 'text/html',
+        'User-Agent': 'Mozilla/5.0 NEPSEGHAR',
+      },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const matches = html.match(
+      /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g,
+    );
+    if (!matches?.length) return null;
+    const skip =
+      /sharesansar|noreply|no-reply|example\.com|asteriskt|merolagani/i;
+    const hit = matches.find((e) => !skip.test(e));
+    return hit?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function loadLargeCaps(limit = 100): Promise<StockRankRow[]> {
@@ -687,26 +717,41 @@ export type AnnouncementRow = {
 
 function stripHtml(html: string): string {
   return html
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/\s*p\s*>/gi, '\n')
+    .replace(/<\/\s*div\s*>/gi, '\n')
     .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
+    .replace(/&nbsp;?/gi, ' ')
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n);
+      return Number.isFinite(code) ? String.fromCharCode(code) : ' ';
+    })
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
 
 function parseAnnouncement(row: Record<string, unknown>): AnnouncementRow {
+  const rawDetails = str(
+    row.details ?? row.content ?? row.description ?? row.body ?? '',
+  );
   return {
     id: Number(row.id ?? 0),
-    title: str(row.title ?? row.subTitle),
+    title: stripHtml(str(row.title ?? row.subTitle)),
     symbol: str(row.symbol).toUpperCase(),
-    securityName: str(row.securityName),
-    details: stripHtml(str(row.details)),
+    securityName: str(row.securityName ?? row.companyName),
+    details: stripHtml(rawDetails),
     category: str(row.category),
     type: str(row.type),
     attachmentUrl: str(row.attachmentUrl) || null,
-    date: str(row.announcementDate).slice(0, 10),
+    date: str(row.announcementDate ?? row.date).slice(0, 10),
     iconUrl: iconUri(str(row.iconUrl)),
   };
 }
@@ -950,7 +995,36 @@ export type FinancialReportRow = {
   date: string;
   attachmentUrl: string | null;
   details: string;
+  securityName: string;
+  fiscalYear: string | null;
+  quarter: string | null;
 };
+
+function parseReportMeta(title: string): {
+  fiscalYear: string | null;
+  quarter: string | null;
+} {
+  const fy =
+    title.match(/FY\s*([0-9]{4}\/?[0-9]{2,4})/i)?.[1] ??
+    title.match(/\b(20\d{2}\/20\d{2})\b/)?.[1] ??
+    title.match(/\b(20\d{2}\/\d{2})\b/)?.[1] ??
+    null;
+  const qRaw =
+    title.match(/(\d)(?:st|nd|rd|th)\s*Quarter/i)?.[1] ??
+    title.match(/\bQ([1-4])\b/i)?.[1] ??
+    null;
+  const quarter =
+    qRaw == null
+      ? null
+      : qRaw === '1'
+        ? '1st Quarter'
+        : qRaw === '2'
+          ? '2nd Quarter'
+          : qRaw === '3'
+            ? '3rd Quarter'
+            : '4th Quarter';
+  return { fiscalYear: fy, quarter };
+}
 
 /** Financial reports are published as NEPSE announcement PDFs for each symbol. */
 export async function loadFinancialReports(
@@ -963,13 +1037,19 @@ export async function loadFinancialReports(
     .filter((r) =>
       /report|quarter|annual|financial|statement|audited/i.test(r.title),
     )
-    .map((r) => ({
-      id: r.id,
-      title: r.title,
-      date: r.date,
-      attachmentUrl: r.attachmentUrl,
-      details: r.details,
-    }));
+    .map((r) => {
+      const meta = parseReportMeta(r.title);
+      return {
+        id: r.id,
+        title: r.title,
+        date: r.date,
+        attachmentUrl: r.attachmentUrl,
+        details: r.details,
+        securityName: r.securityName,
+        fiscalYear: meta.fiscalYear,
+        quarter: meta.quarter,
+      };
+    });
 }
 
 export function fmtAmtShort(n: number | null): string {

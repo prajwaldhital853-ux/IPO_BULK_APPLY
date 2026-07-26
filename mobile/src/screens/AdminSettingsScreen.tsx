@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,21 +20,27 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
+import { useAppBranding } from '../context/AppBrandingContext';
 import {
   changeAdminPassword,
+  deleteAdminAppLogo,
   deleteAdminPaymentQr,
   deleteAdminPopupNotice,
   fetchAdminSettings,
   updateAdminSettings,
+  uploadAdminAppLogo,
   uploadAdminPaymentQr,
   uploadAdminPopupNotice,
+  addAdminTextPopupNotice,
   type AdminSettings,
   type AdminSocialLink,
+  type AdminSubscriptionPlan,
 } from '../services/admin/adminApi';
 import { loadAdminToken } from '../services/admin/adminTokenStorage';
 import { AUTH_API_BASE } from '../services/auth/config';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
+import { PREMIUM_PLANS } from '../storage/subscriptionStorage';
 import { rs } from '../utils/responsive';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -60,14 +69,53 @@ const SOCIAL_PLATFORMS = [
 
 type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
-type SettingsTab = 'notices' | 'payment' | 'social' | 'password';
+type SettingsTab = 'notices' | 'plans' | 'branding' | 'payment' | 'social' | 'password';
 
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'notices', label: 'Notices' },
+  { id: 'plans', label: 'Plans' },
+  { id: 'branding', label: 'Logo' },
   { id: 'payment', label: 'Payment' },
   { id: 'social', label: 'Social' },
   { id: 'password', label: 'Password' },
 ];
+
+type PlanDraft = {
+  id: string;
+  title: string;
+  priceLabel: string;
+  amountNpr: string;
+  period: string;
+  days: string;
+  maxAccounts: string;
+  perksText: string;
+};
+
+function plansToDrafts(plans: AdminSubscriptionPlan[]): PlanDraft[] {
+  const source =
+    plans.length > 0
+      ? plans
+      : PREMIUM_PLANS.map((p) => ({
+          id: p.id,
+          title: p.title,
+          priceLabel: p.price,
+          amountNpr: Number(String(p.price).replace(/[^\d]/g, '')) || 300,
+          period: p.period,
+          days: p.days,
+          maxAccounts: p.maxAccounts,
+          perks: [...p.perks],
+        }));
+  return source.map((p) => ({
+    id: p.id,
+    title: p.title,
+    priceLabel: p.priceLabel,
+    amountNpr: String(p.amountNpr),
+    period: p.period,
+    days: String(p.days),
+    maxAccounts: String(p.maxAccounts),
+    perksText: (p.perks ?? []).join('\n'),
+  }));
+}
 
 type PlatformLinkDraft = {
   id: string;
@@ -144,7 +192,7 @@ function Field({
   onChangeText: (v: string) => void;
   colors: ThemeColors;
   multiline?: boolean;
-  keyboardType?: 'default' | 'email-address' | 'phone-pad' | 'url';
+  keyboardType?: 'default' | 'email-address' | 'phone-pad' | 'url' | 'number-pad' | 'numeric';
   fieldKey?: string;
 }) {
   const styles = useMemo(() => makeFieldStyles(colors), [colors]);
@@ -170,20 +218,29 @@ export function AdminSettingsScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const { refresh: refreshBranding } = useAppBranding();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const scrollRef = useRef<ScrollView>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [qrBusy, setQrBusy] = useState(false);
   const [noticeBusy, setNoticeBusy] = useState(false);
+  const [logoBusy, setLogoBusy] = useState(false);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  const [appLogoUrl, setAppLogoUrl] = useState<string | null>(null);
+  const [planDrafts, setPlanDrafts] = useState<PlanDraft[]>([]);
   const [noticeItems, setNoticeItems] = useState<
-    { id: string; imageUrl: string }[]
+    { id: string; kind: 'image' | 'text'; imageUrl: string | null; text: string | null }[]
   >([]);
+  const [noticeTextDraft, setNoticeTextDraft] = useState('');
   const [previewNotice, setPreviewNotice] = useState<{
     id: string;
-    imageUrl: string;
+    kind: 'image' | 'text';
+    imageUrl: string | null;
+    text: string | null;
     rank: number;
   } | null>(null);
 
@@ -206,14 +263,34 @@ export function AdminSettingsScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('notices');
 
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = Keyboard.addListener(showEvt, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const onHide = Keyboard.addListener(hideEvt, () => setKeyboardHeight(0));
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
+
   const applySettings = useCallback((s: AdminSettings) => {
     setSettings(s);
     setQrText(s.payment.qrText);
     setQrImageUrl(resolveQrImageUrl(s.payment.qrImageUrl));
+    setAppLogoUrl(resolveQrImageUrl(s.appLogoUrl));
+    setPlanDrafts(plansToDrafts(s.subscriptionPlans ?? []));
     setNoticeItems(
       (s.popupNotice?.items ?? []).map((item) => ({
         id: item.id,
-        imageUrl: resolveQrImageUrl(item.imageUrl) ?? item.imageUrl,
+        kind: item.kind,
+        imageUrl:
+          item.kind === 'image'
+            ? resolveQrImageUrl(item.imageUrl) ?? item.imageUrl
+            : null,
+        text: item.text,
       })),
     );
     setBankName(s.payment.bankName);
@@ -356,6 +433,29 @@ export function AdminSettingsScreen() {
     }
   };
 
+  const onAddTextNotice = () => {
+    const text = noticeTextDraft.trim();
+    if (!token) return;
+    if (!text) {
+      Alert.alert('Empty', 'Type the notice text first.');
+      return;
+    }
+    setNoticeBusy(true);
+    void addAdminTextPopupNotice(token, text)
+      .then((updated) => {
+        applySettings(updated);
+        setNoticeTextDraft('');
+        Alert.alert(
+          'Added',
+          `Notice ${updated.popupNotice.items.length} added. Users see notices in order when they open the app.`,
+        );
+      })
+      .catch((e) => {
+        Alert.alert('Failed', e instanceof Error ? e.message : 'Try again');
+      })
+      .finally(() => setNoticeBusy(false));
+  };
+
   const onDeleteNotice = (noticeId: string) => {
     if (!token) return;
     Alert.alert(
@@ -409,6 +509,129 @@ export function AdminSettingsScreen() {
                 ),
               )
               .finally(() => setNoticeBusy(false));
+          },
+        },
+      ],
+    );
+  };
+
+  const updatePlanDraft = (index: number, patch: Partial<PlanDraft>) => {
+    setPlanDrafts((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, ...patch } : p)),
+    );
+  };
+
+  const onSavePlans = async () => {
+    if (!token) return;
+    const plans: AdminSubscriptionPlan[] = [];
+    for (const draft of planDrafts) {
+      const amountNpr = Math.floor(Number(draft.amountNpr));
+      const days = Math.floor(Number(draft.days));
+      const maxAccounts = Math.floor(Number(draft.maxAccounts));
+      if (!draft.id.trim() || !draft.title.trim()) {
+        Alert.alert('Invalid plan', 'Each plan needs an id and title.');
+        return;
+      }
+      if (!Number.isFinite(amountNpr) || amountNpr < 1) {
+        Alert.alert('Invalid price', `Enter a valid NPR amount for ${draft.title || draft.id}.`);
+        return;
+      }
+      if (!Number.isFinite(days) || days < 1) {
+        Alert.alert('Invalid days', `Enter valid duration days for ${draft.title || draft.id}.`);
+        return;
+      }
+      if (!Number.isFinite(maxAccounts) || maxAccounts < 1) {
+        Alert.alert('Invalid accounts', `Enter valid max accounts for ${draft.title || draft.id}.`);
+        return;
+      }
+      plans.push({
+        id: draft.id.trim(),
+        title: draft.title.trim(),
+        priceLabel: draft.priceLabel.trim() || `Rs ${amountNpr}`,
+        amountNpr,
+        period: draft.period.trim() || `${days} days`,
+        days,
+        maxAccounts,
+        perks: draft.perksText
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean),
+      });
+    }
+    if (!plans.length) {
+      Alert.alert('Empty', 'At least one plan is required.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await updateAdminSettings(token, { subscriptionPlans: plans });
+      applySettings(updated);
+      await refreshBranding();
+      Alert.alert('Saved', 'Subscription plans updated for all users.');
+    } catch (e) {
+      Alert.alert('Failed', e instanceof Error ? e.message : 'Could not save plans');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onPickAppLogo = async () => {
+    if (!token) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        'Permission needed',
+        'Allow photo access so you can upload the company logo.',
+      );
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.9,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    const asset = result.assets[0];
+    setLogoBusy(true);
+    try {
+      const mime = asset.mimeType ?? 'image/png';
+      const updated = await uploadAdminAppLogo(token, asset.uri, mime);
+      applySettings(updated);
+      await refreshBranding();
+      Alert.alert('Uploaded', 'App logo updated everywhere in the app.');
+    } catch (e) {
+      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Try again');
+    } finally {
+      setLogoBusy(false);
+    }
+  };
+
+  const onDeleteAppLogo = () => {
+    if (!token) return;
+    Alert.alert(
+      'Remove custom logo?',
+      'The app will fall back to the default NEPSE GHAR logo.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setLogoBusy(true);
+            void deleteAdminAppLogo(token)
+              .then(async (updated) => {
+                applySettings(updated);
+                await refreshBranding();
+                Alert.alert('Removed', 'Custom logo deleted.');
+              })
+              .catch((e: unknown) =>
+                Alert.alert(
+                  'Delete failed',
+                  e instanceof Error ? e.message : 'Try again',
+                ),
+              )
+              .finally(() => setLogoBusy(false));
           },
         },
       ],
@@ -549,17 +772,27 @@ export function AdminSettingsScreen() {
             })}
           </ScrollView>
 
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={0}
+          >
           <ScrollView
-            contentContainerStyle={styles.scroll}
+            ref={scrollRef}
+            contentContainerStyle={[
+              styles.scroll,
+              { paddingBottom: rs(40) + (keyboardHeight > 0 ? keyboardHeight : 0) },
+            ]}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
           >
             {settingsTab === 'notices' ? (
               <>
                 <Text style={styles.section}>Startup popup notices</Text>
                 <Text style={styles.help}>
-                  Add multiple notice images from gallery. Users see them one by
-                  one when the app opens (1 → 2 → 3…). Close with × or by tapping
-                  beside the notice. Up to 10 notices.
+                  Add notice images from gallery, or type plain text only. Users
+                  see them one by one when the app opens (1 → 2 → 3…). Close with
+                  × or by tapping beside the notice. Up to 10 notices.
                 </Text>
 
                 <View style={styles.qrPreview}>
@@ -577,16 +810,31 @@ export function AdminSettingsScreen() {
                           onPress={() =>
                             setPreviewNotice({
                               id: item.id,
+                              kind: item.kind,
                               imageUrl: item.imageUrl,
+                              text: item.text,
                               rank: i + 1,
                             })
                           }
                         >
-                          <Image
-                            source={{ uri: item.imageUrl }}
-                            style={styles.noticeThumb}
-                            resizeMode="cover"
-                          />
+                          {item.kind === 'image' && item.imageUrl ? (
+                            <Image
+                              source={{ uri: item.imageUrl }}
+                              style={styles.noticeThumb}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <View style={[styles.noticeThumb, styles.noticeTextThumb]}>
+                              <Ionicons
+                                name="document-text-outline"
+                                size={rs(22)}
+                                color={colors.primary}
+                              />
+                              <Text style={styles.noticeTextPreview} numberOfLines={3}>
+                                {item.text}
+                              </Text>
+                            </View>
+                          )}
                           <View style={styles.noticeViewBadge}>
                             <Ionicons
                               name="eye-outline"
@@ -620,11 +868,48 @@ export function AdminSettingsScreen() {
                         color={colors.textMuted}
                       />
                       <Text style={styles.noticeEmptyText}>
-                        Add notice images from gallery
+                        Add a notice image or plain text
                       </Text>
                     </View>
                   )}
+
+                  <Text style={[styles.help, { marginTop: rs(12), marginBottom: rs(6) }]}>
+                    Text-only notice
+                  </Text>
+                  <TextInput
+                    style={styles.noticeTextInput}
+                    value={noticeTextDraft}
+                    onChangeText={setNoticeTextDraft}
+                    placeholder="Type notice text shown on app open…"
+                    placeholderTextColor={colors.textMuted}
+                    multiline
+                    textAlignVertical="top"
+                    editable={!noticeBusy}
+                    onFocus={() => {
+                      setTimeout(() => {
+                        scrollRef.current?.scrollToEnd({ animated: true });
+                      }, 120);
+                    }}
+                  />
                   <View style={styles.qrActions}>
+                    <Pressable
+                      style={[styles.qrBtn, noticeBusy && styles.btnDisabled]}
+                      disabled={noticeBusy}
+                      onPress={onAddTextNotice}
+                    >
+                      {noticeBusy ? (
+                        <ActivityIndicator color={colors.fabIcon} />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name="create-outline"
+                            size={rs(16)}
+                            color={colors.fabIcon}
+                          />
+                          <Text style={styles.qrBtnText}>Add text notice</Text>
+                        </>
+                      )}
+                    </Pressable>
                     <Pressable
                       style={[styles.qrBtn, noticeBusy && styles.btnDisabled]}
                       disabled={noticeBusy}
@@ -658,6 +943,144 @@ export function AdminSettingsScreen() {
                           color="#fff"
                         />
                         <Text style={styles.qrBtnText}>Delete all</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+              </>
+            ) : null}
+
+            {settingsTab === 'plans' ? (
+              <>
+                <Text style={styles.section}>Subscription plans</Text>
+                <Text style={styles.help}>
+                  Edit plan prices, duration, account limits, and perk details shown
+                  on the Premium screen. Keep plan IDs stable so existing requests
+                  still match.
+                </Text>
+                {planDrafts.map((plan, index) => (
+                  <View key={plan.id} style={styles.planCard}>
+                    <Text style={styles.planCardTitle}>
+                      Plan {index + 1} · {plan.id}
+                    </Text>
+                    <Field
+                      label="Title"
+                      value={plan.title}
+                      onChangeText={(v) => updatePlanDraft(index, { title: v })}
+                      colors={colors}
+                    />
+                    <Field
+                      label="Price label (shown to users)"
+                      value={plan.priceLabel}
+                      onChangeText={(v) => updatePlanDraft(index, { priceLabel: v })}
+                      colors={colors}
+                    />
+                    <Field
+                      label="Amount NPR (for payment matching)"
+                      value={plan.amountNpr}
+                      onChangeText={(v) => updatePlanDraft(index, { amountNpr: v })}
+                      colors={colors}
+                      keyboardType="number-pad"
+                    />
+                    <Field
+                      label="Period label"
+                      value={plan.period}
+                      onChangeText={(v) => updatePlanDraft(index, { period: v })}
+                      colors={colors}
+                    />
+                    <Field
+                      label="Duration (days)"
+                      value={plan.days}
+                      onChangeText={(v) => updatePlanDraft(index, { days: v })}
+                      colors={colors}
+                      keyboardType="number-pad"
+                    />
+                    <Field
+                      label="Max accounts"
+                      value={plan.maxAccounts}
+                      onChangeText={(v) => updatePlanDraft(index, { maxAccounts: v })}
+                      colors={colors}
+                      keyboardType="number-pad"
+                    />
+                    <Field
+                      label="Plan details / perks (one per line)"
+                      value={plan.perksText}
+                      onChangeText={(v) => updatePlanDraft(index, { perksText: v })}
+                      colors={colors}
+                      multiline
+                    />
+                  </View>
+                ))}
+                <Pressable
+                  style={[styles.btn, saving && styles.btnDisabled]}
+                  disabled={saving}
+                  onPress={() => void onSavePlans()}
+                >
+                  {saving ? (
+                    <ActivityIndicator color={colors.fabIcon} />
+                  ) : (
+                    <Text style={styles.btnText}>Save subscription plans</Text>
+                  )}
+                </Pressable>
+              </>
+            ) : null}
+
+            {settingsTab === 'branding' ? (
+              <>
+                <Text style={styles.section}>Company logo</Text>
+                <Text style={styles.help}>
+                  Upload a square logo. It replaces the NEPSE GHAR mark in the
+                  header, drawer, profile, and about screens.
+                </Text>
+                <View style={styles.qrPreview}>
+                  <Text style={styles.qrPreviewLabel}>
+                    {appLogoUrl ? 'Current custom logo' : 'Default app logo'}
+                  </Text>
+                  <Image
+                    source={
+                      appLogoUrl
+                        ? { uri: appLogoUrl }
+                        : require('../../assets/nepse-ghar-logo.png')
+                    }
+                    style={styles.logoPreview}
+                    resizeMode="contain"
+                  />
+                  <View style={styles.qrActions}>
+                    <Pressable
+                      style={[styles.qrBtn, logoBusy && styles.btnDisabled]}
+                      disabled={logoBusy}
+                      onPress={() => void onPickAppLogo()}
+                    >
+                      {logoBusy ? (
+                        <ActivityIndicator color={colors.fabIcon} />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name="images-outline"
+                            size={rs(16)}
+                            color={colors.fabIcon}
+                          />
+                          <Text style={styles.qrBtnText}>
+                            {appLogoUrl ? 'Replace logo' : 'Upload logo'}
+                          </Text>
+                        </>
+                      )}
+                    </Pressable>
+                    {appLogoUrl ? (
+                      <Pressable
+                        style={[
+                          styles.qrBtnDanger,
+                          logoBusy && styles.btnDisabled,
+                        ]}
+                        disabled={logoBusy}
+                        onPress={onDeleteAppLogo}
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={rs(16)}
+                          color="#fff"
+                        />
+                        <Text style={styles.qrBtnText}>Remove</Text>
                       </Pressable>
                     ) : null}
                   </View>
@@ -919,6 +1342,7 @@ export function AdminSettingsScreen() {
               </>
             ) : null}
           </ScrollView>
+          </KeyboardAvoidingView>
         </>
       )}
 
@@ -952,11 +1376,17 @@ export function AdminSettingsScreen() {
                 contentContainerStyle={styles.previewScrollContent}
                 showsVerticalScrollIndicator
               >
-                <Image
-                  source={{ uri: previewNotice.imageUrl }}
-                  style={styles.previewImage}
-                  resizeMode="contain"
-                />
+                {previewNotice.kind === 'image' && previewNotice.imageUrl ? (
+                  <Image
+                    source={{ uri: previewNotice.imageUrl }}
+                    style={styles.previewImage}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <Text style={styles.previewTextBody}>
+                    {previewNotice.text}
+                  </Text>
+                )}
               </ScrollView>
             ) : null}
             <Text style={styles.previewHint}>Tap outside or × to close</Text>
@@ -1022,6 +1452,26 @@ function makeStyles(c: ThemeColors) {
     tabChipText: { color: c.textMuted, fontWeight: '700', fontSize: rs(12) },
     tabChipTextActive: { color: c.text },
     scroll: { padding: rs(16), paddingBottom: rs(40) },
+    planCard: {
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderRadius: rs(12),
+      padding: rs(12),
+      marginBottom: rs(14),
+    },
+    planCardTitle: {
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(13),
+      marginBottom: rs(10),
+    },
+    logoPreview: {
+      width: rs(120),
+      height: rs(120),
+      alignSelf: 'center',
+      marginVertical: rs(12),
+    },
     section: {
       color: c.text,
       fontWeight: '800',
@@ -1085,6 +1535,35 @@ function makeStyles(c: ThemeColors) {
     noticeThumb: {
       width: '100%',
       height: '100%',
+    },
+    noticeTextThumb: {
+      padding: rs(8),
+      alignItems: 'flex-start',
+      justifyContent: 'center',
+      gap: rs(4),
+    },
+    noticeTextPreview: {
+      color: c.textSecondary,
+      fontSize: rs(10),
+      lineHeight: rs(13),
+    },
+    noticeTextInput: {
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderRadius: rs(10),
+      padding: rs(12),
+      color: c.text,
+      fontSize: rs(14),
+      backgroundColor: c.surface,
+      minHeight: rs(88),
+      marginBottom: rs(10),
+    },
+    previewTextBody: {
+      color: c.text,
+      fontSize: rs(15),
+      lineHeight: rs(22),
+      fontWeight: '600',
+      padding: rs(8),
     },
     noticeViewBadge: {
       position: 'absolute',

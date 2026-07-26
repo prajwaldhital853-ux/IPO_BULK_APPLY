@@ -20,10 +20,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
+import { useAppBranding } from '../context/AppBrandingContext';
 import { AUTH_API_BASE } from '../services/auth/config';
 import { fetchPaymentInfo, type PaymentInfo } from '../services/auth/subscriptionApi';
 import type { ThemeColors } from '../theme/colors';
-import { PREMIUM_PLANS } from '../storage/subscriptionStorage';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -43,6 +43,7 @@ export function SubscriptionScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const { plans: PREMIUM_PLANS } = useAppBranding();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const auth = useAuth();
   const {
@@ -435,8 +436,12 @@ export function SubscriptionScreen() {
               <View style={styles.planMiniDivider} />
               <View style={styles.planMini}>
                 <Text style={styles.planMiniName}>Premium</Text>
-                <Text style={styles.planMiniPrice}>from Rs 300</Text>
-                <Text style={styles.planMiniMeta}>50 accounts + tools</Text>
+                <Text style={styles.planMiniPrice}>
+                  from {PREMIUM_PLANS[0]?.price ?? 'Rs 300'}
+                </Text>
+                <Text style={styles.planMiniMeta}>
+                  {PREMIUM_PLANS[0]?.maxAccounts ?? 50} accounts + tools
+                </Text>
               </View>
             </View>
 
@@ -464,11 +469,11 @@ export function SubscriptionScreen() {
                     </View>
                     <Text style={styles.planPrice}>{plan.price}</Text>
                   </View>
-                  <Text style={styles.perk}>
-                    ✓ Up to {plan.maxAccounts} MeroShare accounts
-                  </Text>
-                  <Text style={styles.perk}>✓ Bulk IPO apply & premium analytics</Text>
-                  <Text style={styles.perk}>✓ Market tools & portfolio insights</Text>
+                  {plan.perks.slice(0, 4).map((perk) => (
+                    <Text key={perk} style={styles.perk}>
+                      ✓ {perk}
+                    </Text>
+                  ))}
 
                   {needsSignIn ? (
                     <View style={[styles.primaryBtn, signingIn && styles.btnDisabled]}>

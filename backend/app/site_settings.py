@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -229,6 +230,8 @@ async def update_site_settings(
     payment: dict[str, str] | None = None,
     contact: dict[str, str | None] | None = None,
     popup_notice: dict[str, str] | None = None,
+    subscription_plans: list[dict] | None = None,
+    app_logo: dict[str, str] | None = None,
 ) -> SiteSettings:
     row = await get_or_create_settings(db)
 
@@ -334,6 +337,7 @@ async def update_site_settings(
             items.append(
                 {
                     'id': str(_uuid.uuid4()),
+                    'kind': 'image',
                     'image_b64': encoded,
                     'mime': mime,
                 }
@@ -342,6 +346,52 @@ async def update_site_settings(
             # Clear legacy single slot once multi-list is in use.
             row.popup_notice_image_b64 = None
             row.popup_notice_image_mime = None
+        elif popup_notice.get('text'):
+            text = str(popup_notice['text']).strip()
+            if not text:
+                raise ValueError('Notice text is empty')
+            if len(text) > 4000:
+                raise ValueError('Notice text too long (max 4000 characters)')
+            items = load_popup_notice_items(row)
+            if len(items) >= _MAX_POPUP_NOTICES:
+                raise ValueError(f'Maximum {_MAX_POPUP_NOTICES} notices allowed')
+            items.append(
+                {
+                    'id': str(_uuid.uuid4()),
+                    'kind': 'text',
+                    'text': text,
+                }
+            )
+            row.popup_notices_json = serialize_popup_notices(items)
+            row.popup_notice_image_b64 = None
+            row.popup_notice_image_mime = None
+
+    if subscription_plans is not None:
+        from .auth.subscription import _normalize_plan
+
+        normalized: list[dict] = []
+        for entry in subscription_plans:
+            if not isinstance(entry, dict):
+                continue
+            norm = _normalize_plan(entry)
+            if norm:
+                normalized.append(norm)
+        if not normalized:
+            raise ValueError('At least one valid subscription plan is required')
+        row.subscription_plans_json = json.dumps(normalized)
+
+    if app_logo is not None:
+        if app_logo.get('clear'):
+            row.app_logo_b64 = None
+            row.app_logo_mime = None
+        elif app_logo.get('image_base64'):
+            encoded, mime = _decode_uploaded_image(
+                str(app_logo['image_base64']),
+                default_mime=str(app_logo.get('image_mime') or 'image/png'),
+                max_bytes=2 * 1024 * 1024,
+            )
+            row.app_logo_b64 = encoded
+            row.app_logo_mime = mime
 
     row.updated_at = datetime.now(UTC)
     await db.flush()

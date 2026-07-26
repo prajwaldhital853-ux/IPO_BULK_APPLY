@@ -183,11 +183,21 @@ async def admin_login(
 
 
 def _settings_out(row) -> AdminSettingsOut:
+    from ..public_settings import (
+        _contact_out,
+        _payment_out,
+        _popup_notice_out,
+        _subscription_plans_out,
+        app_logo_public_path,
+    )
+
     return AdminSettingsOut(
         adminEmail=row.admin_email,
         payment=_payment_out(row),
         contact=_contact_out(row),
         popupNotice=_popup_notice_out(row),
+        subscriptionPlans=_subscription_plans_out(row),
+        appLogoUrl=app_logo_public_path(row),
     )
 
 
@@ -255,12 +265,39 @@ async def admin_update_settings(
         elif body.popup_notice.image_base64:
             popup_notice['image_base64'] = body.popup_notice.image_base64
             popup_notice['image_mime'] = 'image/jpeg'
+        elif body.popup_notice.text:
+            popup_notice['text'] = body.popup_notice.text.strip()
+
+    subscription_plans = None
+    if body.subscription_plans is not None:
+        subscription_plans = [
+            {
+                'id': p.id,
+                'title': p.title,
+                'priceLabel': p.price_label,
+                'amountNpr': p.amount_npr,
+                'period': p.period,
+                'days': p.days,
+                'maxAccounts': p.max_accounts,
+                'perks': list(p.perks or []),
+            }
+            for p in body.subscription_plans
+        ]
+
+    app_logo = None
+    if body.clear_app_logo:
+        app_logo = {'clear': '1'}
+    elif body.app_logo_base64:
+        app_logo = {'image_base64': body.app_logo_base64}
+
     try:
         row = await update_site_settings(
             db,
             payment=payment,
             contact=contact,
             popup_notice=popup_notice,
+            subscription_plans=subscription_plans,
+            app_logo=app_logo,
         )
         await db.commit()
     except ValueError as e:
@@ -364,6 +401,7 @@ async def admin_upload_popup_notice(
     items.append(
         {
             'id': str(_uuid.uuid4()),
+            'kind': 'image',
             'image_b64': base64.b64encode(raw).decode('ascii'),
             'mime': 'image/jpeg' if mime == 'image/jpg' else mime,
         }

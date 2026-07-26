@@ -6,9 +6,9 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
+import { useAppBranding } from '../context/AppBrandingContext';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
-import { PREMIUM_PLANS } from '../storage/subscriptionStorage';
 import { rs } from '../utils/responsive';
 
 export function PremiumGate({
@@ -105,7 +105,8 @@ function Paywall({
   ctaLabel: string;
   onSubscribe: () => void;
 }) {
-  const plan = PREMIUM_PLANS[0];
+  const { plans } = useAppBranding();
+  const plan = plans[0];
   return (
     <View style={[styles.wrap, { backgroundColor: colors.bg }]}>
       <View
@@ -121,7 +122,7 @@ function Paywall({
             'Premium unlocks institutional-grade NEPSE analytics built for serious investors.'}
         </Text>
         <View style={styles.perks}>
-          {plan.perks.slice(0, 5).map((p) => (
+          {(plan?.perks ?? []).slice(0, 5).map((p) => (
             <Text key={p} style={[styles.perk, { color: colors.textSecondary }]}>
               ✓ {p}
             </Text>

@@ -10,7 +10,9 @@ from .admin.schemas import (
     PopupNoticesOut,
     PublicAppSettingsOut,
     SocialLinkOut,
+    SubscriptionPlanOut,
 )
+from .auth.subscription import load_subscription_plans
 from .db.models import SiteSettings
 
 _MAX_POPUP_NOTICES = 10
@@ -28,7 +30,7 @@ def _notice_stamp(row: SiteSettings) -> int:
 
 
 def load_popup_notice_items(row: SiteSettings) -> list[dict]:
-    """Return raw notice dicts [{id, image_b64, mime}, ...] including legacy migrate."""
+    """Return raw notice dicts [{id, kind, image_b64?, mime?, text?}, ...]."""
     raw = getattr(row, 'popup_notices_json', None) or '[]'
     items: list[dict] = []
     try:
@@ -38,16 +40,26 @@ def load_popup_notice_items(row: SiteSettings) -> list[dict]:
                 if not isinstance(entry, dict):
                     continue
                 nid = str(entry.get('id') or '').strip()
-                b64 = str(entry.get('image_b64') or '').strip()
-                if not nid or not b64:
+                if not nid:
                     continue
-                items.append(
-                    {
-                        'id': nid,
-                        'image_b64': b64,
-                        'mime': str(entry.get('mime') or 'image/jpeg'),
-                    }
-                )
+                text = str(entry.get('text') or '').strip()
+                b64 = str(entry.get('image_b64') or '').strip()
+                kind = str(entry.get('kind') or ('text' if text and not b64 else 'image'))
+                if kind == 'text':
+                    if not text:
+                        continue
+                    items.append({'id': nid, 'kind': 'text', 'text': text})
+                else:
+                    if not b64:
+                        continue
+                    items.append(
+                        {
+                            'id': nid,
+                            'kind': 'image',
+                            'image_b64': b64,
+                            'mime': str(entry.get('mime') or 'image/jpeg'),
+                        }
+                    )
     except json.JSONDecodeError:
         items = []
 
@@ -57,6 +69,7 @@ def load_popup_notice_items(row: SiteSettings) -> list[dict]:
         items.append(
             {
                 'id': 'legacy',
+                'kind': 'image',
                 'image_b64': legacy_b64,
                 'mime': getattr(row, 'popup_notice_image_mime', None) or 'image/jpeg',
             }
@@ -68,12 +81,20 @@ def serialize_popup_notices(items: list[dict]) -> str:
     payload = []
     for entry in items:
         nid = str(entry.get('id') or '').strip() or str(uuid.uuid4())
+        kind = str(entry.get('kind') or 'image')
+        text = str(entry.get('text') or '').strip()
         b64 = str(entry.get('image_b64') or '').strip()
+        if kind == 'text':
+            if not text:
+                continue
+            payload.append({'id': nid, 'kind': 'text', 'text': text})
+            continue
         if not b64:
             continue
         payload.append(
             {
                 'id': nid,
+                'kind': 'image',
                 'image_b64': b64,
                 'mime': str(entry.get('mime') or 'image/jpeg'),
             }
@@ -222,14 +243,52 @@ def _contact_out(row: SiteSettings) -> ContactSettingsOut:
 
 
 def _popup_notice_out(row: SiteSettings) -> PopupNoticesOut:
-    items = [
-        PopupNoticeItemOut(
-            id=item['id'],
-            imageUrl=popup_notice_item_path(row, item['id']),
-        )
-        for item in load_popup_notice_items(row)
-    ]
+    items: list[PopupNoticeItemOut] = []
+    for item in load_popup_notice_items(row):
+        kind = str(item.get('kind') or 'image')
+        if kind == 'text':
+            items.append(
+                PopupNoticeItemOut(
+                    id=item['id'],
+                    imageUrl=None,
+                    text=str(item.get('text') or ''),
+                    kind='text',
+                )
+            )
+        else:
+            items.append(
+                PopupNoticeItemOut(
+                    id=item['id'],
+                    imageUrl=popup_notice_item_path(row, item['id']),
+                    text=None,
+                    kind='image',
+                )
+            )
     return PopupNoticesOut(items=items)
+
+
+def app_logo_public_path(row: SiteSettings) -> str | None:
+    if getattr(row, 'app_logo_b64', None):
+        stamp = int(row.updated_at.timestamp()) if row.updated_at else 0
+        return f'/app/logo?v={stamp}'
+    return None
+
+
+def _subscription_plans_out(row: SiteSettings) -> list[SubscriptionPlanOut]:
+    plans = load_subscription_plans(row)
+    return [
+        SubscriptionPlanOut(
+            id=str(p['id']),
+            title=str(p['title']),
+            priceLabel=str(p['priceLabel']),
+            amountNpr=int(p['amountNpr']),  # type: ignore[arg-type]
+            period=str(p['period']),
+            days=int(p['days']),  # type: ignore[arg-type]
+            maxAccounts=int(p['maxAccounts']),  # type: ignore[arg-type]
+            perks=[str(x) for x in (p.get('perks') or [])],
+        )
+        for p in plans
+    ]
 
 
 def settings_to_public(row: SiteSettings) -> PublicAppSettingsOut:
@@ -237,4 +296,6 @@ def settings_to_public(row: SiteSettings) -> PublicAppSettingsOut:
         payment=_payment_out(row),
         contact=_contact_out(row),
         popupNotice=_popup_notice_out(row),
+        subscriptionPlans=_subscription_plans_out(row),
+        appLogoUrl=app_logo_public_path(row),
     )

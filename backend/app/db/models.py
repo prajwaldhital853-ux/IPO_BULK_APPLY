@@ -130,6 +130,13 @@ class SiteSettings(Base):
     # JSON array of {id, platform, label, detail, url}
     contact_social_links: Mapped[str] = mapped_column(Text, default='[]')
 
+    # JSON array of subscription plans editable from admin.
+    subscription_plans_json: Mapped[str] = mapped_column(Text, default='[]')
+
+    # App-wide company logo (header, drawer, profile, about).
+    app_logo_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    app_logo_mime: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

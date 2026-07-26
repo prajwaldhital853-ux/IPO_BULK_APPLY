@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import {
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,9 +18,8 @@ import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import { SoftBadge } from './SoftBadge';
+import { BrandLogo } from './BrandLogo';
 import type { DrawerParamList, RootStackParamList } from '../navigation/types';
-
-const APP_LOGO = require('../../assets/nepse-ghar-logo.png');
 
 type Item = {
   label: string;
@@ -386,12 +384,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
       >
         <Pressable style={styles.brand} onPress={() => goTab('Apply')}>
           <View style={styles.brandIcon}>
-            <Image
-              source={APP_LOGO}
-              style={styles.brandLogo}
-              resizeMode="contain"
-              accessibilityLabel="NEPSE GHAR logo"
-            />
+            <BrandLogo variant="mark" height={rs(36)} />
           </View>
           <Text style={styles.brandText}>NEPSE GHAR</Text>
         </Pressable>

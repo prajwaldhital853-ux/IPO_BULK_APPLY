@@ -8,6 +8,7 @@ import { AuthProvider } from './src/context/AuthContext';
 import { AppLockProvider } from './src/context/AppLockContext';
 import { AccountsProvider } from './src/context/AccountsContext';
 import { SubscriptionProvider } from './src/context/SubscriptionContext';
+import { AppBrandingProvider } from './src/context/AppBrandingContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { AppWarmup } from './src/components/AppWarmup';
 import { StartupNoticeModal } from './src/components/StartupNoticeModal';
@@ -18,18 +19,20 @@ function AppShell() {
   return (
     <GestureHandlerRootView style={[styles.root, { backgroundColor: colors.bg }]}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <AppLockProvider>
-            <AccountsProvider>
-              <SubscriptionProvider>
-                <StatusBar style={isDark ? 'light' : 'dark'} />
-                <AppWarmup />
-                <RootNavigator />
-                <StartupNoticeModal />
-              </SubscriptionProvider>
-            </AccountsProvider>
-          </AppLockProvider>
-        </AuthProvider>
+        <AppBrandingProvider>
+          <AuthProvider>
+            <AppLockProvider>
+              <AccountsProvider>
+                <SubscriptionProvider>
+                  <StatusBar style={isDark ? 'light' : 'dark'} />
+                  <AppWarmup />
+                  <RootNavigator />
+                  <StartupNoticeModal />
+                </SubscriptionProvider>
+              </AccountsProvider>
+            </AppLockProvider>
+          </AuthProvider>
+        </AppBrandingProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

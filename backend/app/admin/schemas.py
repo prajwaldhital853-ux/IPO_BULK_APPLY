@@ -159,7 +159,9 @@ class ContactSettingsIn(BaseModel):
 
 class PopupNoticeItemOut(BaseModel):
     id: str
-    image_url: str = Field(alias='imageUrl')
+    image_url: str | None = Field(default=None, alias='imageUrl')
+    text: str | None = None
+    kind: str = 'image'  # image | text
 
     model_config = {'populate_by_name': True}
 
@@ -171,9 +173,10 @@ class PopupNoticesOut(BaseModel):
 
 
 class PopupNoticeIn(BaseModel):
-    """Append, delete one, or clear all startup notices."""
+    """Append image/text notice, delete one, or clear all startup notices."""
 
     image_base64: str | None = Field(default=None, alias='imageBase64')
+    text: str | None = None
     delete_id: str | None = Field(default=None, alias='deleteId')
     clear_all: bool = Field(default=False, alias='clearAll')
     # Legacy aliases kept for older clients
@@ -187,6 +190,11 @@ class AdminSettingsOut(BaseModel):
     payment: PaymentSettingsOut
     contact: ContactSettingsOut
     popup_notice: PopupNoticesOut = Field(alias='popupNotice')
+    subscription_plans: list[SubscriptionPlanOut] = Field(
+        default_factory=list,
+        alias='subscriptionPlans',
+    )
+    app_logo_url: str | None = Field(default=None, alias='appLogoUrl')
 
     model_config = {'populate_by_name': True}
 
@@ -195,6 +203,12 @@ class AdminSettingsUpdateIn(BaseModel):
     payment: PaymentSettingsIn | None = None
     contact: ContactSettingsIn | None = None
     popup_notice: PopupNoticeIn | None = Field(default=None, alias='popupNotice')
+    subscription_plans: list[SubscriptionPlanIn] | None = Field(
+        default=None,
+        alias='subscriptionPlans',
+    )
+    app_logo_base64: str | None = Field(default=None, alias='appLogoBase64')
+    clear_app_logo: bool = Field(default=False, alias='clearAppLogo')
 
     model_config = {'populate_by_name': True}
 
@@ -218,6 +232,32 @@ class AdminResetPasswordIn(BaseModel):
     model_config = {'populate_by_name': True}
 
 
+class SubscriptionPlanOut(BaseModel):
+    id: str
+    title: str
+    price_label: str = Field(alias='priceLabel')
+    amount_npr: int = Field(alias='amountNpr')
+    period: str
+    days: int
+    max_accounts: int = Field(alias='maxAccounts')
+    perks: list[str] = Field(default_factory=list)
+
+    model_config = {'populate_by_name': True}
+
+
+class SubscriptionPlanIn(BaseModel):
+    id: str
+    title: str
+    price_label: str = Field(alias='priceLabel')
+    amount_npr: int = Field(alias='amountNpr', ge=1)
+    period: str = ''
+    days: int = Field(ge=1)
+    max_accounts: int = Field(alias='maxAccounts', ge=1, default=50)
+    perks: list[str] = Field(default_factory=list)
+
+    model_config = {'populate_by_name': True}
+
+
 class PublicAppSettingsOut(BaseModel):
     payment: PaymentSettingsOut
     contact: ContactSettingsOut
@@ -225,6 +265,11 @@ class PublicAppSettingsOut(BaseModel):
         default_factory=PopupNoticesOut,
         alias='popupNotice',
     )
+    subscription_plans: list[SubscriptionPlanOut] = Field(
+        default_factory=list,
+        alias='subscriptionPlans',
+    )
+    app_logo_url: str | None = Field(default=None, alias='appLogoUrl')
 
     model_config = {'populate_by_name': True}
 

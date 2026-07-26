@@ -291,14 +291,6 @@ export function StockDetailScreen() {
       >
         {/* Overview card */}
         <View style={styles.card}>
-          <Pressable style={styles.menuFab} onPress={() => void toggleWatch()}>
-            <Ionicons
-              name="ellipsis-horizontal"
-              size={rs(16)}
-              color="#FFFFFF"
-            />
-          </Pressable>
-
           <View style={styles.overviewHead}>
             {stock.iconUrl ? (
               <Image source={{ uri: stock.iconUrl }} style={styles.avatarImg} />
@@ -349,6 +341,15 @@ export function StockDetailScreen() {
                 Mkt Cap Rs. {fmtMcap(stock.marketCap)}
               </Text>
             </View>
+            {stock.email ? (
+              <Pressable
+                style={styles.chip}
+                onPress={() => void Linking.openURL(`mailto:${stock.email}`)}
+              >
+                <Ionicons name="mail-outline" size={rs(13)} color={colors.primary} />
+                <Text style={styles.chipText}>{stock.email}</Text>
+              </Pressable>
+            ) : null}
           </View>
         </View>
 
@@ -548,108 +549,112 @@ export function StockDetailScreen() {
   }, [floorsheet]);
 
   const renderFloorsheet = () => (
-    <ScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={styles.fsWrap}
-      nestedScrollEnabled
-    >
-      <View style={styles.fsCard}>
-        <View style={styles.fsInputRow}>
-          <Ionicons
-            name="calendar-outline"
-            size={rs(16)}
-            color={colors.primary}
-            style={{ marginRight: rs(8) }}
-          />
-          <TextInput
-            value={fsDate}
-            onChangeText={setFsDate}
-            placeholder="Business date"
-            placeholderTextColor={colors.textMuted}
-            style={styles.fsInput}
-          />
-        </View>
-        <View style={styles.filterRow}>
-          <TextInput
-            value={fsBuyer}
-            onChangeText={setFsBuyer}
-            placeholder="Buyer broker Id"
-            placeholderTextColor={colors.textMuted}
-            style={[styles.fsInputSolo, { flex: 1 }]}
-            keyboardType="number-pad"
-          />
-          <TextInput
-            value={fsSeller}
-            onChangeText={setFsSeller}
-            placeholder="Seller broker id"
-            placeholderTextColor={colors.textMuted}
-            style={[styles.fsInputSolo, { flex: 1 }]}
-            keyboardType="number-pad"
-          />
-        </View>
-        <View style={styles.fsActionRow}>
-          <Pressable
-            style={styles.fsFilterBtn}
-            onPress={() => void applyFloorFilter()}
-          >
-            <Ionicons name="filter" size={rs(16)} color="#fff" />
-            <Text style={styles.filterBtnText}>Filter</Text>
-          </Pressable>
-          <Pressable
-            style={styles.fsRefreshBtn}
-            onPress={() => void applyFloorFilter()}
-          >
-            <Ionicons name="refresh" size={rs(18)} color="#fff" />
-          </Pressable>
-        </View>
-
-        <View style={styles.fsTableHead}>
-          <Text style={[styles.fsTh, { width: rs(26) }]}>SN</Text>
-          <Text style={[styles.fsTh, { width: rs(44) }]}>SYM</Text>
-          <Text style={[styles.fsTh, { width: rs(28) }]}>BB</Text>
-          <Text style={[styles.fsTh, { width: rs(28) }]}>SB</Text>
-          <Text style={[styles.fsTh, styles.thNum, { flex: 0.9 }]}>QTY</Text>
-          <Text style={[styles.fsTh, styles.thNum, { flex: 0.9 }]}>RATE</Text>
-          <Text style={[styles.fsTh, styles.thNum, { flex: 1.1 }]}>AMT</Text>
-          <Text style={[styles.fsTh, styles.thNum, { flex: 1.2 }]}>TIME</Text>
-        </View>
-
-        {floorsheet.length === 0 ? (
-          <Text style={styles.empty}>No floor sheet data.</Text>
-        ) : (
-          floorsheet.map((item, index) => (
-            <View
-              key={`${item.contractId}-${index}`}
-              style={styles.fsRow}
+    <View style={styles.fsRoot}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.fsWrap}
+        nestedScrollEnabled
+      >
+        <View style={styles.fsCard}>
+          <View style={styles.fsInputRow}>
+            <Ionicons
+              name="calendar-outline"
+              size={rs(16)}
+              color={colors.primary}
+              style={{ marginRight: rs(8) }}
+            />
+            <TextInput
+              value={fsDate}
+              onChangeText={setFsDate}
+              placeholder="Business date"
+              placeholderTextColor={colors.textMuted}
+              style={styles.fsInput}
+            />
+          </View>
+          <View style={styles.filterRow}>
+            <TextInput
+              value={fsBuyer}
+              onChangeText={setFsBuyer}
+              placeholder="Buyer broker Id"
+              placeholderTextColor={colors.textMuted}
+              style={[styles.fsInputSolo, { flex: 1 }]}
+              keyboardType="number-pad"
+            />
+            <TextInput
+              value={fsSeller}
+              onChangeText={setFsSeller}
+              placeholder="Seller broker id"
+              placeholderTextColor={colors.textMuted}
+              style={[styles.fsInputSolo, { flex: 1 }]}
+              keyboardType="number-pad"
+            />
+          </View>
+          <View style={styles.fsActionRow}>
+            <Pressable
+              style={styles.fsFilterBtn}
+              onPress={() => void applyFloorFilter()}
             >
-              <Text style={[styles.fsTd, { width: rs(26) }]}>
-                {(fsPage - 1) * FS_PAGE_SIZE + index + 1}
-              </Text>
-              <Text style={[styles.fsTdSym, { width: rs(44) }]}>
-                {item.symbol}
-              </Text>
-              <Text style={[styles.fsTd, { width: rs(28) }]}>
-                {item.buyerBroker}
-              </Text>
-              <Text style={[styles.fsTd, { width: rs(28) }]}>
-                {item.sellerBroker}
-              </Text>
-              <Text style={[styles.fsTd, styles.thNum, { flex: 0.9 }]}>
-                {item.quantity?.toLocaleString('en-NP') ?? '—'}
-              </Text>
-              <Text style={[styles.fsTd, styles.thNum, { flex: 0.9 }]}>
-                {fmtNum(item.rate, 1)}
-              </Text>
-              <Text style={[styles.fsTd, styles.thNum, { flex: 1.1 }]}>
-                {fmtAmtShort(item.amount)}
-              </Text>
-              <Text style={[styles.fsTdTime, { flex: 1.2 }]}>
-                {fmtFloorTime(item.tradeTime)}
-              </Text>
-            </View>
-          ))
-        )}
+              <Ionicons name="filter" size={rs(16)} color="#fff" />
+              <Text style={styles.filterBtnText}>Filter</Text>
+            </Pressable>
+            <Pressable
+              style={styles.fsRefreshBtn}
+              onPress={() => void applyFloorFilter()}
+            >
+              <Ionicons name="refresh" size={rs(18)} color="#fff" />
+            </Pressable>
+          </View>
 
+          <View style={styles.fsTableHead}>
+            <Text style={[styles.fsTh, { width: rs(26) }]}>SN</Text>
+            <Text style={[styles.fsTh, { width: rs(44) }]}>SYM</Text>
+            <Text style={[styles.fsTh, { width: rs(28) }]}>BB</Text>
+            <Text style={[styles.fsTh, { width: rs(28) }]}>SB</Text>
+            <Text style={[styles.fsTh, styles.thNum, { flex: 0.9 }]}>QTY</Text>
+            <Text style={[styles.fsTh, styles.thNum, { flex: 0.9 }]}>RATE</Text>
+            <Text style={[styles.fsTh, styles.thNum, { flex: 1.1 }]}>AMT</Text>
+            <Text style={[styles.fsTh, styles.thNum, { flex: 1.2 }]}>TIME</Text>
+          </View>
+
+          {floorsheet.length === 0 ? (
+            <Text style={styles.empty}>No floor sheet data.</Text>
+          ) : (
+            floorsheet.map((item, index) => (
+              <View
+                key={`${item.contractId}-${index}`}
+                style={styles.fsRow}
+              >
+                <Text style={[styles.fsTd, { width: rs(26) }]}>
+                  {(fsPage - 1) * FS_PAGE_SIZE + index + 1}
+                </Text>
+                <Text style={[styles.fsTdSym, { width: rs(44) }]}>
+                  {item.symbol}
+                </Text>
+                <Text style={[styles.fsTd, { width: rs(28) }]}>
+                  {item.buyerBroker}
+                </Text>
+                <Text style={[styles.fsTd, { width: rs(28) }]}>
+                  {item.sellerBroker}
+                </Text>
+                <Text style={[styles.fsTd, styles.thNum, { flex: 0.9 }]}>
+                  {item.quantity?.toLocaleString('en-NP') ?? '—'}
+                </Text>
+                <Text style={[styles.fsTd, styles.thNum, { flex: 0.9 }]}>
+                  {fmtNum(item.rate, 1)}
+                </Text>
+                <Text style={[styles.fsTd, styles.thNum, { flex: 1.1 }]}>
+                  {fmtAmtShort(item.amount)}
+                </Text>
+                <Text style={[styles.fsTdTime, { flex: 1.2 }]}>
+                  {fmtFloorTime(item.tradeTime)}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+      </ScrollView>
+
+      <View style={styles.fsStickyFooter}>
         <View style={styles.fsPager}>
           <Pressable
             style={[styles.fsPageBtn, fsPage <= 1 && { opacity: 0.4 }]}
@@ -673,7 +678,6 @@ export function StockDetailScreen() {
             />
           </Pressable>
         </View>
-
         <View style={styles.fsSummary}>
           <View style={styles.fsSumCell}>
             <Text style={styles.fsSumLabel}>Amt</Text>
@@ -691,7 +695,7 @@ export function StockDetailScreen() {
           </View>
         </View>
       </View>
-    </ScrollView>
+    </View>
   );
 
   const renderFinancial = () => (
@@ -699,38 +703,62 @@ export function StockDetailScreen() {
       data={reports}
       keyExtractor={(item) => String(item.id)}
       contentContainerStyle={styles.tabBody}
-      ListHeaderComponent={
-        fundamentals ? (
-          <View style={styles.fundBox}>
-            <Text style={styles.fundTitle}>
-              Fundamentals · FY {fundamentals.fiscalYear} · {fundamentals.quarter}
-            </Text>
-            {fundamentals.values.slice(0, 8).map((v) => (
-              <Text key={v.key} style={styles.fundRow}>
-                {v.label}: {v.valueString ?? fmtNum(v.value)}
-              </Text>
-            ))}
-          </View>
-        ) : null
-      }
       renderItem={({ item }) => (
-        <View style={styles.reportCard}>
-          <Ionicons name="document-text" size={rs(22)} color={colors.accentGreen} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.reportTitle}>{item.title}</Text>
-            <Text style={styles.reportDate}>{item.date}</Text>
-            {item.details ? (
-              <Text style={styles.reportBody} numberOfLines={2}>
-                {item.details}
+        <View style={styles.finCard}>
+          <View style={styles.finHead}>
+            <View style={styles.finIconWrap}>
+              <Ionicons name="document-text-outline" size={rs(20)} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.finTitle}>{item.title}</Text>
+              <Text style={styles.finCompany} numberOfLines={1}>
+                {item.securityName || stock?.name || symbol}
               </Text>
+            </View>
+          </View>
+          <View style={styles.finChips}>
+            {item.fiscalYear ? (
+              <View style={styles.finChip}>
+                <Ionicons name="calendar-outline" size={rs(12)} color={colors.primary} />
+                <Text style={styles.finChipText}>{item.fiscalYear}</Text>
+              </View>
             ) : null}
+            {item.quarter ? (
+              <View style={styles.finChip}>
+                <Ionicons name="layers-outline" size={rs(12)} color={colors.primary} />
+                <Text style={styles.finChipText}>{item.quarter}</Text>
+              </View>
+            ) : null}
+            <View style={styles.finChip}>
+              <Ionicons name="calendar-outline" size={rs(12)} color={colors.primary} />
+              <Text style={styles.finChipText}>Report Date - {item.date || '—'}</Text>
+            </View>
+          </View>
+          {item.details || item.title ? (
+            <Text style={styles.finSummary} numberOfLines={2}>
+              {item.details || item.title}
+            </Text>
+          ) : null}
+          <View style={styles.finActions}>
             {item.attachmentUrl ? (
               <Pressable
                 style={styles.viewBtn}
                 onPress={() => void Linking.openURL(item.attachmentUrl!)}
               >
-                <Ionicons name="eye-outline" size={rs(16)} color={colors.accentGreen} />
-                <Text style={styles.viewBtnText}>View Report</Text>
+                <Ionicons name="eye-outline" size={rs(16)} color={colors.primary} />
+                <Text style={[styles.viewBtnText, { color: colors.primary }]}>
+                  View Report
+                </Text>
+              </Pressable>
+            ) : (
+              <View />
+            )}
+            {item.attachmentUrl ? (
+              <Pressable
+                style={styles.finShareBtn}
+                onPress={() => void Linking.openURL(item.attachmentUrl!)}
+              >
+                <Ionicons name="open-outline" size={rs(16)} color="#fff" />
               </Pressable>
             ) : null}
           </View>
@@ -782,14 +810,24 @@ export function StockDetailScreen() {
       contentContainerStyle={styles.tabBody}
       renderItem={({ item }) => (
         <View style={styles.annCard}>
-          <Text style={styles.annTitle}>{item.title}</Text>
+          <View style={styles.annHead}>
+            <View style={styles.annIconWrap}>
+              <Ionicons name="megaphone-outline" size={rs(16)} color={colors.primary} />
+            </View>
+            <Text style={styles.annTitle} numberOfLines={3}>
+              {item.title}
+            </Text>
+          </View>
           {item.details ? (
-            <Text style={styles.annBody} numberOfLines={4}>
+            <Text style={styles.annBody} numberOfLines={5}>
               {item.details}
             </Text>
           ) : null}
           <View style={styles.annMeta}>
-            <Text style={styles.annDate}>{item.date}</Text>
+            <View style={styles.annDateRow}>
+              <Ionicons name="calendar-outline" size={rs(13)} color={colors.primary} />
+              <Text style={styles.annDate}>{item.date || '—'}</Text>
+            </View>
             {item.attachmentUrl ? (
               <Pressable onPress={() => void Linking.openURL(item.attachmentUrl!)}>
                 <Ionicons name="document-attach" size={rs(18)} color={colors.primary} />
@@ -920,29 +958,11 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       padding: rs(16),
       overflow: 'visible',
     },
-    menuFab: {
-      position: 'absolute',
-      top: rs(-6),
-      right: rs(12),
-      zIndex: 2,
-      width: rs(34),
-      height: rs(34),
-      borderRadius: rs(10),
-      backgroundColor: c.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      elevation: 3,
-      shadowColor: '#000',
-      shadowOpacity: 0.15,
-      shadowRadius: 4,
-      shadowOffset: { width: 0, height: 2 },
-    },
     overviewHead: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(12),
       marginBottom: rs(14),
-      paddingRight: rs(28),
     },
     avatar: {
       width: rs(52),
@@ -1142,7 +1162,16 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       textAlign: 'right',
     },
 
-    fsWrap: { padding: rs(12), paddingBottom: rs(28) },
+    fsWrap: { padding: rs(12), paddingBottom: rs(16) },
+    fsRoot: { flex: 1 },
+    fsStickyFooter: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.borderMuted,
+      backgroundColor: isDark ? c.surface : '#FFFFFF',
+      paddingHorizontal: rs(12),
+      paddingTop: rs(8),
+      paddingBottom: rs(10),
+    },
     fsCard: {
       backgroundColor: isDark ? c.surface : '#FFFFFF',
       borderRadius: rs(18),
@@ -1230,8 +1259,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: rs(18),
-      marginTop: rs(14),
-      marginBottom: rs(10),
+      marginBottom: rs(8),
     },
     fsPageBtn: {
       width: rs(36),
@@ -1249,9 +1277,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     fsSummary: {
       flexDirection: 'row',
       justifyContent: 'space-around',
-      paddingTop: rs(8),
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: c.borderMuted,
+      paddingTop: rs(4),
     },
     fsSumCell: { alignItems: 'center' },
     fsSumLabel: {
@@ -1261,6 +1287,51 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(2),
     },
     fsSumVal: { color: c.text, fontSize: rs(14), fontWeight: '800' },
+
+    finCard: {
+      backgroundColor: cardBg,
+      borderRadius: rs(16),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      padding: rs(14),
+      marginBottom: rs(12),
+    },
+    finHead: { flexDirection: 'row', gap: rs(12), marginBottom: rs(10) },
+    finIconWrap: {
+      width: rs(40),
+      height: rs(40),
+      borderRadius: rs(10),
+      backgroundColor: chipBg,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    finTitle: { color: c.text, fontSize: rs(13), fontWeight: '800', lineHeight: rs(18) },
+    finCompany: { color: c.textSecondary, fontSize: rs(11), marginTop: rs(3) },
+    finChips: { flexDirection: 'row', flexWrap: 'wrap', gap: rs(8), marginBottom: rs(8) },
+    finChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(6),
+      backgroundColor: chipBg,
+      borderRadius: rs(14),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(6),
+    },
+    finChipText: { color: c.primary, fontSize: rs(11), fontWeight: '700' },
+    finSummary: { color: c.text, fontSize: rs(12), marginBottom: rs(10), lineHeight: rs(17) },
+    finActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    finShareBtn: {
+      width: rs(36),
+      height: rs(36),
+      borderRadius: rs(10),
+      backgroundColor: c.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
 
     row: {
       flexDirection: 'row',
@@ -1362,26 +1433,42 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     divTotal: { color: c.accentGreen, fontWeight: '800' },
     fiscal: { color: c.textMuted, fontSize: rs(10), marginTop: rs(2) },
     annCard: {
-      backgroundColor: c.surface,
-      borderRadius: rs(10),
-      padding: rs(12),
+      backgroundColor: isDark ? c.surface : '#FFFFFF',
+      borderRadius: rs(14),
+      padding: rs(14),
       marginBottom: rs(10),
       borderWidth: 1,
       borderColor: c.borderMuted,
     },
-    annTitle: { color: c.text, fontWeight: '800', fontSize: rs(13) },
+    annHead: { flexDirection: 'row', gap: rs(10), marginBottom: rs(8) },
+    annIconWrap: {
+      width: rs(32),
+      height: rs(32),
+      borderRadius: rs(16),
+      backgroundColor: chipBg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: rs(2),
+    },
+    annTitle: {
+      flex: 1,
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(13),
+      lineHeight: rs(18),
+    },
     annBody: {
       color: c.textSecondary,
-      fontSize: rs(11),
-      marginTop: rs(6),
-      lineHeight: rs(16),
+      fontSize: rs(12),
+      marginBottom: rs(10),
+      lineHeight: rs(17),
     },
     annMeta: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginTop: rs(10),
     },
-    annDate: { color: c.textMuted, fontSize: rs(10) },
+    annDateRow: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
+    annDate: { color: c.textMuted, fontSize: rs(11), fontWeight: '600' },
   });
 }
