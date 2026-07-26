@@ -47,3 +47,28 @@ export async function saveBulkPortfolioSnapshot(
 export async function clearBulkPortfolioSnapshot(): Promise<void> {
   await AsyncStorage.removeItem(KEY());
 }
+
+/** Drop holdings for a deleted MeroShare account and recompute totals. */
+export async function removeAccountFromBulkSnapshot(
+  accountId: string,
+): Promise<void> {
+  const snap = await loadBulkPortfolioSnapshot();
+  if (!snap?.rows?.length) return;
+  const rows = snap.rows.filter((r) => r.accountId !== accountId);
+  if (rows.length === snap.rows.length) return;
+  if (!rows.length) {
+    await clearBulkPortfolioSnapshot();
+    return;
+  }
+  const totalValue = rows.reduce((sum, r) => sum + (r.value || 0), 0);
+  const dayChange = rows.reduce((sum, r) => sum + (r.dayChange || 0), 0);
+  const accounts = new Set(rows.map((r) => r.accountId)).size;
+  await saveBulkPortfolioSnapshot({
+    updatedAt: new Date().toISOString(),
+    totalValue,
+    dayChange,
+    accounts,
+    holdings: rows.length,
+    rows,
+  });
+}

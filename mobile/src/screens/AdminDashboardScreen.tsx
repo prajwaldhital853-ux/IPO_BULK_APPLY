@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -92,6 +95,21 @@ export function AdminDashboardScreen() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailItem | null>(null);
   const [customMaxAccounts, setCustomMaxAccounts] = useState('');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const detailScrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = Keyboard.addListener(showEvt, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const onHide = Keyboard.addListener(hideEvt, () => setKeyboardHeight(0));
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
 
   const load = useCallback(
     async (
@@ -480,6 +498,12 @@ export function AdminDashboardScreen() {
                 value={customMaxAccounts}
                 onChangeText={setCustomMaxAccounts}
                 editable={!limitBusy}
+                onFocus={() => {
+                  // Wait for keyboard + sheet lift, then reveal the custom field.
+                  setTimeout(() => {
+                    detailScrollRef.current?.scrollToEnd({ animated: true });
+                  }, Platform.OS === 'ios' ? 280 : 180);
+                }}
               />
               <Pressable
                 style={[styles.limitApplyBtn, limitBusy && { opacity: 0.5 }]}
@@ -824,12 +848,29 @@ export function AdminDashboardScreen() {
 
       <Modal visible={detail != null} animationType="slide" transparent onRequestClose={closeDetail}>
         <Pressable style={styles.modalBackdrop} onPress={closeDetail} />
-        <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, rs(16)) }]}>
+        <View
+          style={[
+            styles.modalSheet,
+            {
+              bottom: keyboardHeight,
+              paddingBottom: Math.max(insets.bottom, rs(16)),
+              maxHeight: keyboardHeight > 0 ? '88%' : '78%',
+            },
+          ]}
+        >
           <View style={styles.modalGrab} />
-          {renderDetailModal()}
-          <Pressable style={styles.modalClose} onPress={closeDetail}>
-            <Text style={styles.modalCloseText}>Close</Text>
-          </Pressable>
+          <ScrollView
+            ref={detailScrollRef}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.modalScrollContent}
+          >
+            {renderDetailModal()}
+            <Pressable style={styles.modalClose} onPress={closeDetail}>
+              <Text style={styles.modalCloseText}>Close</Text>
+            </Pressable>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -1065,7 +1106,10 @@ function makeStyles(c: ThemeColors) {
       borderTopRightRadius: rs(18),
       paddingHorizontal: rs(20),
       paddingTop: rs(8),
-      maxHeight: '70%',
+      maxHeight: '78%',
+    },
+    modalScrollContent: {
+      paddingBottom: rs(8),
     },
     modalGrab: {
       alignSelf: 'center',

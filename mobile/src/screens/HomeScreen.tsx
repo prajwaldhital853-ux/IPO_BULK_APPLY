@@ -25,7 +25,6 @@ import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import { exportFullAccountsExcel } from '../services/accounts/backup';
-import { clearApplyHistoryForAccount } from '../storage/applyHistory';
 import { loadAccountMeta } from '../storage/accountsStorage';
 import type { ThemeColors } from '../theme/colors';
 import { guardAddAccount } from '../utils/accountLimits';
@@ -156,17 +155,14 @@ export function HomeScreen() {
   const confirmDelete = (item: AccountMeta) => {
     Alert.alert(
       'Delete account?',
-      `Remove ${item.name} from this device? Saved credentials and apply history for this account will be deleted.`,
+      `Remove ${item.name} from this device? Credentials, apply history, portfolio, and investment data for this account will be deleted.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            void (async () => {
-              await clearApplyHistoryForAccount(item.id);
-              await removeAccount(item.id);
-            })();
+            void removeAccount(item.id);
           },
         },
       ],

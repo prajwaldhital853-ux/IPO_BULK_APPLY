@@ -59,6 +59,17 @@ export async function deletePortfolio(id: string): Promise<void> {
   await saveAll(list.filter((p) => p.id !== id));
 }
 
+/** Remove saved portfolios that were imported from a MeroShare account. */
+export async function deletePortfoliosForAccount(
+  accountId: string,
+): Promise<number> {
+  const list = await listPortfolios();
+  const next = list.filter((p) => p.sourceAccountId !== accountId);
+  const removed = list.length - next.length;
+  if (removed > 0) await saveAll(next);
+  return removed;
+}
+
 export async function renamePortfolio(
   id: string,
   name: string,

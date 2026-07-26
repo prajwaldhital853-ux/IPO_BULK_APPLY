@@ -127,6 +127,14 @@ export async function stopTracking(
   }));
 }
 
+/** Fully remove bank-tracker data for a deleted MeroShare account. */
+export async function removeTrackerForAccount(accountId: string): Promise<void> {
+  const store = await loadStore();
+  if (!(accountId in store)) return;
+  delete store[accountId];
+  await saveStore(store);
+}
+
 export async function setOpeningBalance(
   accountId: string,
   openingBalance: number,

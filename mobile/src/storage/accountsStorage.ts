@@ -1,6 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import type { AccountMeta, AccountSecrets, LinkedAccount } from '../types/account';
+import { clearApplyHistoryForAccount } from './applyHistory';
+import {
+  clearBulkPortfolioSnapshot,
+  removeAccountFromBulkSnapshot,
+} from './bulkPortfolioStorage';
+import { removeTrackerForAccount } from './bankTrackerStorage';
+import { deletePortfoliosForAccount } from './portfolioStorage';
 import {
   LEGACY_META_KEY,
   META_BASE,
@@ -122,13 +129,28 @@ export async function removeAccountFully(id: string): Promise<AccountMeta[]> {
   const list = await loadAccountMeta();
   const next = list.filter((a) => a.id !== id);
   await deleteSecrets(id);
+  // Keep Investment Summary / Portfolio / Bulk / Bank tracker in sync
+  await Promise.all([
+    clearApplyHistoryForAccount(id),
+    deletePortfoliosForAccount(id),
+    removeAccountFromBulkSnapshot(id),
+    removeTrackerForAccount(id),
+  ]);
   await saveAccountMeta(next);
   return next;
 }
 
 export async function clearAllAccounts(): Promise<void> {
   const list = await loadAccountMeta();
-  await Promise.all(list.map((a) => deleteSecrets(a.id)));
+  await Promise.all(
+    list.map(async (a) => {
+      await deleteSecrets(a.id);
+      await clearApplyHistoryForAccount(a.id);
+      await removeTrackerForAccount(a.id);
+      await deletePortfoliosForAccount(a.id);
+    }),
+  );
+  await clearBulkPortfolioSnapshot();
   await saveAccountMeta([]);
 }
 
