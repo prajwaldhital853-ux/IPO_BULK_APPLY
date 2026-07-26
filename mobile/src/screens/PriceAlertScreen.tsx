@@ -34,6 +34,7 @@ import {
   type PriceAlert,
   type PriceAlertDirection,
 } from '../storage/priceAlertStorage';
+import { syncPriceAlertsToServer } from '../services/push/notifications';
 import { rs } from '../utils/responsive';
 import { usePollingRefresh } from '../utils/usePollingRefresh';
 import type { RootStackParamList } from '../navigation/types';
@@ -106,6 +107,9 @@ export function PriceAlertScreen() {
         };
       }),
     );
+    if (bg) {
+      void syncPriceAlertsToServer(alerts);
+    }
     setLoading(false);
   }, []);
 
@@ -233,7 +237,21 @@ export function PriceAlertScreen() {
           value={notifyBg}
           onValueChange={(v) => {
             setNotifyBg(v);
-            void setNotifyInBackground(v);
+            void (async () => {
+              await setNotifyInBackground(v);
+              if (v) {
+                const alerts = await listPriceAlerts();
+                const ok = await syncPriceAlertsToServer(alerts);
+                if (!ok) {
+                  Alert.alert(
+                    'Notifications',
+                    'Could not enable background alerts. Turn on App notifications in Settings and allow permission.',
+                  );
+                }
+              } else {
+                await syncPriceAlertsToServer([]);
+              }
+            })();
           }}
           trackColor={{ false: colors.border, true: colors.primarySoft }}
           thumbColor={notifyBg ? colors.accentGreen : colors.textMuted}

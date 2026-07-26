@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +19,15 @@ import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
 
+function parseLockSeconds(message: string): number | null {
+  const m = message.match(/(\d+)\s*more\s*minute/i);
+  if (m) return Math.max(1, Number(m[1])) * 60;
+  const m2 = message.match(/locked for (\d+)\s*minute/i);
+  if (m2) return Math.max(1, Number(m2[1])) * 60;
+  if (/locked/i.test(message)) return 5 * 60;
+  return null;
+}
+
 export function AdminLoginScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -28,8 +37,34 @@ export function AdminLoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [lockMessage, setLockMessage] = useState<string | null>(null);
+  const [lockSecondsLeft, setLockSecondsLeft] = useState(0);
+
+  useEffect(() => {
+    if (lockSecondsLeft <= 0) return;
+    const id = setInterval(() => {
+      setLockSecondsLeft((s) => {
+        if (s <= 1) {
+          setLockMessage(null);
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [lockSecondsLeft > 0]);
+
+  const locked = lockSecondsLeft > 0;
+  const lockMins = Math.ceil(lockSecondsLeft / 60);
 
   const onLogin = async () => {
+    if (locked) {
+      Alert.alert(
+        'Login locked',
+        `Too many failed attempts. Try again in about ${lockMins} minute(s).`,
+      );
+      return;
+    }
     if (!email.trim() || !password) {
       Alert.alert('Missing fields', 'Enter admin email and password.');
       return;
@@ -38,12 +73,20 @@ export function AdminLoginScreen() {
     try {
       const session = await adminLogin(email.trim(), password);
       await saveAdminToken(session.accessToken);
+      setLockMessage(null);
+      setLockSecondsLeft(0);
       navigation.replace('AdminDashboard');
     } catch (e) {
-      Alert.alert(
-        'Login failed',
-        e instanceof Error ? e.message : 'Invalid credentials',
-      );
+      const message =
+        e instanceof Error ? e.message : 'Invalid credentials';
+      const secs = parseLockSeconds(message);
+      if (secs != null) {
+        setLockMessage(message);
+        setLockSecondsLeft(secs);
+      } else {
+        setLockMessage(null);
+      }
+      Alert.alert('Login failed', message);
     } finally {
       setBusy(false);
     }
@@ -65,6 +108,17 @@ export function AdminLoginScreen() {
         </View>
         <Text style={styles.subtitle}>Sign in to manage subscriptions</Text>
 
+        {locked || lockMessage ? (
+          <View style={styles.lockBanner}>
+            <Ionicons name="lock-closed" size={rs(16)} color={colors.danger} />
+            <Text style={styles.lockText}>
+              {locked
+                ? `Account locked. Try again in ~${lockMins} min (${lockSecondsLeft}s).`
+                : lockMessage}
+            </Text>
+          </View>
+        ) : null}
+
         <TextInput
           style={styles.input}
           autoCapitalize="none"
@@ -73,6 +127,7 @@ export function AdminLoginScreen() {
           placeholderTextColor={colors.textMuted}
           value={email}
           onChangeText={setEmail}
+          editable={!busy}
         />
         <TextInput
           style={styles.input}
@@ -81,21 +136,28 @@ export function AdminLoginScreen() {
           placeholderTextColor={colors.textMuted}
           value={password}
           onChangeText={setPassword}
+          editable={!busy && !locked}
         />
         <Pressable
-          style={[styles.btn, busy && { opacity: 0.7 }]}
+          style={[styles.btn, (busy || locked) && { opacity: 0.7 }]}
           onPress={() => void onLogin()}
-          disabled={busy}
+          disabled={busy || locked}
         >
           {busy ? (
             <ActivityIndicator color={colors.fabIcon} />
           ) : (
-            <Text style={styles.btnText}>Login</Text>
+            <Text style={styles.btnText}>
+              {locked ? `Locked (${lockMins}m)` : 'Login'}
+            </Text>
           )}
         </Pressable>
         {busy ? (
           <Text style={styles.wakeHint}>Signing in…</Text>
-        ) : null}
+        ) : (
+          <Text style={styles.wakeHint}>
+            After 3 failed attempts, login locks for 5 minutes.
+          </Text>
+        )}
         <Pressable
           style={styles.forgotBtn}
           onPress={() => navigation.navigate('AdminForgotPassword')}
@@ -140,6 +202,24 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(14),
       textAlign: 'center',
       marginBottom: rs(24),
+    },
+    lockBanner: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: rs(8),
+      backgroundColor: c.danger + '18',
+      borderColor: c.danger,
+      borderWidth: 1,
+      borderRadius: rs(10),
+      padding: rs(12),
+      marginBottom: rs(14),
+    },
+    lockText: {
+      color: c.danger,
+      fontSize: rs(12),
+      fontWeight: '600',
+      flex: 1,
+      lineHeight: rs(17),
     },
     input: {
       borderWidth: 1,

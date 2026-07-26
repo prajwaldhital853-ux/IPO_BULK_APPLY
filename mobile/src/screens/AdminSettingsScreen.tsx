@@ -24,6 +24,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import { useAppBranding } from '../context/AppBrandingContext';
+import { PasswordRequirementsLive } from '../components/PasswordRequirementsLive';
 import {
   changeAdminPassword,
   deleteAdminAppLogo,
@@ -44,6 +45,10 @@ import { AUTH_API_BASE } from '../services/auth/config';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { PREMIUM_PLANS } from '../storage/subscriptionStorage';
+import {
+  isPasswordStrong,
+  passwordsMatch,
+} from '../utils/passwordPolicy';
 import { rs } from '../utils/responsive';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -237,6 +242,7 @@ function Field({
   multiline,
   keyboardType,
   fieldKey,
+  secureTextEntry,
 }: {
   label: string;
   value: string;
@@ -245,6 +251,7 @@ function Field({
   multiline?: boolean;
   keyboardType?: 'default' | 'email-address' | 'phone-pad' | 'url' | 'number-pad' | 'numeric';
   fieldKey?: string;
+  secureTextEntry?: boolean;
 }) {
   const styles = useMemo(() => makeFieldStyles(colors), [colors]);
   return (
@@ -259,6 +266,7 @@ function Field({
         autoCapitalize="none"
         keyboardType={keyboardType ?? 'default'}
         multiline={multiline}
+        secureTextEntry={secureTextEntry}
       />
     </View>
   );
@@ -312,6 +320,7 @@ export function AdminSettingsScreen() {
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('notices');
 
   useEffect(() => {
@@ -761,8 +770,19 @@ export function AdminSettingsScreen() {
 
   const onChangePassword = async () => {
     if (!token) return;
-    if (!currentPassword || newPassword.length < 8) {
-      Alert.alert('Invalid', 'Enter current password and a new password (min 8 chars).');
+    if (!currentPassword) {
+      Alert.alert('Invalid', 'Enter your current password.');
+      return;
+    }
+    if (!isPasswordStrong(newPassword)) {
+      Alert.alert(
+        'Weak password',
+        'New password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.',
+      );
+      return;
+    }
+    if (!passwordsMatch(newPassword, confirmPassword)) {
+      Alert.alert('Mismatch', 'New password and confirm password do not match.');
       return;
     }
     setSaving(true);
@@ -770,6 +790,7 @@ export function AdminSettingsScreen() {
       await changeAdminPassword(token, currentPassword, newPassword);
       setCurrentPassword('');
       setNewPassword('');
+      setConfirmPassword('');
       Alert.alert('Done', 'Admin password updated.');
     } catch (e) {
       Alert.alert('Failed', e instanceof Error ? e.message : 'Could not change password');
@@ -1375,24 +1396,57 @@ export function AdminSettingsScreen() {
             {settingsTab === 'password' ? (
               <>
                 <Text style={styles.section}>Change password</Text>
+                <Text style={styles.help}>
+                  Use a strong password. Requirements update live as you type.
+                </Text>
                 <Field
                   label="Current password"
                   value={currentPassword}
                   onChangeText={setCurrentPassword}
                   colors={colors}
+                  secureTextEntry
                 />
                 <Field
-                  label="New password (min 8)"
+                  label="New password"
                   value={newPassword}
                   onChangeText={setNewPassword}
                   colors={colors}
+                  secureTextEntry
+                />
+                <Field
+                  label="Confirm new password"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  colors={colors}
+                  secureTextEntry
+                />
+                <PasswordRequirementsLive
+                  password={newPassword}
+                  confirmPassword={confirmPassword}
+                  colors={colors}
                 />
                 <Pressable
-                  style={styles.btnSecondary}
+                  style={[
+                    styles.btnSecondary,
+                    (!isPasswordStrong(newPassword) ||
+                      !passwordsMatch(newPassword, confirmPassword) ||
+                      !currentPassword ||
+                      saving) &&
+                      styles.btnDisabled,
+                  ]}
                   onPress={() => void onChangePassword()}
-                  disabled={saving}
+                  disabled={
+                    saving ||
+                    !currentPassword ||
+                    !isPasswordStrong(newPassword) ||
+                    !passwordsMatch(newPassword, confirmPassword)
+                  }
                 >
-                  <Text style={styles.btnSecondaryText}>Update password</Text>
+                  {saving ? (
+                    <ActivityIndicator color={colors.text} />
+                  ) : (
+                    <Text style={styles.btnSecondaryText}>Update password</Text>
+                  )}
                 </Pressable>
               </>
             ) : null}

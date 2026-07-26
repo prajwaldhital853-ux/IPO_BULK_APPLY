@@ -73,6 +73,13 @@ class Settings(BaseSettings):
     payment_account_number: str = '0123456789'
     payment_whatsapp: str = '9779709133067'
 
+    # Cron / push jobs (Render Cron Jobs). Prefer dedicated secret; falls back to api_key.
+    cron_secret: str = ''
+
+    @property
+    def effective_cron_secret(self) -> str:
+        return (self.cron_secret or self.api_key or '').strip()
+
     @property
     def google_client_id_list(self) -> list[str]:
         return [x.strip() for x in self.google_client_ids.split(",") if x.strip()]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -105,6 +105,11 @@ class SiteSettings(Base):
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     admin_email: Mapped[str] = mapped_column(String(320), default='kalashfinancialsolution@gmail.com')
     admin_password_hash: Mapped[str] = mapped_column(String(256))
+    admin_failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
+    admin_login_locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     payment_qr_text: Mapped[str] = mapped_column(String(512), default='')
     payment_qr_image_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -232,3 +237,63 @@ class UserPinOtp(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
+
+
+class PushDevice(Base):
+    """Expo push token registered from the mobile app."""
+
+    __tablename__ = 'push_devices'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    expo_push_token: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey('users.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+    )
+    platform: Mapped[str] = mapped_column(String(16), default='android')
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class UserPriceAlert(Base):
+    """Server-side price alert used for background push notifications."""
+
+    __tablename__ = 'user_price_alerts'
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey('users.id', ondelete='CASCADE'),
+        nullable=True,
+        index=True,
+    )
+    device_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey('push_devices.id', ondelete='CASCADE'),
+        nullable=True,
+        index=True,
+    )
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str] = mapped_column(String(256), default='')
+    direction: Mapped[str] = mapped_column(String(8))  # above | below
+    target_price: Mapped[float] = mapped_column(Float)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    triggered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+

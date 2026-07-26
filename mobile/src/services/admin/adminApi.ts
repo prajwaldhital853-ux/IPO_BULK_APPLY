@@ -112,8 +112,22 @@ export type AdminSettings = {
 
 async function parseError(res: Response): Promise<string> {
   try {
-    const body = (await res.json()) as { detail?: string };
-    return body.detail ?? `HTTP ${res.status}`;
+    const body = (await res.json()) as { detail?: unknown };
+    const detail = body.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail;
+    if (Array.isArray(detail)) {
+      const parts = detail
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          if (item && typeof item === 'object' && 'msg' in item) {
+            return String((item as { msg: unknown }).msg);
+          }
+          return '';
+        })
+        .filter(Boolean);
+      if (parts.length) return parts.join('; ');
+    }
+    return `HTTP ${res.status}`;
   } catch {
     return `HTTP ${res.status}`;
   }

@@ -6,7 +6,14 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .admin.passwords import generate_otp, hash_otp, hash_password, verify_otp, verify_password
+from .admin.passwords import (
+    generate_otp,
+    hash_otp,
+    hash_password,
+    validate_admin_password,
+    verify_otp,
+    verify_password,
+)
 from .config import get_settings
 from .db.models import AdminOtpReset, SiteSettings
 from .emailer import EmailNotConfiguredError, send_admin_otp
@@ -62,16 +69,104 @@ async def get_or_create_settings(db: AsyncSession) -> SiteSettings:
     return row
 
 
+ADMIN_MAX_FAILED_LOGINS = 3
+ADMIN_LOCK_MINUTES = 5
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def admin_lock_remaining_seconds(row: SiteSettings) -> int:
+    locked_until = _as_utc(getattr(row, 'admin_login_locked_until', None))
+    if locked_until is None:
+        return 0
+    remaining = int((locked_until - datetime.now(UTC)).total_seconds())
+    return max(0, remaining)
+
+
+async def attempt_admin_login(
+    db: AsyncSession,
+    email: str,
+    password: str,
+) -> tuple[bool, str | None]:
+    """
+    Verify admin credentials with rate limiting.
+
+    Returns (ok, error_message). On success error_message is None.
+    """
+    row = await get_or_create_settings(db)
+    remaining = admin_lock_remaining_seconds(row)
+    if remaining > 0:
+        mins = max(1, (remaining + 59) // 60)
+        return (
+            False,
+            f'Too many failed login attempts. Admin login is locked for {mins} more minute(s).',
+        )
+
+    # Expired lock — clear it
+    if getattr(row, 'admin_login_locked_until', None) is not None:
+        row.admin_login_locked_until = None
+        row.admin_failed_login_count = 0
+
+    email_ok = email.strip().lower() == row.admin_email.strip().lower()
+    password_ok = False
+    if email_ok:
+        if verify_password(password, row.admin_password_hash, pepper=_pepper()):
+            password_ok = True
+        else:
+            # Recover when JWT_SECRET (password pepper) was rotated on Render
+            configured = get_settings().admin_password
+            if configured and password == configured:
+                row.admin_password_hash = hash_password(password, pepper=_pepper())
+                password_ok = True
+
+    if email_ok and password_ok:
+        row.admin_failed_login_count = 0
+        row.admin_login_locked_until = None
+        row.updated_at = datetime.now(UTC)
+        await db.flush()
+        return True, None
+
+    # Only count failures against the real admin email (wrong password).
+    if email_ok:
+        count = int(getattr(row, 'admin_failed_login_count', 0) or 0) + 1
+        row.admin_failed_login_count = count
+        if count >= ADMIN_MAX_FAILED_LOGINS:
+            row.admin_login_locked_until = datetime.now(UTC) + timedelta(
+                minutes=ADMIN_LOCK_MINUTES,
+            )
+            row.admin_failed_login_count = 0
+            row.updated_at = datetime.now(UTC)
+            await db.flush()
+            return (
+                False,
+                f'Too many failed login attempts. Admin login is locked for {ADMIN_LOCK_MINUTES} minutes.',
+            )
+        left = ADMIN_MAX_FAILED_LOGINS - count
+        row.updated_at = datetime.now(UTC)
+        await db.flush()
+        return (
+            False,
+            f'Invalid admin email or password. {left} attempt(s) remaining before a {ADMIN_LOCK_MINUTES}-minute lock.',
+        )
+
+    await db.flush()
+    return False, 'Invalid admin email or password'
+
+
 async def verify_admin_login(db: AsyncSession, email: str, password: str) -> bool:
+    """Password check only (no lock counters) — used for change-password verify."""
     row = await get_or_create_settings(db)
     if email.strip().lower() != row.admin_email.strip().lower():
         return False
     if verify_password(password, row.admin_password_hash, pepper=_pepper()):
         return True
 
-    # Recover when JWT_SECRET (password pepper) was rotated on Render:
-    # if the typed password still matches ADMIN_PASSWORD env/default, re-hash
-    # with the current pepper so login works again without wiping the DB.
     configured = get_settings().admin_password
     if configured and password == configured:
         row.admin_password_hash = hash_password(password, pepper=_pepper())
@@ -107,10 +202,11 @@ async def sync_admin_credentials_from_env(db: AsyncSession) -> None:
 
 
 async def update_admin_password(db: AsyncSession, new_password: str) -> None:
-    if len(new_password) < 8:
-        raise ValueError('Password must be at least 8 characters')
+    validate_admin_password(new_password)
     row = await get_or_create_settings(db)
     row.admin_password_hash = hash_password(new_password, pepper=_pepper())
+    row.admin_failed_login_count = 0
+    row.admin_login_locked_until = None
     row.updated_at = datetime.now(UTC)
     await db.flush()
 

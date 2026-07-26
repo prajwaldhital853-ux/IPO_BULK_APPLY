@@ -1,16 +1,26 @@
-# Shrink upload — not needed for the mobile APK build
+# Shrink EAS upload — not needed for the Android APK build
 android/
 ios/
-../backend/**
-../**/*.png
-../**/*.jpg
+.expo/
+.claude/
+node_modules/.cache/**
+
+# Built APKs / artifacts (were bloating the archive to ~470MB)
+*.apk
+*.aab
+nepse-ghar-*.apk
+apk-build.log
+apk-url.txt
+eas-build-*.json
 build-fail-log*
 build-fail-log.*
 build-fail.json
 build-meta.json
-_tmp_stock.html
-node_modules/.cache/**
-*.apk
-apk-build.log
+build-meta-*.txt
 bundle-*.js
-.expo/**
+_tmp_stock.html
+
+# Parent monorepo noise if archive walks up
+../backend/
+../website/
+../**/*.apk

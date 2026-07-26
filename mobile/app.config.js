@@ -10,7 +10,7 @@ module.exports = {
     slug: 'hello35eg',
     owner: 'hellohello636gs-team',
     scheme: 'nepseghar',
-    version: '3.4.2',
+    version: '3.4.3',
     orientation: 'portrait',
     icon: './assets/nepse-ghar-logo.png',
     userInterfaceStyle: 'dark',
@@ -25,7 +25,7 @@ module.exports = {
     },
     android: {
       package: 'com.nepse.ghar',
-      versionCode: 47,
+      versionCode: 48,
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',
         foregroundImage: './assets/nepse-ghar-logo.png',
@@ -46,7 +46,15 @@ module.exports = {
       ...(process.env.EAS_BUILD_PROFILE === 'development'
         ? ['expo-dev-client']
         : []),
-      'expo-secure-store',
+      [
+    'expo-notifications',
+    {
+      icon: './assets/nepse-ghar-logo.png',
+      color: '#1B5E20',
+      defaultChannel: 'market',
+    },
+  ],
+  'expo-secure-store',
       [
         'expo-image-picker',
         {

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,12 +14,17 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
+import { PasswordRequirementsLive } from '../components/PasswordRequirementsLive';
 import {
   requestAdminPasswordReset,
   resetAdminPassword,
 } from '../services/admin/adminApi';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
+import {
+  isPasswordStrong,
+  passwordsMatch,
+} from '../utils/passwordPolicy';
 import { rs } from '../utils/responsive';
 
 export function AdminForgotPasswordScreen() {
@@ -31,6 +37,7 @@ export function AdminForgotPasswordScreen() {
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
   const onSendOtp = async () => {
@@ -51,8 +58,19 @@ export function AdminForgotPasswordScreen() {
   };
 
   const onReset = async () => {
-    if (!otp.trim() || newPassword.length < 8) {
-      Alert.alert('Invalid', 'Enter the 6-digit code and a new password (min 8 chars).');
+    if (!otp.trim()) {
+      Alert.alert('Invalid', 'Enter the 6-digit code from email.');
+      return;
+    }
+    if (!isPasswordStrong(newPassword)) {
+      Alert.alert(
+        'Weak password',
+        'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.',
+      );
+      return;
+    }
+    if (!passwordsMatch(newPassword, confirmPassword)) {
+      Alert.alert('Mismatch', 'New password and confirm password do not match.');
       return;
     }
     setBusy(true);
@@ -68,6 +86,11 @@ export function AdminForgotPasswordScreen() {
     }
   };
 
+  const canReset =
+    otp.trim().length === 6 &&
+    isPasswordStrong(newPassword) &&
+    passwordsMatch(newPassword, confirmPassword);
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -78,7 +101,10 @@ export function AdminForgotPasswordScreen() {
         <View style={{ width: rs(22) }} />
       </View>
 
-      <View style={styles.body}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={styles.subtitle}>
           A verification code is sent only to the registered admin Gmail.
         </Text>
@@ -108,12 +134,29 @@ export function AdminForgotPasswordScreen() {
             <TextInput
               style={styles.input}
               secureTextEntry
-              placeholder="New password (min 8)"
+              placeholder="New password"
               placeholderTextColor={colors.textMuted}
               value={newPassword}
               onChangeText={setNewPassword}
             />
-            <Pressable style={styles.btn} onPress={() => void onReset()} disabled={busy}>
+            <TextInput
+              style={styles.input}
+              secureTextEntry
+              placeholder="Confirm new password"
+              placeholderTextColor={colors.textMuted}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+            />
+            <PasswordRequirementsLive
+              password={newPassword}
+              confirmPassword={confirmPassword}
+              colors={colors}
+            />
+            <Pressable
+              style={[styles.btn, (!canReset || busy) && { opacity: 0.65 }]}
+              onPress={() => void onReset()}
+              disabled={busy || !canReset}
+            >
               {busy ? (
                 <ActivityIndicator color={colors.fabIcon} />
               ) : (
@@ -133,7 +176,7 @@ export function AdminForgotPasswordScreen() {
             )}
           </Pressable>
         )}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -152,13 +195,15 @@ function makeStyles(c: ThemeColors) {
     body: {
       paddingHorizontal: rs(24),
       paddingTop: rs(24),
-      maxWidth: rs(400),
+      paddingBottom: rs(40),
+      maxWidth: rs(420),
       alignSelf: 'center',
       width: '100%',
     },
     subtitle: {
       color: c.textSecondary,
-      fontSize: rs(13),
+      fontSize: rs(14),
+      textAlign: 'center',
       marginBottom: rs(20),
       lineHeight: rs(20),
     },
@@ -182,10 +227,10 @@ function makeStyles(c: ThemeColors) {
     btnText: { color: c.fabIcon, fontWeight: '800', fontSize: rs(15) },
     link: {
       color: c.primary,
-      textAlign: 'center',
-      marginTop: rs(16),
       fontWeight: '600',
       fontSize: rs(14),
+      textAlign: 'center',
+      marginTop: rs(16),
     },
   });
 }

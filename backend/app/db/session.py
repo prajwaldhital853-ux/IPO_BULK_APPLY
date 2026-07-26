@@ -95,6 +95,20 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     'ADD COLUMN app_logo_mime VARCHAR(64)'
                 )
             )
+        if 'admin_failed_login_count' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE site_settings '
+                    'ADD COLUMN admin_failed_login_count INTEGER NOT NULL DEFAULT 0'
+                )
+            )
+        if 'admin_login_locked_until' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE site_settings '
+                    'ADD COLUMN admin_login_locked_until TIMESTAMP'
+                )
+            )
 
 
 async def init_db() -> None:
@@ -174,6 +188,22 @@ def _apply_postgres_patches(sync_conn) -> None:
             text(
                 'ALTER TABLE site_settings '
                 'ADD COLUMN IF NOT EXISTS app_logo_mime VARCHAR(64)'
+            )
+        )
+    if 'admin_failed_login_count' not in cols:
+        sync_conn.execute(
+            text(
+                'ALTER TABLE site_settings '
+                'ADD COLUMN IF NOT EXISTS admin_failed_login_count '
+                'INTEGER NOT NULL DEFAULT 0'
+            )
+        )
+    if 'admin_login_locked_until' not in cols:
+        sync_conn.execute(
+            text(
+                'ALTER TABLE site_settings '
+                'ADD COLUMN IF NOT EXISTS admin_login_locked_until '
+                'TIMESTAMPTZ'
             )
         )
 

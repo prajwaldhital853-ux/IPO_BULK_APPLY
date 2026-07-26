@@ -61,6 +61,7 @@ from ..market_closures import (
 )
 from ..public_settings import _contact_out, _payment_out, _popup_notice_out
 from ..site_settings import (
+    attempt_admin_login,
     get_or_create_settings,
     request_password_reset,
     reset_password_with_otp,
@@ -169,9 +170,12 @@ async def admin_login(
     db: AsyncSession = Depends(get_db),
 ) -> AdminLoginResponse:
     settings = get_settings()
-    ok = await verify_admin_login(db, body.email, body.password)
+    ok, err = await attempt_admin_login(db, body.email, body.password)
     if not ok:
-        raise HTTPException(status_code=401, detail='Invalid admin email or password')
+        await db.commit()
+        detail = err or 'Invalid admin email or password'
+        status = 429 if 'locked' in detail.lower() else 401
+        raise HTTPException(status_code=status, detail=detail)
     row = await get_or_create_settings(db)
     await db.commit()
     token, ttl = create_admin_token(

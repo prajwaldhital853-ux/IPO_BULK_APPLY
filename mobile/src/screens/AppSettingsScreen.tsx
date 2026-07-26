@@ -19,6 +19,9 @@ import {
   loadNotificationsEnabled,
   saveNotificationsEnabled,
 } from '../storage/appPreferencesStorage';
+import {
+  registerPushTokenOnServer,
+} from '../services/push/notifications';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
@@ -31,6 +34,7 @@ export function AppSettingsScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [notifications, setNotifications] = useState(true);
   const [loadingPrefs, setLoadingPrefs] = useState(true);
+  const [busyNotify, setBusyNotify] = useState(false);
 
   const version = Constants.expoConfig?.version ?? '1.0.0';
   const build = Constants.expoConfig?.android?.versionCode;
@@ -39,13 +43,25 @@ export function AppSettingsScreen() {
     void loadNotificationsEnabled().then((enabled) => {
       setNotifications(enabled);
       setLoadingPrefs(false);
+      if (enabled) {
+        void registerPushTokenOnServer(true);
+      }
     });
   }, []);
 
   const onToggleNotifications = async () => {
     const next = !notifications;
+    setBusyNotify(true);
     setNotifications(next);
     await saveNotificationsEnabled(next);
+    const ok = await registerPushTokenOnServer(next);
+    setBusyNotify(false);
+    if (next && !ok) {
+      Alert.alert(
+        'Permission needed',
+        'Allow notifications in phone settings so you can receive market open/close and price alerts.',
+      );
+    }
   };
 
   return (
@@ -94,7 +110,7 @@ export function AppSettingsScreen() {
           <Pressable
             style={styles.row}
             onPress={() => void onToggleNotifications()}
-            disabled={loadingPrefs}
+            disabled={loadingPrefs || busyNotify}
           >
             <View style={[styles.icon, { backgroundColor: '#BBDEFB' }]}>
               <Ionicons name="notifications-outline" size={rs(18)} color="#1565C0" />
@@ -102,9 +118,11 @@ export function AppSettingsScreen() {
             <View style={styles.rowText}>
               <Text style={styles.rowLabel}>App notifications</Text>
               <Text style={styles.rowHint}>
-                {notifications
-                  ? 'Enabled for alerts and updates'
-                  : 'Disabled on this device'}
+                {busyNotify
+                  ? 'Updating…'
+                  : notifications
+                    ? 'Market open/close + price alerts'
+                    : 'Disabled on this device'}
               </Text>
             </View>
             <View
