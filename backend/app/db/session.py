@@ -133,6 +133,13 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     "DEFAULT 'AddCapital'"
                 )
             )
+        if 'legal_pages_json' not in cols:
+            sync_conn.execute(
+                text(
+                    "ALTER TABLE site_settings "
+                    "ADD COLUMN legal_pages_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            )
 
 
 async def init_db() -> None:
@@ -253,6 +260,14 @@ def _apply_postgres_patches(sync_conn) -> None:
                 "ALTER TABLE site_settings "
                 "ADD COLUMN IF NOT EXISTS home_promo_action VARCHAR(64) "
                 "NOT NULL DEFAULT 'AddCapital'"
+            )
+        )
+    if 'legal_pages_json' not in cols:
+        sync_conn.execute(
+            text(
+                "ALTER TABLE site_settings "
+                "ADD COLUMN IF NOT EXISTS legal_pages_json TEXT "
+                "NOT NULL DEFAULT '{}'"
             )
         )
 

@@ -211,6 +211,7 @@ def _settings_out(row) -> AdminSettingsOut:
     from ..public_settings import (
         _contact_out,
         _home_promo_out,
+        _legal_pages_out,
         _payment_out,
         _popup_notice_out,
         _subscription_plans_out,
@@ -225,6 +226,7 @@ def _settings_out(row) -> AdminSettingsOut:
         subscriptionPlans=_subscription_plans_out(row),
         appLogoUrl=app_logo_public_path(row),
         homePromo=_home_promo_out(row),
+        legalPages=_legal_pages_out(row),
     )
 
 
@@ -325,6 +327,40 @@ async def admin_update_settings(
             'action': body.home_promo.action,
         }
 
+    legal_pages = None
+    if body.legal_pages is not None:
+        legal_pages = {}
+        if body.legal_pages.about is not None:
+            about = body.legal_pages.about
+            legal_pages['about'] = {
+                'tagline': about.tagline,
+                'whoWeAre': about.who_we_are,
+                'offerings': about.offerings,
+            }
+        if body.legal_pages.terms is not None:
+            terms = body.legal_pages.terms
+            legal_pages['terms'] = {
+                'intro': terms.intro,
+                'sections': (
+                    [{'heading': s.heading, 'body': s.body} for s in terms.sections]
+                    if terms.sections is not None
+                    else None
+                ),
+            }
+        if body.legal_pages.privacy is not None:
+            privacy = body.legal_pages.privacy
+            legal_pages['privacy'] = {
+                'intro': privacy.intro,
+                'sections': (
+                    [
+                        {'heading': s.heading, 'body': s.body}
+                        for s in privacy.sections
+                    ]
+                    if privacy.sections is not None
+                    else None
+                ),
+            }
+
     try:
         row = await update_site_settings(
             db,
@@ -334,6 +370,7 @@ async def admin_update_settings(
             subscription_plans=subscription_plans,
             app_logo=app_logo,
             home_promo=home_promo,
+            legal_pages=legal_pages,
         )
         await db.commit()
     except ValueError as e:

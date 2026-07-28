@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -6,81 +6,19 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
+import {
+  DEFAULT_LEGAL_PAGES,
+  type LegalDoc,
+} from '../content/legalDefaults';
+import { fetchPublicAppSettings } from '../services/app/publicSettingsApi';
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
-type Section = { heading: string; body: string };
-
-const TERMS: Section[] = [
-  {
-    heading: '1. Acceptance of Terms',
-    body: 'By downloading, installing or using NEPSE GHAR you agree to these Terms & Conditions. If you do not agree, please stop using the app.',
-  },
-  {
-    heading: '2. What the app does',
-    body: 'NEPSE GHAR is a tool that helps you manage your MeroShare accounts, apply for IPO/FPO/rights in bulk, check application status and results, and view NEPSE market data. We are an independent tool and are not affiliated with, endorsed by, or operated by CDSC, MeroShare, or NEPSE.',
-  },
-  {
-    heading: '3. Your accounts & responsibility',
-    body: 'You are responsible for the MeroShare credentials (DP, username, password, CRN, transaction PIN) you add to the app and for every action performed using them, including IPO applications. Always verify company, quantity and amount before you confirm any application.',
-  },
-  {
-    heading: '4. No financial advice',
-    body: 'Market data, analytics and premium insights are provided for information only and are not investment advice. You are solely responsible for your investment decisions. Data may be delayed or inaccurate.',
-  },
-  {
-    heading: '5. Subscriptions',
-    body: 'Some features require a paid premium subscription. Prices and account limits are shown in the app. Premium is activated after your payment is verified. Fees are non-refundable except where required by law.',
-  },
-  {
-    heading: '6. Acceptable use',
-    body: 'You agree not to misuse the app, attempt to access other users’ data, reverse-engineer the app, or use it for any unlawful purpose.',
-  },
-  {
-    heading: '7. Availability & liability',
-    body: 'The app depends on third-party services (MeroShare/CDSC, NEPSE and our servers) that may be unavailable at times. We are not liable for missed IPO applications, allotment outcomes, losses, or downtime arising from such services or from your use of the app.',
-  },
-  {
-    heading: '8. Changes',
-    body: 'We may update these terms and app features from time to time. Continued use after changes means you accept the updated terms.',
-  },
-];
-
-const PRIVACY: Section[] = [
-  {
-    heading: '1. Information we handle',
-    body: 'To provide its features the app handles your MeroShare account details (DP, username, password, CRN, transaction PIN), your profile info (name, email) when you sign in, and app usage needed to operate features.',
-  },
-  {
-    heading: '2. Where your credentials are stored',
-    body: 'Your MeroShare passwords, CRN and transaction PIN are stored encrypted on your own device using the secure storage of your phone. They are used only to log in to MeroShare on your behalf to perform the actions you request.',
-  },
-  {
-    heading: '3. How we use data',
-    body: 'We use your data only to run the features you use — logging into MeroShare, applying for IPOs, checking status/results, showing market data, and managing your subscription. We do not sell your data.',
-  },
-  {
-    heading: '4. Account & payment',
-    body: 'When you sign in with Google we receive your basic profile (name, email, avatar) to create your account. Premium payment screenshots you share for verification are used only to activate your subscription.',
-  },
-  {
-    heading: '5. Third-party services',
-    body: 'The app communicates with MeroShare/CDSC and NEPSE data sources to fetch and submit information you request, and with our servers for authentication and subscription. Their handling of data is governed by their own policies.',
-  },
-  {
-    heading: '6. Data retention & deletion',
-    body: 'Account credentials remain on your device until you remove the account or uninstall the app. You can delete your profile at any time from Profile → Delete account, which removes your server profile and local data.',
-  },
-  {
-    heading: '7. Security',
-    body: 'We use device secure storage and encrypted connections. However, no method is 100% secure. Keep your device protected with a screen lock and the in-app PIN.',
-  },
-  {
-    heading: '8. Contact',
-    body: 'For any privacy question, contact us from Profile → Connect With Us (email or WhatsApp).',
-  },
-];
+function sectionNumber(heading: string): string {
+  const m = heading.match(/^(\d+)\./);
+  return m ? m[1] : '•';
+}
 
 export function LegalScreen() {
   const navigation =
@@ -92,7 +30,15 @@ export function LegalScreen() {
 
   const isPrivacy = route.params?.kind === 'privacy';
   const title = isPrivacy ? 'Privacy Policy' : 'Terms & Conditions';
-  const sections = isPrivacy ? PRIVACY : TERMS;
+  const [doc, setDoc] = useState<LegalDoc>(
+    isPrivacy ? DEFAULT_LEGAL_PAGES.privacy : DEFAULT_LEGAL_PAGES.terms,
+  );
+
+  useEffect(() => {
+    void fetchPublicAppSettings().then((s) => {
+      setDoc(isPrivacy ? s.legalPages.privacy : s.legalPages.terms);
+    });
+  }, [isPrivacy]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -104,15 +50,41 @@ export function LegalScreen() {
         <View style={{ width: rs(22) }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.body}>
-        <Text style={styles.intro}>
-          {isPrivacy
-            ? 'This Privacy Policy explains how NEPSE GHAR handles your information.'
-            : 'Please read these terms carefully before using NEPSE GHAR.'}
-        </Text>
-        {sections.map((s) => (
-          <View key={s.heading} style={styles.section}>
-            <Text style={styles.heading}>{s.heading}</Text>
+      <ScrollView
+        contentContainerStyle={[
+          styles.body,
+          { paddingBottom: insets.bottom + rs(48) },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.introCard}>
+          <View
+            style={[
+              styles.introIcon,
+              { backgroundColor: isPrivacy ? '#B2EBF2' : '#C5CAE9' },
+            ]}
+          >
+            <Ionicons
+              name={
+                isPrivacy ? 'shield-checkmark-outline' : 'document-text-outline'
+              }
+              size={rs(20)}
+              color={isPrivacy ? '#00838F' : '#283593'}
+            />
+          </View>
+          <Text style={styles.intro}>{doc.intro}</Text>
+        </View>
+
+        {doc.sections.map((s, index) => (
+          <View key={`${s.heading}-${index}`} style={styles.card}>
+            <View style={styles.cardHead}>
+              <View style={styles.numWell}>
+                <Text style={styles.numText}>{sectionNumber(s.heading)}</Text>
+              </View>
+              <Text style={styles.heading}>
+                {s.heading.replace(/^\d+\.\s*/, '')}
+              </Text>
+            </View>
             <Text style={styles.para}>{s.body}</Text>
           </View>
         ))}
@@ -138,19 +110,69 @@ function makeStyles(c: ThemeColors) {
       fontWeight: '800',
       fontSize: rs(16),
     },
-    body: { padding: rs(20), paddingBottom: rs(40) },
-    intro: {
-      color: c.textMuted,
-      fontSize: rs(12),
-      lineHeight: rs(18),
-      marginBottom: rs(16),
+    body: {
+      paddingHorizontal: rs(16),
+      paddingTop: rs(4),
+      gap: rs(12),
     },
-    section: { marginBottom: rs(16) },
+    introCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(12),
+      borderRadius: rs(16),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(14),
+      marginBottom: rs(4),
+    },
+    introIcon: {
+      width: rs(40),
+      height: rs(40),
+      borderRadius: rs(12),
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    intro: {
+      flex: 1,
+      color: c.textMuted,
+      fontSize: rs(13),
+      lineHeight: rs(19),
+      fontWeight: '600',
+    },
+    card: {
+      borderRadius: rs(16),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(14),
+    },
+    cardHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      marginBottom: rs(8),
+    },
+    numWell: {
+      width: rs(28),
+      height: rs(28),
+      borderRadius: rs(8),
+      backgroundColor: c.primarySoft ?? c.surfaceAlt,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    numText: {
+      color: c.accentGreen,
+      fontWeight: '800',
+      fontSize: rs(13),
+    },
     heading: {
+      flex: 1,
       color: c.text,
       fontWeight: '800',
       fontSize: rs(14),
-      marginBottom: rs(6),
     },
     para: {
       color: c.textSecondary,

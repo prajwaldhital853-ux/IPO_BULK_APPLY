@@ -5,7 +5,6 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppHeader } from '../components/AppHeader';
-import { PromoBanner } from '../components/PromoBanner';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
@@ -20,7 +19,7 @@ export function CheckScreen() {
   const openDrawer = useOpenDrawer();
   const insets = useSafeAreaInsets();
   const { accounts } = useAccounts();
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const needAccounts = (go: () => void) => {
@@ -72,9 +71,6 @@ export function CheckScreen() {
     >
       <View style={styles.root}>
         <AppHeader onMenuPress={openDrawer} title="Check" showLogo={false} />
-        {isDark ? (
-          <PromoBanner onPress={() => navigation.navigate('Subscription')} />
-        ) : null}
 
         <View
           style={[

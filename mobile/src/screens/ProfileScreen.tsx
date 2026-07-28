@@ -16,7 +16,6 @@ import * as Clipboard from 'expo-clipboard';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
-import { PromoBanner } from '../components/PromoBanner';
 import { BrandLogo } from '../components/BrandLogo';
 import { DeleteAccountModal } from '../components/DeleteAccountModal';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
@@ -413,7 +412,6 @@ export function ProfileScreen() {
           </View>
         }
       />
-      {isDark ? <PromoBanner /> : null}
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.heroCard}>

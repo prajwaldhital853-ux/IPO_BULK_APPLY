@@ -209,6 +209,54 @@ class HomePromoSettingsIn(BaseModel):
     model_config = {'populate_by_name': True}
 
 
+class LegalSectionOut(BaseModel):
+    heading: str
+    body: str
+
+
+class LegalDocOut(BaseModel):
+    intro: str = ''
+    sections: list[LegalSectionOut] = Field(default_factory=list)
+
+
+class AboutPageOut(BaseModel):
+    tagline: str = ''
+    who_we_are: str = Field(default='', alias='whoWeAre')
+    offerings: list[str] = Field(default_factory=list)
+
+    model_config = {'populate_by_name': True}
+
+
+class LegalPagesOut(BaseModel):
+    about: AboutPageOut = Field(default_factory=AboutPageOut)
+    terms: LegalDocOut = Field(default_factory=LegalDocOut)
+    privacy: LegalDocOut = Field(default_factory=LegalDocOut)
+
+
+class LegalSectionIn(BaseModel):
+    heading: str = ''
+    body: str = ''
+
+
+class LegalDocIn(BaseModel):
+    intro: str | None = None
+    sections: list[LegalSectionIn] | None = None
+
+
+class AboutPageIn(BaseModel):
+    tagline: str | None = None
+    who_we_are: str | None = Field(default=None, alias='whoWeAre')
+    offerings: list[str] | None = None
+
+    model_config = {'populate_by_name': True}
+
+
+class LegalPagesIn(BaseModel):
+    about: AboutPageIn | None = None
+    terms: LegalDocIn | None = None
+    privacy: LegalDocIn | None = None
+
+
 class AdminSettingsOut(BaseModel):
     admin_email: str = Field(alias='adminEmail')
     payment: PaymentSettingsOut
@@ -222,6 +270,10 @@ class AdminSettingsOut(BaseModel):
     home_promo: HomePromoSettingsOut = Field(
         default_factory=HomePromoSettingsOut,
         alias='homePromo',
+    )
+    legal_pages: LegalPagesOut = Field(
+        default_factory=LegalPagesOut,
+        alias='legalPages',
     )
 
     model_config = {'populate_by_name': True}
@@ -241,6 +293,7 @@ class AdminSettingsUpdateIn(BaseModel):
         default=None,
         alias='homePromo',
     )
+    legal_pages: LegalPagesIn | None = Field(default=None, alias='legalPages')
 
     model_config = {'populate_by_name': True}
 
@@ -305,6 +358,10 @@ class PublicAppSettingsOut(BaseModel):
     home_promo: HomePromoSettingsOut = Field(
         default_factory=HomePromoSettingsOut,
         alias='homePromo',
+    )
+    legal_pages: LegalPagesOut = Field(
+        default_factory=LegalPagesOut,
+        alias='legalPages',
     )
 
     model_config = {'populate_by_name': True}

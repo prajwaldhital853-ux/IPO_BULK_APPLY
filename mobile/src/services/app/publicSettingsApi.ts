@@ -1,3 +1,8 @@
+import {
+  DEFAULT_LEGAL_PAGES,
+  mapLegalPages,
+  type LegalPages,
+} from '../../content/legalDefaults';
 import { AUTH_API_BASE } from '../auth/config';
 
 export type PaymentSettings = {
@@ -59,6 +64,7 @@ export type PublicAppSettings = {
   subscriptionPlans: PublicSubscriptionPlan[];
   appLogoUrl: string | null;
   homePromo: HomePromoSettings;
+  legalPages: LegalPages;
 };
 
 export const DEFAULT_HOME_PROMO: HomePromoSettings = {
@@ -99,6 +105,7 @@ const FALLBACK: PublicAppSettings = {
   subscriptionPlans: [],
   appLogoUrl: null,
   homePromo: { ...DEFAULT_HOME_PROMO },
+  legalPages: mapLegalPages(DEFAULT_LEGAL_PAGES),
 };
 
 function mapSubscriptionPlans(raw: unknown): PublicSubscriptionPlan[] {
@@ -285,6 +292,7 @@ export async function fetchPublicAppSettings(): Promise<PublicAppSettings> {
         ? String(json.appLogoUrl ?? json.app_logo_url)
         : null,
       homePromo: mapHomePromo(json.homePromo ?? json.home_promo),
+      legalPages: mapLegalPages(json.legalPages ?? json.legal_pages),
     };
   } catch {
     return FALLBACK;

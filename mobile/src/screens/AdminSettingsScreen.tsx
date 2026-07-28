@@ -40,6 +40,11 @@ import {
   type AdminSocialLink,
   type AdminSubscriptionPlan,
 } from '../services/admin/adminApi';
+import {
+  DEFAULT_LEGAL_PAGES,
+  type LegalPages,
+  type LegalSection,
+} from '../content/legalDefaults';
 import { loadAdminToken } from '../services/admin/adminTokenStorage';
 import { AUTH_API_BASE } from '../services/auth/config';
 import type { ThemeColors } from '../theme/colors';
@@ -128,6 +133,7 @@ type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 type SettingsTab =
   | 'notices'
   | 'home'
+  | 'legal'
   | 'plans'
   | 'branding'
   | 'payment'
@@ -137,6 +143,7 @@ type SettingsTab =
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'notices', label: 'Notices' },
   { id: 'home', label: 'Home card' },
+  { id: 'legal', label: 'Legal' },
   { id: 'plans', label: 'Plans' },
   { id: 'branding', label: 'Logo' },
   { id: 'payment', label: 'Payment' },
@@ -352,6 +359,23 @@ export function AdminSettingsScreen() {
     'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
   );
   const [homePromoAction, setHomePromoAction] = useState('AddCapital');
+  const [legalDraft, setLegalDraft] = useState<LegalPages>(() => ({
+    about: {
+      ...DEFAULT_LEGAL_PAGES.about,
+      offerings: [...DEFAULT_LEGAL_PAGES.about.offerings],
+    },
+    terms: {
+      intro: DEFAULT_LEGAL_PAGES.terms.intro,
+      sections: DEFAULT_LEGAL_PAGES.terms.sections.map((s) => ({ ...s })),
+    },
+    privacy: {
+      intro: DEFAULT_LEGAL_PAGES.privacy.intro,
+      sections: DEFAULT_LEGAL_PAGES.privacy.sections.map((s) => ({ ...s })),
+    },
+  }));
+  const [legalSubTab, setLegalSubTab] = useState<'about' | 'terms' | 'privacy'>(
+    'about',
+  );
 
   useEffect(() => {
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -378,6 +402,23 @@ export function AdminSettingsScreen() {
         'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
     );
     setHomePromoAction(s.homePromo?.action?.trim() || 'AddCapital');
+    if (s.legalPages) {
+      setLegalDraft({
+        about: {
+          tagline: s.legalPages.about.tagline,
+          whoWeAre: s.legalPages.about.whoWeAre,
+          offerings: [...s.legalPages.about.offerings],
+        },
+        terms: {
+          intro: s.legalPages.terms.intro,
+          sections: s.legalPages.terms.sections.map((x) => ({ ...x })),
+        },
+        privacy: {
+          intro: s.legalPages.privacy.intro,
+          sections: s.legalPages.privacy.sections.map((x) => ({ ...x })),
+        },
+      });
+    }
     setNoticeItems(
       (s.popupNotice?.items ?? []).map((item) => ({
         id: item.id,
@@ -645,6 +686,61 @@ export function AdminSettingsScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const onSaveLegalPages = async () => {
+    if (!token) return;
+    setSaving(true);
+    try {
+      const updated = await updateAdminSettings(token, {
+        legalPages: legalDraft,
+      });
+      applySettings(updated);
+      Alert.alert('Saved', 'About / Terms / Privacy pages updated.');
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Could not save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateLegalSection = (
+    kind: 'terms' | 'privacy',
+    index: number,
+    patch: Partial<LegalSection>,
+  ) => {
+    setLegalDraft((prev) => {
+      const sections = prev[kind].sections.map((s, i) =>
+        i === index ? { ...s, ...patch } : s,
+      );
+      return { ...prev, [kind]: { ...prev[kind], sections } };
+    });
+  };
+
+  const addLegalSection = (kind: 'terms' | 'privacy') => {
+    setLegalDraft((prev) => ({
+      ...prev,
+      [kind]: {
+        ...prev[kind],
+        sections: [
+          ...prev[kind].sections,
+          {
+            heading: `${prev[kind].sections.length + 1}. New section`,
+            body: '',
+          },
+        ],
+      },
+    }));
+  };
+
+  const removeLegalSection = (kind: 'terms' | 'privacy', index: number) => {
+    setLegalDraft((prev) => ({
+      ...prev,
+      [kind]: {
+        ...prev[kind],
+        sections: prev[kind].sections.filter((_, i) => i !== index),
+      },
+    }));
   };
 
   const onSavePlans = async () => {
@@ -1163,6 +1259,159 @@ export function AdminSettingsScreen() {
                     <ActivityIndicator color={colors.fabIcon} />
                   ) : (
                     <Text style={styles.btnText}>Save home card</Text>
+                  )}
+                </Pressable>
+              </>
+            ) : null}
+
+            {settingsTab === 'legal' ? (
+              <>
+                <Text style={styles.section}>About / Terms / Privacy</Text>
+                <Text style={styles.help}>
+                  Edit the text shown in Profile → About Company, Terms &amp;
+                  Conditions, and Privacy Policy.
+                </Text>
+                <View style={styles.legalSubRow}>
+                  {(
+                    [
+                      { id: 'about', label: 'About' },
+                      { id: 'terms', label: 'Terms' },
+                      { id: 'privacy', label: 'Privacy' },
+                    ] as const
+                  ).map((tab) => {
+                    const active = legalSubTab === tab.id;
+                    return (
+                      <Pressable
+                        key={tab.id}
+                        style={[
+                          styles.actionChip,
+                          active && styles.actionChipActive,
+                        ]}
+                        onPress={() => setLegalSubTab(tab.id)}
+                      >
+                        <Text
+                          style={[
+                            styles.actionChipText,
+                            active && styles.actionChipTextActive,
+                          ]}
+                        >
+                          {tab.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {legalSubTab === 'about' ? (
+                  <>
+                    <Field
+                      label="Tagline"
+                      value={legalDraft.about.tagline}
+                      onChangeText={(v) =>
+                        setLegalDraft((p) => ({
+                          ...p,
+                          about: { ...p.about, tagline: v },
+                        }))
+                      }
+                      colors={colors}
+                    />
+                    <Field
+                      label="Who we are"
+                      value={legalDraft.about.whoWeAre}
+                      onChangeText={(v) =>
+                        setLegalDraft((p) => ({
+                          ...p,
+                          about: { ...p.about, whoWeAre: v },
+                        }))
+                      }
+                      colors={colors}
+                      multiline
+                    />
+                    <Field
+                      label="What we offer (one line per item)"
+                      value={legalDraft.about.offerings.join('\n')}
+                      onChangeText={(v) =>
+                        setLegalDraft((p) => ({
+                          ...p,
+                          about: {
+                            ...p.about,
+                            offerings: v
+                              .split('\n')
+                              .map((x) => x.trim())
+                              .filter(Boolean),
+                          },
+                        }))
+                      }
+                      colors={colors}
+                      multiline
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Field
+                      label="Intro text"
+                      value={legalDraft[legalSubTab].intro}
+                      onChangeText={(v) =>
+                        setLegalDraft((p) => ({
+                          ...p,
+                          [legalSubTab]: { ...p[legalSubTab], intro: v },
+                        }))
+                      }
+                      colors={colors}
+                      multiline
+                    />
+                    {legalDraft[legalSubTab].sections.map((sec, index) => (
+                      <View key={`${legalSubTab}-${index}`} style={styles.planCard}>
+                        <Text style={styles.planCardTitle}>
+                          Section {index + 1}
+                        </Text>
+                        <Field
+                          label="Heading"
+                          value={sec.heading}
+                          onChangeText={(v) =>
+                            updateLegalSection(legalSubTab, index, {
+                              heading: v,
+                            })
+                          }
+                          colors={colors}
+                        />
+                        <Field
+                          label="Body"
+                          value={sec.body}
+                          onChangeText={(v) =>
+                            updateLegalSection(legalSubTab, index, { body: v })
+                          }
+                          colors={colors}
+                          multiline
+                        />
+                        <Pressable
+                          style={styles.qrBtnDanger}
+                          onPress={() => removeLegalSection(legalSubTab, index)}
+                        >
+                          <Text style={styles.qrBtnDangerText}>
+                            Remove section
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                    <Pressable
+                      style={styles.qrBtn}
+                      onPress={() => addLegalSection(legalSubTab)}
+                    >
+                      <Text style={styles.qrBtnText}>Add section</Text>
+                    </Pressable>
+                  </>
+                )}
+
+                <Pressable
+                  style={[styles.btn, saving && styles.btnDisabled]}
+                  disabled={saving}
+                  onPress={() => void onSaveLegalPages()}
+                >
+                  {saving ? (
+                    <ActivityIndicator color={colors.fabIcon} />
+                  ) : (
+                    <Text style={styles.btnText}>Save legal pages</Text>
                   )}
                 </Pressable>
               </>
@@ -1761,6 +2010,17 @@ function makeStyles(c: ThemeColors) {
       flexWrap: 'wrap',
       gap: rs(8),
       marginBottom: rs(16),
+    },
+    legalSubRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: rs(8),
+      marginBottom: rs(14),
+    },
+    qrBtnDangerText: {
+      color: '#fff',
+      fontWeight: '700',
+      fontSize: rs(13),
     },
     actionChip: {
       borderWidth: 1,

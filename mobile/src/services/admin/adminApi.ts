@@ -1,5 +1,9 @@
 import { AUTH_API_BASE } from '../auth/config';
 import { fetchWithTimeout } from '../auth/http';
+import {
+  mapLegalPages,
+  type LegalPages,
+} from '../../content/legalDefaults';
 
 export type AdminSubscriptionRow = {
   id: string;
@@ -115,6 +119,7 @@ export type AdminSettings = {
   subscriptionPlans: AdminSubscriptionPlan[];
   appLogoUrl: string | null;
   homePromo: AdminHomePromo;
+  legalPages: LegalPages;
 };
 
 async function parseError(res: Response): Promise<string> {
@@ -533,6 +538,7 @@ function mapAdminSettings(json: Record<string, unknown>): AdminSettings {
         action,
       };
     })(),
+    legalPages: mapLegalPages(json.legalPages ?? json.legal_pages),
   };
 }
 
@@ -561,6 +567,7 @@ export async function updateAdminSettings(
     appLogoBase64?: string;
     clearAppLogo?: boolean;
     homePromo?: AdminHomePromo;
+    legalPages?: LegalPages;
   },
 ): Promise<AdminSettings> {
   const res = await adminFetch('/admin/settings', token, {

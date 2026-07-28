@@ -343,6 +343,7 @@ async def update_site_settings(
     subscription_plans: list[dict] | None = None,
     app_logo: dict[str, str] | None = None,
     home_promo: dict[str, object] | None = None,
+    legal_pages: dict[str, object] | None = None,
 ) -> SiteSettings:
     row = await get_or_create_settings(db)
 
@@ -522,6 +523,46 @@ async def update_site_settings(
             if action not in _ALLOWED_HOME_PROMO_ACTIONS:
                 raise ValueError(f'Invalid home promo action: {action}')
             row.home_promo_action = action
+
+    if legal_pages is not None:
+        from .legal_pages import load_legal_pages, normalize_legal_pages
+        import json as _json
+
+        current = load_legal_pages(row)
+        merged = {
+            'about': current['about'],
+            'terms': current['terms'],
+            'privacy': current['privacy'],
+        }
+        if isinstance(legal_pages.get('about'), dict):
+            about_in = legal_pages['about']
+            about_merged = dict(merged['about'])
+            if about_in.get('tagline') is not None:
+                about_merged['tagline'] = about_in['tagline']
+            if about_in.get('whoWeAre') is not None:
+                about_merged['whoWeAre'] = about_in['whoWeAre']
+            if about_in.get('offerings') is not None:
+                about_merged['offerings'] = about_in['offerings']
+            merged['about'] = about_merged
+        if isinstance(legal_pages.get('terms'), dict):
+            terms_in = legal_pages['terms']
+            terms_merged = dict(merged['terms'])
+            if terms_in.get('intro') is not None:
+                terms_merged['intro'] = terms_in['intro']
+            if terms_in.get('sections') is not None:
+                terms_merged['sections'] = terms_in['sections']
+            merged['terms'] = terms_merged
+        if isinstance(legal_pages.get('privacy'), dict):
+            priv_in = legal_pages['privacy']
+            priv_merged = dict(merged['privacy'])
+            if priv_in.get('intro') is not None:
+                priv_merged['intro'] = priv_in['intro']
+            if priv_in.get('sections') is not None:
+                priv_merged['sections'] = priv_in['sections']
+            merged['privacy'] = priv_merged
+        company = (row.contact_company_name or '').strip()
+        normalized = normalize_legal_pages(merged, company_name=company)
+        row.legal_pages_json = _json.dumps(normalized)
 
     row.updated_at = datetime.now(UTC)
     await db.flush()

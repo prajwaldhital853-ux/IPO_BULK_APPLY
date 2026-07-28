@@ -154,6 +154,9 @@ class SiteSettings(Base):
     # none | AddCapital | Subscription | Apply | Services | Profile | …
     home_promo_action: Mapped[str] = mapped_column(String(64), default='AddCapital')
 
+    # About / Terms / Privacy pages (JSON) editable from admin.
+    legal_pages_json: Mapped[str] = mapped_column(Text, default='{}')
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

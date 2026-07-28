@@ -4,8 +4,12 @@ import json
 import uuid
 
 from .admin.schemas import (
+    AboutPageOut,
     ContactSettingsOut,
     HomePromoSettingsOut,
+    LegalDocOut,
+    LegalPagesOut,
+    LegalSectionOut,
     PaymentSettingsOut,
     PopupNoticeItemOut,
     PopupNoticesOut,
@@ -15,6 +19,7 @@ from .admin.schemas import (
 )
 from .auth.subscription import load_subscription_plans
 from .db.models import SiteSettings
+from .legal_pages import load_legal_pages
 
 _MAX_POPUP_NOTICES = 10
 
@@ -330,6 +335,40 @@ def _subscription_plans_out(row: SiteSettings) -> list[SubscriptionPlanOut]:
     ]
 
 
+def _legal_pages_out(row: SiteSettings) -> LegalPagesOut:
+    data = load_legal_pages(row)
+    about = data['about']
+    terms = data['terms']
+    privacy = data['privacy']
+    return LegalPagesOut(
+        about=AboutPageOut(
+            tagline=str(about.get('tagline') or ''),
+            whoWeAre=str(about.get('whoWeAre') or ''),
+            offerings=[str(x) for x in (about.get('offerings') or [])],
+        ),
+        terms=LegalDocOut(
+            intro=str(terms.get('intro') or ''),
+            sections=[
+                LegalSectionOut(
+                    heading=str(s.get('heading') or ''),
+                    body=str(s.get('body') or ''),
+                )
+                for s in (terms.get('sections') or [])
+            ],
+        ),
+        privacy=LegalDocOut(
+            intro=str(privacy.get('intro') or ''),
+            sections=[
+                LegalSectionOut(
+                    heading=str(s.get('heading') or ''),
+                    body=str(s.get('body') or ''),
+                )
+                for s in (privacy.get('sections') or [])
+            ],
+        ),
+    )
+
+
 def settings_to_public(row: SiteSettings) -> PublicAppSettingsOut:
     return PublicAppSettingsOut(
         payment=_payment_out(row),
@@ -338,4 +377,5 @@ def settings_to_public(row: SiteSettings) -> PublicAppSettingsOut:
         subscriptionPlans=_subscription_plans_out(row),
         appLogoUrl=app_logo_public_path(row),
         homePromo=_home_promo_out(row),
+        legalPages=_legal_pages_out(row),
     )
