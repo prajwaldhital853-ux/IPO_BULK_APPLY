@@ -509,6 +509,7 @@ async def update_site_settings(
         from .public_settings import (
             _ALLOWED_HOME_PROMO_ACTIONS,
             _DEFAULT_HOME_PROMO_TEXT,
+            _normalize_hex_color,
         )
 
         if 'visible' in home_promo and home_promo['visible'] is not None:
@@ -523,6 +524,8 @@ async def update_site_settings(
             if action not in _ALLOWED_HOME_PROMO_ACTIONS:
                 raise ValueError(f'Invalid home promo action: {action}')
             row.home_promo_action = action
+        if 'color' in home_promo and home_promo['color'] is not None:
+            row.home_promo_color = _normalize_hex_color(str(home_promo['color']))
 
     if legal_pages is not None:
         from .legal_pages import load_legal_pages, normalize_legal_pages

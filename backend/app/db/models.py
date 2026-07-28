@@ -153,6 +153,7 @@ class SiteSettings(Base):
     )
     # none | AddCapital | Subscription | Apply | Services | Profile | …
     home_promo_action: Mapped[str] = mapped_column(String(64), default='AddCapital')
+    home_promo_color: Mapped[str] = mapped_column(String(16), default='#1B5E20')
 
     # About / Terms / Privacy pages (JSON) editable from admin.
     legal_pages_json: Mapped[str] = mapped_column(Text, default='{}')

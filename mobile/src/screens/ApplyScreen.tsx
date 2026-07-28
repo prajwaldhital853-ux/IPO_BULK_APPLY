@@ -16,6 +16,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
+import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { useAccounts } from '../context/AccountsContext';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
@@ -404,6 +405,7 @@ export function ApplyScreen() {
         showLogo={false}
         right={headerActions}
       />
+      <AdminPromoBanner />
 
       {accounts.length === 0 ? (
         <View style={styles.emptyWrap}>

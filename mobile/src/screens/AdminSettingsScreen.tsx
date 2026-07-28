@@ -151,6 +151,17 @@ const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'password', label: 'Password' },
 ];
 
+const HOME_PROMO_COLORS: { id: string; label: string; color: string }[] = [
+  { id: 'green', label: 'Green', color: '#1B5E20' },
+  { id: 'teal', label: 'Teal', color: '#00695C' },
+  { id: 'blue', label: 'Blue', color: '#1565C0' },
+  { id: 'indigo', label: 'Indigo', color: '#3949AB' },
+  { id: 'orange', label: 'Orange', color: '#EF6C00' },
+  { id: 'red', label: 'Red', color: '#C62828' },
+  { id: 'brown', label: 'Brown', color: '#5D4037' },
+  { id: 'slate', label: 'Slate', color: '#37474F' },
+];
+
 const HOME_PROMO_ACTIONS: { id: string; label: string }[] = [
   { id: 'none', label: 'No redirect (not clickable)' },
   { id: 'AddCapital', label: 'Add MeroShare account' },
@@ -298,6 +309,9 @@ function Field({
         autoCapitalize="none"
         keyboardType={keyboardType ?? 'default'}
         multiline={multiline}
+        // Keep Enter as newline on Android (otherwise it blurs / blocks next line).
+        blurOnSubmit={multiline ? false : undefined}
+        textAlignVertical={multiline ? 'top' : 'center'}
         secureTextEntry={secureTextEntry}
       />
     </View>
@@ -359,6 +373,7 @@ export function AdminSettingsScreen() {
     'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
   );
   const [homePromoAction, setHomePromoAction] = useState('AddCapital');
+  const [homePromoColor, setHomePromoColor] = useState('#1B5E20');
   const [legalDraft, setLegalDraft] = useState<LegalPages>(() => ({
     about: {
       ...DEFAULT_LEGAL_PAGES.about,
@@ -402,6 +417,7 @@ export function AdminSettingsScreen() {
         'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
     );
     setHomePromoAction(s.homePromo?.action?.trim() || 'AddCapital');
+    setHomePromoColor(s.homePromo?.color?.trim() || '#1B5E20');
     if (s.legalPages) {
       setLegalDraft({
         about: {
@@ -676,6 +692,7 @@ export function AdminSettingsScreen() {
           visible: homePromoVisible,
           text,
           action: homePromoAction || 'none',
+          color: homePromoColor || '#1B5E20',
         },
       });
       applySettings(updated);
@@ -692,8 +709,17 @@ export function AdminSettingsScreen() {
     if (!token) return;
     setSaving(true);
     try {
+      const cleaned: LegalPages = {
+        ...legalDraft,
+        about: {
+          ...legalDraft.about,
+          offerings: legalDraft.about.offerings
+            .map((x) => x.trim())
+            .filter(Boolean),
+        },
+      };
       const updated = await updateAdminSettings(token, {
-        legalPages: legalDraft,
+        legalPages: cleaned,
       });
       applySettings(updated);
       Alert.alert('Saved', 'About / Terms / Privacy pages updated.');
@@ -1186,8 +1212,9 @@ export function AdminSettingsScreen() {
               <>
                 <Text style={styles.section}>Home promo card</Text>
                 <Text style={styles.help}>
-                  Controls the green banner under the home header. Turn it off to
-                  hide it, edit the text, and choose where a tap goes (or no
+                  Controls the green banner under the header on Home, Apply,
+                  Services, Check, and Profile. Turn it off to hide it
+                  everywhere. Edit the text and choose where a tap goes (or no
                   redirect).
                 </Text>
 
@@ -1222,6 +1249,39 @@ export function AdminSettingsScreen() {
                   onChangeText={setHomePromoText}
                   colors={colors}
                   multiline
+                />
+
+                <Text style={styles.fieldLabel}>Card color</Text>
+                <View style={styles.colorRow}>
+                  {HOME_PROMO_COLORS.map((opt) => {
+                    const active =
+                      homePromoColor.toUpperCase() === opt.color.toUpperCase();
+                    return (
+                      <Pressable
+                        key={opt.id}
+                        style={[
+                          styles.colorSwatch,
+                          { backgroundColor: opt.color },
+                          active && styles.colorSwatchActive,
+                        ]}
+                        onPress={() => setHomePromoColor(opt.color)}
+                        accessibilityLabel={opt.label}
+                      >
+                        {active ? (
+                          <Ionicons name="checkmark" size={rs(16)} color="#fff" />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Field
+                  label="Custom hex color (optional)"
+                  value={homePromoColor}
+                  onChangeText={(v) => {
+                    const next = v.trim().startsWith('#') ? v.trim() : `#${v.trim()}`;
+                    setHomePromoColor(next || '#1B5E20');
+                  }}
+                  colors={colors}
                 />
 
                 <Text style={styles.fieldLabel}>Tap action / redirect</Text>
@@ -1328,17 +1388,15 @@ export function AdminSettingsScreen() {
                       multiline
                     />
                     <Field
-                      label="What we offer (one line per item)"
+                      label="What we offer (one line per item — press Enter for next)"
                       value={legalDraft.about.offerings.join('\n')}
                       onChangeText={(v) =>
                         setLegalDraft((p) => ({
                           ...p,
                           about: {
                             ...p.about,
-                            offerings: v
-                              .split('\n')
-                              .map((x) => x.trim())
-                              .filter(Boolean),
+                            // Keep empty lines while typing so Enter can open the next line.
+                            offerings: v.split('\n'),
                           },
                         }))
                       }
@@ -1916,7 +1974,7 @@ function makeFieldStyles(c: ThemeColors) {
       fontSize: rs(14),
       backgroundColor: c.surface,
     },
-    multiline: { minHeight: rs(72), textAlignVertical: 'top' },
+    multiline: { minHeight: rs(110), textAlignVertical: 'top' },
   });
 }
 
@@ -2016,6 +2074,28 @@ function makeStyles(c: ThemeColors) {
       flexWrap: 'wrap',
       gap: rs(8),
       marginBottom: rs(14),
+    },
+    colorRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: rs(10),
+      marginBottom: rs(10),
+    },
+    colorSwatch: {
+      width: rs(36),
+      height: rs(36),
+      borderRadius: rs(10),
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: 'transparent',
+    },
+    colorSwatchActive: {
+      borderColor: '#fff',
+      shadowColor: '#000',
+      shadowOpacity: 0.25,
+      shadowRadius: 3,
+      elevation: 3,
     },
     qrBtnDangerText: {
       color: '#fff',

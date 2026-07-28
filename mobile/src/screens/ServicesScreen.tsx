@@ -11,6 +11,7 @@ import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
+import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { SoftBadge } from '../components/SoftBadge';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import type { RootStackParamList } from '../navigation/types';
@@ -622,6 +623,7 @@ export function ServicesScreen() {
   return (
     <View style={[styles.root, { backgroundColor: isDark ? colors.bg : '#E4EAD9' }]}>
       <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
+      <AdminPromoBanner />
 
       <View style={styles.searchWrap}>
         <View

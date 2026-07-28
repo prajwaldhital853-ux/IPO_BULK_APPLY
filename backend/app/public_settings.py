@@ -284,6 +284,7 @@ _DEFAULT_HOME_PROMO_TEXT = (
     'Add your MeroShare account to bulk apply for IPOs — '
     'tap here to get started'
 )
+_DEFAULT_HOME_PROMO_COLOR = '#1B5E20'
 
 _ALLOWED_HOME_PROMO_ACTIONS = frozenset(
     {
@@ -305,16 +306,31 @@ _ALLOWED_HOME_PROMO_ACTIONS = frozenset(
 )
 
 
+def _normalize_hex_color(raw: str | None, fallback: str = _DEFAULT_HOME_PROMO_COLOR) -> str:
+    value = (raw or '').strip()
+    if not value:
+        return fallback
+    if not value.startswith('#'):
+        value = f'#{value}'
+    import re
+
+    if re.fullmatch(r'#[0-9A-Fa-f]{6}', value) or re.fullmatch(r'#[0-9A-Fa-f]{3}', value):
+        return value.upper() if len(value) == 7 else value.upper()
+    return fallback
+
+
 def _home_promo_out(row: SiteSettings) -> HomePromoSettingsOut:
     text = (getattr(row, 'home_promo_text', None) or '').strip()
     action = (getattr(row, 'home_promo_action', None) or 'AddCapital').strip()
     if action not in _ALLOWED_HOME_PROMO_ACTIONS:
         action = 'AddCapital'
     visible = bool(getattr(row, 'home_promo_visible', True))
+    color = _normalize_hex_color(getattr(row, 'home_promo_color', None))
     return HomePromoSettingsOut(
         visible=visible,
         text=text or _DEFAULT_HOME_PROMO_TEXT,
         action=action,
+        color=color,
     )
 
 

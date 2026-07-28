@@ -55,6 +55,7 @@ export type HomePromoSettings = {
   visible: boolean;
   text: string;
   action: string;
+  color: string;
 };
 
 export type PublicAppSettings = {
@@ -72,6 +73,7 @@ export const DEFAULT_HOME_PROMO: HomePromoSettings = {
   text:
     'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
   action: 'AddCapital',
+  color: '#1B5E20',
 };
 
 const FALLBACK: PublicAppSettings = {
@@ -154,10 +156,16 @@ function mapHomePromo(raw: unknown): HomePromoSettings {
       : visibleRaw == null
         ? true
         : Boolean(Number(visibleRaw));
+  let color = String(row.color ?? DEFAULT_HOME_PROMO.color).trim();
+  if (!color.startsWith('#')) color = `#${color}`;
+  if (!/^#[0-9A-Fa-f]{6}$/.test(color) && !/^#[0-9A-Fa-f]{3}$/.test(color)) {
+    color = DEFAULT_HOME_PROMO.color;
+  }
   return {
     visible,
     text: text || DEFAULT_HOME_PROMO.text,
     action: action || 'none',
+    color: color.toUpperCase(),
   };
 }
 

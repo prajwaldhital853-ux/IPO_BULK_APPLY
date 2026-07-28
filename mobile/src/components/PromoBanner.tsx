@@ -6,11 +6,13 @@ import { DEFAULT_HOME_PROMO } from '../services/app/publicSettingsApi';
 
 type Props = {
   text?: string;
+  color?: string;
   onPress?: () => void;
 };
 
-export function PromoBanner({ text, onPress }: Props) {
+export function PromoBanner({ text, color, onPress }: Props) {
   const label = (text ?? '').trim() || DEFAULT_HOME_PROMO.text;
+  const bg = (color ?? '').trim() || DEFAULT_HOME_PROMO.color;
   const content = (
     <>
       <View style={styles.logo}>
@@ -27,13 +29,13 @@ export function PromoBanner({ text, onPress }: Props) {
 
   if (onPress) {
     return (
-      <Pressable style={styles.banner} onPress={onPress}>
+      <Pressable style={[styles.banner, { backgroundColor: bg }]} onPress={onPress}>
         {content}
       </Pressable>
     );
   }
 
-  return <View style={styles.banner}>{content}</View>;
+  return <View style={[styles.banner, { backgroundColor: bg }]}>{content}</View>;
 }
 
 const styles = StyleSheet.create({

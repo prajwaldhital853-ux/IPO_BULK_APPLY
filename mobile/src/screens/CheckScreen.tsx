@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppHeader } from '../components/AppHeader';
+import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
@@ -71,6 +72,7 @@ export function CheckScreen() {
     >
       <View style={styles.root}>
         <AppHeader onMenuPress={openDrawer} title="Check" showLogo={false} />
+        <AdminPromoBanner />
 
         <View
           style={[

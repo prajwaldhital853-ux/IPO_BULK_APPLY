@@ -325,6 +325,7 @@ async def admin_update_settings(
             'visible': body.home_promo.visible,
             'text': body.home_promo.text,
             'action': body.home_promo.action,
+            'color': body.home_promo.color,
         }
 
     legal_pages = None

@@ -197,6 +197,7 @@ class HomePromoSettingsOut(BaseModel):
     )
     # none = not clickable; otherwise a known in-app route key
     action: str = 'AddCapital'
+    color: str = '#1B5E20'
 
     model_config = {'populate_by_name': True}
 
@@ -205,6 +206,7 @@ class HomePromoSettingsIn(BaseModel):
     visible: bool | None = None
     text: str | None = None
     action: str | None = None
+    color: str | None = None
 
     model_config = {'populate_by_name': True}
 

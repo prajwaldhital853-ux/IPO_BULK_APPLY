@@ -133,6 +133,14 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     "DEFAULT 'AddCapital'"
                 )
             )
+        if 'home_promo_color' not in cols:
+            sync_conn.execute(
+                text(
+                    "ALTER TABLE site_settings "
+                    "ADD COLUMN home_promo_color VARCHAR(16) NOT NULL "
+                    "DEFAULT '#1B5E20'"
+                )
+            )
         if 'legal_pages_json' not in cols:
             sync_conn.execute(
                 text(
@@ -260,6 +268,14 @@ def _apply_postgres_patches(sync_conn) -> None:
                 "ALTER TABLE site_settings "
                 "ADD COLUMN IF NOT EXISTS home_promo_action VARCHAR(64) "
                 "NOT NULL DEFAULT 'AddCapital'"
+            )
+        )
+    if 'home_promo_color' not in cols:
+        sync_conn.execute(
+            text(
+                "ALTER TABLE site_settings "
+                "ADD COLUMN IF NOT EXISTS home_promo_color VARCHAR(16) "
+                "NOT NULL DEFAULT '#1B5E20'"
             )
         )
     if 'legal_pages_json' not in cols:

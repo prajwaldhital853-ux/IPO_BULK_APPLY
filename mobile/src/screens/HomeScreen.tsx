@@ -16,10 +16,10 @@ import DraggableFlatList, {
 } from 'react-native-draggable-flatlist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AccountDetailSheet } from '../components/AccountDetailSheet';
+import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { AppHeader } from '../components/AppHeader';
 import { HomeMarketPanel } from '../components/home/HomeMarketPanel';
 import { HOME_CARD_GAP, HOME_H_PAD } from '../components/home/homeLayout';
-import { PromoBanner } from '../components/PromoBanner';
 import { useAccounts } from '../context/AccountsContext';
 import { useAppBranding } from '../context/AppBrandingContext';
 import { useSubscription } from '../context/SubscriptionContext';
@@ -32,8 +32,6 @@ import { guardAddAccount } from '../utils/accountLimits';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 import type { AccountMeta } from '../types/account';
-
-const TAB_ACTIONS = new Set(['Apply', 'Services', 'Profile', 'Home', 'Check']);
 
 /** Classic home account row — index, name + tick, username, drag handle. */
 function AccountCard({
@@ -115,7 +113,7 @@ export function HomeScreen() {
     loadSecrets,
   } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
-  const { homePromo, refresh: refreshBranding } = useAppBranding();
+  const { refresh: refreshBranding } = useAppBranding();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -132,20 +130,6 @@ export function HomeScreen() {
     }
     navigation.navigate('AddCapital');
   }, [accounts.length, isPremium, maxAccounts, navigation]);
-
-  const onPromoPress = useCallback(() => {
-    const action = (homePromo.action || 'none').trim();
-    if (!action || action === 'none') return;
-    if (action === 'AddCapital') {
-      goAddCapital();
-      return;
-    }
-    if (TAB_ACTIONS.has(action)) {
-      navigation.navigate('MainTabs', { screen: action as never });
-      return;
-    }
-    navigation.navigate(action as never);
-  }, [goAddCapital, homePromo.action, navigation]);
 
   useEffect(() => {
     void refreshBranding();
@@ -293,16 +277,7 @@ export function HomeScreen() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
-      {homePromo.visible ? (
-        <PromoBanner
-          text={homePromo.text}
-          onPress={
-            homePromo.action && homePromo.action !== 'none'
-              ? onPromoPress
-              : undefined
-          }
-        />
-      ) : null}
+      <AdminPromoBanner />
 
       <View style={styles.tabs}>
         <Pressable

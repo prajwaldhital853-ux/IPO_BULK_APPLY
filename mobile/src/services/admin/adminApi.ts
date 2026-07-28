@@ -109,6 +109,7 @@ export type AdminHomePromo = {
   visible: boolean;
   text: string;
   action: string;
+  color: string;
 };
 
 export type AdminSettings = {
@@ -530,12 +531,18 @@ function mapAdminSettings(json: Record<string, unknown>): AdminSettings {
           : visibleRaw == null
             ? true
             : Boolean(Number(visibleRaw));
+      let color = String(raw.color ?? '#1B5E20').trim();
+      if (!color.startsWith('#')) color = `#${color}`;
+      if (!/^#[0-9A-Fa-f]{6}$/.test(color) && !/^#[0-9A-Fa-f]{3}$/.test(color)) {
+        color = '#1B5E20';
+      }
       return {
         visible,
         text:
           text ||
           'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
         action,
+        color: color.toUpperCase(),
       };
     })(),
     legalPages: mapLegalPages(json.legalPages ?? json.legal_pages),
