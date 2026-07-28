@@ -46,12 +46,26 @@ export type PublicSubscriptionPlan = {
   perks: string[];
 };
 
+export type HomePromoSettings = {
+  visible: boolean;
+  text: string;
+  action: string;
+};
+
 export type PublicAppSettings = {
   payment: PaymentSettings;
   contact: ContactSettings;
   popupNotice: { items: PopupNoticeItem[] };
   subscriptionPlans: PublicSubscriptionPlan[];
   appLogoUrl: string | null;
+  homePromo: HomePromoSettings;
+};
+
+export const DEFAULT_HOME_PROMO: HomePromoSettings = {
+  visible: true,
+  text:
+    'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
+  action: 'AddCapital',
 };
 
 const FALLBACK: PublicAppSettings = {
@@ -84,6 +98,7 @@ const FALLBACK: PublicAppSettings = {
   popupNotice: { items: [] },
   subscriptionPlans: [],
   appLogoUrl: null,
+  homePromo: { ...DEFAULT_HOME_PROMO },
 };
 
 function mapSubscriptionPlans(raw: unknown): PublicSubscriptionPlan[] {
@@ -118,6 +133,25 @@ function mapSubscriptionPlans(raw: unknown): PublicSubscriptionPlan[] {
     });
   }
   return out;
+}
+
+function mapHomePromo(raw: unknown): HomePromoSettings {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_HOME_PROMO };
+  const row = raw as Record<string, unknown>;
+  const text = String(row.text ?? '').trim();
+  const action = String(row.action ?? DEFAULT_HOME_PROMO.action).trim();
+  const visibleRaw = row.visible;
+  const visible =
+    typeof visibleRaw === 'boolean'
+      ? visibleRaw
+      : visibleRaw == null
+        ? true
+        : Boolean(Number(visibleRaw));
+  return {
+    visible,
+    text: text || DEFAULT_HOME_PROMO.text,
+    action: action || 'none',
+  };
 }
 
 function mapPayment(json: Record<string, unknown>): PaymentSettings {
@@ -250,6 +284,7 @@ export async function fetchPublicAppSettings(): Promise<PublicAppSettings> {
       appLogoUrl: json.appLogoUrl || json.app_logo_url
         ? String(json.appLogoUrl ?? json.app_logo_url)
         : null,
+      homePromo: mapHomePromo(json.homePromo ?? json.home_promo),
     };
   } catch {
     return FALLBACK;

@@ -101,6 +101,12 @@ export type AdminSubscriptionPlan = {
   perks: string[];
 };
 
+export type AdminHomePromo = {
+  visible: boolean;
+  text: string;
+  action: string;
+};
+
 export type AdminSettings = {
   adminEmail: string;
   payment: AdminPaymentSettings;
@@ -108,6 +114,7 @@ export type AdminSettings = {
   popupNotice: AdminPopupNotice;
   subscriptionPlans: AdminSubscriptionPlan[];
   appLogoUrl: string | null;
+  homePromo: AdminHomePromo;
 };
 
 async function parseError(res: Response): Promise<string> {
@@ -501,6 +508,28 @@ function mapAdminSettings(json: Record<string, unknown>): AdminSettings {
     appLogoUrl: json.appLogoUrl || json.app_logo_url
       ? String(json.appLogoUrl ?? json.app_logo_url)
       : null,
+    homePromo: (() => {
+      const raw = (json.homePromo ?? json.home_promo ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const text = String(raw.text ?? '').trim();
+      const action = String(raw.action ?? 'AddCapital').trim() || 'none';
+      const visibleRaw = raw.visible;
+      const visible =
+        typeof visibleRaw === 'boolean'
+          ? visibleRaw
+          : visibleRaw == null
+            ? true
+            : Boolean(Number(visibleRaw));
+      return {
+        visible,
+        text:
+          text ||
+          'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
+        action,
+      };
+    })(),
   };
 }
 
@@ -528,6 +557,7 @@ export async function updateAdminSettings(
     subscriptionPlans?: AdminSubscriptionPlan[];
     appLogoBase64?: string;
     clearAppLogo?: boolean;
+    homePromo?: AdminHomePromo;
   },
 ): Promise<AdminSettings> {
   const res = await adminFetch('/admin/settings', token, {

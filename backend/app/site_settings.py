@@ -328,6 +328,7 @@ async def update_site_settings(
     popup_notice: dict[str, str] | None = None,
     subscription_plans: list[dict] | None = None,
     app_logo: dict[str, str] | None = None,
+    home_promo: dict[str, object] | None = None,
 ) -> SiteSettings:
     row = await get_or_create_settings(db)
 
@@ -488,6 +489,25 @@ async def update_site_settings(
             )
             row.app_logo_b64 = encoded
             row.app_logo_mime = mime
+
+    if home_promo is not None:
+        from .public_settings import (
+            _ALLOWED_HOME_PROMO_ACTIONS,
+            _DEFAULT_HOME_PROMO_TEXT,
+        )
+
+        if 'visible' in home_promo and home_promo['visible'] is not None:
+            row.home_promo_visible = bool(home_promo['visible'])
+        if 'text' in home_promo and home_promo['text'] is not None:
+            text = str(home_promo['text']).strip()
+            if len(text) > 512:
+                raise ValueError('Home promo text too long (max 512 characters)')
+            row.home_promo_text = text or _DEFAULT_HOME_PROMO_TEXT
+        if 'action' in home_promo and home_promo['action'] is not None:
+            action = str(home_promo['action']).strip() or 'none'
+            if action not in _ALLOWED_HOME_PROMO_ACTIONS:
+                raise ValueError(f'Invalid home promo action: {action}')
+            row.home_promo_action = action
 
     row.updated_at = datetime.now(UTC)
     await db.flush()

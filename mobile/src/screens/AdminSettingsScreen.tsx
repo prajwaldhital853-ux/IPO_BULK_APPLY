@@ -125,15 +125,40 @@ const SOCIAL_PLATFORMS = [
 
 type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
-type SettingsTab = 'notices' | 'plans' | 'branding' | 'payment' | 'social' | 'password';
+type SettingsTab =
+  | 'notices'
+  | 'home'
+  | 'plans'
+  | 'branding'
+  | 'payment'
+  | 'social'
+  | 'password';
 
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'notices', label: 'Notices' },
+  { id: 'home', label: 'Home card' },
   { id: 'plans', label: 'Plans' },
   { id: 'branding', label: 'Logo' },
   { id: 'payment', label: 'Payment' },
   { id: 'social', label: 'Social' },
   { id: 'password', label: 'Password' },
+];
+
+const HOME_PROMO_ACTIONS: { id: string; label: string }[] = [
+  { id: 'none', label: 'No redirect (not clickable)' },
+  { id: 'AddCapital', label: 'Add MeroShare account' },
+  { id: 'Subscription', label: 'Subscription / Premium' },
+  { id: 'Apply', label: 'Apply tab' },
+  { id: 'Services', label: 'Services tab' },
+  { id: 'Profile', label: 'Profile tab' },
+  { id: 'BulkPortfolio', label: 'Bulk Portfolio Check' },
+  { id: 'PublicIpoResult', label: 'IPO Result' },
+  { id: 'Portfolio', label: 'Share Portfolio' },
+  { id: 'Watchlist', label: 'Watchlist' },
+  { id: 'NepseData', label: 'Live NEPSE' },
+  { id: 'IpoBulkStatus', label: 'Bulk IPO Status' },
+  { id: 'CurrentIpoStatus', label: 'Current IPO Status' },
+  { id: 'NepseCalendar', label: 'NEPSE Calendar' },
 ];
 
 type PlanDraft = {
@@ -322,6 +347,11 @@ export function AdminSettingsScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('notices');
+  const [homePromoVisible, setHomePromoVisible] = useState(true);
+  const [homePromoText, setHomePromoText] = useState(
+    'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
+  );
+  const [homePromoAction, setHomePromoAction] = useState('AddCapital');
 
   useEffect(() => {
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -342,6 +372,12 @@ export function AdminSettingsScreen() {
     setQrImageUrl(resolveQrImageUrl(s.payment.qrImageUrl));
     setAppLogoUrl(resolveQrImageUrl(s.appLogoUrl));
     setPlanDrafts(plansToDrafts(s.subscriptionPlans ?? []));
+    setHomePromoVisible(s.homePromo?.visible ?? true);
+    setHomePromoText(
+      s.homePromo?.text?.trim() ||
+        'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
+    );
+    setHomePromoAction(s.homePromo?.action?.trim() || 'AddCapital');
     setNoticeItems(
       (s.popupNotice?.items ?? []).map((item) => ({
         id: item.id,
@@ -579,6 +615,36 @@ export function AdminSettingsScreen() {
     setPlanDrafts((prev) =>
       prev.map((p, i) => (i === index ? { ...p, ...patch } : p)),
     );
+  };
+
+  const onSaveHomePromo = async () => {
+    if (!token) return;
+    const text = homePromoText.trim();
+    if (!text) {
+      Alert.alert('Empty text', 'Enter the home card message.');
+      return;
+    }
+    if (text.length > 512) {
+      Alert.alert('Too long', 'Home card text max is 512 characters.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await updateAdminSettings(token, {
+        homePromo: {
+          visible: homePromoVisible,
+          text,
+          action: homePromoAction || 'none',
+        },
+      });
+      applySettings(updated);
+      await refreshBranding();
+      Alert.alert('Saved', 'Home promo card settings updated.');
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Could not save');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const onSavePlans = async () => {
@@ -1017,6 +1083,88 @@ export function AdminSettingsScreen() {
                     ) : null}
                   </View>
                 </View>
+              </>
+            ) : null}
+
+            {settingsTab === 'home' ? (
+              <>
+                <Text style={styles.section}>Home promo card</Text>
+                <Text style={styles.help}>
+                  Controls the green banner under the home header. Turn it off to
+                  hide it, edit the text, and choose where a tap goes (or no
+                  redirect).
+                </Text>
+
+                <Pressable
+                  style={styles.toggleRow}
+                  onPress={() => setHomePromoVisible((v) => !v)}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.toggleTitle}>Show on home page</Text>
+                    <Text style={styles.toggleHint}>
+                      {homePromoVisible ? 'Visible' : 'Hidden'}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.toggleTrack,
+                      homePromoVisible && styles.toggleTrackOn,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.toggleThumb,
+                        homePromoVisible && styles.toggleThumbOn,
+                      ]}
+                    />
+                  </View>
+                </Pressable>
+
+                <Field
+                  label="Card text"
+                  value={homePromoText}
+                  onChangeText={setHomePromoText}
+                  colors={colors}
+                  multiline
+                />
+
+                <Text style={styles.fieldLabel}>Tap action / redirect</Text>
+                <View style={styles.actionList}>
+                  {HOME_PROMO_ACTIONS.map((opt) => {
+                    const active = homePromoAction === opt.id;
+                    return (
+                      <Pressable
+                        key={opt.id}
+                        style={[
+                          styles.actionChip,
+                          active && styles.actionChipActive,
+                        ]}
+                        onPress={() => setHomePromoAction(opt.id)}
+                      >
+                        <Text
+                          style={[
+                            styles.actionChipText,
+                            active && styles.actionChipTextActive,
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Pressable
+                  style={[styles.btn, saving && styles.btnDisabled]}
+                  disabled={saving}
+                  onPress={() => void onSaveHomePromo()}
+                >
+                  {saving ? (
+                    <ActivityIndicator color={colors.fabIcon} />
+                  ) : (
+                    <Text style={styles.btnText}>Save home card</Text>
+                  )}
+                </Pressable>
               </>
             ) : null}
 
@@ -1560,6 +1708,80 @@ function makeStyles(c: ThemeColors) {
     },
     tabChipText: { color: c.textMuted, fontWeight: '700', fontSize: rs(12) },
     tabChipTextActive: { color: c.text },
+    toggleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(12),
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderRadius: rs(12),
+      padding: rs(14),
+      marginBottom: rs(14),
+    },
+    toggleTitle: {
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(14),
+    },
+    toggleHint: {
+      color: c.textMuted,
+      fontSize: rs(12),
+      marginTop: rs(2),
+      fontWeight: '600',
+    },
+    toggleTrack: {
+      width: rs(48),
+      height: rs(28),
+      borderRadius: rs(14),
+      backgroundColor: c.borderMuted,
+      padding: rs(3),
+      justifyContent: 'center',
+    },
+    toggleTrackOn: {
+      backgroundColor: c.accentGreen ?? '#2E7D32',
+    },
+    toggleThumb: {
+      width: rs(22),
+      height: rs(22),
+      borderRadius: rs(11),
+      backgroundColor: '#fff',
+    },
+    toggleThumbOn: {
+      alignSelf: 'flex-end',
+    },
+    fieldLabel: {
+      color: c.textMuted,
+      fontSize: rs(12),
+      fontWeight: '700',
+      marginBottom: rs(8),
+    },
+    actionList: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: rs(8),
+      marginBottom: rs(16),
+    },
+    actionChip: {
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+      borderRadius: rs(999),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(8),
+    },
+    actionChipActive: {
+      borderColor: c.accentGreen ?? '#2E7D32',
+      backgroundColor: 'rgba(46,125,50,0.15)',
+    },
+    actionChipText: {
+      color: c.textMuted,
+      fontSize: rs(12),
+      fontWeight: '700',
+    },
+    actionChipTextActive: {
+      color: c.text,
+    },
     scroll: { padding: rs(16), paddingBottom: rs(40) },
     planCard: {
       backgroundColor: c.surface,

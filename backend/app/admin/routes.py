@@ -189,6 +189,7 @@ async def admin_login(
 def _settings_out(row) -> AdminSettingsOut:
     from ..public_settings import (
         _contact_out,
+        _home_promo_out,
         _payment_out,
         _popup_notice_out,
         _subscription_plans_out,
@@ -202,6 +203,7 @@ def _settings_out(row) -> AdminSettingsOut:
         popupNotice=_popup_notice_out(row),
         subscriptionPlans=_subscription_plans_out(row),
         appLogoUrl=app_logo_public_path(row),
+        homePromo=_home_promo_out(row),
     )
 
 
@@ -294,6 +296,14 @@ async def admin_update_settings(
     elif body.app_logo_base64:
         app_logo = {'image_base64': body.app_logo_base64}
 
+    home_promo = None
+    if body.home_promo is not None:
+        home_promo = {
+            'visible': body.home_promo.visible,
+            'text': body.home_promo.text,
+            'action': body.home_promo.action,
+        }
+
     try:
         row = await update_site_settings(
             db,
@@ -302,6 +312,7 @@ async def admin_update_settings(
             popup_notice=popup_notice,
             subscription_plans=subscription_plans,
             app_logo=app_logo,
+            home_promo=home_promo,
         )
         await db.commit()
     except ValueError as e:

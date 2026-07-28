@@ -185,6 +185,26 @@ class PopupNoticeIn(BaseModel):
     model_config = {'populate_by_name': True}
 
 
+class HomePromoSettingsOut(BaseModel):
+    visible: bool = True
+    text: str = (
+        'Add your MeroShare account to bulk apply for IPOs — '
+        'tap here to get started'
+    )
+    # none = not clickable; otherwise a known in-app route key
+    action: str = 'AddCapital'
+
+    model_config = {'populate_by_name': True}
+
+
+class HomePromoSettingsIn(BaseModel):
+    visible: bool | None = None
+    text: str | None = None
+    action: str | None = None
+
+    model_config = {'populate_by_name': True}
+
+
 class AdminSettingsOut(BaseModel):
     admin_email: str = Field(alias='adminEmail')
     payment: PaymentSettingsOut
@@ -195,6 +215,10 @@ class AdminSettingsOut(BaseModel):
         alias='subscriptionPlans',
     )
     app_logo_url: str | None = Field(default=None, alias='appLogoUrl')
+    home_promo: HomePromoSettingsOut = Field(
+        default_factory=HomePromoSettingsOut,
+        alias='homePromo',
+    )
 
     model_config = {'populate_by_name': True}
 
@@ -209,6 +233,10 @@ class AdminSettingsUpdateIn(BaseModel):
     )
     app_logo_base64: str | None = Field(default=None, alias='appLogoBase64')
     clear_app_logo: bool = Field(default=False, alias='clearAppLogo')
+    home_promo: HomePromoSettingsIn | None = Field(
+        default=None,
+        alias='homePromo',
+    )
 
     model_config = {'populate_by_name': True}
 
@@ -270,6 +298,10 @@ class PublicAppSettingsOut(BaseModel):
         alias='subscriptionPlans',
     )
     app_logo_url: str | None = Field(default=None, alias='appLogoUrl')
+    home_promo: HomePromoSettingsOut = Field(
+        default_factory=HomePromoSettingsOut,
+        alias='homePromo',
+    )
 
     model_config = {'populate_by_name': True}
 

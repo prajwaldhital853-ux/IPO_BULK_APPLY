@@ -175,7 +175,7 @@ export function ProfileScreen() {
   const openDrawer = useOpenDrawer();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { isPremium, daysLeft, isPending, maxAccounts, state } =
+  const { isPremium, daysLeft: ctxDaysLeft, isPending, maxAccounts, state } =
     useSubscription();
   const { accounts, addAccount } = useAccounts();
   const auth = useAuth();
@@ -187,9 +187,16 @@ export function ProfileScreen() {
   const [busy, setBusy] = useState<string | null>(null);
   const [publicSettings, setPublicSettings] = useState<PublicAppSettings | null>(null);
   const [copied, setCopied] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     void fetchPublicAppSettings().then(setPublicSettings);
+  }, []);
+
+  // Refresh countdown periodically so "days left" drops as calendar days pass.
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(id);
   }, []);
 
   const contact = publicSettings?.contact ?? FALLBACK_CONTACT;
@@ -199,9 +206,15 @@ export function ProfileScreen() {
     ? auth.user?.name ?? auth.user?.email ?? 'Signed in'
     : 'Guest';
   const email = auth.isAuthenticated ? auth.user?.email ?? null : null;
-  const expiresLabel = formatExpiresOn(
-    state.expiresAt ?? auth.premium?.expiresAt ?? null,
-  );
+  const expiresIso =
+    state.expiresAt ?? auth.premium?.expiresAt ?? null;
+  const expiresLabel = formatExpiresOn(expiresIso);
+  const daysLeft = useMemo(() => {
+    if (!isPremium || !expiresIso) return ctxDaysLeft;
+    const ms = new Date(expiresIso).getTime() - nowMs;
+    if (Number.isNaN(ms)) return ctxDaysLeft;
+    return Math.max(0, Math.ceil(ms / 86_400_000));
+  }, [isPremium, expiresIso, nowMs, ctxDaysLeft]);
   const statusLabel = isPremium
     ? 'SUBSCRIBED'
     : isPending
@@ -428,13 +441,22 @@ export function ProfileScreen() {
           </Text>
           {isPremium && expiresLabel ? (
             <Text style={styles.heroMeta}>Expires On {expiresLabel}</Text>
-          ) : isPremium && daysLeft != null ? (
-            <Text style={styles.heroMeta}>{daysLeft} days left</Text>
-          ) : isPending ? (
+          ) : null}
+          {isPremium && daysLeft != null ? (
+            <Text style={[styles.heroMeta, styles.heroCountdown]}>
+              {daysLeft === 0
+                ? 'Expires today'
+                : daysLeft === 1
+                  ? '1 day left'
+                  : `${daysLeft} days left`}
+            </Text>
+          ) : null}
+          {!isPremium && isPending ? (
             <Text style={styles.heroMeta}>Waiting for admin approval</Text>
-          ) : (
+          ) : null}
+          {!isPremium && !isPending ? (
             <Text style={styles.heroMeta}>Free plan</Text>
-          )}
+          ) : null}
           <Text style={styles.heroMeta}>Account Limit: {maxAccounts}</Text>
 
           {auth.isAuthenticated ? (
@@ -762,6 +784,10 @@ function makeStyles(c: ThemeColors) {
       fontWeight: '600',
       marginTop: rs(4),
       zIndex: 1,
+    },
+    heroCountdown: {
+      color: '#2E7D32',
+      fontWeight: '800',
     },
     logoutPill: {
       marginTop: rs(18),

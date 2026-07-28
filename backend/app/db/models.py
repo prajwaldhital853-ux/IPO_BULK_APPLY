@@ -142,6 +142,18 @@ class SiteSettings(Base):
     app_logo_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
     app_logo_mime: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Home screen green promo banner (admin-controlled).
+    home_promo_visible: Mapped[bool] = mapped_column(default=True)
+    home_promo_text: Mapped[str] = mapped_column(
+        String(512),
+        default=(
+            'Add your MeroShare account to bulk apply for IPOs — '
+            'tap here to get started'
+        ),
+    )
+    # none | AddCapital | Subscription | Apply | Services | Profile | …
+    home_promo_action: Mapped[str] = mapped_column(String(64), default='AddCapital')
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

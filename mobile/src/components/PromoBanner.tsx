@@ -2,22 +2,22 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { rs } from '../utils/responsive';
-
-const PROMO =
-  'Add your MeroShare account to bulk apply for IPOs — tap here to get started';
+import { DEFAULT_HOME_PROMO } from '../services/app/publicSettingsApi';
 
 type Props = {
+  text?: string;
   onPress?: () => void;
 };
 
-export function PromoBanner({ onPress }: Props) {
+export function PromoBanner({ text, onPress }: Props) {
+  const label = (text ?? '').trim() || DEFAULT_HOME_PROMO.text;
   const content = (
     <>
       <View style={styles.logo}>
         <Ionicons name="person-add-outline" size={rs(16)} color="#FFFFFF" />
       </View>
       <Text style={styles.text} numberOfLines={2}>
-        {PROMO}
+        {label}
       </Text>
       {onPress ? (
         <Ionicons name="chevron-forward" size={rs(18)} color="#FFFFFF" />

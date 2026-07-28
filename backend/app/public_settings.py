@@ -5,6 +5,7 @@ import uuid
 
 from .admin.schemas import (
     ContactSettingsOut,
+    HomePromoSettingsOut,
     PaymentSettingsOut,
     PopupNoticeItemOut,
     PopupNoticesOut,
@@ -274,6 +275,44 @@ def app_logo_public_path(row: SiteSettings) -> str | None:
     return None
 
 
+_DEFAULT_HOME_PROMO_TEXT = (
+    'Add your MeroShare account to bulk apply for IPOs — '
+    'tap here to get started'
+)
+
+_ALLOWED_HOME_PROMO_ACTIONS = frozenset(
+    {
+        'none',
+        'AddCapital',
+        'Subscription',
+        'Apply',
+        'Services',
+        'Profile',
+        'BulkPortfolio',
+        'PublicIpoResult',
+        'Portfolio',
+        'Watchlist',
+        'NepseData',
+        'IpoBulkStatus',
+        'CurrentIpoStatus',
+        'NepseCalendar',
+    }
+)
+
+
+def _home_promo_out(row: SiteSettings) -> HomePromoSettingsOut:
+    text = (getattr(row, 'home_promo_text', None) or '').strip()
+    action = (getattr(row, 'home_promo_action', None) or 'AddCapital').strip()
+    if action not in _ALLOWED_HOME_PROMO_ACTIONS:
+        action = 'AddCapital'
+    visible = bool(getattr(row, 'home_promo_visible', True))
+    return HomePromoSettingsOut(
+        visible=visible,
+        text=text or _DEFAULT_HOME_PROMO_TEXT,
+        action=action,
+    )
+
+
 def _subscription_plans_out(row: SiteSettings) -> list[SubscriptionPlanOut]:
     plans = load_subscription_plans(row)
     return [
@@ -298,4 +337,5 @@ def settings_to_public(row: SiteSettings) -> PublicAppSettingsOut:
         popupNotice=_popup_notice_out(row),
         subscriptionPlans=_subscription_plans_out(row),
         appLogoUrl=app_logo_public_path(row),
+        homePromo=_home_promo_out(row),
     )

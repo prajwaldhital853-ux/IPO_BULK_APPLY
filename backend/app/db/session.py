@@ -109,6 +109,30 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     'ADD COLUMN admin_login_locked_until TIMESTAMP'
                 )
             )
+        if 'home_promo_visible' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE site_settings '
+                    'ADD COLUMN home_promo_visible BOOLEAN NOT NULL DEFAULT 1'
+                )
+            )
+        if 'home_promo_text' not in cols:
+            sync_conn.execute(
+                text(
+                    "ALTER TABLE site_settings "
+                    "ADD COLUMN home_promo_text VARCHAR(512) NOT NULL DEFAULT "
+                    "'Add your MeroShare account to bulk apply for IPOs — "
+                    "tap here to get started'"
+                )
+            )
+        if 'home_promo_action' not in cols:
+            sync_conn.execute(
+                text(
+                    "ALTER TABLE site_settings "
+                    "ADD COLUMN home_promo_action VARCHAR(64) NOT NULL "
+                    "DEFAULT 'AddCapital'"
+                )
+            )
 
 
 async def init_db() -> None:
@@ -204,6 +228,31 @@ def _apply_postgres_patches(sync_conn) -> None:
                 'ALTER TABLE site_settings '
                 'ADD COLUMN IF NOT EXISTS admin_login_locked_until '
                 'TIMESTAMPTZ'
+            )
+        )
+    if 'home_promo_visible' not in cols:
+        sync_conn.execute(
+            text(
+                'ALTER TABLE site_settings '
+                'ADD COLUMN IF NOT EXISTS home_promo_visible '
+                'BOOLEAN NOT NULL DEFAULT TRUE'
+            )
+        )
+    if 'home_promo_text' not in cols:
+        sync_conn.execute(
+            text(
+                "ALTER TABLE site_settings "
+                "ADD COLUMN IF NOT EXISTS home_promo_text VARCHAR(512) "
+                "NOT NULL DEFAULT 'Add your MeroShare account to bulk apply "
+                "for IPOs — tap here to get started'"
+            )
+        )
+    if 'home_promo_action' not in cols:
+        sync_conn.execute(
+            text(
+                "ALTER TABLE site_settings "
+                "ADD COLUMN IF NOT EXISTS home_promo_action VARCHAR(64) "
+                "NOT NULL DEFAULT 'AddCapital'"
             )
         )
 

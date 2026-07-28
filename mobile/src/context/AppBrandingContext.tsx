@@ -7,8 +7,10 @@ import React, {
   useState,
 } from 'react';
 import {
+  DEFAULT_HOME_PROMO,
   fetchPublicAppSettings,
   resolvePublicMediaUrl,
+  type HomePromoSettings,
   type PublicSubscriptionPlan,
 } from '../services/app/publicSettingsApi';
 import {
@@ -19,6 +21,7 @@ import {
 type AppBrandingContextValue = {
   appLogoUrl: string | null;
   plans: PremiumPlan[];
+  homePromo: HomePromoSettings;
   refresh: () => Promise<void>;
 };
 
@@ -32,8 +35,8 @@ function mapPublicPlan(p: PublicSubscriptionPlan): PremiumPlan {
     title: p.title,
     price,
     amountNpr,
-    period: p.period,
     days: p.days,
+    period: p.period,
     maxAccounts: p.maxAccounts,
     perks: p.perks.length ? p.perks : [`Add up to ${p.maxAccounts} MeroShare accounts`],
   };
@@ -42,11 +45,15 @@ function mapPublicPlan(p: PublicSubscriptionPlan): PremiumPlan {
 export function AppBrandingProvider({ children }: { children: React.ReactNode }) {
   const [appLogoUrl, setAppLogoUrl] = useState<string | null>(null);
   const [plans, setPlans] = useState<PremiumPlan[]>([...PREMIUM_PLANS]);
+  const [homePromo, setHomePromo] = useState<HomePromoSettings>({
+    ...DEFAULT_HOME_PROMO,
+  });
 
   const refresh = useCallback(async () => {
     try {
       const settings = await fetchPublicAppSettings();
       setAppLogoUrl(resolvePublicMediaUrl(settings.appLogoUrl));
+      setHomePromo(settings.homePromo ?? { ...DEFAULT_HOME_PROMO });
       if (settings.subscriptionPlans.length) {
         setPlans(settings.subscriptionPlans.map(mapPublicPlan));
       } else {
@@ -62,8 +69,8 @@ export function AppBrandingProvider({ children }: { children: React.ReactNode })
   }, [refresh]);
 
   const value = useMemo(
-    () => ({ appLogoUrl, plans, refresh }),
-    [appLogoUrl, plans, refresh],
+    () => ({ appLogoUrl, plans, homePromo, refresh }),
+    [appLogoUrl, plans, homePromo, refresh],
   );
 
   return (
@@ -79,6 +86,7 @@ export function useAppBranding(): AppBrandingContextValue {
     return {
       appLogoUrl: null,
       plans: [...PREMIUM_PLANS],
+      homePromo: { ...DEFAULT_HOME_PROMO },
       refresh: async () => undefined,
     };
   }

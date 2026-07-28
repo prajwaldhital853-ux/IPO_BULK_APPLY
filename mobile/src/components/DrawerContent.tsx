@@ -75,9 +75,9 @@ function IconWell({
   return (
     <View
       style={{
-        width: rs(42),
-        height: rs(42),
-        borderRadius: rs(11),
+        width: rs(34),
+        height: rs(34),
+        borderRadius: rs(9),
         backgroundColor: bg,
         alignItems: 'center',
         justifyContent: 'center',
@@ -95,7 +95,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
   const { colors: theme, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(theme, isDark), [theme, isDark]);
   const nav = props.navigation as unknown as DrawerNavigationProp<DrawerParamList>;
-  const iconSize = rs(24);
+  const iconSize = rs(20);
 
   const close = () => nav.closeDrawer();
 
@@ -393,7 +393,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
         <Section title="IPO STATUS & RESULTS" items={ipo} styles={styles} />
         <Section title="RESOURCES & TOOLS" items={resources} styles={styles} />
 
-        <Text style={styles.version}>Version : 3.4.4 (49)</Text>
+        <Text style={styles.version}>Version : 3.4.5 (50)</Text>
       </ScrollView>
     </View>
   );
@@ -463,11 +463,11 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: isDark ? '#262626' : '#D5DEC8',
-      borderRadius: rs(12),
-      paddingVertical: rs(14),
-      paddingHorizontal: rs(12),
-      marginBottom: rs(10),
-      gap: rs(12),
+      borderRadius: rs(10),
+      paddingVertical: rs(8),
+      paddingHorizontal: rs(10),
+      marginBottom: rs(7),
+      gap: rs(10),
       borderWidth: 1,
       borderColor: isDark ? '#262626' : '#A8B89A',
     },
