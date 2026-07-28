@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -164,17 +164,38 @@ async def _user_row(db: AsyncSession, user: User) -> AdminUserRow:
     )
 
 
+def _client_ip(request: Request) -> str:
+    forwarded = (request.headers.get('x-forwarded-for') or '').strip()
+    if forwarded:
+        return forwarded.split(',')[0].strip() or 'unknown'
+    real_ip = (request.headers.get('x-real-ip') or '').strip()
+    if real_ip:
+        return real_ip
+    if request.client and request.client.host:
+        return request.client.host
+    return 'unknown'
+
+
 @router.post('/login', response_model=AdminLoginResponse, response_model_by_alias=True)
 async def admin_login(
     body: AdminLoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> AdminLoginResponse:
+    from .login_guard import build_client_key
+
     settings = get_settings()
-    ok, err = await attempt_admin_login(db, body.email, body.password)
+    client_key = build_client_key(_client_ip(request), body.device_id)
+    ok, err = await attempt_admin_login(
+        db,
+        body.email,
+        body.password,
+        client_key=client_key,
+    )
     if not ok:
         await db.commit()
         detail = err or 'Invalid admin email or password'
-        status = 429 if 'locked' in detail.lower() else 401
+        status = 429 if 'locked' in detail.lower() or 'try again' in detail.lower() else 401
         raise HTTPException(status_code=status, detail=detail)
     row = await get_or_create_settings(db)
     await db.commit()

@@ -113,7 +113,7 @@ export function AdminLoginScreen() {
             <Ionicons name="lock-closed" size={rs(16)} color={colors.danger} />
             <Text style={styles.lockText}>
               {locked
-                ? `Account locked. Try again in ~${lockMins} min (${lockSecondsLeft}s).`
+                ? `This device is locked. Try again in ~${lockMins} min (${lockSecondsLeft}s). Other devices can still log in.`
                 : lockMessage}
             </Text>
           </View>

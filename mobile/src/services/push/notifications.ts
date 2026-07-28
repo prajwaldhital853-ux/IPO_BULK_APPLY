@@ -1,10 +1,15 @@
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { AUTH_API_BASE } from '../auth/config';
 import { getAccessToken } from '../auth/tokenStorage';
 import type { PriceAlert } from '../../storage/priceAlertStorage';
+
+/** Expo Go (SDK 53+) cannot register remote push tokens. */
+function isExpoGo(): boolean {
+  return Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+}
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -37,6 +42,7 @@ export function getCachedExpoPushToken(): string | null {
 
 async function ensureAndroidChannels(): Promise<void> {
   if (Platform.OS !== 'android') return;
+  if (isExpoGo()) return;
   for (const ch of ANDROID_CHANNELS) {
     await Notifications.setNotificationChannelAsync(ch.id, {
       name: ch.name,
@@ -48,6 +54,10 @@ async function ensureAndroidChannels(): Promise<void> {
 }
 
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
+  // Remote push was removed from Expo Go in SDK 53 — skip quietly.
+  if (isExpoGo()) {
+    return null;
+  }
   if (!Device.isDevice) {
     return null;
   }
@@ -91,6 +101,7 @@ async function pushFetch(
 export async function registerPushTokenOnServer(
   enabled: boolean,
 ): Promise<boolean> {
+  if (isExpoGo()) return false;
   try {
     const token = enabled
       ? await registerForPushNotificationsAsync()
@@ -113,6 +124,7 @@ export async function registerPushTokenOnServer(
 export async function syncPriceAlertsToServer(
   alerts: PriceAlert[],
 ): Promise<boolean> {
+  if (isExpoGo()) return false;
   try {
     const token =
       cachedToken ?? (await registerForPushNotificationsAsync());

@@ -155,6 +155,8 @@ export async function adminLogin(
   email: string,
   password: string,
 ): Promise<{ accessToken: string; expiresIn: number; email: string }> {
+  const { getAdminDeviceId } = await import('./adminDeviceId');
+  const deviceId = await getAdminDeviceId();
   let res: Response;
   try {
     res = await fetchWithTimeout(
@@ -168,6 +170,7 @@ export async function adminLogin(
         body: JSON.stringify({
           email: email.trim(),
           password,
+          deviceId,
         }),
       },
       60_000,

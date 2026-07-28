@@ -82,6 +82,7 @@ def _as_utc(value: datetime | None) -> datetime | None:
 
 
 def admin_lock_remaining_seconds(row: SiteSettings) -> int:
+    """Deprecated global lock — kept for migration cleanup only."""
     locked_until = _as_utc(getattr(row, 'admin_login_locked_until', None))
     if locked_until is None:
         return 0
@@ -93,25 +94,44 @@ async def attempt_admin_login(
     db: AsyncSession,
     email: str,
     password: str,
+    *,
+    client_key: str,
 ) -> tuple[bool, str | None]:
     """
-    Verify admin credentials with rate limiting.
+    Verify admin credentials with per-IP / per-device rate limiting.
 
+    A lock applies only to the failing client_key — other devices stay usable.
     Returns (ok, error_message). On success error_message is None.
     """
+    from .admin.login_guard import (
+        ADMIN_LOCK_MINUTES as LOCK_MINUTES,
+        ADMIN_MAX_FAILED_LOGINS as MAX_FAILS,
+        clear_attempts,
+        prune_expired,
+        record_failure,
+        remaining_lock_seconds,
+    )
+
+    prune_expired()
     row = await get_or_create_settings(db)
-    remaining = admin_lock_remaining_seconds(row)
+
+    # Drop any legacy account-wide lock so it cannot block everyone.
+    if getattr(row, 'admin_login_locked_until', None) is not None or int(
+        getattr(row, 'admin_failed_login_count', 0) or 0,
+    ):
+        row.admin_login_locked_until = None
+        row.admin_failed_login_count = 0
+        row.updated_at = datetime.now(UTC)
+
+    remaining = remaining_lock_seconds(client_key)
     if remaining > 0:
         mins = max(1, (remaining + 59) // 60)
         return (
             False,
-            f'Too many failed login attempts. Admin login is locked for {mins} more minute(s).',
+            f'Too many failed login attempts from this device/network. '
+            f'Try again in {mins} more minute(s). '
+            f'Other devices are not affected.',
         )
-
-    # Expired lock — clear it
-    if getattr(row, 'admin_login_locked_until', None) is not None:
-        row.admin_login_locked_until = None
-        row.admin_failed_login_count = 0
 
     email_ok = email.strip().lower() == row.admin_email.strip().lower()
     password_ok = False
@@ -126,33 +146,27 @@ async def attempt_admin_login(
                 password_ok = True
 
     if email_ok and password_ok:
-        row.admin_failed_login_count = 0
-        row.admin_login_locked_until = None
+        clear_attempts(client_key)
         row.updated_at = datetime.now(UTC)
         await db.flush()
         return True, None
 
-    # Only count failures against the real admin email (wrong password).
+    # Count failures when the real admin email is used with a wrong password.
     if email_ok:
-        count = int(getattr(row, 'admin_failed_login_count', 0) or 0) + 1
-        row.admin_failed_login_count = count
-        if count >= ADMIN_MAX_FAILED_LOGINS:
-            row.admin_login_locked_until = datetime.now(UTC) + timedelta(
-                minutes=ADMIN_LOCK_MINUTES,
-            )
-            row.admin_failed_login_count = 0
-            row.updated_at = datetime.now(UTC)
-            await db.flush()
+        used, lock_secs = record_failure(client_key)
+        await db.flush()
+        if lock_secs > 0:
             return (
                 False,
-                f'Too many failed login attempts. Admin login is locked for {ADMIN_LOCK_MINUTES} minutes.',
+                f'Too many failed login attempts from this device/network. '
+                f'Try again in {LOCK_MINUTES} minutes. '
+                f'Other devices are not affected.',
             )
-        left = ADMIN_MAX_FAILED_LOGINS - count
-        row.updated_at = datetime.now(UTC)
-        await db.flush()
+        left = MAX_FAILS - used
         return (
             False,
-            f'Invalid admin email or password. {left} attempt(s) remaining before a {ADMIN_LOCK_MINUTES}-minute lock.',
+            f'Invalid admin email or password. {left} attempt(s) remaining '
+            f'before a {LOCK_MINUTES}-minute lock on this device/network.',
         )
 
     await db.flush()

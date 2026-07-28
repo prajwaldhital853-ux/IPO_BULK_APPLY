@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field
 class AdminLoginRequest(BaseModel):
     email: str
     password: str
+    # Stable per-install id from the app — used for device-scoped lockouts.
+    device_id: str | None = Field(default=None, alias='deviceId', max_length=128)
+
+    model_config = {'populate_by_name': True}
 
 
 class AdminLoginResponse(BaseModel):
