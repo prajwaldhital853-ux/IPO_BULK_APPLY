@@ -10,7 +10,9 @@ Pure response parsing lives in app/parsing.py (testable without a browser).
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
@@ -27,6 +29,29 @@ from .parsing import (
     parse_companies,
     parse_home_captcha,
 )
+
+log = logging.getLogger("cdsc-session")
+
+
+def _playwright_proxy(proxy_url: str) -> dict[str, str] | None:
+    """Build Playwright proxy dict; auth must be separate from server URL."""
+    raw = (proxy_url or "").strip()
+    if not raw:
+        return None
+    if "://" not in raw:
+        raw = "http://" + raw
+    parsed = urlparse(raw)
+    if not parsed.hostname:
+        log.warning("CDSC_PROXY has no hostname: %s", proxy_url)
+        return None
+    port = parsed.port
+    server = f"{parsed.scheme}://{parsed.hostname}" + (f":{port}" if port else "")
+    out: dict[str, str] = {"server": server}
+    if parsed.username:
+        out["username"] = unquote(parsed.username)
+    if parsed.password is not None:
+        out["password"] = unquote(parsed.password)
+    return out
 
 __all__ = [
     "Captcha",
@@ -141,7 +166,14 @@ class CdscSession:
         if channel:
             launch_kwargs["channel"] = channel
         if self._settings.cdsc_proxy:
-            launch_kwargs["proxy"] = {"server": self._settings.cdsc_proxy}
+            proxy = _playwright_proxy(self._settings.cdsc_proxy)
+            if proxy:
+                launch_kwargs["proxy"] = proxy
+                log.info(
+                    "Launching Chromium via proxy %s (auth=%s)",
+                    proxy.get("server"),
+                    "yes" if proxy.get("username") else "no",
+                )
         self._browser = await self._pw.chromium.launch(**launch_kwargs)
         self._owns_browser = True
         self._context = await self._browser.new_context(
