@@ -107,20 +107,30 @@ async def payment_qr_image(db: AsyncSession = Depends(get_db)) -> Response:
 
 @router.get('/logo')
 async def app_logo(db: AsyncSession = Depends(get_db)) -> Response:
-    row = await get_or_create_settings(db)
-    if not getattr(row, 'app_logo_b64', None):
-        raise HTTPException(status_code=404, detail='No app logo uploaded')
+    """Serve admin-uploaded logo, or the bundled NEPSE GHAR logo."""
     import base64
+    from pathlib import Path
 
-    try:
-        data = base64.b64decode(row.app_logo_b64)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail='Invalid logo data') from e
-    mime = getattr(row, 'app_logo_mime', None) or 'image/png'
+    row = await get_or_create_settings(db)
+    if getattr(row, 'app_logo_b64', None):
+        try:
+            data = base64.b64decode(row.app_logo_b64)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail='Invalid logo data') from e
+        mime = getattr(row, 'app_logo_mime', None) or 'image/png'
+        return Response(
+            content=data,
+            media_type=mime,
+            headers={'Cache-Control': 'public, max-age=300'},
+        )
+
+    bundled = Path(__file__).resolve().parent / 'static' / 'nepse-ghar-logo.png'
+    if not bundled.is_file():
+        raise HTTPException(status_code=404, detail='No app logo available')
     return Response(
-        content=data,
-        media_type=mime,
-        headers={'Cache-Control': 'public, max-age=300'},
+        content=bundled.read_bytes(),
+        media_type='image/png',
+        headers={'Cache-Control': 'public, max-age=86400'},
     )
 
 

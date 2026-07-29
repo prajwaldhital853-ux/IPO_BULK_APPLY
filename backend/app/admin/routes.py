@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from ..auth.deps import utcnow
 from ..auth.jwt_tokens import create_admin_token
 from ..auth.subscription import (
+    DEFAULT_PLAN_DETAILS,
     PLAN_CATALOG,
     clear_premium,
     effective_max_accounts,
@@ -899,7 +900,15 @@ async def admin_approve_subscription(
         raise HTTPException(status_code=400, detail=f'Request is already {row.status}')
 
     info = plan_info(row.plan_id)
-    await upsert_premium(
+    # Enrich with period/perks from full plan catalog when available.
+    rich = next(
+        (p for p in DEFAULT_PLAN_DETAILS if str(p.get('id')) == row.plan_id),
+        None,
+    )
+    if rich:
+        info = {**info, **rich}
+
+    premium_row = await upsert_premium(
         db,
         row.user_id,
         row.plan_id,
@@ -924,19 +933,33 @@ async def admin_approve_subscription(
             from ..emailer import send_subscription_activated
 
             settings = get_settings()
-            site = await get_or_create_settings(db)
-            logo_url = None
             base = settings.effective_public_base_url
-            if base and getattr(site, 'app_logo_b64', None):
-                logo_url = f'{base}/app/logo'
+            # Always include logo (bundled fallback served by /app/logo).
+            logo_url = f'{base}/app/logo' if base else None
 
             max_acc = effective_max_accounts(user, premium_active=True)
             plan_title = str(
                 info.get('title') or row.plan_title or row.plan_id or 'Premium',
             )
-            expires_label = '—'
-            if user.premium and user.premium.expires_at is not None:
+            period = str(info.get('period') or '').strip()
+            days = int(info.get('days') or 0) or None
+            amount = int(row.amount_npr or info.get('amountNpr') or 0) or None
+            perks_raw = info.get('perks') or []
+            perks = [str(p).strip() for p in perks_raw if str(p).strip()]
+
+            # Prefer the entitlement we just wrote (avoids stale/missing reload).
+            exp = premium_row.expires_at
+            if exp is None and user.premium is not None:
                 exp = user.premium.expires_at
+            if exp is None and days:
+                from datetime import timedelta
+
+                from ..auth.subscription import utcnow as sub_utcnow
+
+                exp = sub_utcnow() + timedelta(days=days)
+
+            expires_label = '—'
+            if exp is not None:
                 if exp.tzinfo is None:
                     exp = exp.replace(tzinfo=UTC)
                 try:
@@ -954,6 +977,10 @@ async def admin_approve_subscription(
                 expires_at_label=expires_label,
                 max_accounts=max_acc,
                 logo_url=logo_url,
+                period=period,
+                days=days,
+                amount_npr=amount,
+                perks=perks,
             )
         elif not email:
             log.warning(

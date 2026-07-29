@@ -154,6 +154,10 @@ def send_subscription_activated(
     expires_at_label: str,
     max_accounts: int,
     logo_url: str | None = None,
+    period: str = '',
+    days: int | None = None,
+    amount_npr: int | None = None,
+    perks: list[str] | None = None,
 ) -> None:
     """Notify user that admin approved their subscription."""
     first = (name or '').strip().split(' ')[0] if (name or '').strip() else ''
@@ -161,20 +165,34 @@ def send_subscription_activated(
     if max_accounts >= 999_999:
         limit_label = 'Unlimited'
     else:
-        limit_label = str(max_accounts)
+        limit_label = f'{max_accounts} accounts'
+
+    period_label = (period or '').strip()
+    if not period_label and days:
+        period_label = f'{days} days'
+    amount_label = f'Rs {int(amount_npr)}' if amount_npr and amount_npr > 0 else ''
+    perk_lines = [p.strip() for p in (perks or []) if str(p).strip()]
 
     subject = 'NEPSE GHAR: Your subscription is now active'
+    perk_text = ''
+    if perk_lines:
+        perk_text = 'Included benefits:\n' + ''.join(f'- {p}\n' for p in perk_lines) + '\n'
+
     body = (
         f'{greeting}\n\n'
-        'Great news — your NEPSE GHAR premium subscription is now active.\n\n'
+        'Your NEPSE GHAR premium subscription has been approved and is now active.\n\n'
+        f'Status: Active\n'
         f'Plan: {plan_title}\n'
-        f'Valid until: {expires_at_label}\n'
+        + (f'Duration: {period_label}\n' if period_label else '')
+        + (f'Amount: {amount_label}\n' if amount_label else '')
+        + f'Valid until: {expires_at_label}\n'
         f'MeroShare account limit: {limit_label}\n\n'
-        'You can open the NEPSE GHAR app and start using premium features '
-        'right away (bulk IPO apply, result checks, and more).\n\n'
-        'Thank you,\n'
-        'NEPSE GHAR\n'
-        'Kalash Financial Solution Pvt. Ltd.'
+        f'{perk_text}'
+        'Open the NEPSE GHAR app to use:\n'
+        '- Bulk IPO apply across your MeroShare accounts\n'
+        '- IPO result / allotment checks\n'
+        '- Higher account limit and premium tools\n\n'
+        'Thank you for choosing NEPSE GHAR.'
     )
     html = _subscription_activated_html(
         greeting=greeting,
@@ -182,6 +200,9 @@ def send_subscription_activated(
         expires_at_label=expires_at_label,
         limit_label=limit_label,
         logo_url=logo_url,
+        period_label=period_label,
+        amount_label=amount_label,
+        perk_lines=perk_lines,
     )
     _send_plain_email(to_email=to_email, subject=subject, body=body, html=html)
 
@@ -193,79 +214,127 @@ def _subscription_activated_html(
     expires_at_label: str,
     limit_label: str,
     logo_url: str | None,
+    period_label: str = '',
+    amount_label: str = '',
+    perk_lines: list[str] | None = None,
 ) -> str:
+    # Logo palette: navy + growth green
+    navy = '#0B2C5F'
+    green = '#3D9B3C'
+    green_dark = '#2E7D32'
+    soft = '#F3F7F4'
+    border = '#D5E2D8'
+    muted = '#5A6B62'
+
     g = html_lib.escape(greeting)
     plan = html_lib.escape(plan_title)
-    expires = html_lib.escape(expires_at_label)
+    expires = html_lib.escape(expires_at_label or '—')
     limit = html_lib.escape(limit_label)
+    period = html_lib.escape(period_label) if period_label else ''
+    amount = html_lib.escape(amount_label) if amount_label else ''
+
     logo_block = ''
     if logo_url:
         safe_logo = html_lib.escape(logo_url, quote=True)
         logo_block = (
-            f'<img src="{safe_logo}" width="72" height="72" alt="NEPSE GHAR" '
-            'style="display:block;margin:0 auto 14px auto;border-radius:16px;'
-            'border:0;background:#ffffff;padding:8px;" />'
+            f'<img src="{safe_logo}" width="96" height="96" alt="NEPSE GHAR" '
+            'style="display:block;margin:0 auto 12px auto;border:0;'
+            'background:#ffffff;border-radius:18px;padding:8px;" />'
+        )
+
+    detail_rows = [
+        ('Status', 'Active'),
+        ('Plan', plan),
+    ]
+    if period:
+        detail_rows.append(('Duration', period))
+    if amount:
+        detail_rows.append(('Amount', amount))
+    detail_rows.append(('Valid until', expires))
+    detail_rows.append(('MeroShare account limit', limit))
+
+    rows_html = ''
+    for i, (label, value) in enumerate(detail_rows):
+        bottom = f'border-bottom:1px solid {border};' if i < len(detail_rows) - 1 else ''
+        rows_html += (
+            f'<tr><td style="padding:14px 16px;{bottom}">'
+            f'<div style="color:{muted};font-size:11px;font-weight:700;'
+            f'text-transform:uppercase;letter-spacing:0.5px;">{html_lib.escape(label)}</div>'
+            f'<div style="color:{navy};font-size:15px;font-weight:800;margin-top:4px;">{value}</div>'
+            f'</td></tr>'
+        )
+
+    perks = perk_lines or []
+    perks_html = ''
+    if perks:
+        items = ''.join(
+            f'<li style="margin:0 0 8px 0;color:#243B2C;font-size:13px;line-height:1.45;">'
+            f'{html_lib.escape(p)}</li>'
+            for p in perks
+        )
+        perks_html = (
+            f'<tr><td style="padding:8px 24px 4px 24px;">'
+            f'<div style="color:{navy};font-size:13px;font-weight:800;margin-bottom:8px;">'
+            f'What\'s included</div>'
+            f'<ul style="margin:0;padding-left:18px;">{items}</ul>'
+            f'</td></tr>'
         )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width" /></head>
-<body style="margin:0;padding:0;background:#F1F5F2;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F1F5F2;padding:24px 12px;">
+<body style="margin:0;padding:0;background:{soft};font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:{soft};padding:24px 12px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #D7E3DA;">
+        <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid {border};">
           <tr>
-            <td style="background:linear-gradient(135deg,#1B5E20,#2E7D32);padding:28px 24px;text-align:center;">
+            <td style="background:{navy};padding:28px 24px;text-align:center;">
               {logo_block}
-              <div style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.3px;">NEPSE GHAR</div>
-              <div style="color:#C8E6C9;font-size:13px;margin-top:6px;font-weight:600;">Kalash Financial Solution</div>
+              <div style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.4px;">
+                <span style="color:#ffffff;">NEPSE</span>
+                <span style="color:{green};"> GHAR</span>
+              </div>
+              <div style="color:#A8C0DE;font-size:11px;margin-top:8px;font-weight:700;letter-spacing:1.2px;">
+                INVEST · TRACK · GROW
+              </div>
             </td>
           </tr>
           <tr>
             <td style="padding:28px 24px 8px 24px;">
-              <div style="display:inline-block;background:#E8F5E9;color:#1B5E20;font-size:12px;font-weight:800;padding:6px 12px;border-radius:999px;letter-spacing:0.4px;">
+              <div style="display:inline-block;background:#E8F5E9;color:{green_dark};font-size:12px;font-weight:800;padding:6px 12px;border-radius:999px;letter-spacing:0.4px;">
                 SUBSCRIPTION ACTIVE
               </div>
-              <p style="margin:18px 0 10px 0;color:#1A1A1A;font-size:16px;font-weight:700;">{g}</p>
-              <p style="margin:0 0 18px 0;color:#455A46;font-size:14px;line-height:1.55;">
-                Great news — your premium subscription has been approved and is now active.
-                You can use NEPSE GHAR premium features without waiting.
+              <p style="margin:18px 0 10px 0;color:{navy};font-size:16px;font-weight:700;">{g}</p>
+              <p style="margin:0 0 18px 0;color:{muted};font-size:14px;line-height:1.55;">
+                Your premium subscription request has been approved. Your account is active now —
+                open the NEPSE GHAR app and start using premium features.
               </p>
             </td>
           </tr>
           <tr>
             <td style="padding:0 24px 8px 24px;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F7FBF8;border:1px solid #D7E3DA;border-radius:12px;">
-                <tr>
-                  <td style="padding:14px 16px;border-bottom:1px solid #E3EDE6;">
-                    <div style="color:#6B7C6E;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Plan</div>
-                    <div style="color:#12341A;font-size:15px;font-weight:800;margin-top:4px;">{plan}</div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:14px 16px;border-bottom:1px solid #E3EDE6;">
-                    <div style="color:#6B7C6E;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Valid until</div>
-                    <div style="color:#12341A;font-size:15px;font-weight:800;margin-top:4px;">{expires}</div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:14px 16px;">
-                    <div style="color:#6B7C6E;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">MeroShare account limit</div>
-                    <div style="color:#12341A;font-size:15px;font-weight:800;margin-top:4px;">{limit}</div>
-                  </td>
-                </tr>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:{soft};border:1px solid {border};border-radius:12px;">
+                {rows_html}
               </table>
             </td>
           </tr>
+          {perks_html}
           <tr>
-            <td style="padding:20px 24px 28px 24px;">
-              <p style="margin:0;color:#455A46;font-size:13px;line-height:1.55;">
-                Open the <strong>NEPSE GHAR</strong> app to start bulk IPO apply, result checks, and other premium tools.
+            <td style="padding:16px 24px 8px 24px;">
+              <div style="color:{navy};font-size:13px;font-weight:800;margin-bottom:8px;">You can now</div>
+              <p style="margin:0;color:{muted};font-size:13px;line-height:1.6;">
+                • Add more MeroShare accounts (up to your new limit)<br/>
+                • Bulk apply for open IPOs<br/>
+                • Check IPO results / allotment status in bulk<br/>
+                • Use premium portfolio and market tools in the app
               </p>
-              <p style="margin:18px 0 0 0;color:#6B7C6E;font-size:12px;line-height:1.5;">
-                Thank you for choosing NEPSE GHAR.<br/>
-                Kalash Financial Solution Pvt. Ltd.
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 24px 28px 24px;">
+              <p style="margin:0;color:{muted};font-size:12px;line-height:1.5;">
+                Thank you for choosing <strong style="color:{navy};">NEPSE GHAR</strong>.
               </p>
             </td>
           </tr>
