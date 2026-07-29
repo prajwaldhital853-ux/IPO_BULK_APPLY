@@ -255,17 +255,34 @@ class CdscSession:
 
         # Wait for the real app shell before hitting the API (avoids poisoning the WAF).
         for _ in range(15):
-            title = (await self._page.title() or "").lower()
-            if "rejected" in title:
-                await asyncio.sleep(1.0)
-                continue
-            body = ""
             try:
-                body = (await self._page.inner_text("body")).lower()
+                title = (await self._page.title() or "").lower()
+                body = ""
+                try:
+                    body = (await self._page.inner_text("body")).lower()
+                except Exception:  # noqa: BLE001
+                    pass
+                page_text = f"{title}\n{body}"
+                if "request rejected" in page_text or (
+                    "rejected" in title and "support id" in page_text
+                ):
+                    raise CdscBlockedError(
+                        "CDSC F5 WAF rejected this proxy/IP (Request Rejected). "
+                        "Rotate to a new sticky session, try mobile proxy, or use "
+                        "a Nepal/India IP that can open iporesult.cdsc.com.np in a "
+                        "normal browser. Curl returning 200 with 'Request Rejected' "
+                        "HTML means the proxy works but CDSC still blocks that exit IP."
+                    )
+                if "rejected" in title:
+                    await asyncio.sleep(1.0)
+                    continue
+                if any(k in body for k in ("boid", "captcha", "company", "ipo")):
+                    break
+            except CdscBlockedError:
+                raise
             except Exception:  # noqa: BLE001
+                # Navigation mid-read is common while WAF challenge redirects.
                 pass
-            if any(k in body for k in ("boid", "captcha", "company", "ipo")):
-                break
             await asyncio.sleep(1.0)
 
         for _ in range(12):
@@ -279,7 +296,8 @@ class CdscSession:
             "CDSC WAF did not clear during warm-up. If Chrome works normally, "
             "start Chrome with --remote-debugging-port=9222, open the CDSC site, "
             "set CHROME_CDP_URL=http://127.0.0.1:9222, and retry. "
-            "Otherwise set CDSC_PROXY to a residential proxy."
+            "Otherwise set CDSC_PROXY to a residential/mobile proxy whose IP is "
+            "not blocked by CDSC (test with curl — must NOT return Request Rejected)."
         )
 
     async def _hard_reset_unlocked(self) -> None:
