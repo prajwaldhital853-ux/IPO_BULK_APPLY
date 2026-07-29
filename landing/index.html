@@ -200,10 +200,10 @@
           <div class="container screens-split">
             <div class="section-copy reveal">
               <p class="eyebrow">See the app</p>
-              <h2>Swipe through the real app screens.</h2>
+              <h2>Real app screens for everyday investing.</h2>
               <p>
                 Explore the main modules used every day — market tools, IPO workflows, premium research, and account
-                management. Swipe left or right to move between screens.
+                management. Swipe the phones to browse more screens.
               </p>
               <ul class="check-list">
                 <li>Market live data, movers, and charts</li>
@@ -213,79 +213,33 @@
               </ul>
             </div>
 
-            <div class="app-carousel reveal reveal-delay" data-carousel>
-              <div class="carousel-viewport">
-                <div class="carousel-track">
-                  <figure class="carousel-slide">
-                    <img src="./assets/market-summary-screen.png" alt="Market summary screen" />
-                    <figcaption>Market summary</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/live-market-screen.png" alt="Live market screen" />
-                    <figcaption>Live market</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/market-movers-screen.png" alt="Market movers screen" />
-                    <figcaption>Market movers</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/top-gainers-screen.png" alt="Top gainers screen" />
-                    <figcaption>Top gainers</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/charts-screen.png" alt="Charts screen" />
-                    <figcaption>Advanced charts</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/services-screen.png" alt="Services screen" />
-                    <figcaption>Services hub</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/apply-screen.png" alt="IPO apply screen" />
-                    <figcaption>Bulk IPO apply</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/upcoming-issues-screen.png" alt="Upcoming issues screen" />
-                    <figcaption>Upcoming issues</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/ipo-stats-screen.png" alt="IPO statistics screen" />
-                    <figcaption>IPO statistics</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/stock-screen.png" alt="Stock detail screen" />
-                    <figcaption>Stock details</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/hydropower-screen.png" alt="Hydropower leaders screen" />
-                    <figcaption>Hydropower leaders</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/broker-buy-sell-screen.png" alt="Broker top buy sell screen" />
-                    <figcaption>Broker buy / sell</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/broker-screen.png" alt="Broker accumulation screen" />
-                    <figcaption>Broker accumulation</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/gold-silver-screen.png" alt="Gold and silver price screen" />
-                    <figcaption>Gold / silver prices</figcaption>
-                  </figure>
-                  <figure class="carousel-slide">
-                    <img src="./assets/accounts-screen.png" alt="Accounts screen" />
-                    <figcaption>Multi-account manager</figcaption>
-                  </figure>
-                </div>
-              </div>
+            <div
+              class="phone-showcase reveal"
+              data-phone-swipe
+              aria-label="App screens showcase"
+            >
+              <figure class="phone-shot phone-back">
+                <img src="./assets/stock-screen.png" alt="" data-phone-img="back" />
+              </figure>
+              <figure class="phone-shot phone-mid">
+                <img src="./assets/services-screen.png" alt="" data-phone-img="mid" />
+              </figure>
+              <figure class="phone-shot phone-front">
+                <img
+                  src="./assets/apply-screen.png"
+                  alt="Bulk IPO apply screen"
+                  data-phone-img="front"
+                  draggable="false"
+                />
+              </figure>
 
-              <div class="carousel-controls">
-                <button type="button" class="carousel-btn" data-carousel-prev aria-label="Previous screen">‹</button>
+              <div class="phone-swipe-bar">
+                <button type="button" class="carousel-btn" data-swipe-prev aria-label="Previous screen">‹</button>
                 <div class="carousel-meta">
-                  <span data-carousel-label>1 / 15</span>
-                  <div class="carousel-dots" data-carousel-dots></div>
+                  <span data-swipe-label>1 / 15</span>
+                  <div class="carousel-dots" data-swipe-dots></div>
                 </div>
-                <button type="button" class="carousel-btn" data-carousel-next aria-label="Next screen">›</button>
+                <button type="button" class="carousel-btn" data-swipe-next aria-label="Next screen">›</button>
               </div>
             </div>
           </div>
