@@ -297,6 +297,8 @@ async def upsert_premium(
             plan=plan_id,
             expires_at=expires,
             source=source,
+            reminder_2d_sent_at=None,
+            reminder_1d_sent_at=None,
         )
         db.add(row)
     else:
@@ -309,6 +311,9 @@ async def upsert_premium(
             row.expires_at = expires
         row.plan = plan_id
         row.source = source
+        # Renewed/extended expiry → allow reminders again for the new date.
+        row.reminder_2d_sent_at = None
+        row.reminder_1d_sent_at = None
     await db.flush()
     return row
 

@@ -87,37 +87,71 @@ def _resolve_providers() -> list[str]:
 
 
 def send_admin_otp(*, to_email: str, otp: str) -> None:
-    _send_otp_email(
+    settings = get_settings()
+    body = (
+        f'Your NEPSE GHAR admin verification code is: {otp}\n\n'
+        f'This code expires in {settings.admin_otp_ttl_minutes} minutes.\n'
+        'If you did not request this, ignore this email.'
+    )
+    _send_plain_email(
         to_email=to_email,
-        otp=otp,
         subject='NEPSE GHAR Admin password reset code',
-        intro='Your NEPSE GHAR admin verification code is',
+        body=body,
     )
 
 
 def send_user_pin_otp(*, to_email: str, otp: str) -> None:
-    _send_otp_email(
+    settings = get_settings()
+    body = (
+        f'Your NEPSE GHAR PIN reset verification code is: {otp}\n\n'
+        f'This code expires in {settings.admin_otp_ttl_minutes} minutes.\n'
+        'If you did not request this, ignore this email.'
+    )
+    _send_plain_email(
         to_email=to_email,
-        otp=otp,
         subject='NEPSE GHAR PIN reset code',
-        intro='Your NEPSE GHAR PIN reset verification code is',
+        body=body,
     )
 
 
-def _send_otp_email(*, to_email: str, otp: str, subject: str, intro: str) -> None:
-    settings = get_settings()
+def send_premium_expiry_reminder(
+    *,
+    to_email: str,
+    name: str,
+    days_left: int,
+    expires_at_label: str,
+) -> None:
+    """Email user that premium expires in 1 or 2 days."""
+    first = (name or '').strip().split(' ')[0] if (name or '').strip() else ''
+    greeting = f'Hi {first},' if first else 'Hi,'
+    if days_left <= 1:
+        subject = 'NEPSE GHAR: Your subscription expires tomorrow'
+        when = 'tomorrow'
+    else:
+        subject = f'NEPSE GHAR: Your subscription expires in {days_left} days'
+        when = f'in {days_left} days'
+
+    body = (
+        f'{greeting}\n\n'
+        f'Your NEPSE GHAR premium subscription is expiring {when} '
+        f'({expires_at_label}).\n\n'
+        'Please renew or subscribe again for uninterrupted service — '
+        'bulk IPO apply, result checks, and your account limit stay active '
+        'only while premium is valid.\n\n'
+        'Open the NEPSE GHAR app → Profile / Subscription to renew.\n\n'
+        'Thank you,\n'
+        'NEPSE GHAR'
+    )
+    _send_plain_email(to_email=to_email, subject=subject, body=body)
+
+
+def _send_plain_email(*, to_email: str, subject: str, body: str) -> None:
     providers = _resolve_providers()
     if not providers:
         raise EmailNotConfiguredError(
             'Email is not configured. On Render set SENDGRID_API_KEY, RESEND_API_KEY, '
             'or BREVO_API_KEY. SMTP only works on VPS/local.'
         )
-
-    body = (
-        f'{intro}: {otp}\n\n'
-        f'This code expires in {settings.admin_otp_ttl_minutes} minutes.\n'
-        'If you did not request this, ignore this email.'
-    )
 
     last_error: Exception | None = None
     for provider in providers:
@@ -133,7 +167,7 @@ def _send_otp_email(*, to_email: str, otp: str, subject: str, intro: str) -> Non
             else:
                 raise EmailNotConfiguredError(f'Unknown email provider: {provider}')
             if len(providers) > 1:
-                log.info('OTP sent via %s (fallback chain had %s)', provider, providers)
+                log.info('Email sent via %s (fallback chain had %s)', provider, providers)
             return
         except EmailNotConfiguredError:
             raise
@@ -147,6 +181,16 @@ def _send_otp_email(*, to_email: str, otp: str, subject: str, intro: str) -> Non
     raise RuntimeError(
         f'Could not send email via {", ".join(providers)}: {last_error}.{hint}'
     ) from last_error
+
+
+def _send_otp_email(*, to_email: str, otp: str, subject: str, intro: str) -> None:
+    settings = get_settings()
+    body = (
+        f'{intro}: {otp}\n\n'
+        f'This code expires in {settings.admin_otp_ttl_minutes} minutes.\n'
+        'If you did not request this, ignore this email.'
+    )
+    _send_plain_email(to_email=to_email, subject=subject, body=body)
 
 
 def _send_via_sendgrid(*, to_email: str, subject: str, body: str) -> None:

@@ -10,6 +10,7 @@ from ..db.session import get_db
 from .jobs import (
     run_market_close_job,
     run_market_open_job,
+    run_premium_expiry_reminder_job,
     run_price_alert_job,
     sync_price_alerts,
     upsert_push_device,
@@ -135,5 +136,15 @@ async def job_price_alerts(
     _: None = Depends(_require_cron),
 ) -> dict:
     result = await run_price_alert_job(db)
+    await db.commit()
+    return result
+
+
+@router.post('/jobs/premium-expiry-reminders')
+async def job_premium_expiry_reminders(
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_cron),
+) -> dict:
+    result = await run_premium_expiry_reminder_job(db)
     await db.commit()
     return result

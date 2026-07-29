@@ -148,6 +148,22 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     "ADD COLUMN legal_pages_json TEXT NOT NULL DEFAULT '{}'"
                 )
             )
+    if 'premium_entitlements' in tables:
+        pe_cols = {c['name'] for c in insp.get_columns('premium_entitlements')}
+        if 'reminder_2d_sent_at' not in pe_cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE premium_entitlements '
+                    'ADD COLUMN reminder_2d_sent_at TIMESTAMP'
+                )
+            )
+        if 'reminder_1d_sent_at' not in pe_cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE premium_entitlements '
+                    'ADD COLUMN reminder_1d_sent_at TIMESTAMP'
+                )
+            )
 
 
 async def init_db() -> None:
@@ -172,6 +188,22 @@ def _apply_postgres_patches(sync_conn) -> None:
                 text(
                     'ALTER TABLE users '
                     'ADD COLUMN IF NOT EXISTS max_accounts INTEGER'
+                )
+            )
+    if 'premium_entitlements' in tables:
+        pe_cols = {c['name'] for c in insp.get_columns('premium_entitlements')}
+        if 'reminder_2d_sent_at' not in pe_cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE premium_entitlements '
+                    'ADD COLUMN IF NOT EXISTS reminder_2d_sent_at TIMESTAMPTZ'
+                )
+            )
+        if 'reminder_1d_sent_at' not in pe_cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE premium_entitlements '
+                    'ADD COLUMN IF NOT EXISTS reminder_1d_sent_at TIMESTAMPTZ'
                 )
             )
     if 'site_settings' not in tables:

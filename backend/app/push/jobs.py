@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from ..db.models import PushDevice, UserPriceAlert
+from ..db.models import PremiumEntitlement, PushDevice, User, UserPriceAlert
+from ..emailer import email_configured, send_premium_expiry_reminder
 from .expo_push import send_expo_push
 from .market_data import (
+    NPT,
     fetch_ltp_map,
     fetch_market_summary_text,
     is_market_session_hours,
     is_weekday_npt,
+    now_npt,
 )
 
 log = logging.getLogger('push.jobs')
@@ -157,6 +161,131 @@ async def run_price_alert_job(db: AsyncSession) -> dict:
         'checked': len(alerts),
         'ltpFound': len(ltp_map),
     }
+
+
+def _expiry_date_npt(expires_at: datetime) -> date:
+    exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=UTC)
+    return exp.astimezone(NPT).date()
+
+
+async def run_premium_expiry_reminder_job(db: AsyncSession) -> dict:
+    """Email users whose premium expires in 2 days or 1 day (NPT calendar)."""
+    if not email_configured():
+        log.warning('premium_expiry_reminders: email not configured')
+        return {
+            'ok': False,
+            'error': 'email_not_configured',
+            'scanned': 0,
+            'sent_2d': 0,
+            'sent_1d': 0,
+            'skipped': 0,
+            'errors': 0,
+        }
+
+    today = now_npt().date()
+    target_2d = today + timedelta(days=2)
+    target_1d = today + timedelta(days=1)
+    now = datetime.now(UTC)
+
+    rows = (
+        await db.scalars(
+            select(PremiumEntitlement)
+            .options(selectinload(PremiumEntitlement.user))
+            .where(PremiumEntitlement.expires_at.is_not(None)),
+        )
+    ).all()
+
+    scanned = 0
+    sent_2d = 0
+    sent_1d = 0
+    skipped = 0
+    errors = 0
+
+    for row in rows:
+        user: User | None = row.user
+        if row.expires_at is None or user is None:
+            skipped += 1
+            continue
+        email = (user.email or '').strip()
+        if not email:
+            skipped += 1
+            continue
+
+        exp = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(
+            tzinfo=UTC,
+        )
+        if exp <= now:
+            skipped += 1
+            continue
+
+        scanned += 1
+        exp_date = _expiry_date_npt(exp)
+        expires_label = exp.astimezone(NPT).strftime('%d %b %Y, %H:%M NPT')
+        name = (user.name or '').strip()
+        matched = False
+
+        if exp_date == target_2d:
+            matched = True
+            if row.reminder_2d_sent_at is None:
+                try:
+                    send_premium_expiry_reminder(
+                        to_email=email,
+                        name=name,
+                        days_left=2,
+                        expires_at_label=expires_label,
+                    )
+                    row.reminder_2d_sent_at = now
+                    sent_2d += 1
+                except Exception as exc:  # noqa: BLE001
+                    errors += 1
+                    log.warning(
+                        'premium_expiry 2d failed user=%s: %s',
+                        user.id,
+                        exc,
+                    )
+            else:
+                skipped += 1
+
+        if exp_date == target_1d:
+            matched = True
+            if row.reminder_1d_sent_at is None:
+                try:
+                    send_premium_expiry_reminder(
+                        to_email=email,
+                        name=name,
+                        days_left=1,
+                        expires_at_label=expires_label,
+                    )
+                    row.reminder_1d_sent_at = now
+                    sent_1d += 1
+                except Exception as exc:  # noqa: BLE001
+                    errors += 1
+                    log.warning(
+                        'premium_expiry 1d failed user=%s: %s',
+                        user.id,
+                        exc,
+                    )
+            else:
+                skipped += 1
+
+        if not matched:
+            skipped += 1
+
+    await db.flush()
+    result = {
+        'ok': True,
+        'scanned': scanned,
+        'sent_2d': sent_2d,
+        'sent_1d': sent_1d,
+        'skipped': skipped,
+        'errors': errors,
+        'targets': {
+            'in_2_days': target_2d.isoformat(),
+            'in_1_day': target_1d.isoformat(),
+        },
+    }
+    log.info('premium_expiry_reminders %s', result)
+    return result
 
 
 async def upsert_push_device(
