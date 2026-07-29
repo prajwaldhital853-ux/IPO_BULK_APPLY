@@ -76,9 +76,16 @@ class Settings(BaseSettings):
     # Cron / push jobs (Render Cron Jobs). Prefer dedicated secret; falls back to api_key.
     cron_secret: str = ''
 
+    # Absolute public API URL (logo in emails, etc.)
+    public_base_url: str = 'https://ipo-bulk-apply-vti5.onrender.com'
+
     @property
     def effective_cron_secret(self) -> str:
         return (self.cron_secret or self.api_key or '').strip()
+
+    @property
+    def effective_public_base_url(self) -> str:
+        return (self.public_base_url or '').strip().rstrip('/')
 
     @property
     def google_client_id_list(self) -> list[str]:

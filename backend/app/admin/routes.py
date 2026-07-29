@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -22,6 +23,7 @@ from ..auth.subscription import (
 from ..config import get_settings
 from ..db.models import PremiumEntitlement, SubscriptionRequest, User, UserFeedback
 from ..db.session import get_db
+from ..emailer import email_configured
 from .deps import AdminUser, get_admin_user
 from .schemas import (
     AdminActionIn,
@@ -71,6 +73,8 @@ from ..site_settings import (
 )
 
 router = APIRouter(prefix='/admin', tags=['admin'])
+
+log = logging.getLogger('admin.routes')
 
 
 def _premium_active(user: User) -> tuple[bool, str | None]:
@@ -910,6 +914,59 @@ async def admin_approve_subscription(
     user = await load_user_with_premium(db, row.user_id)
     assert user is not None
     access = await _access_level(db, user)
+
+    # Notify user by email (non-blocking for the approve API).
+    try:
+        email = (user.email or '').strip()
+        if email and email_configured():
+            from zoneinfo import ZoneInfo
+
+            from ..emailer import send_subscription_activated
+
+            settings = get_settings()
+            site = await get_or_create_settings(db)
+            logo_url = None
+            base = settings.effective_public_base_url
+            if base and getattr(site, 'app_logo_b64', None):
+                logo_url = f'{base}/app/logo'
+
+            max_acc = effective_max_accounts(user, premium_active=True)
+            plan_title = str(
+                info.get('title') or row.plan_title or row.plan_id or 'Premium',
+            )
+            expires_label = '—'
+            if user.premium and user.premium.expires_at is not None:
+                exp = user.premium.expires_at
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=UTC)
+                try:
+                    npt = ZoneInfo('Asia/Kathmandu')
+                    expires_label = exp.astimezone(npt).strftime(
+                        '%d %b %Y, %H:%M NPT',
+                    )
+                except Exception:  # noqa: BLE001
+                    expires_label = exp.strftime('%d %b %Y, %H:%M UTC')
+
+            send_subscription_activated(
+                to_email=email,
+                name=(user.name or '').strip(),
+                plan_title=plan_title,
+                expires_at_label=expires_label,
+                max_accounts=max_acc,
+                logo_url=logo_url,
+            )
+        elif not email:
+            log.warning(
+                'subscription approve: no email for user=%s (skip notify)',
+                user.id,
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            'subscription approve: notify email failed user=%s: %s',
+            row.user_id,
+            exc,
+        )
+
     return _row_out(row, user, access)
 
 
