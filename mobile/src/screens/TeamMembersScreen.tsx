@@ -127,10 +127,18 @@ export function TeamMembersScreen() {
           />
         }
         ListHeaderComponent={
-          <Text style={styles.intro}>
-            Meet the people behind NEPSE GHAR — Kalash Financial Solution Pvt.
-            Ltd.
-          </Text>
+          <View style={styles.introCard}>
+            <View style={styles.introHead}>
+              <View style={[styles.iconWell, { backgroundColor: '#C8E6C9' }]}>
+                <Ionicons name="people-outline" size={rs(18)} color="#2E7D32" />
+              </View>
+              <Text style={styles.introTitle}>Our team</Text>
+            </View>
+            <Text style={styles.intro}>
+              Meet the people behind NEPSE GHAR — Kalash Financial Solution
+              Pvt. Ltd.
+            </Text>
+          </View>
         }
         renderItem={({ item }) => (
           <View style={styles.card}>
@@ -208,12 +216,39 @@ function makeStyles(c: ThemeColors) {
       fontWeight: '800',
       fontSize: rs(16),
     },
-    list: { padding: rs(16), paddingBottom: rs(40) },
+    list: { padding: rs(16), paddingBottom: rs(40), gap: rs(12) },
+    introCard: {
+      borderRadius: rs(16),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(14),
+      marginBottom: rs(2),
+    },
+    introHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      marginBottom: rs(10),
+    },
+    iconWell: {
+      width: rs(36),
+      height: rs(36),
+      borderRadius: rs(10),
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    introTitle: {
+      flex: 1,
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(14),
+    },
     intro: {
       color: c.textSecondary,
       fontSize: rs(13),
-      lineHeight: rs(19),
-      marginBottom: rs(14),
+      lineHeight: rs(20),
     },
     card: {
       flexDirection: 'row',

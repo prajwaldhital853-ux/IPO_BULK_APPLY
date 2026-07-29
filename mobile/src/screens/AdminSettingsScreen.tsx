@@ -36,6 +36,8 @@ import {
   uploadAdminPaymentQr,
   uploadAdminPopupNotice,
   addAdminTextPopupNotice,
+  type AdminHomePromo,
+  type AdminHomePromoPages,
   type AdminSettings,
   type AdminSocialLink,
   type AdminSubscriptionPlan,
@@ -45,6 +47,8 @@ import {
   type LegalPages,
   type LegalSection,
 } from '../content/legalDefaults';
+import { DEFAULT_HOME_PROMO } from '../services/app/publicSettingsApi';
+import type { HomePromoPageKey } from '../services/app/publicSettingsApi';
 import { loadAdminToken } from '../services/admin/adminTokenStorage';
 import { AUTH_API_BASE } from '../services/auth/config';
 import type { ThemeColors } from '../theme/colors';
@@ -178,6 +182,31 @@ const HOME_PROMO_ACTIONS: { id: string; label: string }[] = [
   { id: 'CurrentIpoStatus', label: 'Current IPO Status' },
   { id: 'NepseCalendar', label: 'NEPSE Calendar' },
 ];
+
+const HOME_PROMO_PAGE_TABS: { id: HomePromoPageKey; label: string }[] = [
+  { id: 'home', label: 'Home' },
+  { id: 'apply', label: 'Apply' },
+  { id: 'services', label: 'Services' },
+  { id: 'check', label: 'Check' },
+  { id: 'profile', label: 'Profile' },
+];
+
+function defaultAdminHomePromos(
+  seed: AdminHomePromo = {
+    visible: DEFAULT_HOME_PROMO.visible,
+    text: DEFAULT_HOME_PROMO.text,
+    action: DEFAULT_HOME_PROMO.action,
+    color: DEFAULT_HOME_PROMO.color,
+  },
+): AdminHomePromoPages {
+  return {
+    home: { ...seed },
+    apply: { ...seed },
+    services: { ...seed },
+    check: { ...seed },
+    profile: { ...seed },
+  };
+}
 
 type PlanDraft = {
   id: string;
@@ -368,12 +397,10 @@ export function AdminSettingsScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('notices');
-  const [homePromoVisible, setHomePromoVisible] = useState(true);
-  const [homePromoText, setHomePromoText] = useState(
-    'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
+  const [homePromosDraft, setHomePromosDraft] = useState<AdminHomePromoPages>(
+    () => defaultAdminHomePromos(),
   );
-  const [homePromoAction, setHomePromoAction] = useState('AddCapital');
-  const [homePromoColor, setHomePromoColor] = useState('#1B5E20');
+  const [promoPageTab, setPromoPageTab] = useState<HomePromoPageKey>('home');
   const [legalDraft, setLegalDraft] = useState<LegalPages>(() => ({
     about: {
       ...DEFAULT_LEGAL_PAGES.about,
@@ -411,13 +438,17 @@ export function AdminSettingsScreen() {
     setQrImageUrl(resolveQrImageUrl(s.payment.qrImageUrl));
     setAppLogoUrl(resolveQrImageUrl(s.appLogoUrl));
     setPlanDrafts(plansToDrafts(s.subscriptionPlans ?? []));
-    setHomePromoVisible(s.homePromo?.visible ?? true);
-    setHomePromoText(
-      s.homePromo?.text?.trim() ||
-        'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
-    );
-    setHomePromoAction(s.homePromo?.action?.trim() || 'AddCapital');
-    setHomePromoColor(s.homePromo?.color?.trim() || '#1B5E20');
+    if (s.homePromos) {
+      setHomePromosDraft({
+        home: { ...s.homePromos.home },
+        apply: { ...s.homePromos.apply },
+        services: { ...s.homePromos.services },
+        check: { ...s.homePromos.check },
+        profile: { ...s.homePromos.profile },
+      });
+    } else if (s.homePromo) {
+      setHomePromosDraft(defaultAdminHomePromos(s.homePromo));
+    }
     if (s.legalPages) {
       setLegalDraft({
         about: {
@@ -676,33 +707,74 @@ export function AdminSettingsScreen() {
 
   const onSaveHomePromo = async () => {
     if (!token) return;
-    const text = homePromoText.trim();
-    if (!text) {
-      Alert.alert('Empty text', 'Enter the home card message.');
-      return;
-    }
-    if (text.length > 512) {
-      Alert.alert('Too long', 'Home card text max is 512 characters.');
-      return;
+    for (const key of HOME_PROMO_PAGE_TABS.map((t) => t.id)) {
+      const text = homePromosDraft[key].text.trim();
+      if (!text) {
+        Alert.alert('Empty text', `Enter promo text for the ${key} page.`);
+        setPromoPageTab(key);
+        return;
+      }
+      if (text.length > 512) {
+        Alert.alert('Too long', `Promo text on ${key} max is 512 characters.`);
+        setPromoPageTab(key);
+        return;
+      }
     }
     setSaving(true);
     try {
-      const updated = await updateAdminSettings(token, {
-        homePromo: {
-          visible: homePromoVisible,
-          text,
-          action: homePromoAction || 'none',
-          color: homePromoColor || '#1B5E20',
+      const payload: AdminHomePromoPages = {
+        home: {
+          ...homePromosDraft.home,
+          text: homePromosDraft.home.text.trim(),
+          action: homePromosDraft.home.action || 'none',
+          color: homePromosDraft.home.color || '#1B5E20',
         },
+        apply: {
+          ...homePromosDraft.apply,
+          text: homePromosDraft.apply.text.trim(),
+          action: homePromosDraft.apply.action || 'none',
+          color: homePromosDraft.apply.color || '#1B5E20',
+        },
+        services: {
+          ...homePromosDraft.services,
+          text: homePromosDraft.services.text.trim(),
+          action: homePromosDraft.services.action || 'none',
+          color: homePromosDraft.services.color || '#1B5E20',
+        },
+        check: {
+          ...homePromosDraft.check,
+          text: homePromosDraft.check.text.trim(),
+          action: homePromosDraft.check.action || 'none',
+          color: homePromosDraft.check.color || '#1B5E20',
+        },
+        profile: {
+          ...homePromosDraft.profile,
+          text: homePromosDraft.profile.text.trim(),
+          action: homePromosDraft.profile.action || 'none',
+          color: homePromosDraft.profile.color || '#1B5E20',
+        },
+      };
+      const updated = await updateAdminSettings(token, {
+        homePromos: payload,
       });
       applySettings(updated);
       await refreshBranding();
-      Alert.alert('Saved', 'Home promo card settings updated.');
+      Alert.alert('Saved', 'Promo card settings updated for all pages.');
     } catch (e) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Could not save');
     } finally {
       setSaving(false);
     }
+  };
+
+  const patchPromoPage = (
+    key: HomePromoPageKey,
+    patch: Partial<AdminHomePromo>,
+  ) => {
+    setHomePromosDraft((prev) => ({
+      ...prev,
+      [key]: { ...prev[key], ...patch },
+    }));
   };
 
   const onSaveLegalPages = async () => {
@@ -1210,92 +1282,24 @@ export function AdminSettingsScreen() {
 
             {settingsTab === 'home' ? (
               <>
-                <Text style={styles.section}>Home promo card</Text>
+                <Text style={styles.section}>Promo cards by page</Text>
                 <Text style={styles.help}>
-                  Controls the green banner under the header on Home, Apply,
-                  Services, Check, and Profile. Turn it off to hide it
-                  everywhere. Edit the text and choose where a tap goes (or no
-                  redirect).
+                  Each main tab can show its own banner (or none). Pick a page,
+                  edit text / color / tap action, then save all pages.
                 </Text>
 
-                <Pressable
-                  style={styles.toggleRow}
-                  onPress={() => setHomePromoVisible((v) => !v)}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.toggleTitle}>Show on home page</Text>
-                    <Text style={styles.toggleHint}>
-                      {homePromoVisible ? 'Visible' : 'Hidden'}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.toggleTrack,
-                      homePromoVisible && styles.toggleTrackOn,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.toggleThumb,
-                        homePromoVisible && styles.toggleThumbOn,
-                      ]}
-                    />
-                  </View>
-                </Pressable>
-
-                <Field
-                  label="Card text"
-                  value={homePromoText}
-                  onChangeText={setHomePromoText}
-                  colors={colors}
-                  multiline
-                />
-
-                <Text style={styles.fieldLabel}>Card color</Text>
-                <View style={styles.colorRow}>
-                  {HOME_PROMO_COLORS.map((opt) => {
-                    const active =
-                      homePromoColor.toUpperCase() === opt.color.toUpperCase();
+                <View style={styles.legalSubRow}>
+                  {HOME_PROMO_PAGE_TABS.map((tab) => {
+                    const active = promoPageTab === tab.id;
+                    const on = homePromosDraft[tab.id].visible;
                     return (
                       <Pressable
-                        key={opt.id}
-                        style={[
-                          styles.colorSwatch,
-                          { backgroundColor: opt.color },
-                          active && styles.colorSwatchActive,
-                        ]}
-                        onPress={() => setHomePromoColor(opt.color)}
-                        accessibilityLabel={opt.label}
-                      >
-                        {active ? (
-                          <Ionicons name="checkmark" size={rs(16)} color="#fff" />
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-                <Field
-                  label="Custom hex color (optional)"
-                  value={homePromoColor}
-                  onChangeText={(v) => {
-                    const next = v.trim().startsWith('#') ? v.trim() : `#${v.trim()}`;
-                    setHomePromoColor(next || '#1B5E20');
-                  }}
-                  colors={colors}
-                />
-
-                <Text style={styles.fieldLabel}>Tap action / redirect</Text>
-                <View style={styles.actionList}>
-                  {HOME_PROMO_ACTIONS.map((opt) => {
-                    const active = homePromoAction === opt.id;
-                    return (
-                      <Pressable
-                        key={opt.id}
+                        key={tab.id}
                         style={[
                           styles.actionChip,
                           active && styles.actionChipActive,
                         ]}
-                        onPress={() => setHomePromoAction(opt.id)}
+                        onPress={() => setPromoPageTab(tab.id)}
                       >
                         <Text
                           style={[
@@ -1303,12 +1307,137 @@ export function AdminSettingsScreen() {
                             active && styles.actionChipTextActive,
                           ]}
                         >
-                          {opt.label}
+                          {tab.label}
+                          {on ? '' : ' · off'}
                         </Text>
                       </Pressable>
                     );
                   })}
                 </View>
+
+                {(() => {
+                  const page = homePromosDraft[promoPageTab];
+                  return (
+                    <>
+                      <Pressable
+                        style={styles.toggleRow}
+                        onPress={() =>
+                          patchPromoPage(promoPageTab, {
+                            visible: !page.visible,
+                          })
+                        }
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.toggleTitle}>
+                            Show on {promoPageTab} page
+                          </Text>
+                          <Text style={styles.toggleHint}>
+                            {page.visible ? 'Visible' : 'Hidden'}
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.toggleTrack,
+                            page.visible && styles.toggleTrackOn,
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.toggleThumb,
+                              page.visible && styles.toggleThumbOn,
+                            ]}
+                          />
+                        </View>
+                      </Pressable>
+
+                      <Field
+                        label="Card text"
+                        value={page.text}
+                        onChangeText={(v) =>
+                          patchPromoPage(promoPageTab, { text: v })
+                        }
+                        colors={colors}
+                        multiline
+                      />
+
+                      <Text style={styles.fieldLabel}>Card color</Text>
+                      <View style={styles.colorRow}>
+                        {HOME_PROMO_COLORS.map((opt) => {
+                          const active =
+                            page.color.toUpperCase() ===
+                            opt.color.toUpperCase();
+                          return (
+                            <Pressable
+                              key={opt.id}
+                              style={[
+                                styles.colorSwatch,
+                                { backgroundColor: opt.color },
+                                active && styles.colorSwatchActive,
+                              ]}
+                              onPress={() =>
+                                patchPromoPage(promoPageTab, {
+                                  color: opt.color,
+                                })
+                              }
+                              accessibilityLabel={opt.label}
+                            >
+                              {active ? (
+                                <Ionicons
+                                  name="checkmark"
+                                  size={rs(16)}
+                                  color="#fff"
+                                />
+                              ) : null}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      <Field
+                        label="Custom hex color (optional)"
+                        value={page.color}
+                        onChangeText={(v) => {
+                          const next = v.trim().startsWith('#')
+                            ? v.trim()
+                            : `#${v.trim()}`;
+                          patchPromoPage(promoPageTab, {
+                            color: next || '#1B5E20',
+                          });
+                        }}
+                        colors={colors}
+                      />
+
+                      <Text style={styles.fieldLabel}>Tap action / redirect</Text>
+                      <View style={styles.actionList}>
+                        {HOME_PROMO_ACTIONS.map((opt) => {
+                          const active = page.action === opt.id;
+                          return (
+                            <Pressable
+                              key={opt.id}
+                              style={[
+                                styles.actionChip,
+                                active && styles.actionChipActive,
+                              ]}
+                              onPress={() =>
+                                patchPromoPage(promoPageTab, {
+                                  action: opt.id,
+                                })
+                              }
+                            >
+                              <Text
+                                style={[
+                                  styles.actionChipText,
+                                  active && styles.actionChipTextActive,
+                                ]}
+                              >
+                                {opt.label}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  );
+                })()}
 
                 <Pressable
                   style={[styles.btn, saving && styles.btnDisabled]}
@@ -1318,7 +1447,7 @@ export function AdminSettingsScreen() {
                   {saving ? (
                     <ActivityIndicator color={colors.fabIcon} />
                   ) : (
-                    <Text style={styles.btnText}>Save home card</Text>
+                    <Text style={styles.btnText}>Save all promo pages</Text>
                   )}
                 </Pressable>
               </>

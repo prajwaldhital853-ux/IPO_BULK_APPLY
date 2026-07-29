@@ -211,6 +211,22 @@ class HomePromoSettingsIn(BaseModel):
     model_config = {'populate_by_name': True}
 
 
+class HomePromoPagesOut(BaseModel):
+    home: HomePromoSettingsOut = Field(default_factory=HomePromoSettingsOut)
+    apply: HomePromoSettingsOut = Field(default_factory=HomePromoSettingsOut)
+    services: HomePromoSettingsOut = Field(default_factory=HomePromoSettingsOut)
+    check: HomePromoSettingsOut = Field(default_factory=HomePromoSettingsOut)
+    profile: HomePromoSettingsOut = Field(default_factory=HomePromoSettingsOut)
+
+
+class HomePromoPagesIn(BaseModel):
+    home: HomePromoSettingsIn | None = None
+    apply: HomePromoSettingsIn | None = None
+    services: HomePromoSettingsIn | None = None
+    check: HomePromoSettingsIn | None = None
+    profile: HomePromoSettingsIn | None = None
+
+
 class LegalSectionOut(BaseModel):
     heading: str
     body: str
@@ -273,6 +289,10 @@ class AdminSettingsOut(BaseModel):
         default_factory=HomePromoSettingsOut,
         alias='homePromo',
     )
+    home_promos: HomePromoPagesOut = Field(
+        default_factory=HomePromoPagesOut,
+        alias='homePromos',
+    )
     legal_pages: LegalPagesOut = Field(
         default_factory=LegalPagesOut,
         alias='legalPages',
@@ -294,6 +314,10 @@ class AdminSettingsUpdateIn(BaseModel):
     home_promo: HomePromoSettingsIn | None = Field(
         default=None,
         alias='homePromo',
+    )
+    home_promos: HomePromoPagesIn | None = Field(
+        default=None,
+        alias='homePromos',
     )
     legal_pages: LegalPagesIn | None = Field(default=None, alias='legalPages')
 
@@ -360,6 +384,10 @@ class PublicAppSettingsOut(BaseModel):
     home_promo: HomePromoSettingsOut = Field(
         default_factory=HomePromoSettingsOut,
         alias='homePromo',
+    )
+    home_promos: HomePromoPagesOut = Field(
+        default_factory=HomePromoPagesOut,
+        alias='homePromos',
     )
     legal_pages: LegalPagesOut = Field(
         default_factory=LegalPagesOut,

@@ -6,23 +6,28 @@ import { useAccounts } from '../context/AccountsContext';
 import { useAppBranding } from '../context/AppBrandingContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import type { RootStackParamList } from '../navigation/types';
+import type { HomePromoPageKey } from '../services/app/publicSettingsApi';
 import { guardAddAccount } from '../utils/accountLimits';
 
 const TAB_ACTIONS = new Set(['Apply', 'Services', 'Profile', 'Home', 'Check']);
 
+type Props = {
+  page: HomePromoPageKey;
+};
+
 /**
- * Green promo strip controlled from Admin → Home card.
- * Shown on every main tab when enabled; hidden everywhere when disabled.
+ * Promo strip controlled from Admin → Home card (per page).
  */
-export function AdminPromoBanner() {
+export function AdminPromoBanner({ page }: Props) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { homePromo } = useAppBranding();
+  const { homePromos } = useAppBranding();
+  const promo = homePromos[page];
   const { accounts } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
 
   const onPress = useCallback(() => {
-    const action = (homePromo.action || 'none').trim();
+    const action = (promo.action || 'none').trim();
     if (!action || action === 'none') return;
 
     if (action === 'AddCapital') {
@@ -48,20 +53,20 @@ export function AdminPromoBanner() {
     navigation.navigate(action as never);
   }, [
     accounts.length,
-    homePromo.action,
+    promo.action,
     isPremium,
     maxAccounts,
     navigation,
   ]);
 
-  if (!homePromo.visible) return null;
+  if (!promo.visible) return null;
 
-  const clickable = Boolean(homePromo.action && homePromo.action !== 'none');
+  const clickable = Boolean(promo.action && promo.action !== 'none');
 
   return (
     <PromoBanner
-      text={homePromo.text}
-      color={homePromo.color}
+      text={promo.text}
+      color={promo.color}
       onPress={clickable ? onPress : undefined}
     />
   );

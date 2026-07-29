@@ -405,7 +405,7 @@ export function ApplyScreen() {
         showLogo={false}
         right={headerActions}
       />
-      <AdminPromoBanner />
+      <AdminPromoBanner page="apply" />
 
       {accounts.length === 0 ? (
         <View style={styles.emptyWrap}>

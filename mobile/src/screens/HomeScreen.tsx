@@ -277,7 +277,7 @@ export function HomeScreen() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
-      <AdminPromoBanner />
+      <AdminPromoBanner page="home" />
 
       <View style={styles.tabs}>
         <Pressable

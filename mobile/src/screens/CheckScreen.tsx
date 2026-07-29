@@ -72,7 +72,7 @@ export function CheckScreen() {
     >
       <View style={styles.root}>
         <AppHeader onMenuPress={openDrawer} title="Check" showLogo={false} />
-        <AdminPromoBanner />
+        <AdminPromoBanner page="check" />
 
         <View
           style={[

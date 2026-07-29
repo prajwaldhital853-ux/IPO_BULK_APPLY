@@ -8,8 +8,10 @@ import React, {
 } from 'react';
 import {
   DEFAULT_HOME_PROMO,
+  defaultHomePromos,
   fetchPublicAppSettings,
   resolvePublicMediaUrl,
+  type HomePromoPages,
   type HomePromoSettings,
   type PublicSubscriptionPlan,
 } from '../services/app/publicSettingsApi';
@@ -22,6 +24,7 @@ type AppBrandingContextValue = {
   appLogoUrl: string | null;
   plans: PremiumPlan[];
   homePromo: HomePromoSettings;
+  homePromos: HomePromoPages;
   refresh: () => Promise<void>;
 };
 
@@ -45,15 +48,18 @@ function mapPublicPlan(p: PublicSubscriptionPlan): PremiumPlan {
 export function AppBrandingProvider({ children }: { children: React.ReactNode }) {
   const [appLogoUrl, setAppLogoUrl] = useState<string | null>(null);
   const [plans, setPlans] = useState<PremiumPlan[]>([...PREMIUM_PLANS]);
-  const [homePromo, setHomePromo] = useState<HomePromoSettings>({
-    ...DEFAULT_HOME_PROMO,
-  });
+  const [homePromos, setHomePromos] = useState<HomePromoPages>(() =>
+    defaultHomePromos(),
+  );
 
   const refresh = useCallback(async () => {
     try {
       const settings = await fetchPublicAppSettings();
       setAppLogoUrl(resolvePublicMediaUrl(settings.appLogoUrl));
-      setHomePromo(settings.homePromo ?? { ...DEFAULT_HOME_PROMO });
+      setHomePromos(
+        settings.homePromos ??
+          defaultHomePromos(settings.homePromo ?? DEFAULT_HOME_PROMO),
+      );
       if (settings.subscriptionPlans.length) {
         setPlans(settings.subscriptionPlans.map(mapPublicPlan));
       } else {
@@ -68,9 +74,11 @@ export function AppBrandingProvider({ children }: { children: React.ReactNode })
     void refresh();
   }, [refresh]);
 
+  const homePromo = homePromos.home;
+
   const value = useMemo(
-    () => ({ appLogoUrl, plans, homePromo, refresh }),
-    [appLogoUrl, plans, homePromo, refresh],
+    () => ({ appLogoUrl, plans, homePromo, homePromos, refresh }),
+    [appLogoUrl, plans, homePromo, homePromos, refresh],
   );
 
   return (
@@ -83,10 +91,12 @@ export function AppBrandingProvider({ children }: { children: React.ReactNode })
 export function useAppBranding(): AppBrandingContextValue {
   const ctx = useContext(AppBrandingContext);
   if (!ctx) {
+    const homePromos = defaultHomePromos();
     return {
       appLogoUrl: null,
       plans: [...PREMIUM_PLANS],
-      homePromo: { ...DEFAULT_HOME_PROMO },
+      homePromo: homePromos.home,
+      homePromos,
       refresh: async () => undefined,
     };
   }

@@ -211,6 +211,7 @@ def _settings_out(row) -> AdminSettingsOut:
     from ..public_settings import (
         _contact_out,
         _home_promo_out,
+        _home_promos_out,
         _legal_pages_out,
         _payment_out,
         _popup_notice_out,
@@ -226,6 +227,7 @@ def _settings_out(row) -> AdminSettingsOut:
         subscriptionPlans=_subscription_plans_out(row),
         appLogoUrl=app_logo_public_path(row),
         homePromo=_home_promo_out(row),
+        homePromos=_home_promos_out(row),
         legalPages=_legal_pages_out(row),
     )
 
@@ -328,6 +330,20 @@ async def admin_update_settings(
             'color': body.home_promo.color,
         }
 
+    home_promos = None
+    if body.home_promos is not None:
+        home_promos = {}
+        for key in ('home', 'apply', 'services', 'check', 'profile'):
+            page = getattr(body.home_promos, key, None)
+            if page is None:
+                continue
+            home_promos[key] = {
+                'visible': page.visible,
+                'text': page.text,
+                'action': page.action,
+                'color': page.color,
+            }
+
     legal_pages = None
     if body.legal_pages is not None:
         legal_pages = {}
@@ -371,6 +387,7 @@ async def admin_update_settings(
             subscription_plans=subscription_plans,
             app_logo=app_logo,
             home_promo=home_promo,
+            home_promos=home_promos,
             legal_pages=legal_pages,
         )
         await db.commit()

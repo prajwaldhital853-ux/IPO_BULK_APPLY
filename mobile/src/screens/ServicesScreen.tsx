@@ -623,7 +623,7 @@ export function ServicesScreen() {
   return (
     <View style={[styles.root, { backgroundColor: isDark ? colors.bg : '#E4EAD9' }]}>
       <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
-      <AdminPromoBanner />
+      <AdminPromoBanner page="services" />
 
       <View style={styles.searchWrap}>
         <View

@@ -58,6 +58,15 @@ export type HomePromoSettings = {
   color: string;
 };
 
+export type HomePromoPageKey =
+  | 'home'
+  | 'apply'
+  | 'services'
+  | 'check'
+  | 'profile';
+
+export type HomePromoPages = Record<HomePromoPageKey, HomePromoSettings>;
+
 export type PublicAppSettings = {
   payment: PaymentSettings;
   contact: ContactSettings;
@@ -65,6 +74,7 @@ export type PublicAppSettings = {
   subscriptionPlans: PublicSubscriptionPlan[];
   appLogoUrl: string | null;
   homePromo: HomePromoSettings;
+  homePromos: HomePromoPages;
   legalPages: LegalPages;
 };
 
@@ -75,6 +85,26 @@ export const DEFAULT_HOME_PROMO: HomePromoSettings = {
   action: 'AddCapital',
   color: '#1B5E20',
 };
+
+export const HOME_PROMO_PAGE_KEYS: HomePromoPageKey[] = [
+  'home',
+  'apply',
+  'services',
+  'check',
+  'profile',
+];
+
+export function defaultHomePromos(
+  seed: HomePromoSettings = DEFAULT_HOME_PROMO,
+): HomePromoPages {
+  return {
+    home: { ...seed },
+    apply: { ...seed },
+    services: { ...seed },
+    check: { ...seed },
+    profile: { ...seed },
+  };
+}
 
 const FALLBACK: PublicAppSettings = {
   payment: {
@@ -107,6 +137,7 @@ const FALLBACK: PublicAppSettings = {
   subscriptionPlans: [],
   appLogoUrl: null,
   homePromo: { ...DEFAULT_HOME_PROMO },
+  homePromos: defaultHomePromos(),
   legalPages: mapLegalPages(DEFAULT_LEGAL_PAGES),
 };
 
@@ -167,6 +198,23 @@ function mapHomePromo(raw: unknown): HomePromoSettings {
     action: action || 'none',
     color: color.toUpperCase(),
   };
+}
+
+function mapHomePromos(
+  raw: unknown,
+  legacyHome: HomePromoSettings,
+): HomePromoPages {
+  const seed = legacyHome ?? DEFAULT_HOME_PROMO;
+  const base = defaultHomePromos(seed);
+  if (!raw || typeof raw !== 'object') return base;
+  const row = raw as Record<string, unknown>;
+  const out = { ...base };
+  for (const key of HOME_PROMO_PAGE_KEYS) {
+    if (row[key] != null) {
+      out[key] = mapHomePromo(row[key]);
+    }
+  }
+  return out;
 }
 
 function mapPayment(json: Record<string, unknown>): PaymentSettings {
@@ -300,6 +348,10 @@ export async function fetchPublicAppSettings(): Promise<PublicAppSettings> {
         ? String(json.appLogoUrl ?? json.app_logo_url)
         : null,
       homePromo: mapHomePromo(json.homePromo ?? json.home_promo),
+      homePromos: (() => {
+        const legacy = mapHomePromo(json.homePromo ?? json.home_promo);
+        return mapHomePromos(json.homePromos ?? json.home_promos, legacy);
+      })(),
       legalPages: mapLegalPages(json.legalPages ?? json.legal_pages),
     };
   } catch {

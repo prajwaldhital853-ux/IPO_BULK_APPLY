@@ -6,6 +6,7 @@ import uuid
 from .admin.schemas import (
     AboutPageOut,
     ContactSettingsOut,
+    HomePromoPagesOut,
     HomePromoSettingsOut,
     LegalDocOut,
     LegalPagesOut,
@@ -286,6 +287,8 @@ _DEFAULT_HOME_PROMO_TEXT = (
 )
 _DEFAULT_HOME_PROMO_COLOR = '#1B5E20'
 
+_HOME_PROMO_PAGE_KEYS = ('home', 'apply', 'services', 'check', 'profile')
+
 _ALLOWED_HOME_PROMO_ACTIONS = frozenset(
     {
         'none',
@@ -319,18 +322,95 @@ def _normalize_hex_color(raw: str | None, fallback: str = _DEFAULT_HOME_PROMO_CO
     return fallback
 
 
-def _home_promo_out(row: SiteSettings) -> HomePromoSettingsOut:
+def _normalize_promo_card(raw: object | None, fallback: dict[str, object] | None = None) -> dict[str, object]:
+    base = fallback or {
+        'visible': True,
+        'text': _DEFAULT_HOME_PROMO_TEXT,
+        'action': 'AddCapital',
+        'color': _DEFAULT_HOME_PROMO_COLOR,
+    }
+    if not isinstance(raw, dict):
+        return {
+            'visible': bool(base['visible']),
+            'text': str(base['text']),
+            'action': str(base['action']),
+            'color': str(base['color']),
+        }
+    text = str(raw.get('text') if raw.get('text') is not None else base['text']).strip()
+    if len(text) > 512:
+        text = text[:512]
+    action = str(raw.get('action') if raw.get('action') is not None else base['action']).strip() or 'none'
+    if action not in _ALLOWED_HOME_PROMO_ACTIONS:
+        action = str(base['action']) if str(base['action']) in _ALLOWED_HOME_PROMO_ACTIONS else 'AddCapital'
+    visible_raw = raw.get('visible')
+    if visible_raw is None:
+        visible = bool(base['visible'])
+    else:
+        visible = bool(visible_raw)
+    color = _normalize_hex_color(
+        str(raw.get('color') if raw.get('color') is not None else base['color']),
+        fallback=str(base['color']),
+    )
+    return {
+        'visible': visible,
+        'text': text or _DEFAULT_HOME_PROMO_TEXT,
+        'action': action,
+        'color': color,
+    }
+
+
+def _legacy_promo_card(row: SiteSettings) -> dict[str, object]:
     text = (getattr(row, 'home_promo_text', None) or '').strip()
     action = (getattr(row, 'home_promo_action', None) or 'AddCapital').strip()
     if action not in _ALLOWED_HOME_PROMO_ACTIONS:
         action = 'AddCapital'
-    visible = bool(getattr(row, 'home_promo_visible', True))
-    color = _normalize_hex_color(getattr(row, 'home_promo_color', None))
+    return {
+        'visible': bool(getattr(row, 'home_promo_visible', True)),
+        'text': text or _DEFAULT_HOME_PROMO_TEXT,
+        'action': action,
+        'color': _normalize_hex_color(getattr(row, 'home_promo_color', None)),
+    }
+
+
+def load_home_promo_pages(row: SiteSettings) -> dict[str, dict[str, object]]:
+    """Return normalized per-page promo map; seed from legacy columns when JSON empty."""
+    legacy = _legacy_promo_card(row)
+    raw_json = (getattr(row, 'home_promo_pages_json', None) or '').strip() or '{}'
+    try:
+        parsed = json.loads(raw_json)
+    except Exception:  # noqa: BLE001
+        parsed = {}
+    if not isinstance(parsed, dict) or not parsed:
+        return {key: dict(legacy) for key in _HOME_PROMO_PAGE_KEYS}
+
+    out: dict[str, dict[str, object]] = {}
+    for key in _HOME_PROMO_PAGE_KEYS:
+        out[key] = _normalize_promo_card(parsed.get(key), fallback=legacy)
+    return out
+
+
+def _promo_card_out(data: dict[str, object]) -> HomePromoSettingsOut:
     return HomePromoSettingsOut(
-        visible=visible,
-        text=text or _DEFAULT_HOME_PROMO_TEXT,
-        action=action,
-        color=color,
+        visible=bool(data.get('visible', True)),
+        text=str(data.get('text') or _DEFAULT_HOME_PROMO_TEXT),
+        action=str(data.get('action') or 'AddCapital'),
+        color=str(data.get('color') or _DEFAULT_HOME_PROMO_COLOR),
+    )
+
+
+def _home_promo_out(row: SiteSettings) -> HomePromoSettingsOut:
+    pages = load_home_promo_pages(row)
+    return _promo_card_out(pages['home'])
+
+
+def _home_promos_out(row: SiteSettings) -> HomePromoPagesOut:
+    pages = load_home_promo_pages(row)
+    return HomePromoPagesOut(
+        home=_promo_card_out(pages['home']),
+        apply=_promo_card_out(pages['apply']),
+        services=_promo_card_out(pages['services']),
+        check=_promo_card_out(pages['check']),
+        profile=_promo_card_out(pages['profile']),
     )
 
 
@@ -393,5 +473,6 @@ def settings_to_public(row: SiteSettings) -> PublicAppSettingsOut:
         subscriptionPlans=_subscription_plans_out(row),
         appLogoUrl=app_logo_public_path(row),
         homePromo=_home_promo_out(row),
+        homePromos=_home_promos_out(row),
         legalPages=_legal_pages_out(row),
     )

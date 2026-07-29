@@ -112,6 +112,14 @@ export type AdminHomePromo = {
   color: string;
 };
 
+export type AdminHomePromoPages = {
+  home: AdminHomePromo;
+  apply: AdminHomePromo;
+  services: AdminHomePromo;
+  check: AdminHomePromo;
+  profile: AdminHomePromo;
+};
+
 export type AdminSettings = {
   adminEmail: string;
   payment: AdminPaymentSettings;
@@ -120,6 +128,7 @@ export type AdminSettings = {
   subscriptionPlans: AdminSubscriptionPlan[];
   appLogoUrl: string | null;
   homePromo: AdminHomePromo;
+  homePromos: AdminHomePromoPages;
   legalPages: LegalPages;
 };
 
@@ -545,6 +554,58 @@ function mapAdminSettings(json: Record<string, unknown>): AdminSettings {
         color: color.toUpperCase(),
       };
     })(),
+    homePromos: (() => {
+      const mapCard = (rawIn: unknown, fallback: AdminHomePromo): AdminHomePromo => {
+        if (!rawIn || typeof rawIn !== 'object') return { ...fallback };
+        const raw = rawIn as Record<string, unknown>;
+        const text = String(raw.text ?? '').trim();
+        const action = String(raw.action ?? fallback.action).trim() || 'none';
+        const visibleRaw = raw.visible;
+        const visible =
+          typeof visibleRaw === 'boolean'
+            ? visibleRaw
+            : visibleRaw == null
+              ? fallback.visible
+              : Boolean(Number(visibleRaw));
+        let color = String(raw.color ?? fallback.color).trim();
+        if (!color.startsWith('#')) color = `#${color}`;
+        if (
+          !/^#[0-9A-Fa-f]{6}$/.test(color) &&
+          !/^#[0-9A-Fa-f]{3}$/.test(color)
+        ) {
+          color = fallback.color;
+        }
+        return {
+          visible,
+          text:
+            text ||
+            fallback.text ||
+            'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
+          action,
+          color: color.toUpperCase(),
+        };
+      };
+      const legacyRaw = (json.homePromo ?? json.home_promo ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const legacy = mapCard(legacyRaw, {
+        visible: true,
+        text: 'Add your MeroShare account to bulk apply for IPOs — tap here to get started',
+        action: 'AddCapital',
+        color: '#1B5E20',
+      });
+      const pagesRaw = (json.homePromos ??
+        json.home_promos ??
+        {}) as Record<string, unknown>;
+      return {
+        home: mapCard(pagesRaw.home, legacy),
+        apply: mapCard(pagesRaw.apply, legacy),
+        services: mapCard(pagesRaw.services, legacy),
+        check: mapCard(pagesRaw.check, legacy),
+        profile: mapCard(pagesRaw.profile, legacy),
+      };
+    })(),
     legalPages: mapLegalPages(json.legalPages ?? json.legal_pages),
   };
 }
@@ -574,6 +635,7 @@ export async function updateAdminSettings(
     appLogoBase64?: string;
     clearAppLogo?: boolean;
     homePromo?: AdminHomePromo;
+    homePromos?: AdminHomePromoPages;
     legalPages?: LegalPages;
   },
 ): Promise<AdminSettings> {

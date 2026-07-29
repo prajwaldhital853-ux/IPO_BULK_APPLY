@@ -343,6 +343,7 @@ async def update_site_settings(
     subscription_plans: list[dict] | None = None,
     app_logo: dict[str, str] | None = None,
     home_promo: dict[str, object] | None = None,
+    home_promos: dict[str, object] | None = None,
     legal_pages: dict[str, object] | None = None,
 ) -> SiteSettings:
     row = await get_or_create_settings(db)
@@ -505,27 +506,70 @@ async def update_site_settings(
             row.app_logo_b64 = encoded
             row.app_logo_mime = mime
 
-    if home_promo is not None:
+    if home_promo is not None or home_promos is not None:
         from .public_settings import (
             _ALLOWED_HOME_PROMO_ACTIONS,
             _DEFAULT_HOME_PROMO_TEXT,
+            _HOME_PROMO_PAGE_KEYS,
             _normalize_hex_color,
+            _normalize_promo_card,
+            load_home_promo_pages,
         )
+        import json as _json
 
-        if 'visible' in home_promo and home_promo['visible'] is not None:
-            row.home_promo_visible = bool(home_promo['visible'])
-        if 'text' in home_promo and home_promo['text'] is not None:
-            text = str(home_promo['text']).strip()
-            if len(text) > 512:
-                raise ValueError('Home promo text too long (max 512 characters)')
-            row.home_promo_text = text or _DEFAULT_HOME_PROMO_TEXT
-        if 'action' in home_promo and home_promo['action'] is not None:
-            action = str(home_promo['action']).strip() or 'none'
-            if action not in _ALLOWED_HOME_PROMO_ACTIONS:
-                raise ValueError(f'Invalid home promo action: {action}')
-            row.home_promo_action = action
-        if 'color' in home_promo and home_promo['color'] is not None:
-            row.home_promo_color = _normalize_hex_color(str(home_promo['color']))
+        current = load_home_promo_pages(row)
+        merged = {key: dict(current[key]) for key in _HOME_PROMO_PAGE_KEYS}
+
+        # Legacy single-card update writes to the home page only.
+        if home_promo is not None:
+            home_merged = dict(merged['home'])
+            if 'visible' in home_promo and home_promo['visible'] is not None:
+                home_merged['visible'] = bool(home_promo['visible'])
+            if 'text' in home_promo and home_promo['text'] is not None:
+                text = str(home_promo['text']).strip()
+                if len(text) > 512:
+                    raise ValueError('Home promo text too long (max 512 characters)')
+                home_merged['text'] = text or _DEFAULT_HOME_PROMO_TEXT
+            if 'action' in home_promo and home_promo['action'] is not None:
+                action = str(home_promo['action']).strip() or 'none'
+                if action not in _ALLOWED_HOME_PROMO_ACTIONS:
+                    raise ValueError(f'Invalid home promo action: {action}')
+                home_merged['action'] = action
+            if 'color' in home_promo and home_promo['color'] is not None:
+                home_merged['color'] = _normalize_hex_color(str(home_promo['color']))
+            merged['home'] = _normalize_promo_card(home_merged)
+
+        if home_promos is not None and isinstance(home_promos, dict):
+            for key in _HOME_PROMO_PAGE_KEYS:
+                page_in = home_promos.get(key)
+                if not isinstance(page_in, dict):
+                    continue
+                page_merged = dict(merged[key])
+                if 'visible' in page_in and page_in['visible'] is not None:
+                    page_merged['visible'] = bool(page_in['visible'])
+                if 'text' in page_in and page_in['text'] is not None:
+                    text = str(page_in['text']).strip()
+                    if len(text) > 512:
+                        raise ValueError(
+                            f'Promo text too long on {key} (max 512 characters)'
+                        )
+                    page_merged['text'] = text or _DEFAULT_HOME_PROMO_TEXT
+                if 'action' in page_in and page_in['action'] is not None:
+                    action = str(page_in['action']).strip() or 'none'
+                    if action not in _ALLOWED_HOME_PROMO_ACTIONS:
+                        raise ValueError(f'Invalid promo action on {key}: {action}')
+                    page_merged['action'] = action
+                if 'color' in page_in and page_in['color'] is not None:
+                    page_merged['color'] = _normalize_hex_color(str(page_in['color']))
+                merged[key] = _normalize_promo_card(page_merged)
+
+        row.home_promo_pages_json = _json.dumps(merged)
+        # Keep legacy columns in sync with the home page card.
+        home_card = merged['home']
+        row.home_promo_visible = bool(home_card['visible'])
+        row.home_promo_text = str(home_card['text'])
+        row.home_promo_action = str(home_card['action'])
+        row.home_promo_color = str(home_card['color'])
 
     if legal_pages is not None:
         from .legal_pages import load_legal_pages, normalize_legal_pages

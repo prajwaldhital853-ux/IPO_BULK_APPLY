@@ -413,7 +413,7 @@ export function ProfileScreen() {
           </View>
         }
       />
-      <AdminPromoBanner />
+      <AdminPromoBanner page="profile" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.heroCard}>
