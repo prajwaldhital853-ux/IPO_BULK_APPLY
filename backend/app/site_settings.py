@@ -151,26 +151,23 @@ async def attempt_admin_login(
         await db.flush()
         return True, None
 
-    # Count failures when the real admin email is used with a wrong password.
-    if email_ok:
-        used, lock_secs = record_failure(client_key)
-        await db.flush()
-        if lock_secs > 0:
-            return (
-                False,
-                f'Too many failed login attempts from this device/network. '
-                f'Try again in {LOCK_MINUTES} minutes. '
-                f'Other devices are not affected.',
-            )
-        left = MAX_FAILS - used
+    # Any failed login from this device/IP counts toward lockout.
+    used, lock_secs = record_failure(client_key)
+    await db.flush()
+    if lock_secs > 0:
         return (
             False,
-            f'Invalid admin email or password. {left} attempt(s) remaining '
-            f'before a {LOCK_MINUTES}-minute lock on this device/network.',
+            f'Too many failed login attempts from this device/network. '
+            f'Try again in {LOCK_MINUTES} minutes. '
+            f'Other devices are not affected.',
         )
-
-    await db.flush()
-    return False, 'Invalid admin email or password'
+    left = max(0, MAX_FAILS - used)
+    return (
+        False,
+        f'Invalid admin email or password. {left} attempt(s) remaining '
+        f'before a {LOCK_MINUTES}-minute lock on this device/network '
+        f'({used}/{MAX_FAILS} used).',
+    )
 
 
 async def verify_admin_login(db: AsyncSession, email: str, password: str) -> bool:
