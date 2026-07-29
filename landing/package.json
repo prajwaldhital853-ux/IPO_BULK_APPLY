@@ -1,0 +1,10 @@
+{
+  "name": "nepseghar-landing",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Static landing page for nepseghar.com deployed on Vercel.",
+  "scripts": {
+    "dev": "npx serve . -l 4173",
+    "start": "npx serve . -l 4173"
+  }
+}
