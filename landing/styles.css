@@ -472,89 +472,130 @@ img {
   color: var(--text);
 }
 
-.showcase-grid {
-  display: none;
-}
-
-.screen-points {
-  display: none;
-}
-
 .screens-split {
   display: grid;
-  grid-template-columns: 0.95fr 1.05fr;
+  grid-template-columns: 0.9fr 1.1fr;
   gap: 36px;
   align-items: center;
 }
 
-.phone-showcase {
-  position: relative;
-  min-height: 560px;
-}
-
-.phone-shot {
-  position: absolute;
-  margin: 0;
-  border-radius: 28px;
-  overflow: hidden;
-  background: #fff;
-  border: 1px solid rgba(20, 33, 61, 0.08);
-  box-shadow: 0 28px 70px rgba(18, 35, 61, 0.16);
-}
-
-.phone-shot img {
-  display: block;
+.app-carousel {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  max-width: 420px;
+  margin-left: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-y;
+  cursor: grab;
 }
 
-.phone-back {
-  width: 210px;
-  top: 36px;
-  right: 18px;
-  transform: rotate(8deg);
-  opacity: 0.92;
-  z-index: 1;
+.app-carousel.is-dragging {
+  cursor: grabbing;
 }
 
-.phone-mid {
-  width: 230px;
-  top: 18px;
-  right: 150px;
-  transform: rotate(-4deg);
-  z-index: 2;
-}
-
-.phone-front {
-  width: 250px;
-  top: 90px;
-  right: 280px;
-  transform: rotate(-10deg);
-  z-index: 3;
-}
-
-.shot-card {
-  margin: 0;
-  border-radius: 26px;
+.carousel-viewport {
   overflow: hidden;
-  background: var(--surface);
-  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 28px;
+  background: rgba(255, 253, 248, 0.7);
+  border: 1px solid rgba(20, 33, 61, 0.08);
   box-shadow: var(--shadow);
 }
 
-.shot-card img {
+.carousel-track {
+  display: flex;
+  transition: transform 320ms ease;
+  will-change: transform;
+}
+
+.carousel-slide {
+  flex: 0 0 100%;
+  margin: 0;
+  min-width: 100%;
+}
+
+.carousel-slide img {
+  display: block;
   width: 100%;
-  aspect-ratio: 9 / 19.5;
+  aspect-ratio: 9 / 19;
   object-fit: cover;
+  object-position: top center;
   background: #edf2e6;
 }
 
-.shot-card figcaption {
-  padding: 16px 18px 18px;
-  color: var(--text);
+.carousel-slide figcaption {
+  padding: 14px 16px 16px;
+  text-align: center;
   font-weight: 600;
-  background: rgba(255, 253, 248, 0.9);
+  color: var(--text);
+  background: rgba(255, 253, 248, 0.95);
+}
+
+.carousel-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.carousel-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(20, 33, 61, 0.1);
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.carousel-btn:hover {
+  transform: translateY(-1px);
+  background: #fff;
+}
+
+.carousel-meta {
+  flex: 1;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.carousel-dots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  max-width: 220px;
+}
+
+.carousel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
+  background: rgba(20, 33, 61, 0.18);
+  cursor: pointer;
+}
+
+.carousel-dot.is-active {
+  background: var(--primary);
+  width: 18px;
+  border-radius: 999px;
+}
+
+.phone-showcase,
+.phone-shot,
+.showcase-grid,
+.screen-points,
+.shot-card {
+  display: none;
 }
 
 .check-list {
@@ -796,26 +837,12 @@ img {
   }
 
   .phone-showcase {
-    min-height: 420px;
-    margin-top: 10px;
+    display: none;
   }
 
-  .phone-back {
-    width: 160px;
-    right: 8px;
-    top: 24px;
-  }
-
-  .phone-mid {
-    width: 180px;
-    right: 110px;
-    top: 12px;
-  }
-
-  .phone-front {
-    width: 200px;
-    right: 210px;
-    top: 70px;
+  .app-carousel {
+    margin: 8px auto 0;
+    max-width: 360px;
   }
 
   .floating-stat {
@@ -889,22 +916,11 @@ img {
 }
 
 @media (max-width: 540px) {
-  .phone-showcase {
-    min-height: 380px;
+  .app-carousel {
+    max-width: 100%;
   }
 
-  .phone-back {
-    width: 140px;
-    right: 4px;
-  }
-
-  .phone-mid {
-    width: 155px;
-    right: 90px;
-  }
-
-  .phone-front {
-    width: 170px;
-    right: 170px;
+  .carousel-slide img {
+    aspect-ratio: 9 / 17.5;
   }
 }
