@@ -9,6 +9,7 @@ node_modules/
 chunk*.js
 webpack.js
 *.html
+!landing/index.html
 find_candle.py
 scan_sharehub.py
 p.html
