@@ -223,6 +223,8 @@ class CdscSession:
     async def _warm_up(self) -> None:
         assert self._page is not None
         base = self._settings.cdsc_base.rstrip("/")
+        # Residential proxies are slower; give them more time than direct.
+        nav_timeout = 120_000 if (self._settings.cdsc_proxy or "").strip() else 60_000
         # Reuse an already-open CDSC tab when attached via CDP.
         if base not in (self._page.url or ""):
             for p in self._context.pages if self._context else []:
@@ -230,7 +232,11 @@ class CdscSession:
                     self._page = p
                     break
             else:
-                await self._page.goto(base + "/", wait_until="domcontentloaded", timeout=60000)
+                await self._page.goto(
+                    base + "/",
+                    wait_until="domcontentloaded",
+                    timeout=nav_timeout,
+                )
 
         # CDP + real Chrome already on CDSC: don't fail boot on a grumpy probe.
         # First API call will reload/reconnect via _fetch_home_payload().
