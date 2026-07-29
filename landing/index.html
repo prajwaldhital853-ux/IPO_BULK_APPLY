@@ -8,22 +8,14 @@
       name="description"
       content="NEPSE GHAR is a Nepal share market app for IPO apply, live market tools, portfolio tracking, premium screeners, and broker insights."
     />
-    <link rel="icon" type="image/png" href="./assets/logo-64.png" />
+    <link rel="icon" type="image/png" href="./assets/logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./styles.css" />
-    <style>
-      /* Critical mobile perf: skip remote font + heavy hero media early */
-      @media (max-width: 980px) {
-        .hero-media,
-        .hero-video,
-        .hero-shot-back,
-        .hero-shot-mid,
-        .hero-shot-side,
-        .phone-back,
-        .phone-mid {
-          display: none !important;
-        }
-      }
-    </style>
   </head>
   <body>
     <div class="page-shell">
@@ -31,7 +23,7 @@
         <div class="container nav">
           <a class="brand" href="#home" aria-label="NEPSE GHAR home">
             <span class="brand-mark">
-              <img src="./assets/logo-64.png" alt="NEPSE GHAR logo" width="50" height="50" decoding="async" />
+              <img src="./assets/logo.png" alt="NEPSE GHAR logo" />
             </span>
             <span class="brand-copy">
               <strong>NEPSE GHAR</strong>
@@ -55,23 +47,17 @@
       <main id="home">
         <section class="hero">
           <div class="hero-media" aria-hidden="true">
-            <img
-              class="hero-poster"
-              src="./assets/broker-screen.png"
-              alt=""
-              decoding="async"
-              fetchpriority="low"
-            />
+            <img class="hero-poster" src="./assets/broker-screen.png" alt="" />
             <video
               class="hero-video"
+              autoplay
               muted
               loop
               playsinline
-              preload="none"
+              preload="metadata"
               poster="./assets/broker-screen.png"
-              data-desktop-only
             >
-              <source data-src="./assets/hero-market.mp4" type="video/mp4" />
+              <source src="./assets/hero-market.mp4" type="video/mp4" />
             </video>
             <div class="hero-overlay"></div>
           </div>
@@ -91,22 +77,17 @@
 
             <div class="hero-panel reveal reveal-delay">
               <div class="hero-phone-stack">
-                <figure class="hero-shot hero-shot-back" aria-hidden="true">
-                  <img src="./assets/stock-screen.png" alt="" loading="lazy" decoding="async" />
+                <figure class="hero-shot hero-shot-back">
+                  <img src="./assets/stock-screen.png" alt="Stock screen" />
                 </figure>
-                <figure class="hero-shot hero-shot-mid" aria-hidden="true">
-                  <img src="./assets/apply-screen.png" alt="" loading="lazy" decoding="async" />
+                <figure class="hero-shot hero-shot-mid">
+                  <img src="./assets/apply-screen.png" alt="IPO apply screen" />
                 </figure>
                 <figure class="hero-shot hero-shot-front">
-                  <img
-                    src="./assets/services-screen.png"
-                    alt="Services screen"
-                    decoding="async"
-                    fetchpriority="high"
-                  />
+                  <img src="./assets/services-screen.png" alt="Services screen" />
                 </figure>
-                <figure class="hero-shot hero-shot-side" aria-hidden="true">
-                  <img src="./assets/accounts-screen.png" alt="" loading="lazy" decoding="async" />
+                <figure class="hero-shot hero-shot-side">
+                  <img src="./assets/accounts-screen.png" alt="Accounts screen" />
                 </figure>
               </div>
             </div>
@@ -222,7 +203,7 @@
               <h2>Real app screens for everyday investing.</h2>
               <p>
                 Explore the main modules used every day — market tools, IPO workflows, premium research, and account
-                management. Screens rotate automatically; use the arrows anytime to browse.
+                management. Swipe the phones to browse more screens.
               </p>
               <ul class="check-list">
                 <li>Market live data, movers, and charts</li>
@@ -237,11 +218,11 @@
               data-phone-swipe
               aria-label="App screens showcase"
             >
-              <figure class="phone-shot phone-back" aria-hidden="true">
-                <img src="./assets/stock-screen.png" alt="" data-phone-img="back" loading="lazy" decoding="async" />
+              <figure class="phone-shot phone-back">
+                <img src="./assets/stock-screen.png" alt="" data-phone-img="back" />
               </figure>
-              <figure class="phone-shot phone-mid" aria-hidden="true">
-                <img src="./assets/services-screen.png" alt="" data-phone-img="mid" loading="lazy" decoding="async" />
+              <figure class="phone-shot phone-mid">
+                <img src="./assets/services-screen.png" alt="" data-phone-img="mid" />
               </figure>
               <figure class="phone-shot phone-front">
                 <img
@@ -249,7 +230,6 @@
                   alt="Bulk IPO apply screen"
                   data-phone-img="front"
                   draggable="false"
-                  decoding="async"
                 />
               </figure>
 

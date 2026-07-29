@@ -1,57 +1,31 @@
-const isMobile = window.matchMedia('(max-width: 980px)').matches;
-const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
 const reveals = document.querySelectorAll('.reveal');
 const heroVideo = document.querySelector('.hero-video');
 
-if (!isMobile) {
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('is-visible');
-          observer.unobserve(entry.target);
-        }
-      });
-    },
-    {
-      threshold: 0.05,
-      rootMargin: '120px 0px 80px 0px',
-    },
-  );
-  reveals.forEach((node) => observer.observe(node));
-} else {
-  reveals.forEach((node) => node.classList.add('is-visible'));
-}
+const observer = new IntersectionObserver(
+  (entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  },
+  {
+    threshold: 0.05,
+    rootMargin: '120px 0px 80px 0px',
+  },
+);
+
+reveals.forEach((node) => observer.observe(node));
 
 if (heroVideo) {
-  if (isMobile || heroVideo.hasAttribute('data-desktop-only')) {
-    heroVideo.pause?.();
-    heroVideo.removeAttribute('autoplay');
-    heroVideo.removeAttribute('src');
-    heroVideo.querySelectorAll('source').forEach((source) => source.remove());
-    heroVideo.load?.();
+  heroVideo.addEventListener('loadeddata', () => {
+    heroVideo.classList.add('is-ready');
+  });
+
+  heroVideo.addEventListener('error', () => {
     heroVideo.classList.add('is-hidden');
-  } else {
-    const source = heroVideo.querySelector('source[data-src]');
-    if (source && !source.getAttribute('src')) {
-      source.setAttribute('src', source.getAttribute('data-src'));
-    }
-    heroVideo.setAttribute('autoplay', '');
-    heroVideo.setAttribute('preload', 'metadata');
-    heroVideo.load?.();
-    void heroVideo.play?.().catch(() => {
-      heroVideo.classList.add('is-hidden');
-    });
-
-    heroVideo.addEventListener('loadeddata', () => {
-      heroVideo.classList.add('is-ready');
-    });
-
-    heroVideo.addEventListener('error', () => {
-      heroVideo.classList.add('is-hidden');
-    });
-  }
+  });
 }
 
 const SCREEN_SLIDES = [
@@ -72,17 +46,8 @@ const SCREEN_SLIDES = [
   { src: './assets/accounts-screen.png', alt: 'Accounts manager screen' },
 ];
 
-const AUTO_MS = isMobile ? 4500 : 3200;
-const RESUME_MS = 6000;
-const preloadCache = new Map();
-
-function preload(src) {
-  if (!src || preloadCache.has(src)) return;
-  const img = new Image();
-  img.decoding = 'async';
-  img.src = src;
-  preloadCache.set(src, img);
-}
+const AUTO_MS = 3200;
+const RESUME_MS = 5000;
 
 function initPhoneSwipe(root) {
   const front = root.querySelector('[data-phone-img="front"]');
@@ -95,9 +60,16 @@ function initPhoneSwipe(root) {
   if (!front || !dotsWrap || SCREEN_SLIDES.length === 0) return;
 
   let index = 0;
+  let startX = 0;
+  let startY = 0;
+  let currentX = 0;
+  let dragging = false;
+  let locked = null;
+  let pointerId = null;
   let timer = null;
   let resumeTimer = null;
-  let inView = false;
+  let inView = true;
+  let reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   SCREEN_SLIDES.forEach((_, i) => {
     const dot = document.createElement('button');
@@ -119,19 +91,16 @@ function initPhoneSwipe(root) {
   }
 
   function applyImg(el, slide) {
-    if (!el || !slide || el.getAttribute('src') === slide.src) return;
+    if (!el || !slide) return;
     el.src = slide.src;
-    el.alt = slide.alt || '';
+    el.alt = slide.alt;
   }
 
   function render() {
     const current = slideAt(index);
     applyImg(front, current);
-    if (!isMobile) {
-      applyImg(mid, slideAt(index + 1));
-      applyImg(back, slideAt(index + 2));
-    }
-    preload(slideAt(index + 1).src);
+    applyImg(mid, slideAt(index + 1));
+    applyImg(back, slideAt(index + 2));
     if (label) label.textContent = `${index + 1} / ${SCREEN_SLIDES.length}`;
     dots.forEach((dot, i) => {
       dot.classList.toggle('is-active', i === index);
@@ -147,7 +116,7 @@ function initPhoneSwipe(root) {
 
   function startAuto() {
     stopAuto();
-    if (prefersReducedMotion || !inView || document.hidden) return;
+    if (reducedMotion || !inView || document.hidden) return;
     timer = setInterval(() => {
       goTo(index + 1, false);
     }, AUTO_MS);
@@ -161,7 +130,9 @@ function initPhoneSwipe(root) {
 
   function goTo(next, fromUser) {
     index = ((next % SCREEN_SLIDES.length) + SCREEN_SLIDES.length) % SCREEN_SLIDES.length;
+    root.classList.add('is-swiping');
     render();
+    window.setTimeout(() => root.classList.remove('is-swiping'), 280);
     if (fromUser) pauseThenResume();
   }
 
@@ -174,66 +145,64 @@ function initPhoneSwipe(root) {
     goTo(index + 1, true);
   });
 
-  // Keep swipe only on desktop/tablet width; phones use auto + buttons.
-  if (!isMobile) {
-    let startX = 0;
-    let startY = 0;
-    let currentX = 0;
-    let dragging = false;
-    let locked = null;
-    let pointerId = null;
-
-    function onPointerDown(e) {
-      if (e.target.closest('button')) return;
-      dragging = true;
-      locked = null;
-      pointerId = e.pointerId;
-      startX = e.clientX;
-      startY = e.clientY;
-      currentX = e.clientX;
-      stopAuto();
-      try {
-        root.setPointerCapture(e.pointerId);
-      } catch (_) {
-        /* ignore */
-      }
+  function onPointerDown(e) {
+    if (e.target.closest('button')) return;
+    dragging = true;
+    locked = null;
+    pointerId = e.pointerId;
+    startX = e.clientX;
+    startY = e.clientY;
+    currentX = e.clientX;
+    root.classList.add('is-dragging');
+    stopAuto();
+    try {
+      root.setPointerCapture(e.pointerId);
+    } catch (_) {
+      /* ignore */
     }
-
-    function onPointerMove(e) {
-      if (!dragging || (pointerId !== null && e.pointerId !== pointerId)) return;
-      currentX = e.clientX;
-      const dx = currentX - startX;
-      const dy = e.clientY - startY;
-      if (!locked) {
-        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-        locked = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-      }
-      if (locked === 'x') e.preventDefault();
-    }
-
-    function onPointerUp(e) {
-      if (!dragging || (pointerId !== null && e.pointerId !== pointerId)) return;
-      dragging = false;
-      try {
-        root.releasePointerCapture(e.pointerId);
-      } catch (_) {
-        /* ignore */
-      }
-      const dx = currentX - startX;
-      if (locked === 'x' && Math.abs(dx) > 40) {
-        goTo(dx < 0 ? index + 1 : index - 1, true);
-      } else {
-        pauseThenResume();
-      }
-      locked = null;
-      pointerId = null;
-    }
-
-    root.addEventListener('pointerdown', onPointerDown);
-    root.addEventListener('pointermove', onPointerMove, { passive: false });
-    root.addEventListener('pointerup', onPointerUp);
-    root.addEventListener('pointercancel', onPointerUp);
   }
+
+  function onPointerMove(e) {
+    if (!dragging || (pointerId !== null && e.pointerId !== pointerId)) return;
+    currentX = e.clientX;
+    const dx = currentX - startX;
+    const dy = e.clientY - startY;
+
+    if (!locked) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      locked = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      if (locked === 'x') root.classList.add('is-swiping');
+    }
+
+    if (locked === 'x') {
+      e.preventDefault();
+    }
+  }
+
+  function onPointerUp(e) {
+    if (!dragging || (pointerId !== null && e.pointerId !== pointerId)) return;
+    dragging = false;
+    root.classList.remove('is-dragging', 'is-swiping');
+    try {
+      root.releasePointerCapture(e.pointerId);
+    } catch (_) {
+      /* ignore */
+    }
+
+    const dx = currentX - startX;
+    if (locked === 'x' && Math.abs(dx) > 40) {
+      goTo(dx < 0 ? index + 1 : index - 1, true);
+    } else {
+      pauseThenResume();
+    }
+    locked = null;
+    pointerId = null;
+  }
+
+  root.addEventListener('pointerdown', onPointerDown);
+  root.addEventListener('pointermove', onPointerMove, { passive: false });
+  root.addEventListener('pointerup', onPointerUp);
+  root.addEventListener('pointercancel', onPointerUp);
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stopAuto();
@@ -242,15 +211,16 @@ function initPhoneSwipe(root) {
 
   const viewObserver = new IntersectionObserver(
     (entries) => {
-      inView = entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.2);
+      inView = entries.some((entry) => entry.isIntersecting);
       if (inView) startAuto();
       else stopAuto();
     },
-    { threshold: [0, 0.2, 0.5] },
+    { threshold: 0.25 },
   );
   viewObserver.observe(root);
 
   render();
+  startAuto();
 }
 
 document.querySelectorAll('[data-phone-swipe]').forEach(initPhoneSwipe);
