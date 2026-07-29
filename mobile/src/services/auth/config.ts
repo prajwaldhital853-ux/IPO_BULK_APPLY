@@ -3,7 +3,7 @@ export const AUTH_ENABLED =
 
 export const AUTH_API_BASE = (
   process.env.EXPO_PUBLIC_AUTH_API_URL ??
-  'https://ipo-bulk-apply-vti5.onrender.com'
+  'https://api.nepseghar.com'
 ).replace(/\/$/, '');
 
 export const GOOGLE_WEB_CLIENT_ID =
