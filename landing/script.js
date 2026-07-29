@@ -1,4 +1,5 @@
 const reveals = document.querySelectorAll('.reveal');
+const heroVideo = document.querySelector('.hero-video');
 
 const observer = new IntersectionObserver(
   (entries) => {
@@ -16,3 +17,13 @@ const observer = new IntersectionObserver(
 );
 
 reveals.forEach((node) => observer.observe(node));
+
+if (heroVideo) {
+  heroVideo.addEventListener('loadeddata', () => {
+    heroVideo.classList.add('is-ready');
+  });
+
+  heroVideo.addEventListener('error', () => {
+    heroVideo.classList.add('is-hidden');
+  });
+}

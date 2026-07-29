@@ -3,11 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NEPSE GHAR | Smarter Investing for Nepal</title>
+    <title>NEPSE GHAR | IPO, Market Tools, and Premium Insights</title>
     <meta
       name="description"
-      content="NEPSE GHAR helps investors track IPOs, monitor the market, analyze trends, and manage premium tools from one focused mobile platform."
+      content="NEPSE GHAR is a Nepal share market app for IPO apply, live market tools, portfolio tracking, premium screeners, and broker insights."
     />
+    <link rel="icon" type="image/png" href="./assets/logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -21,89 +22,84 @@
       <header class="site-header">
         <div class="container nav">
           <a class="brand" href="#home" aria-label="NEPSE GHAR home">
-            <span class="brand-mark">NG</span>
+            <span class="brand-mark">
+              <img src="./assets/logo.png" alt="NEPSE GHAR logo" />
+            </span>
             <span class="brand-copy">
               <strong>NEPSE GHAR</strong>
-              <small>Data-first investing platform</small>
+              <small>Nepal market tools in one app</small>
             </span>
           </a>
 
           <nav class="nav-links">
             <a href="#about">About</a>
             <a href="#services">Services</a>
+            <a href="#screens">Screens</a>
             <a href="#pricing">Pricing</a>
             <a href="#faq">FAQ</a>
             <a href="#contact">Contact</a>
           </nav>
 
-          <a class="button ghost" href="#contact">Get Started</a>
+          <a class="button ghost" href="#pricing">Get Started</a>
         </div>
       </header>
 
       <main id="home">
         <section class="hero">
+          <div class="hero-media" aria-hidden="true">
+            <img class="hero-poster" src="./assets/broker-screen.png" alt="" />
+            <video
+              class="hero-video"
+              autoplay
+              muted
+              loop
+              playsinline
+              preload="metadata"
+              poster="./assets/broker-screen.png"
+            >
+              <source src="./assets/hero-market.mp4" type="video/mp4" />
+            </video>
+            <div class="hero-overlay"></div>
+          </div>
           <div class="container hero-grid">
             <div class="reveal">
               <p class="eyebrow">Built for the Nepal share market</p>
-              <h1>One focused platform for IPO actions, market intelligence, and premium investor tools.</h1>
+              <h1>Understand the market, manage IPO actions, and unlock premium investor tools from one clean mobile app.</h1>
               <p class="hero-copy">
-                NEPSE GHAR brings IPO workflows, portfolio visibility, broker insights, alerts, and premium research
-                into a single mobile-first experience designed for serious Nepalese investors.
+                NEPSE GHAR helps Nepalese investors do the work they repeat every day: check IPOs, monitor accounts,
+                study stocks, track portfolios, follow market signals, and use premium data tools without jumping
+                across multiple apps and websites.
               </p>
 
               <div class="hero-actions">
-                <a class="button" href="#pricing">View Plans</a>
-                <a class="button secondary" href="#services">Explore Services</a>
+                <a class="button" href="#services">Explore Services</a>
+                <a class="button secondary" href="#screens">View Screens</a>
               </div>
 
               <ul class="hero-points">
-                <li>Market tools tailored to NEPSE workflows</li>
-                <li>Fast subscription-based access for premium research</li>
-                <li>Secure backend infrastructure on VPS + PostgreSQL</li>
+                <li>Free tools for everyday market tracking</li>
+                <li>Premium tools for serious investors and traders</li>
+                <li>Secure VPS backend with PostgreSQL data storage</li>
               </ul>
             </div>
 
             <div class="hero-panel reveal reveal-delay">
-              <div class="device-card">
-                <div class="device-top">
-                  <span></span><span></span><span></span>
-                </div>
-                <div class="device-body">
-                  <div class="screen-section">
-                    <p>Live market pulse</p>
-                    <strong>Broker flow up 12.4%</strong>
-                  </div>
-                  <div class="chart-bars" aria-hidden="true">
-                    <span></span><span></span><span></span><span></span><span></span><span></span>
-                  </div>
-                  <div class="screen-grid">
-                    <article>
-                      <small>IPO tools</small>
-                      <strong>Bulk Apply</strong>
-                    </article>
-                    <article>
-                      <small>Premium</small>
-                      <strong>Stock Filter</strong>
-                    </article>
-                    <article>
-                      <small>Tracking</small>
-                      <strong>Portfolio</strong>
-                    </article>
-                    <article>
-                      <small>Insights</small>
-                      <strong>Top Buyers</strong>
-                    </article>
-                  </div>
-                </div>
+              <div class="hero-phone-stack">
+                <figure class="hero-shot primary-shot">
+                  <img src="./assets/services-screen.png" alt="NEPSE GHAR services screen" />
+                </figure>
+                <figure class="hero-shot secondary-shot">
+                  <img src="./assets/apply-screen.png" alt="NEPSE GHAR IPO apply screen" />
+                </figure>
               </div>
 
               <div class="floating-stat stat-one">
-                <span>Built for</span>
-                <strong>IPO + Market Users</strong>
+                <span>Main use</span>
+                <strong>IPO + Market Workflow</strong>
               </div>
               <div class="floating-stat stat-two">
-                <span>Access</span>
-                <strong>Free + Premium</strong>
+                <span>Experience</span>
+                <strong>Simple, clean, mobile-first</strong>
               </div>
             </div>
           </div>
@@ -112,16 +108,16 @@
         <section class="metrics">
           <div class="container metrics-grid reveal">
             <article>
-              <strong>All-in-one</strong>
-              <p>IPO workflows, alerts, screeners, market data, and premium signals inside one app.</p>
+              <strong>What is it?</strong>
+              <p>A NEPSE-focused mobile app that combines IPO utilities, market tools, and premium intelligence.</p>
             </article>
             <article>
-              <strong>Mobile-first</strong>
-              <p>Designed around the real behavior of Nepalese investors who operate primarily from mobile devices.</p>
+              <strong>Who is it for?</strong>
+              <p>Retail investors, active IPO users, portfolio trackers, and traders who want better daily visibility.</p>
             </article>
             <article>
-              <strong>Production-ready</strong>
-              <p>Hosted on a VPS backend with PostgreSQL so data stays durable across deployments.</p>
+              <strong>Why it matters</strong>
+              <p>It turns scattered market tasks into one faster workflow that is easier to understand and act on.</p>
             </article>
           </div>
         </section>
@@ -130,30 +126,30 @@
           <div class="container section-grid">
             <div class="section-copy reveal">
               <p class="eyebrow">About NEPSE GHAR</p>
-              <h2>Focused on practical tools that reduce friction for everyday investors.</h2>
+              <h2>A practical app built to make Nepal market activity easier to follow and easier to use.</h2>
               <p>
-                NEPSE GHAR is built around the workflows investors repeat most: checking active issues, managing IPO
-                tasks, tracking holdings, watching key market signals, and unlocking premium analysis without juggling
-                multiple disconnected sources.
+                NEPSE GHAR is not just a market information app. It is a working tool for people who actively manage
+                IPO applications, follow live market movement, review companies, track holdings, and want premium
+                insights in a form that is easy to use on a phone.
               </p>
               <p>
-                Instead of acting like a generic fintech template, the platform is shaped specifically for Nepal's
-                capital market behavior, data needs, and retail investor habits.
+                The goal is simple: remove confusion, reduce repeated manual work, and give investors a clean place to
+                do more of their important market tasks.
               </p>
             </div>
 
             <div class="about-cards reveal reveal-delay">
               <article class="info-card">
-                <h3>Purpose</h3>
-                <p>Make high-value market workflows simpler, faster, and more accessible from a single mobile app.</p>
+                <h3>Clear</h3>
+                <p>Important tools are grouped by purpose so users immediately understand what they can do in the app.</p>
               </article>
               <article class="info-card">
-                <h3>Approach</h3>
-                <p>Blend reliable infrastructure, clear UX, and subscription-based premium analysis for active users.</p>
+                <h3>Useful</h3>
+                <p>Services are based on real NEPSE and MeroShare workflows, not generic finance website patterns.</p>
               </article>
               <article class="info-card">
-                <h3>Users</h3>
-                <p>Retail investors, active IPO participants, and traders who need repeatable tools every week.</p>
+                <h3>Scalable</h3>
+                <p>Free utilities bring users in, while premium services unlock stronger research and decision support.</p>
               </article>
             </div>
           </div>
@@ -163,60 +159,97 @@
           <div class="container">
             <div class="section-head reveal">
               <p class="eyebrow">Services</p>
-              <h2>Structured around what investors actually need every day.</h2>
+              <h2>Everything in the app, explained in plain language.</h2>
             </div>
 
             <div class="service-grid">
               <article class="service-card reveal">
-                <span class="service-tag">Free Tools</span>
-                <h3>Market essentials</h3>
-                <p>NEPSE data, calendar, watchlist, bank tracker, portfolio, price alerts, charts, and announcements.</p>
+                <span class="service-tag">1. Free Services</span>
+                <h3>Daily market utilities</h3>
+                <p>For users who want a simple starting point to follow the market every day.</p>
+                <ul class="service-list">
+                  <li>NEPSE data and live market tracking</li>
+                  <li>Calendar, announcements, and watchlist</li>
+                  <li>Portfolio, price alerts, and bank tracker</li>
+                </ul>
               </article>
               <article class="service-card reveal reveal-delay">
-                <span class="service-tag">MeroShare Utilities</span>
-                <h3>IPO operations</h3>
-                <p>Bulk IPO apply, current issues, upcoming issues, IPO status, statistics, result checking, and expiry tracking.</p>
+                <span class="service-tag">2. IPO Services</span>
+                <h3>MeroShare and IPO workflow</h3>
+                <p>For users who apply regularly and want less manual effort.</p>
+                <ul class="service-list">
+                  <li>Bulk IPO apply and issue monitoring</li>
+                  <li>Current issues, upcoming issues, and results</li>
+                  <li>IPO status, statistics, and account expiry tracking</li>
+                </ul>
               </article>
               <article class="service-card reveal reveal-delay-2">
-                <span class="service-tag">Premium Research</span>
-                <h3>Decision support</h3>
-                <p>Broker activity, screeners, stock filters, market depth, top buyers/sellers, value picks, and financial reports.</p>
+                <span class="service-tag">3. Premium Services</span>
+                <h3>Advanced research and screening</h3>
+                <p>For serious investors and traders who want deeper signals before making decisions.</p>
+                <ul class="service-list">
+                  <li>Broker accumulation and broker top buy/sell tools</li>
+                  <li>Premium stock screeners and stock filters</li>
+                  <li>Financial reports, market depth, and value picks</li>
+                </ul>
               </article>
               <article class="service-card reveal">
-                <span class="service-tag">Extra Intelligence</span>
-                <h3>Broader context</h3>
-                <p>Forex data, global indices, indicators, fuel prices, metals, and calculation tools for smarter decisions.</p>
+                <span class="service-tag">4. Extra Information</span>
+                <h3>Useful context around the market</h3>
+                <p>For users who want broader information without leaving the app.</p>
+                <ul class="service-list">
+                  <li>Forex, global indices, and indicators</li>
+                  <li>Fuel price and gold/silver updates</li>
+                  <li>Calculation tools for better planning</li>
+                </ul>
               </article>
             </div>
           </div>
         </section>
 
-        <section class="section" id="why-us">
+        <section class="section" id="screens">
           <div class="container split-panel">
-            <div class="split-visual reveal">
-              <div class="stack-card top">
-                <p>Operational clarity</p>
-                <strong>Track issues, holdings, and signals from one place.</strong>
-              </div>
-              <div class="stack-card middle">
-                <p>Investor efficiency</p>
-                <strong>Reduce repeated manual checks across multiple services.</strong>
-              </div>
-              <div class="stack-card bottom">
-                <p>Professional presentation</p>
-                <strong>Built to feel credible for clients, investors, and partners.</strong>
-              </div>
+            <div class="section-copy reveal">
+              <p class="eyebrow">See the app</p>
+              <h2>Real app screens that show what users can actually do.</h2>
+              <p>
+                These screens make the product easier to understand at a glance. Instead of vague promises, visitors
+                can immediately see the core modules: service discovery, IPO apply, account management, company
+                analysis, premium broker tools, and navigation inside the app.
+              </p>
+              <ul class="check-list">
+                <li>Simple home and services navigation for fast discovery</li>
+                <li>Clean IPO apply experience for daily usage</li>
+                <li>Detailed stock and broker tools for serious users</li>
+                <li>Account screens that support multi-user workflows</li>
+              </ul>
             </div>
 
-            <div class="section-copy reveal reveal-delay">
-              <p class="eyebrow">Why choose us</p>
-              <h2>A sharper alternative to fragmented market workflows.</h2>
-              <ul class="check-list">
-                <li>Purpose-built around Nepal market use cases rather than generic global finance layouts.</li>
-                <li>Separates free utility from premium insight so value is easy to understand.</li>
-                <li>Supports business growth with subscription-driven premium features.</li>
-                <li>Ready for static marketing hosting on Vercel and secure API hosting on your VPS.</li>
-              </ul>
+            <div class="showcase-grid reveal reveal-delay">
+              <figure class="shot-card tall">
+                <img src="./assets/services-screen.png" alt="Services overview screen" />
+                <figcaption>Service discovery and categorized tools</figcaption>
+              </figure>
+              <figure class="shot-card">
+                <img src="./assets/apply-screen.png" alt="Bulk IPO apply screen" />
+                <figcaption>Bulk IPO apply workflow</figcaption>
+              </figure>
+              <figure class="shot-card">
+                <img src="./assets/stock-screen.png" alt="Stock information screen" />
+                <figcaption>Stock information and price chart</figcaption>
+              </figure>
+              <figure class="shot-card">
+                <img src="./assets/broker-screen.png" alt="Broker accumulation screen" />
+                <figcaption>Premium broker accumulation analysis</figcaption>
+              </figure>
+              <figure class="shot-card">
+                <img src="./assets/drawer-screen.png" alt="App drawer screen" />
+                <figcaption>Organized navigation for major modules</figcaption>
+              </figure>
+              <figure class="shot-card">
+                <img src="./assets/accounts-screen.png" alt="Account management screen" />
+                <figcaption>Multi-account management and status view</figcaption>
+              </figure>
             </div>
           </div>
         </section>
@@ -225,31 +258,31 @@
           <div class="container">
             <div class="section-head reveal">
               <p class="eyebrow">Pricing</p>
-              <h2>Simple structure for onboarding free users and converting serious investors.</h2>
+              <h2>Simple pricing structure that is easy to understand.</h2>
             </div>
 
             <div class="pricing-grid">
               <article class="price-card reveal">
                 <p class="plan-name">Free Access</p>
-                <h3>Start exploring the market</h3>
+                <h3>Start using the essential tools</h3>
                 <div class="price-line">NPR <strong>0</strong></div>
                 <ul>
-                  <li>Core market utilities</li>
-                  <li>Basic tracking tools</li>
-                  <li>Introductory product access</li>
+                  <li>Core market and tracking tools</li>
+                  <li>Useful for new or casual users</li>
+                  <li>A simple way to understand the app before upgrading</li>
                 </ul>
-                <a class="button secondary full" href="#contact">Talk to Us</a>
+                <a class="button secondary full" href="#screens">View Features</a>
               </article>
 
               <article class="price-card featured reveal reveal-delay">
                 <p class="plan-name">Premium Membership</p>
-                <h3>For active investors and power users</h3>
-                <div class="price-line">Custom <strong>Plans</strong></div>
+                <h3>For active investors who need deeper tools</h3>
+                <div class="price-line">Contact for <strong>Current Price</strong></div>
                 <ul>
-                  <li>Advanced research tools</li>
-                  <li>Premium market screeners</li>
-                  <li>Broker and trend intelligence</li>
-                  <li>Priority subscription features</li>
+                  <li>Advanced research and premium screeners</li>
+                  <li>Broker, stock, and market intelligence tools</li>
+                  <li>Better decision support for active users</li>
+                  <li>Built for users who want more than basic data</li>
                 </ul>
                 <a class="button full" href="#contact">Request Pricing</a>
               </article>
@@ -261,24 +294,24 @@
           <div class="container">
             <div class="section-head reveal">
               <p class="eyebrow">How it works</p>
-              <h2>A straightforward path from discovery to daily use.</h2>
+              <h2>From first visit to daily use in three simple steps.</h2>
             </div>
 
             <div class="timeline">
               <article class="timeline-item reveal">
                 <span>01</span>
-                <h3>Discover the platform</h3>
-                <p>Understand which free and premium tools fit your investment workflow.</p>
+                <h3>Explore the app</h3>
+                <p>See the screens, learn the services, and understand what the app can do for you.</p>
               </article>
               <article class="timeline-item reveal reveal-delay">
                 <span>02</span>
-                <h3>Subscribe when ready</h3>
-                <p>Unlock premium tools and deeper analysis once you want more than the basics.</p>
+                <h3>Use the free tools or upgrade</h3>
+                <p>Start with the basics, then unlock premium modules when you want deeper insight.</p>
               </article>
               <article class="timeline-item reveal reveal-delay-2">
                 <span>03</span>
-                <h3>Operate from one app</h3>
-                <p>Track, analyze, and act from a single experience instead of jumping between services.</p>
+                <h3>Work from one app</h3>
+                <p>Manage market tasks, IPO workflows, and premium research from one cleaner experience.</p>
               </article>
             </div>
           </div>
@@ -293,20 +326,20 @@
 
             <div class="faq-list">
               <details class="faq-item reveal">
-                <summary>Is NEPSE GHAR a website or a mobile app?</summary>
-                <p>NEPSE GHAR is primarily a mobile app experience supported by a secure backend API.</p>
+                <summary>What is NEPSE GHAR mainly used for?</summary>
+                <p>It is used for IPO workflows, market tracking, account management, portfolio visibility, and premium investor research tools.</p>
               </details>
               <details class="faq-item reveal reveal-delay">
-                <summary>Do you offer both free and premium features?</summary>
-                <p>Yes. Users can start with free utilities and upgrade to premium features for deeper insights and tools.</p>
+                <summary>Do you offer both free and premium services?</summary>
+                <p>Yes. Users can begin with free features and later unlock premium services for deeper analysis and more powerful tools.</p>
               </details>
               <details class="faq-item reveal reveal-delay-2">
-                <summary>Will premium features continue to expand?</summary>
-                <p>Yes. The platform is designed to continuously add new investor tools, screeners, and admin-controlled content.</p>
+                <summary>Is this a website or a mobile app?</summary>
+                <p>NEPSE GHAR is primarily a mobile app. This website is a landing page that explains the app and helps users understand its services.</p>
               </details>
               <details class="faq-item reveal">
-                <summary>How can I contact the team?</summary>
-                <p>Use the contact section below for email and WhatsApp inquiries.</p>
+                <summary>How can I get the current premium price?</summary>
+                <p>Use the contact details below to ask for the latest pricing and subscription guidance.</p>
               </details>
             </div>
           </div>
@@ -315,8 +348,8 @@
         <section class="section cta-section">
           <div class="container cta-box reveal">
             <div>
-              <p class="eyebrow">Ready to launch</p>
-              <h2>Present NEPSE GHAR with a credible front door while the app and backend do the heavy lifting.</h2>
+              <p class="eyebrow">Ready to start</p>
+              <h2>Use one app to understand the market faster, act on IPOs faster, and access stronger tools when you need them.</h2>
             </div>
             <a class="button" href="#contact">Contact Our Team</a>
           </div>
@@ -326,10 +359,10 @@
           <div class="container contact-grid">
             <div class="section-copy reveal">
               <p class="eyebrow">Contact</p>
-              <h2>Start the conversation.</h2>
+              <h2>Ask about access, subscriptions, or support.</h2>
               <p>
-                For onboarding, subscriptions, partnerships, or support, reach out directly and the team can guide the
-                next step.
+                If you want to start using premium tools, need help understanding the app, or want support, reach out
+                directly and the team can guide the next step.
               </p>
             </div>
 
@@ -355,11 +388,12 @@
         <div class="container footer-row">
           <div>
             <strong>NEPSE GHAR</strong>
-            <p>Smart market tools for modern Nepal investors.</p>
+            <p>Simple market tools, IPO workflows, and premium investor insights for Nepal.</p>
           </div>
           <div class="footer-links">
             <a href="#about">About</a>
             <a href="#services">Services</a>
+            <a href="#screens">Screens</a>
             <a href="#pricing">Pricing</a>
             <a href="#contact">Contact</a>
           </div>

@@ -53,3 +53,11 @@ This landing page is intentionally static and independent from:
 - `backend/` FastAPI API
 
 That keeps deployment simple and avoids mixing web hosting concerns with the app backend.
+
+## Optional Hero Video
+
+The hero section is wired for a background video. If you want autoplay video in production, place an MP4 here:
+
+`landing/assets/hero-market.mp4`
+
+The page will fall back to a static visual if that file is missing.
