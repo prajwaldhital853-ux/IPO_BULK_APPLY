@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     cache_db: str = "cache.sqlite"
     cache_ttl: int = 86400
 
+    # CDSC company dropdown cache (SQLite in cache_db — no Redis/Upstash required)
+    # Serve list from cache; refresh from CDSC when older than this many seconds.
+    cdsc_companies_cache_ttl: int = 21600  # 6 hours
+    # Background poll interval (seconds). 0 disables the background loop.
+    cdsc_companies_refresh_seconds: int = 3600  # 1 hour
+    # On result/allotment-heavy days you can lower TTL via env without code change.
+
     # Auth
     database_url: str = "sqlite+aiosqlite:///./auth.db"
     redis_url: str = ""

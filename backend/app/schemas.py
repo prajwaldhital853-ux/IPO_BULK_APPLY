@@ -11,6 +11,18 @@ class CompanyOut(BaseModel):
 
 class CompaniesResponse(BaseModel):
     companies: list[CompanyOut]
+    cached: bool = False
+    fetched_at: int | None = Field(
+        default=None,
+        serialization_alias="fetchedAt",
+    )
+    newly_added_count: int = Field(
+        default=0,
+        serialization_alias="newlyAddedCount",
+    )
+    stale: bool = False
+
+    model_config = {"populate_by_name": True}
 
 
 class CheckRequest(BaseModel):

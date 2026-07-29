@@ -7,15 +7,75 @@ What it does:
 - Keeps a headless Chromium session that passes the CDSC F5 WAF.
 - Solves the numeric captcha with an **own ONNX model** (fast, ~free), with
   **2Captcha as fallback** when the model misses.
-- Caches results by `(companyShareId, boid)` so repeats cost nothing.
+- Caches **result checks** by `(companyShareId, boid)` so repeats cost nothing.
+- Caches the **CDSC company dropdown list** in SQLite and refreshes in the
+  background so most app opens never hit CDSC just to load the list. New IPOs
+  are merged automatically when a refresh sees them.
 
 ## Endpoints
 - `GET  /health`
-- `GET  /cdsc/companies` -> `{ companies: [{id, name, scrip}] }`
+- `GET  /cdsc/companies` -> cached list; live refresh when stale (`?refresh=true` forces)
+- `POST /cdsc/companies/refresh` -> force live sync (returns `newlyAdded`)
 - `POST /cdsc/check` body `{ "companyShareId": 123, "boids": ["13..","13.."] }`
   -> `{ companyShareId, results: [{boid, ok, allotted, quantity, message, cached}] }`
 
-All routes except `/health` require header `X-API-Key: <API_KEY>`.
+Auth: Bearer JWT (default) or `X-API-Key` when `CDSC_REQUIRE_JWT=false`.
+
+## Company list cache (no Upstash / Redis required)
+
+Uses the same SQLite file as result cache (`CACHE_DB`, default `cache.sqlite`).
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `CDSC_COMPANIES_CACHE_TTL` | `21600` (6h) | Serve from cache until this age |
+| `CDSC_COMPANIES_REFRESH_SECONDS` | `3600` (1h) | Background sync interval (`0` = off) |
+
+On each successful sync, new `companyShareId`s are inserted and show up in the
+app dropdown on the next load. If live CDSC is blocked, the last good cache is
+still returned.
+
+**You do not need Upstash for this.** Upstash/Redis is only optional for JWT
+blacklist (`REDIS_URL`) if you already use it.
+
+## What you must set up on the VPS (your part)
+
+1. **Buy a residential or mobile proxy** (CDSC WAF blocks Tokyo datacenter IPs).
+2. SSH to the VPS and edit backend env:
+   ```bash
+   nano /var/www/IPO_BULK_APPLY/backend/.env
+   ```
+   Add/set:
+   ```env
+   CDSC_PROXY=http://USER:PASS@HOST:PORT
+   CDSC_COMPANIES_CACHE_TTL=21600
+   CDSC_COMPANIES_REFRESH_SECONDS=3600
+   ```
+3. Deploy latest code and restart:
+   ```bash
+   cd /var/www/IPO_BULK_APPLY
+   git pull
+   systemctl restart nepseghar
+   ```
+4. Prove WAF is clear:
+   ```bash
+   cd /var/www/IPO_BULK_APPLY/backend
+   source .venv/bin/activate   # your venv path
+   python -m scripts.validate_session --auto
+   ```
+5. Optional: force company sync once:
+   ```bash
+   curl -sS -X POST https://api.nepseghar.com/cdsc/companies/refresh \
+     -H "Authorization: Bearer <user-or-admin-jwt>"
+   ```
+6. Check cache health:
+   ```bash
+   curl -sS https://api.nepseghar.com/health
+   ```
+   Look for `companyCacheCount` and `companyCacheAgeSeconds`.
+
+Without a working `CDSC_PROXY` (or Chrome CDP), company sync and checks will
+keep failing with WAF rejects — the cache only helps *after* at least one
+successful pull.
 
 ## Run locally
 ```bash
@@ -30,44 +90,23 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080
 ## Build the captcha model (one time)
 ```bash
 pip install -r requirements-train.txt
-python -m train.collect --count 5000 --out data/raw      # gather captchas
+python -m train.collect --count 5000 --out data/raw
 
-# Label by hand (recommended to start): opens http://127.0.0.1:8765
 python -m train.label_ui
-# Or pay once via 2Captcha for whatever is still unlabeled:
-TWOCAPTCHA_API_KEY=... python -m train.label --raw data/raw --out data/labeled
+# Or: TWOCAPTCHA_API_KEY=... python -m train.label --raw data/raw --out data/labeled
 
 python -m train.train --data data/labeled --out models/captcha.onnx
 ```
-Hand UI: type 5 digits (auto-saves), `S` skip, `Z` undo. Resume-safe — already
-labeled files are skipped. You can stop anytime; remaining images can later be
-filled with 2Captcha. Ship only if val per-digit accuracy > ~0.97.
 
 ## Phase 1 sanity check (no ML)
 ```bash
 python -m scripts.validate_session --auto
 ```
-Proves the session clears the WAF and fetches companies + a captcha.
 
 **Windows tip:** if Playwright Chromium gets `Request Rejected` but normal Chrome
-works, attach to real Chrome instead:
+works, attach to real Chrome instead and set `CHROME_CDP_URL=http://127.0.0.1:9222`.
 
-1. Close extra Chrome windows if needed, then start a debug Chrome:
-   ```bat
-   "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir=%TEMP%\cdsc-chrome-debug https://iporesult.cdsc.com.np/
-   ```
-2. In `.env` set `CHROME_CDP_URL=http://127.0.0.1:9222`
-3. Re-run `python -m scripts.validate_session --auto`
-
-Keep that Chrome window open while collecting / running the API.
-
-## Deploy (recommended: small VPS + Docker)
-- Hetzner CX22 (~EUR 4/mo) or DigitalOcean/Vultr (~$6/mo), 2 GB RAM.
-```bash
-docker build -t nepseghar-cdsc .
-docker run -d --restart unless-stopped -p 8080:8080 --env-file .env \
-  -v "$PWD/models:/app/models" nepseghar-cdsc
-```
+## Deploy
 If the datacenter IP gets WAF-blocked, set `CDSC_PROXY` to a residential proxy.
 
 ## App wiring

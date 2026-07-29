@@ -18,6 +18,7 @@ from .auth.rate_limit import cdsc_user_limiter
 from .cache import ResultCache
 from .captcha_model import CaptchaModel
 from .cdsc import CdscBlockedError, CdscSession, CdscSessionError, CheckResult
+from .company_cache import CompanyListCache
 from .config import get_settings
 from .db.session import configure, init_db, run_with_session
 from .schemas import (
@@ -35,13 +36,93 @@ log = logging.getLogger("cdsc-backend")
 session = CdscSession()
 model = CaptchaModel()
 cache = ResultCache()
+company_cache = CompanyListCache()
 solver = Solver(session, model)
 _check_semaphore: asyncio.Semaphore | None = None
+_company_refresh_task: asyncio.Task | None = None
+_company_refresh_lock: asyncio.Lock | None = None
+
+
+def _refresh_lock() -> asyncio.Lock:
+    global _company_refresh_lock
+    if _company_refresh_lock is None:
+        _company_refresh_lock = asyncio.Lock()
+    return _company_refresh_lock
+
+
+async def _pull_companies_from_cdsc(*, force: bool = False) -> dict[str, object]:
+    """Fetch live CDSC list and merge into SQLite cache. Proxy/session used here."""
+    settings = get_settings()
+    if (
+        not force
+        and not company_cache.is_stale(settings.cdsc_companies_cache_ttl)
+    ):
+        snap = company_cache.get_active()
+        return {
+            "skipped": True,
+            "reason": "fresh",
+            "count": len(snap.companies),
+            "fetched_at": snap.fetched_at,
+            "newly_added": [],
+            "newly_added_count": 0,
+        }
+
+    async with _refresh_lock():
+        # Re-check inside lock to avoid stampedes.
+        if (
+            not force
+            and not company_cache.is_stale(settings.cdsc_companies_cache_ttl)
+        ):
+            snap = company_cache.get_active()
+            return {
+                "skipped": True,
+                "reason": "fresh",
+                "count": len(snap.companies),
+                "fetched_at": snap.fetched_at,
+                "newly_added": [],
+                "newly_added_count": 0,
+            }
+
+        if not session.ready:
+            try:
+                await session.start()
+            except Exception as e:  # noqa: BLE001
+                log.warning("CDSC session start failed during company refresh: %s", e)
+                raise
+
+        rows = await session.get_companies()
+        live = [(c.id, c.name, c.scrip) for c in rows]
+        meta = company_cache.merge_live(live)
+        meta["skipped"] = False
+        return meta
+
+
+async def _company_refresh_loop() -> None:
+    settings = get_settings()
+    interval = max(0, int(settings.cdsc_companies_refresh_seconds))
+    if interval <= 0:
+        log.info("CDSC company background refresh disabled")
+        return
+
+    # Small delay so startup warm-up can finish first.
+    await asyncio.sleep(15)
+    while True:
+        try:
+            meta = await _pull_companies_from_cdsc(force=False)
+            if not meta.get("skipped"):
+                log.info(
+                    "Background CDSC company sync: %s companies, +%s new",
+                    meta.get("count"),
+                    meta.get("newly_added_count"),
+                )
+        except Exception as e:  # noqa: BLE001
+            log.warning("Background CDSC company sync failed: %s", e)
+        await asyncio.sleep(interval)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _check_semaphore
+    global _check_semaphore, _company_refresh_task
     settings = get_settings()
     configure(settings.database_url)
     await init_db()
@@ -58,7 +139,21 @@ async def lifespan(app: FastAPI):
         await asyncio.wait_for(session.start(), timeout=60.0)
     except Exception as e:  # noqa: BLE001
         log.warning("CDSC warm-up deferred: %s", e)
+
+    # Best-effort initial company sync (uses cache if CDSC is blocked).
+    try:
+        await _pull_companies_from_cdsc(force=False)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Initial CDSC company sync deferred: %s", e)
+
+    _company_refresh_task = asyncio.create_task(_company_refresh_loop())
     yield
+    if _company_refresh_task is not None:
+        _company_refresh_task.cancel()
+        try:
+            await _company_refresh_task
+        except asyncio.CancelledError:
+            pass
     await session.close()
 
 
@@ -127,10 +222,15 @@ async def allow_captcha_solve(
 
 @app.get("/health")
 async def health() -> dict[str, object]:
+    snap = company_cache.get_active()
+    age = company_cache.age_seconds()
     return {
         "ok": True,
         "session_ready": session.ready,
         "model_available": model.available,
+        "companyCacheCount": len(snap.companies),
+        "companyCacheAgeSeconds": age,
+        "companyCacheFetchedAt": snap.fetched_at or None,
     }
 
 
@@ -141,18 +241,76 @@ async def ping() -> dict[str, str]:
 
 
 @app.get("/cdsc/companies", response_model=CompaniesResponse)
-async def companies(_: str = Depends(require_cdsc_access)) -> CompaniesResponse:
+async def companies(
+    refresh: bool = False,
+    _: str = Depends(require_cdsc_access),
+) -> CompaniesResponse:
+    """Return CDSC companies from cache; refresh from CDSC when stale or forced.
+
+    Query: ?refresh=true forces a live pull (uses proxy/session).
+    """
+    settings = get_settings()
+    snap = company_cache.get_active()
+    stale = company_cache.is_stale(settings.cdsc_companies_cache_ttl)
+    newly_added_count = 0
+    served_from_cache = True
+
+    should_live = refresh or stale or not snap.companies
+    if should_live:
+        try:
+            meta = await _pull_companies_from_cdsc(force=refresh or not snap.companies)
+            newly_added_count = int(meta.get("newly_added_count") or 0)
+            served_from_cache = bool(meta.get("skipped"))
+            snap = company_cache.get_active()
+            stale = company_cache.is_stale(settings.cdsc_companies_cache_ttl)
+        except (CdscBlockedError, CdscSessionError) as e:
+            if snap.companies:
+                log.warning("CDSC live company pull failed; serving cache: %s", e)
+            else:
+                raise HTTPException(status_code=503, detail=str(e)) from e
+        except Exception as e:  # noqa: BLE001
+            if snap.companies:
+                log.warning("CDSC live company pull failed; serving cache: %s", e)
+            else:
+                raise HTTPException(status_code=502, detail=str(e)) from e
+
+    if not snap.companies:
+        raise HTTPException(
+            status_code=503,
+            detail="No CDSC companies in cache and live fetch failed",
+        )
+
+    return CompaniesResponse(
+        companies=[
+            CompanyOut(id=c.id, name=c.name, scrip=c.scrip) for c in snap.companies
+        ],
+        cached=served_from_cache,
+        fetched_at=snap.fetched_at or None,
+        newly_added_count=newly_added_count,
+        stale=stale,
+    )
+
+
+@app.post("/cdsc/companies/refresh")
+async def refresh_companies(_: str = Depends(require_cdsc_access)) -> dict[str, object]:
+    """Force a live CDSC company sync (admin / cron / manual)."""
     try:
-        rows = await session.get_companies()
+        meta = await _pull_companies_from_cdsc(force=True)
     except CdscBlockedError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except CdscSessionError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(e)) from e
-    return CompaniesResponse(
-        companies=[CompanyOut(id=c.id, name=c.name, scrip=c.scrip) for c in rows]
-    )
+    snap = company_cache.get_active()
+    return {
+        "ok": True,
+        "count": len(snap.companies),
+        "fetchedAt": snap.fetched_at,
+        "newlyAdded": meta.get("newly_added") or [],
+        "newlyAddedCount": meta.get("newly_added_count") or 0,
+        "skipped": bool(meta.get("skipped")),
+    }
 
 
 async def _check_one(company_share_id: int, boid: str) -> CheckRow:
