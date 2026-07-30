@@ -12,7 +12,7 @@ import {
 } from './parse';
 import { solvePublicCaptcha } from './solveCaptcha';
 
-const ACCOUNT_GAP_MS = 700;
+const ACCOUNT_GAP_MS = 1800;
 const CAPTCHA_ATTEMPTS = 5;
 
 function sleep(ms: number) {
@@ -175,6 +175,7 @@ export async function runPublicBulkResultCheck(opts: {
             resolved.length,
           );
           await opts.bridge.resetSession(90000);
+          await sleep(1500);
           const home = await loadPublicHomeViaBridge(opts.bridge);
           captcha = home.captcha;
           lastMessage = 'CDSC session refreshed';

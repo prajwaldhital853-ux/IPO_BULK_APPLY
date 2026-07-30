@@ -349,11 +349,34 @@ function buildSeed(person: PersonSeed, index: number): MockAccountSeed {
   };
 }
 
+function buildExpandedPeople(targetCount: number): PersonSeed[] {
+  return Array.from({ length: targetCount }, (_, index) => {
+    const base = PEOPLE[index % PEOPLE.length]!;
+    const copy = Math.floor(index / PEOPLE.length);
+    if (copy === 0) return base;
+
+    const suffix = `${copy + 1}`.padStart(2, '0');
+    const baseUser = Number(base.username) || 0;
+    const username = String(10_000_000 + ((baseUser + copy * 137 + index) % 89_999_999)).padStart(8, '0');
+    const accountSuffix = `${(copy * PEOPLE.length + index + 1) % 10000}`.padStart(4, '0');
+
+    return {
+      ...base,
+      slug: `${base.slug}-${suffix}`,
+      name: `${base.name} ${suffix}`,
+      username,
+      accountNumber: `${base.accountNumber.slice(0, -4)}${accountSuffix}`,
+    };
+  });
+}
+
 /**
- * 15 realistic sample accounts for Expo Go / offline demos.
+ * 100 realistic sample accounts for Expo Go / offline demos.
  * Holdings include a mix of gains and losses vs previous close & WACC.
  */
-export const MOCK_ACCOUNT_SEEDS: MockAccountSeed[] = PEOPLE.map(buildSeed);
+export const MOCK_ACCOUNT_SEEDS: MockAccountSeed[] = buildExpandedPeople(100).map(
+  buildSeed,
+);
 
 export function mockHoldingsForAccount(
   accountId: string,

@@ -315,6 +315,11 @@ export const IpoResultWebBridge = forwardRef<IpoResultWebBridgeHandle, Props>(
         resetSession(timeoutMs = 60000) {
           readyRef.current = false;
           onReadyChange?.(false);
+          try {
+            webRef.current?.clearCache?.(true);
+          } catch {
+            // clearCache is Android-only; ignore where unavailable.
+          }
           for (const [, p] of pending.current.entries()) {
             clearTimeout(p.timer);
             p.reject(new Error('iporesult session reset'));
