@@ -20,6 +20,7 @@ import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { AppHeader } from '../components/AppHeader';
 import { HomeMarketPanel } from '../components/home/HomeMarketPanel';
 import { HOME_CARD_GAP, HOME_H_PAD } from '../components/home/homeLayout';
+import { isMockAccountId } from '../data/mockAccounts';
 import { useAccounts } from '../context/AccountsContext';
 import { useAppBranding } from '../context/AppBrandingContext';
 import { useSubscription } from '../context/SubscriptionContext';
@@ -109,6 +110,8 @@ export function HomeScreen() {
     removeAccount,
     reorderAccounts,
     loadSecrets,
+    seedMockAccounts,
+    removeMockAccounts,
   } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
   const { refresh: refreshBranding } = useAppBranding();
@@ -141,6 +144,7 @@ export function HomeScreen() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
 
   const filteredAccounts = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -155,6 +159,39 @@ export function HomeScreen() {
   }, [accounts, query]);
 
   const searching = Boolean(query.trim());
+  const hasMockAccounts = useMemo(
+    () => accounts.some((a) => isMockAccountId(a.id)),
+    [accounts],
+  );
+
+  const toggleDemoAccounts = useCallback(() => {
+    Alert.alert(
+      hasMockAccounts ? 'Remove demo accounts?' : 'Add demo accounts?',
+      hasMockAccounts
+        ? 'This removes the sample/demo accounts from the app.'
+        : 'This adds sample/demo accounts for testing result, status and portfolio screens.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: hasMockAccounts ? 'Remove' : 'Add',
+          onPress: () => {
+            void (async () => {
+              setDemoBusy(true);
+              try {
+                if (hasMockAccounts) {
+                  await removeMockAccounts();
+                } else {
+                  await seedMockAccounts();
+                }
+              } finally {
+                setDemoBusy(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [hasMockAccounts, removeMockAccounts, seedMockAccounts]);
 
   const confirmDelete = (item: AccountMeta) => {
     Alert.alert(
@@ -357,6 +394,18 @@ export function HomeScreen() {
                       ? colors.text
                       : colors.textMuted
                   }
+                />
+              </Pressable>
+              <Pressable
+                onPress={toggleDemoAccounts}
+                hitSlop={6}
+                style={styles.iconBtn}
+                disabled={demoBusy}
+              >
+                <Ionicons
+                  name={hasMockAccounts ? 'flask' : 'flask-outline'}
+                  size={rs(18)}
+                  color={demoBusy ? colors.textMuted : colors.text}
                 />
               </Pressable>
               <Pressable

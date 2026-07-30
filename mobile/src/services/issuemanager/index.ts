@@ -5,6 +5,8 @@ export type {
 } from './types';
 export {
   ISSUE_MANAGERS,
+  buildManagerAliasSet,
+  filterCdscOnlyCompanies,
   getProvider,
   loadAllIssueManagerCompanies,
   loadIssueManagerCompanies,

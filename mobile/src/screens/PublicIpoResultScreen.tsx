@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +21,8 @@ import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
 import {
   ISSUE_MANAGERS,
+  buildManagerAliasSet,
+  filterCdscOnlyCompanies,
   isCdscBackendConfigured,
   loadIssueManagerCompanies,
   loadCdscFallbackCompanies,
@@ -34,9 +36,25 @@ import { maskBoid, resolveBoidSync } from '../utils/boid';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
+import {
+  CaptchaOcrBridge,
+  type CaptchaOcrHandle,
+} from '../components/CaptchaOcrBridge';
+import {
+  IpoResultWebBridge,
+  type IpoResultWebBridgeHandle,
+} from '../components/IpoResultWebBridge';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
+import {
+  loadPublicHomeViaBridge,
+  runPublicBulkResultCheck,
+  type PublicBulkResultRow,
+  type PublicBulkResultSummary,
+} from '../services/iporesult/bulkEngine';
 
 type ProviderLoadError = { provider: string; label: string; message: string };
+type ResultRow = IssueManagerBulkRow | PublicBulkResultRow;
+type BulkSummary = IssueManagerBulkSummary | PublicBulkResultSummary;
 
 export function PublicIpoResultScreen() {
   const navigation =
@@ -46,6 +64,8 @@ export function PublicIpoResultScreen() {
   const { colors } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const bridgeRef = useRef<IpoResultWebBridgeHandle | null>(null);
+  const ocrRef = useRef<CaptchaOcrHandle | null>(null);
 
   const [companies, setCompanies] = useState<IssueManagerCompany[]>([]);
   const [selected, setSelected] = useState<IssueManagerCompany | null>(null);
@@ -58,14 +78,15 @@ export function PublicIpoResultScreen() {
   const [progress, setProgress] = useState('');
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [checkComplete, setCheckComplete] = useState(false);
-  const [summary, setSummary] = useState<IssueManagerBulkSummary | null>(null);
+  const [summary, setSummary] = useState<BulkSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [partialWarn, setPartialWarn] = useState<string | null>(null);
   const [providerErrors, setProviderErrors] = useState<ProviderLoadError[]>([]);
   const [hideBoids, setHideBoids] = useState(false);
-  const [resultsMap, setResultsMap] = useState<Record<string, IssueManagerBulkRow>>({});
+  const [resultsMap, setResultsMap] = useState<Record<string, ResultRow>>({});
   const [resultModalOpen, setResultModalOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [bridgeReady, setBridgeReady] = useState(false);
 
   const checkAccounts = useMemo(() => {
     const selectedSet = new Set(
@@ -73,6 +94,31 @@ export function PublicIpoResultScreen() {
     );
     return accounts.filter((a) => selectedSet.has(a.id));
   }, [accounts, checkAccountIds]);
+  const hasCdscCompanies = useMemo(
+    () => companies.some((c) => c.provider === 'cdsc'),
+    [companies],
+  );
+
+  const loadCdscPhoneCompanies = useCallback(
+    async (managerCompanies: IssueManagerCompany[]) => {
+      const bridge = bridgeRef.current;
+      if (!bridge) {
+        throw new Error('CDSC phone bridge is not ready yet.');
+      }
+      const home = await loadPublicHomeViaBridge(bridge);
+      const phoneCompanies: IssueManagerCompany[] = home.companies.map((c) => ({
+        key: `cdsc:${c.id}`,
+        provider: 'cdsc',
+        rawId: String(c.id),
+        name: c.name.trim(),
+        providerLabel: 'CDSC portal (this phone)',
+        scrip: c.scrip?.trim() || undefined,
+      }));
+      const managerAliases = buildManagerAliasSet(managerCompanies);
+      return filterCdscOnlyCompanies(phoneCompanies, managerAliases);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!accounts.length) {
@@ -103,7 +149,10 @@ export function PublicIpoResultScreen() {
         const still = prev
           ? loaded.companies.find((c) => c.key === prev.key)
           : null;
-        return still ?? loaded.companies[0] ?? null;
+        // Keep a previously selected CDSC-only company while fallback sources
+        // are still loading; otherwise the picker jumps back to the first
+        // issue-manager company during background refresh/recovery.
+        return still ?? prev ?? loaded.companies[0] ?? null;
       });
 
       if (!loaded.companies.length) {
@@ -115,11 +164,7 @@ export function PublicIpoResultScreen() {
             `No IPO results listed yet on the ${ISSUE_MANAGERS.length} live issue managers.`,
         );
       } else if (loaded.errors.length) {
-        setPartialWarn(
-          `${loaded.companies.length} companies from issue managers. Offline: ${loaded.errors
-            .map((e) => e.label)
-            .join(', ')}.`,
-        );
+        setPartialWarn('Some issue-manager sources are temporarily offline.');
       }
     } catch (e) {
       setCompanies([]);
@@ -154,30 +199,59 @@ export function PublicIpoResultScreen() {
           setSelected((sel) => sel ?? merged[0] ?? null);
           return merged;
         });
-        setPartialWarn((prev) => {
-          const cdscNote = `${fallback.companies.length} CDSC-only IPO(s) added (not on the 11 managers).`;
-          return prev ? `${prev} ${cdscNote}` : cdscNote;
-        });
+        setPartialWarn(
+          `${fallback.companies.length} CDSC-only IPO(s) added from backend cache.`,
+        );
       } else if (fallback.errors.length) {
-        setPartialWarn((prev) => {
-          const cdscErr = `CDSC backend offline: ${fallback.errors[0]?.message ?? 'unreachable'}. Issue-manager IPOs still work.`;
-          return prev ? `${prev} ${cdscErr}` : cdscErr;
-        });
+        setPartialWarn('CDSC backend is unavailable, trying this phone instead.');
       }
     } catch (e) {
-      setPartialWarn((prev) => {
-        const cdscErr = `CDSC fallback failed: ${e instanceof Error ? e.message : 'unknown error'}. Issue-manager IPOs still work.`;
-        return prev ? `${prev} ${cdscErr}` : cdscErr;
-      });
-    } finally {
-      setLoadingCdsc(false);
-      setProgress('');
+      setPartialWarn('CDSC backend fallback failed, trying this phone instead.');
     }
-  }, []);
+
+    if (bridgeReady) {
+      try {
+        const phoneFallback = await loadCdscPhoneCompanies(primary!.companies);
+        if (phoneFallback.length) {
+          setCompanies((prev) => {
+            const seen = new Set(prev.map((c) => c.key));
+            const merged = [...prev];
+            for (const company of phoneFallback) {
+              if (!seen.has(company.key)) {
+                seen.add(company.key);
+                merged.push(company);
+              }
+            }
+            merged.sort((a, b) => a.name.localeCompare(b.name));
+            setSelected((sel) => sel ?? merged[0] ?? null);
+            return merged;
+          });
+          setPartialWarn(
+            `${phoneFallback.length} CDSC-only IPO(s) loaded from this phone.`,
+          );
+        }
+      } catch (e) {
+        setPartialWarn(
+          `CDSC on this phone is not ready yet: ${e instanceof Error ? e.message : 'unknown error'}.`,
+        );
+      }
+    }
+
+    setLoadingCdsc(false);
+    setProgress('');
+  }, [bridgeReady, loadCdscPhoneCompanies]);
 
   useEffect(() => {
     void refreshCompanies();
   }, [refreshCompanies]);
+
+  useEffect(() => {
+    if (!bridgeReady) return;
+    if (!isCdscBackendConfigured()) return;
+    if (running) return;
+    if (hasCdscCompanies) return;
+    void refreshCompanies();
+  }, [bridgeReady, hasCdscCompanies, refreshCompanies, running]);
 
   useEffect(() => {
     setResultsMap({});
@@ -186,6 +260,47 @@ export function PublicIpoResultScreen() {
     setCheckComplete(false);
     setCheckingId(null);
   }, [selected?.key]);
+
+  const runCdscBridgeCheck = useCallback(
+    async (queue: AccountMeta[]) => {
+      const bridge = bridgeRef.current;
+      const ocr = ocrRef.current;
+      if (!selected) {
+        throw new Error('Select a CDSC company first.');
+      }
+      if (!bridge || !ocr) {
+        throw new Error('CDSC in-app checker is not ready yet. Retry in a moment.');
+      }
+
+      setProgress('Preparing CDSC in-app session…');
+      const home = await loadPublicHomeViaBridge(bridge);
+      const liveCompany = home.companies.find(
+        (c) => String(c.id) === String(selected.rawId),
+      );
+      if (!liveCompany) {
+        throw new Error(
+          'This CDSC company is not visible in the current phone session yet. Refresh and try again.',
+        );
+      }
+
+      return runPublicBulkResultCheck({
+        bridge,
+        ocr,
+        accounts: queue,
+        company: liveCompany,
+        captcha: home.captcha,
+        onProgress: (msg, index) => {
+          setProgress(msg);
+          setCheckingId(queue[index]?.id ?? null);
+        },
+        onAccountResult: (row, index) => {
+          setResultsMap((prev) => ({ ...prev, [row.accountId]: row }));
+          setCheckingId(queue[index + 1]?.id ?? null);
+        },
+      });
+    },
+    [selected],
+  );
 
   const toggleCheckAccount = (account: AccountMeta) => {
     setCheckAccountIds((prev) => {
@@ -236,18 +351,21 @@ export function PublicIpoResultScreen() {
               }
             }
 
-            const result = await runIssueManagerBulkCheck({
-              accounts: queue,
-              company: selected,
-              onProgress: (msg, index) => {
-                setProgress(msg);
-                setCheckingId(queue[index]?.id ?? null);
-              },
-              onAccountResult: (row, index) => {
-                setResultsMap((prev) => ({ ...prev, [row.accountId]: row }));
-                setCheckingId(queue[index + 1]?.id ?? null);
-              },
-            });
+            const result =
+              selected.provider === 'cdsc'
+                ? await runCdscBridgeCheck(queue)
+                : await runIssueManagerBulkCheck({
+                    accounts: queue,
+                    company: selected,
+                    onProgress: (msg, index) => {
+                      setProgress(msg);
+                      setCheckingId(queue[index]?.id ?? null);
+                    },
+                    onAccountResult: (row, index) => {
+                      setResultsMap((prev) => ({ ...prev, [row.accountId]: row }));
+                      setCheckingId(queue[index + 1]?.id ?? null);
+                    },
+                  });
             setSummary(result);
             setCheckComplete(true);
             if (openModal) setResultModalOpen(true);
@@ -313,6 +431,8 @@ export function PublicIpoResultScreen() {
 
   const showSummary =
     checkComplete && !running && Object.keys(resultsMap).length > 0;
+  const usesCdscBridge = selected?.provider === 'cdsc';
+  const showCdscBridge = usesCdscBridge && (!bridgeReady || running);
 
   const modalAllotted =
     summary?.results.filter((r) => r.ok && r.allotted).length ?? allottedCount;
@@ -432,6 +552,16 @@ export function PublicIpoResultScreen() {
         </Pressable>
 
         {progress ? <Text style={styles.progress}>{progress}</Text> : null}
+
+        {usesCdscBridge ? (
+          <Text style={styles.progress}>
+            CDSC result checks run from this phone's in-app browser session.
+          </Text>
+        ) : null}
+
+        {partialWarn ? <Text style={styles.warnText}>{partialWarn}</Text> : null}
+
+        {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
 
         {showSummary ? (
           <View style={styles.summaryBox}>
@@ -694,6 +824,15 @@ export function PublicIpoResultScreen() {
         </View>
       </Modal>
       <SensitiveActionModals action={sensitive} />
+      <CaptchaOcrBridge ref={ocrRef} />
+      <IpoResultWebBridge
+        ref={bridgeRef}
+        interactive={showCdscBridge}
+        onReadyChange={setBridgeReady}
+        onPortalBlocked={(reason) => {
+          setProgress(reason);
+        }}
+      />
 
       <Modal
         visible={resultModalOpen}
@@ -870,6 +1009,18 @@ function makeStyles(c: ThemeColors) {
       color: c.textSecondary,
       marginBottom: rs(10),
       fontSize: rs(12),
+    },
+    warnText: {
+      color: '#FB8C00',
+      fontSize: rs(11),
+      marginBottom: rs(10),
+      lineHeight: rs(16),
+    },
+    errorText: {
+      color: c.danger,
+      fontSize: rs(11),
+      marginBottom: rs(10),
+      lineHeight: rs(16),
     },
     resultCard: {
       flexDirection: 'row',

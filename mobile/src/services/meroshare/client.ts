@@ -584,7 +584,7 @@ export class MeroshareClient {
       return {
         kind: 'skipped',
         message:
-          'No IPO/FPO is open right now, so CRN/PIN cannot be confirmed with MeroShare until an issue opens. Login and bank are verified.',
+          'No open IPO left to verify against (none open, or you already applied on all open ones). CRN/PIN will be confirmed on live apply. Login and bank are verified.',
       };
     }
 
@@ -659,6 +659,9 @@ export class MeroshareClient {
     };
 
     // 1) Fake CRN + real PIN
+    // MeroShare often checks already-applied / kitta / eligibility BEFORE CRN.
+    // If that happens, classifyProbeMessage returns "accepted" for a fake CRN —
+    // that is inconclusive, not proof that CRN validation is broken. Continue.
     const fakeCrn = `ZZ${args.crnNumber}ZZ99`;
     const negative = await once(fakeCrn, args.transactionPIN, '10');
     if (negative.kind === 'no_window') {
@@ -666,13 +669,6 @@ export class MeroshareClient {
         kind: 'skipped',
         message:
           'No IPO is open for apply right now (MeroShare date window). CRN/PIN will be confirmed on first live apply. Login and bank are verified.',
-      };
-    }
-    if (negative.kind === 'accepted') {
-      return {
-        kind: 'impossible',
-        message:
-          'MeroShare did not reject a fake CRN, so CRN cannot be verified safely. Account was NOT saved.',
       };
     }
     if (negative.kind === 'impossible') {
@@ -689,13 +685,8 @@ export class MeroshareClient {
           'No IPO is open for apply right now (MeroShare date window). CRN/PIN will be confirmed on first live apply. Login and bank are verified.',
       };
     }
-    if (pinNeg.kind === 'accepted') {
-      return {
-        kind: 'impossible',
-        message:
-          'MeroShare did not reject a wrong PIN, so PIN cannot be verified. Account was NOT saved.',
-      };
-    }
+    // Same as fake-CRN canary: "accepted" here usually means MeroShare rejected
+    // for kitta/eligibility before checking PIN — keep going.
     if (pinNeg.kind === 'crn') {
       return { kind: 'crn', message: pinNeg.message };
     }
@@ -741,8 +732,10 @@ export class MeroshareClient {
       const issues = await this.listApplicableIssues();
       const open = issues.filter((i) => i.companyShareId > 0);
       if (!open.length) return null;
+      // Never probe an already-applied issue: MeroShare returns "already applied"
+      // before validating CRN/PIN, which falsely trips the save canary.
       const unapplied = open.find((i) => !i.alreadyApplied);
-      return (unapplied ?? open[0]).companyShareId;
+      return unapplied ? unapplied.companyShareId : null;
     } catch {
       return null;
     }

@@ -219,7 +219,7 @@ export async function solveCaptchaViaAudioSpeech(
 
 /**
  * Auto-solve CDSC captcha without user typing.
- * Prefer audioCaptcha (bulk-app style, browser-decoded), then OCR.space,
+ * Prefer backend ONNX / 2Captcha, then audioCaptcha, then OCR.space,
  * then local Tesseract.
  */
 export async function solvePublicCaptcha(
@@ -227,6 +227,12 @@ export async function solvePublicCaptcha(
   ocr?: CaptchaOcrHandle | null,
 ): Promise<string> {
   const errors: string[] = [];
+
+  try {
+    return await solveCaptchaViaBackend(captcha.captchaImageBase64);
+  } catch (e) {
+    errors.push(`backend: ${e instanceof Error ? e.message : 'failed'}`);
+  }
 
   if (captcha.audioCaptcha && ocr?.decodeAudioPcm16k) {
     try {

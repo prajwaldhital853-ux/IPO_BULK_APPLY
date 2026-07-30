@@ -19,6 +19,12 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function isWafBlockError(message: string): boolean {
+  return /waf|request rejected|support id|blocked the request|cold webview/i.test(
+    message,
+  );
+}
+
 export type PublicBulkResultRow = {
   accountId: string;
   accountName: string;
@@ -70,10 +76,21 @@ export async function runPublicBulkResultCheck(opts: {
   company: PublicIpoCompany;
   captcha: PublicCaptcha;
   onProgress?: (msg: string, index: number, total: number) => void;
+  onAccountResult?: (
+    row: PublicBulkResultRow,
+    index: number,
+    total: number,
+  ) => void;
 }): Promise<PublicBulkResultSummary> {
   const resolved = await resolveBoidsForAccounts(opts.accounts);
   const results: PublicBulkResultRow[] = [];
   let captcha = opts.captcha;
+  const total = resolved.length;
+
+  const emit = (row: PublicBulkResultRow, i: number) => {
+    results.push(row);
+    opts.onAccountResult?.(row, i, total);
+  };
 
   for (let i = 0; i < resolved.length; i++) {
     const row = resolved[i];
@@ -84,14 +101,14 @@ export async function runPublicBulkResultCheck(opts: {
     );
 
     if (!row.boid) {
-      results.push({
+      emit({
         accountId: row.account.id,
         accountName: row.account.name,
         username: row.account.username,
         ok: false,
         allotted: false,
         message: row.error ?? 'Missing BOID',
-      });
+      }, i);
       continue;
     }
 
@@ -134,7 +151,7 @@ export async function runPublicBulkResultCheck(opts: {
           continue;
         }
 
-        results.push({
+        emit({
           accountId: row.account.id,
           accountName: row.account.name,
           username: row.account.username,
@@ -143,15 +160,31 @@ export async function runPublicBulkResultCheck(opts: {
           allotted: check.allotted,
           quantity: check.quantity,
           message: check.message,
-        });
+        }, i);
         done = true;
       } catch (e) {
         lastMessage = e instanceof Error ? e.message : 'Check failed';
+        if (
+          attempt < CAPTCHA_ATTEMPTS - 1 &&
+          isWafBlockError(lastMessage) &&
+          opts.bridge.resetSession
+        ) {
+          opts.onProgress?.(
+            `Refreshing CDSC session for ${row.account.name}…`,
+            i,
+            resolved.length,
+          );
+          await opts.bridge.resetSession(90000);
+          const home = await loadPublicHomeViaBridge(opts.bridge);
+          captcha = home.captcha;
+          lastMessage = 'CDSC session refreshed';
+          continue;
+        }
       }
     }
 
     if (!done) {
-      results.push({
+      emit({
         accountId: row.account.id,
         accountName: row.account.name,
         username: row.account.username,
@@ -159,7 +192,7 @@ export async function runPublicBulkResultCheck(opts: {
         ok: false,
         allotted: false,
         message: lastMessage,
-      });
+      }, i);
     }
 
     if (i < resolved.length - 1) {

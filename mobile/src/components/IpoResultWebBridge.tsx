@@ -24,6 +24,7 @@ export type BridgeHttpResult = {
 
 export type IpoResultWebBridgeHandle = {
   whenReady: (timeoutMs?: number) => Promise<void>;
+  resetSession: (timeoutMs?: number) => Promise<void>;
   fetchHome: () => Promise<BridgeHttpResult>;
   checkResult: (body: {
     companyShareId: string | number;
@@ -305,6 +306,29 @@ export const IpoResultWebBridge = forwardRef<IpoResultWebBridgeHandle, Props>(
               reject(
                 new Error(
                   'iporesult portal WebView did not finish loading. Tap refresh.',
+                ),
+              );
+            }, timeoutMs);
+            readyWaiters.current.push({ resolve, reject, timer });
+          });
+        },
+        resetSession(timeoutMs = 60000) {
+          readyRef.current = false;
+          onReadyChange?.(false);
+          for (const [, p] of pending.current.entries()) {
+            clearTimeout(p.timer);
+            p.reject(new Error('iporesult session reset'));
+          }
+          pending.current.clear();
+          setReloadKey((k) => k + 1);
+          return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+              readyWaiters.current = readyWaiters.current.filter(
+                (w) => w.resolve !== resolve,
+              );
+              reject(
+                new Error(
+                  'iporesult portal did not recover after session reset. Tap refresh.',
                 ),
               );
             }, timeoutMs);

@@ -29,6 +29,7 @@ from .schemas import (
     CompanyOut,
 )
 from .solver import Solver
+from .twocaptcha import TwoCaptchaError, solve_image_base64
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("cdsc-backend")
@@ -354,23 +355,52 @@ async def solve_captcha(
     req: SolveCaptchaRequest,
     _: str = Depends(allow_captcha_solve),
 ) -> SolveCaptchaResponse:
-    """Solve a CDSC numeric captcha image using the trained ONNX model.
+    """Solve a CDSC numeric captcha image using ONNX, then 2Captcha fallback.
 
     The mobile in-app result checker grabs the captcha <img> as a PNG data URL
     and posts it here; the trained model is far more reliable on CDSC's grid
-    captchas than generic OCR.
+    captchas than generic OCR. When the model is unavailable or too weak, fall
+    back to 2Captcha so the phone-side public checker stays automated.
     """
-    if not model.available:
-        raise HTTPException(status_code=503, detail="Captcha model not available")
+    settings = get_settings()
+    model_error = ""
+
+    if model.available:
+        try:
+            pred = await asyncio.to_thread(model.predict_robust, req.image_base64)
+            if (
+                len(pred.text) >= settings.cdsc_captcha_digits
+                and pred.confidence >= 0.30
+            ):
+                return SolveCaptchaResponse(
+                    text=pred.text[: settings.cdsc_captcha_digits],
+                    confidence=pred.confidence,
+                    method=pred.method,
+                )
+            model_error = (
+                f'low-confidence model read "{pred.text}" ({pred.confidence:.2f})'
+            )
+        except Exception as e:  # noqa: BLE001
+            model_error = str(e)
+    else:
+        model_error = "Captcha model not available"
+
     try:
-        pred = await asyncio.to_thread(model.predict_robust, req.image_base64)
+        solved = await solve_image_base64(
+            req.image_base64, settings.cdsc_captcha_digits
+        )
+    except TwoCaptchaError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Captcha solve failed ({model_error}); 2Captcha: {e}",
+        ) from e
     except Exception as e:  # noqa: BLE001
         raise HTTPException(
-            status_code=502, detail=f"Captcha solve failed: {e}"
+            status_code=502,
+            detail=f"Captcha solve failed ({model_error}); 2Captcha: {e}",
         ) from e
-    return SolveCaptchaResponse(
-        text=pred.text, confidence=pred.confidence, method=pred.method
-    )
+
+    return SolveCaptchaResponse(text=solved, confidence=1.0, method="2captcha")
 
 
 @app.post("/cdsc/check", response_model=CheckResponse)

@@ -2,14 +2,29 @@
 
 Pixel-same **core shell** UI (dark theme) matching client screenshots.
 
-## Run
+## Run (Expo Go — quick test)
 
 ```bash
 cd mobile
-pnpm start
+cp .env.example .env   # once; already filled for nepseghar API
+npm install            # once
+npm run start:go
 ```
 
-Then press `a` for Android emulator / Expo Go, or scan QR with Expo Go.
+Phone and PC on the **same Wi‑Fi** → scan the QR in **Expo Go**.  
+Different network / QR fails → `npm run start:go:tunnel` then scan.
+
+Google sign-in in Expo Go uses the browser flow (not the native picker).  
+MeroShare CRN/PIN verify runs on-device against MeroShare — good for testing the save probe fix.
+
+## Run (dev client / full)
+
+```bash
+cd mobile
+npm start
+```
+
+Then press `a` for Android emulator, or use a preview APK.
 
 ## What’s included (design phase)
 
