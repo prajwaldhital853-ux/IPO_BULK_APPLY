@@ -10,9 +10,17 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
@@ -32,6 +40,7 @@ import { guardAddAccount } from '../utils/accountLimits';
 import {
   loadOpenIssuesForUi,
   runBulkApply,
+  type ApplyAccountResult,
   type BulkApplySummary,
   type OpenIssue,
 } from '../services/meroshare';
@@ -46,6 +55,38 @@ import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 
+type ApplyFilter =
+  | 'all'
+  | 'applied'
+  | 'auth'
+  | 'balance'
+  | 'missing'
+  | 'other';
+
+function classifyApplyResult(r: ApplyAccountResult): Exclude<ApplyFilter, 'all'> {
+  if (r.ok) return 'applied';
+  const m = r.message.toLowerCase();
+  if (
+    /invalid username|password|credential|unauthorized|wrong depository|auth/i.test(
+      m,
+    )
+  ) {
+    return 'auth';
+  }
+  if (/missing password|crn|pin/i.test(m)) return 'missing';
+  if (/insufficient|balance|block.?fail/i.test(m)) return 'balance';
+  return 'other';
+}
+
+function reasonLabel(r: ApplyAccountResult): string {
+  const kind = classifyApplyResult(r);
+  if (kind === 'applied') return 'Applied';
+  if (kind === 'auth') return 'Invalid login';
+  if (kind === 'missing') return 'Missing CRN/PIN';
+  if (kind === 'balance') return 'Insufficient balance';
+  return 'Not applied';
+}
+
 export function ApplyScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -55,7 +96,22 @@ export function ApplyScreen() {
   const { isPremium, maxAccounts } = useSubscription();
   const { colors } = useTheme();
   const sensitive = useSensitiveAction();
+  const { height: winH } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  const sheetCollapsed = Math.round(rs(56));
+  const sheetMid = Math.round(winH * 0.48);
+  const sheetMax = Math.round(winH * 0.82);
+  const sheetH = useSharedValue(sheetMid);
+  const sheetStart = useSharedValue(sheetMid);
+  const [sheetPeek, setSheetPeek] = useState(false);
+
+  const setPeekFromHeight = useCallback(
+    (h: number) => {
+      setSheetPeek(h <= sheetCollapsed + 12);
+    },
+    [sheetCollapsed],
+  );
 
   const goAddCapital = useCallback(() => {
     if (
@@ -82,6 +138,12 @@ export function ApplyScreen() {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
   const [summary, setSummary] = useState<BulkApplySummary | null>(null);
+  const [applyResults, setApplyResults] = useState<ApplyAccountResult[]>([]);
+  const [applyFilter, setApplyFilter] = useState<ApplyFilter>('all');
+  const [applyProgress, setApplyProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   /** Bulk: which accounts are checked to include */
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [historyTick, setHistoryTick] = useState(0);
@@ -263,6 +325,9 @@ export function ApplyScreen() {
               setRunning(true);
               setProgress('Starting…');
               setSummary(null);
+              setApplyResults([]);
+              setApplyFilter('all');
+              setApplyProgress({ done: 0, total: checkedEligible.length });
               try {
                 const result = await runBulkApply({
                   accounts: checkedEligible,
@@ -270,7 +335,14 @@ export function ApplyScreen() {
                   kitta,
                   dryRun: false,
                   simulateLogin: false,
-                  onProgress: (msg) => setProgress(msg),
+                  onProgress: (msg, index, total) => {
+                    setProgress(msg);
+                    setApplyProgress({ done: index, total });
+                  },
+                  onAccountResult: (row, index, total) => {
+                    setApplyResults((prev) => [...prev, row]);
+                    setApplyProgress({ done: index + 1, total });
+                  },
                 });
                 setSummary(result);
                 await persistSuccessful(result, selected.companyShareId);
@@ -282,6 +354,7 @@ export function ApplyScreen() {
               } finally {
                 setRunning(false);
                 setProgress('');
+                setApplyProgress(null);
               }
             })();
           };
@@ -325,6 +398,9 @@ export function ApplyScreen() {
               const execute = () => {
                 void (async () => {
                   setRunning(true);
+                  setApplyResults([]);
+                  setApplyFilter('all');
+                  setApplyProgress({ done: 0, total: 1 });
                   try {
                     const result = await runBulkApply({
                       accounts: one,
@@ -332,11 +408,16 @@ export function ApplyScreen() {
                       kitta,
                       dryRun: false,
                       simulateLogin: false,
+                      onAccountResult: (row, index, total) => {
+                        setApplyResults((prev) => [...prev, row]);
+                        setApplyProgress({ done: index + 1, total });
+                      },
                     });
                     setSummary(result);
                     await persistSuccessful(result, selected.companyShareId);
                   } finally {
                     setRunning(false);
+                    setApplyProgress(null);
                   }
                 })();
               };
@@ -369,6 +450,99 @@ export function ApplyScreen() {
     : `${plValue >= 0 ? '+' : '-'} ${formatRs(Math.abs(plValue))}`;
 
   const eligibleCount = accounts.filter((a) => !alreadyApplied(a.id)).length;
+
+  const applyCounts = useMemo(() => {
+    const counts = {
+      all: applyResults.length,
+      applied: 0,
+      auth: 0,
+      balance: 0,
+      missing: 0,
+      other: 0,
+    };
+    for (const r of applyResults) {
+      counts[classifyApplyResult(r)] += 1;
+    }
+    return counts;
+  }, [applyResults]);
+
+  const filteredApplyResults = useMemo(() => {
+    if (applyFilter === 'all') return applyResults;
+    return applyResults.filter((r) => classifyApplyResult(r) === applyFilter);
+  }, [applyResults, applyFilter]);
+
+  const showApplyReport = running || applyResults.length > 0;
+
+  useEffect(() => {
+    if (!showApplyReport) return;
+    sheetH.value = withSpring(sheetMid, { damping: 22, stiffness: 200 });
+    setSheetPeek(false);
+    // Only when the report pane first appears — not on every mid-size change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional one-shot open
+  }, [showApplyReport]);
+
+  useEffect(() => {
+    if (!running) return;
+    sheetH.value = withSpring(sheetMid, { damping: 22, stiffness: 200 });
+    setSheetPeek(false);
+    // Expand when a new apply run starts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running]);
+
+  const expandSheet = useCallback(() => {
+    sheetH.value = withSpring(sheetMid, { damping: 22, stiffness: 200 });
+    setSheetPeek(false);
+  }, [sheetH, sheetMid]);
+
+  const collapseSheet = useCallback(() => {
+    sheetH.value = withSpring(sheetCollapsed, { damping: 22, stiffness: 200 });
+    setSheetPeek(true);
+  }, [sheetCollapsed, sheetH]);
+
+  const sheetAnimStyle = useAnimatedStyle(() => ({
+    height: sheetH.value,
+  }));
+
+  const sheetPan = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-6, 6])
+        .onBegin(() => {
+          sheetStart.value = sheetH.value;
+        })
+        .onUpdate((e) => {
+          const next = sheetStart.value - e.translationY;
+          sheetH.value = Math.min(
+            sheetMax,
+            Math.max(sheetCollapsed, next),
+          );
+        })
+        .onEnd((e) => {
+          const h = sheetH.value;
+          const vy = e.velocityY;
+          let target = sheetMid;
+          if (vy > 900) {
+            target = sheetCollapsed;
+          } else if (vy < -900) {
+            target = sheetMax;
+          } else {
+            const pts = [sheetCollapsed, sheetMid, sheetMax];
+            target = pts.reduce((best, p) =>
+              Math.abs(p - h) < Math.abs(best - h) ? p : best,
+            );
+          }
+          sheetH.value = withSpring(target, { damping: 22, stiffness: 200 });
+          runOnJS(setPeekFromHeight)(target);
+        }),
+    [
+      setPeekFromHeight,
+      sheetCollapsed,
+      sheetH,
+      sheetMax,
+      sheetMid,
+      sheetStart,
+    ],
+  );
 
   const headerActions = (
     <View style={styles.headerActions}>
@@ -433,7 +607,9 @@ export function ApplyScreen() {
           </Pressable>
         </View>
       ) : (
+        <View style={styles.bodySplit}>
         <ScrollView
+          style={showApplyReport ? styles.formScrollWithSheet : undefined}
           contentContainerStyle={styles.content}
           refreshControl={
             <RefreshControl
@@ -643,32 +819,133 @@ export function ApplyScreen() {
           {running && progress ? (
             <Text style={styles.progress}>{progress}</Text>
           ) : null}
+        </ScrollView>
 
-          {summary ? (
-            <View style={styles.resultCard}>
-              <Text style={styles.resultTitle}>Apply results</Text>
-              <Text style={styles.resultSub}>
-                {summary.companyName} · {summary.kitta} kitta ·{' '}
-                {summary.results.filter((r) => r.ok).length}/
-                {summary.results.length} ok
-                {summary.stoppedEarly ? ' · stopped early' : ''}
-              </Text>
-              {summary.results.map((r) => (
-                <View key={r.accountId} style={styles.resultRow}>
-                  <Ionicons
-                    name={r.ok ? 'checkmark-circle' : 'close-circle'}
-                    size={rs(18)}
-                    color={r.ok ? colors.accentGreen : colors.danger}
-                  />
+        {showApplyReport ? (
+          <Animated.View style={[styles.resultsPane, sheetAnimStyle]}>
+            <GestureDetector gesture={sheetPan}>
+              <Pressable
+                style={styles.sheetHandleArea}
+                onPress={() => (sheetPeek ? expandSheet() : collapseSheet())}
+              >
+                <View style={styles.sheetGrabber} />
+                <View style={styles.sheetHandleRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.accName}>{r.accountName}</Text>
-                    <Text style={styles.resultMsg}>{r.message}</Text>
+                    <Text style={styles.resultTitle}>Apply results</Text>
+                    <Text style={styles.resultSub} numberOfLines={sheetPeek ? 1 : 2}>
+                      {summary?.companyName ?? selected?.companyName ?? 'IPO'} ·{' '}
+                      {summary?.kitta ?? kitta} kitta ·{' '}
+                      {applyCounts.applied}/
+                      {applyResults.length || applyProgress?.total || 0} applied
+                      {running && applyProgress
+                        ? ` · ${applyProgress.done}/${applyProgress.total}`
+                        : ''}
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name={sheetPeek ? 'chevron-up' : 'chevron-down'}
+                    size={rs(22)}
+                    color={colors.textMuted}
+                  />
+                </View>
+              </Pressable>
+            </GestureDetector>
+            {!sheetPeek ? (
+              <>
+                <View style={styles.resultsHead}>
+                  <View style={styles.chipRow}>
+                    {(
+                      [
+                        { key: 'all', label: 'All', count: applyCounts.all },
+                        {
+                          key: 'applied',
+                          label: 'Applied',
+                          count: applyCounts.applied,
+                        },
+                        {
+                          key: 'auth',
+                          label: 'Login fail',
+                          count: applyCounts.auth,
+                        },
+                        {
+                          key: 'balance',
+                          label: 'Balance',
+                          count: applyCounts.balance,
+                        },
+                        {
+                          key: 'missing',
+                          label: 'Missing',
+                          count: applyCounts.missing,
+                        },
+                        {
+                          key: 'other',
+                          label: 'Other',
+                          count: applyCounts.other,
+                        },
+                      ] as const
+                    ).map((chip) => {
+                      const active = applyFilter === chip.key;
+                      return (
+                        <Pressable
+                          key={chip.key}
+                          onPress={() => setApplyFilter(chip.key)}
+                          style={[styles.chip, active && styles.chipActive]}
+                        >
+                          <Text
+                            style={[
+                              styles.chipText,
+                              active && styles.chipTextActive,
+                            ]}
+                          >
+                            {chip.label} ({chip.count})
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
                   </View>
                 </View>
-              ))}
-            </View>
-          ) : null}
-        </ScrollView>
+                <FlatList
+                  style={styles.resultsList}
+                  data={filteredApplyResults}
+                  keyExtractor={(item) => item.accountId}
+                  contentContainerStyle={styles.resultsListBody}
+                  ListEmptyComponent={
+                    <Text style={styles.emptyFilter}>
+                      {running
+                        ? 'Waiting for the next account…'
+                        : 'No accounts in this filter.'}
+                    </Text>
+                  }
+                  renderItem={({ item: r, index }) => {
+                    const ok = r.ok;
+                    const tint = ok ? colors.accentGreen : colors.danger;
+                    return (
+                      <View
+                        style={[styles.resultRowCard, { borderColor: tint }]}
+                      >
+                        <Ionicons
+                          name={ok ? 'checkmark-circle' : 'close-circle'}
+                          size={rs(20)}
+                          color={tint}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.accName, { color: tint }]}>
+                            {index + 1}. {r.accountName}
+                          </Text>
+                          <Text style={[styles.resultReason, { color: tint }]}>
+                            {reasonLabel(r)}
+                          </Text>
+                          <Text style={styles.resultMsg}>{r.message}</Text>
+                        </View>
+                      </View>
+                    );
+                  }}
+                />
+              </>
+            ) : null}
+          </Animated.View>
+        ) : null}
+        </View>
       )}
 
       <Modal visible={accountsModalOpen} animationType="slide" transparent>
@@ -1074,27 +1351,92 @@ function makeStyles(c: ThemeColors) {
       color: c.textSecondary,
       fontSize: rs(13),
     },
-    resultCard: {
-      marginTop: rs(20),
-      borderRadius: rs(14),
-      borderWidth: 1,
-      borderColor: c.border,
+    bodySplit: { flex: 1 },
+    formScrollWithSheet: { flex: 1, minHeight: 0 },
+    resultsPane: {
+      overflow: 'hidden',
+      borderTopWidth: 1,
+      borderTopColor: c.border,
       backgroundColor: c.surface,
-      padding: rs(14),
-      gap: rs(10),
+      paddingHorizontal: rs(14),
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: -2 },
     },
+    sheetHandleArea: {
+      paddingTop: rs(8),
+      paddingBottom: rs(6),
+    },
+    sheetGrabber: {
+      alignSelf: 'center',
+      width: rs(40),
+      height: rs(4),
+      borderRadius: rs(2),
+      backgroundColor: c.border,
+      marginBottom: rs(8),
+    },
+    sheetHandleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+    },
+    resultsHead: { marginBottom: rs(8) },
+    resultsList: { flex: 1, minHeight: 0 },
+    resultsListBody: { paddingBottom: rs(24) },
+    chipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: rs(8),
+      marginTop: rs(4),
+    },
+    chip: {
+      borderWidth: 1.5,
+      borderColor: c.border,
+      borderRadius: rs(16),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(6),
+      backgroundColor: c.surface,
+    },
+    chipActive: {
+      borderColor: c.primary,
+      backgroundColor: c.primarySoft,
+    },
+    chipText: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      fontWeight: '700',
+    },
+    chipTextActive: { color: c.primary },
     resultTitle: { color: c.text, fontWeight: '800', fontSize: rs(15) },
     resultSub: {
       color: c.textSecondary,
       fontSize: rs(12),
-      marginBottom: rs(4),
+      marginTop: rs(4),
     },
-    resultRow: {
+    resultRowCard: {
       flexDirection: 'row',
       gap: rs(10),
       alignItems: 'flex-start',
+      borderWidth: 1.5,
+      borderRadius: rs(12),
+      padding: rs(12),
+      marginBottom: rs(8),
+      backgroundColor: c.surface,
+    },
+    resultReason: {
+      fontSize: rs(12),
+      fontWeight: '700',
+      marginTop: rs(2),
     },
     resultMsg: { color: c.textSecondary, fontSize: rs(12), marginTop: rs(2) },
+    emptyFilter: {
+      textAlign: 'center',
+      color: c.textMuted,
+      paddingVertical: rs(20),
+      fontSize: rs(13),
+    },
     modalOverlay: {
       flex: 1,
       backgroundColor: c.overlay,

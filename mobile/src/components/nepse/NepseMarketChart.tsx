@@ -181,7 +181,7 @@ export function NepseMarketChart({
       ? '#EF5350'
       : '#C62828';
   // Match page cream-sage; SS chart sits on same soft ground
-  const bg = backgroundColor ?? (isDark ? '#121212' : '#E8EDDF');
+  const bg = backgroundColor ?? (isDark ? '#121212' : '#FFFFFF');
   const grid = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(90,100,80,0.22)';
   const axis = isDark ? '#A0A0A0' : '#6B7364';
   const tipBg = isDark ? '#2C2C2C' : '#1B2E1B';

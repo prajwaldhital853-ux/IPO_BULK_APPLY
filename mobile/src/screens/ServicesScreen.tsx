@@ -75,22 +75,22 @@ function pastel(hex: string, isDark: boolean) {
     return map[hex] ?? `${hex}66`;
   }
   const map: Record<string, string> = {
-    '#42A5F5': '#BBDEFB',
-    '#66BB6A': '#C8E6C9',
-    '#EF5350': '#FFCDD2',
-    '#FFA726': '#FFE0B2',
-    '#FFCA28': '#FFF59D',
-    '#90A4AE': '#CFD8DC',
-    '#AB47BC': '#E1BEE7',
-    '#29B6F6': '#B3E5FC',
-    '#26A69A': '#B2DFDB',
-    '#7E57C2': '#D1C4E9',
-    '#FDD835': '#FFF59D',
-    '#F48FB1': '#F8BBD0',
-    '#EC407A': '#F48FB1',
-    '#FF7043': '#FFCCBC',
-    '#5C6BC0': '#C5CAE9',
-    '#81C784': '#C8E6C9',
+    '#42A5F5': '#90CAF9',
+    '#66BB6A': '#A5D6A7',
+    '#EF5350': '#EF9A9A',
+    '#FFA726': '#FFCC80',
+    '#FFCA28': '#FFE082',
+    '#90A4AE': '#B0BEC5',
+    '#AB47BC': '#CE93D8',
+    '#29B6F6': '#81D4FA',
+    '#26A69A': '#80CBC4',
+    '#7E57C2': '#B39DDB',
+    '#FDD835': '#FFE082',
+    '#F48FB1': '#F48FB1',
+    '#EC407A': '#F06292',
+    '#FF7043': '#FF8A65',
+    '#5C6BC0': '#9FA8DA',
+    '#81C784': '#A5D6A7',
   };
   return map[hex] ?? `${hex}28`;
 }
@@ -621,7 +621,7 @@ export function ServicesScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: isDark ? colors.bg : '#E4EAD9' }]}>
+    <View style={[styles.root, { backgroundColor: colors.bg }]}>
       <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
       <AdminPromoBanner page="services" />
 
@@ -630,7 +630,7 @@ export function ServicesScreen() {
           style={[
             styles.searchInner,
             {
-              backgroundColor: isDark ? colors.searchBg : '#EEF2E6',
+              backgroundColor: isDark ? colors.searchBg : '#FFFFFF',
               borderColor: isDark ? colors.border : '#C5D0B5',
             },
           ]}

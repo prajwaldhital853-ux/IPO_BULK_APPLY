@@ -187,6 +187,17 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return () => sub.remove();
   }, [auth.isAuthenticated, refresh]);
 
+  // Silent poll so admin-approved subscriptions appear without a manual refresh.
+  useEffect(() => {
+    if (!auth.isAuthenticated) return;
+    const id = setInterval(() => {
+      if (AppState.currentState === 'active') {
+        void refresh();
+      }
+    }, 5 * 60_000);
+    return () => clearInterval(id);
+  }, [auth.isAuthenticated, refresh]);
+
   // Drop to free as soon as local expiry time passes (no wait for next API call).
   useEffect(() => {
     const candidates = [

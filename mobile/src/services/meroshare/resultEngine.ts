@@ -2,7 +2,11 @@ import type { AccountMeta } from '../../types/account';
 import { isMockAccountId } from '../../data/mockAccounts';
 import { getSecrets } from '../../storage/accountsStorage';
 import { MeroshareClient } from './client';
-import { MeroshareError } from './errors';
+import {
+  isTransientMeroshareError,
+  isTransientMeroshareMessage,
+  MeroshareError,
+} from './errors';
 import type {
   ApplicationReportDetail,
   ApplicationReportRow,
@@ -11,10 +15,22 @@ import type {
   ResultAccountStatus,
 } from './types';
 
-const ACCOUNT_GAP_MS = 1500;
+const ACCOUNT_GAP_MS = 2200;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function friendlyResultError(msg: string): string {
+  if (isTransientMeroshareMessage(msg)) {
+    return 'MeroShare is busy right now. Retry this account in a moment.';
+  }
+  if (
+    /insufficient|not enough|low balance|block[_\s-]?fail/i.test(msg)
+  ) {
+    return 'Rejected — you have insufficient amount in your bank account';
+  }
+  return msg;
 }
 
 /** Deterministic fake result for a mock/demo account, cycling through outcomes. */
@@ -158,7 +174,7 @@ export async function runBulkResultCheck(
           ok: true,
           dryRun: res.dryRun,
           status: res.status,
-          message: res.message,
+          message: friendlyResultError(res.message),
           companyName: opts.issue.companyName,
           appliedKitta: res.appliedKitta,
           allotmentStatus: res.allotmentStatus,
@@ -167,8 +183,69 @@ export async function runBulkResultCheck(
         i,
       );
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Unknown error';
+      const raw = e instanceof Error ? e.message : 'Unknown error';
       const code = e instanceof MeroshareError ? e.code : 'UNKNOWN';
+      // One more full-session retry for transient flakiness (fresh login).
+      if (isTransientMeroshareError(e)) {
+        try {
+          client.clearSession();
+          await sleep(1400);
+          await client.loginOrSimulate(
+            {
+              clientId: account.dpId,
+              dpCode: account.dpCode,
+              username: account.username,
+              password: secrets.password,
+            },
+            { simulate: simulateLogin },
+          );
+          const res = await client.checkApplicationStatus(
+            opts.issue.companyShareId,
+            {
+              dryRun,
+              companyName: opts.issue.companyName,
+            },
+          );
+          emit(
+            {
+              accountId: account.id,
+              accountName: account.name,
+              username: account.username,
+              ok: true,
+              dryRun: res.dryRun,
+              status: res.status,
+              message: friendlyResultError(res.message),
+              companyName: opts.issue.companyName,
+              appliedKitta: res.appliedKitta,
+              allotmentStatus: res.allotmentStatus,
+              remarks: res.remarks,
+            },
+            i,
+          );
+          continue;
+        } catch (e2) {
+          const raw2 = e2 instanceof Error ? e2.message : raw;
+          const code2 = e2 instanceof MeroshareError ? e2.code : code;
+          emit(
+            {
+              accountId: account.id,
+              accountName: account.name,
+              username: account.username,
+              ok: false,
+              dryRun,
+              status: code2,
+              message: friendlyResultError(raw2),
+              companyName: opts.issue.companyName,
+            },
+            i,
+          );
+          if (code2 === 'AUTH') {
+            stoppedEarly = true;
+            break;
+          }
+          continue;
+        }
+      }
       emit(
         {
           accountId: account.id,
@@ -177,7 +254,7 @@ export async function runBulkResultCheck(
           ok: false,
           dryRun,
           status: code,
-          message: msg,
+          message: friendlyResultError(raw),
           companyName: opts.issue.companyName,
         },
         i,
@@ -305,20 +382,33 @@ export async function loadApplicationReportDetailForUi(
       password: secrets.password,
     });
 
+    const withFallbacks = (
+      detail: ApplicationReportDetail,
+    ): ApplicationReportDetail => {
+      const bankName = detail.bankName || account.bankName;
+      const accountNumber = detail.accountNumber || account.accountNumber;
+      const branchName = resolveBranchName(detail.branchName, bankName);
+      return {
+        ...detail,
+        bankName,
+        accountNumber,
+        branchName,
+        boid: detail.boid || account.demat,
+        amount:
+          detail.amount ??
+          (detail.appliedKitta != null ? detail.appliedKitta * 100 : null),
+      };
+    };
+
     if (report.applicantFormId != null) {
       const detail = await client.getApplicationReportDetail(
         report.applicantFormId,
         report,
       );
-      // Fall back to the saved account info when CDSC omits bank / BOID.
-      return {
-        ...detail,
-        bankName: detail.bankName || account.bankName,
-        boid: detail.boid || account.demat,
-      };
+      return withFallbacks(detail);
     }
 
-    return {
+    return withFallbacks({
       companyShareId: report.companyShareId,
       companyName: report.companyName,
       scrip: report.scrip,
@@ -329,12 +419,27 @@ export async function loadApplicationReportDetailForUi(
       amount:
         report.appliedKitta != null ? report.appliedKitta * 100 : null,
       bankName: account.bankName,
+      accountNumber: account.accountNumber,
       boid: account.demat,
       appliedDate: report.appliedDate,
-    };
+    });
   } finally {
     client.clearSession();
   }
+}
+
+/** When CDSC omits branch, show "{Bank} - Head Office". */
+function resolveBranchName(
+  branch: string | undefined,
+  bank: string | undefined,
+): string | undefined {
+  const b = (branch || '').trim();
+  if (b && !/^n\/?a$/i.test(b) && !/^-+$/.test(b)) return b;
+  const bankName = (bank || '').trim();
+  if (!bankName) return undefined;
+  // Avoid duplicating if bank string already ends with Head Office.
+  if (/head\s*office/i.test(bankName)) return bankName;
+  return `${bankName} - Head Office`;
 }
 
 /**
@@ -371,6 +476,11 @@ export async function loadAllApplicationDetailsForUi(
           out.push({
             ...detail,
             bankName: detail.bankName || account.bankName,
+            accountNumber: detail.accountNumber || account.accountNumber,
+            branchName: resolveBranchName(
+              detail.branchName,
+              detail.bankName || account.bankName,
+            ),
             boid: detail.boid || account.demat,
           });
           continue;
@@ -389,6 +499,8 @@ export async function loadAllApplicationDetailsForUi(
         amount:
           report.appliedKitta != null ? report.appliedKitta * 100 : null,
         bankName: account.bankName,
+        accountNumber: account.accountNumber,
+        branchName: resolveBranchName(undefined, account.bankName),
         boid: account.demat,
         appliedDate: report.appliedDate,
       });

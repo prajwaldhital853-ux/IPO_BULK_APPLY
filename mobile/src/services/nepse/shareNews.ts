@@ -28,6 +28,13 @@ export type ShareNewsItem = {
 
 export const NEWS_SOURCES: NewsSource[] = [
   {
+    id: 'merolagani',
+    label: 'Merolagani',
+    site: 'merolagani.com',
+    homeUrl: 'https://merolagani.com',
+    scrapeUrls: ['https://merolagani.com/NewsList.aspx'],
+  },
+  {
     id: 'sharesansar',
     label: 'Share Sansar',
     site: 'sharesansar.com',
@@ -37,13 +44,6 @@ export const NEWS_SOURCES: NewsSource[] = [
       'https://www.sharesansar.com/',
       'https://www.sharesansar.com/category/latest',
     ],
-  },
-  {
-    id: 'merolagani',
-    label: 'Merolagani',
-    site: 'merolagani.com',
-    homeUrl: 'https://merolagani.com',
-    scrapeUrls: ['https://merolagani.com/NewsList.aspx'],
   },
   {
     id: 'arthakendra',

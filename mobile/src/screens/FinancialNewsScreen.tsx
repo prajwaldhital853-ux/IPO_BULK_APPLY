@@ -36,7 +36,7 @@ export function FinancialNewsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [sourceId, setSourceId] = useState<NewsSourceId>('sharesansar');
+  const [sourceId, setSourceId] = useState<NewsSourceId>('merolagani');
   const [rows, setRows] = useState<ShareNewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);

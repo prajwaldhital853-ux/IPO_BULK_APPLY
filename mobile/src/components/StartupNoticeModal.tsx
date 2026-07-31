@@ -126,7 +126,7 @@ export function StartupNoticeModal() {
                   <Ionicons
                     name="megaphone-outline"
                     size={rs(22)}
-                    color="#2D5A27"
+                    color="#1B5E20"
                     style={{ marginBottom: rs(10) }}
                   />
                   <Text style={styles.textBody}>{current.text}</Text>

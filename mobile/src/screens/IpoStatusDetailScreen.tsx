@@ -44,15 +44,119 @@ function formatAmount(amount?: number | null, kitta?: number): string {
   return '—';
 }
 
-function statusDisplay(statusName: string): { label: string; color: string } {
-  const { code, message } = humanizeApplicationStatus(statusName);
-  if (code === 'NOT_ALLOTTED') {
-    return { label: 'Not Alloted', color: '#EF5350' };
-  }
+function statusDisplay(
+  statusName: string,
+  remarks?: string,
+): { label: string; color: string; code: string } {
+  const { code } = humanizeApplicationStatus(statusName, undefined, remarks);
   if (code === 'ALLOTTED') {
-    return { label: 'Alloted', color: '#66BB6A' };
+    return { label: 'Alloted', color: '#2E7D32', code };
   }
-  return { label: message || statusName || '—', color: '#FFFFFF' };
+  if (code === 'NOT_ALLOTTED') {
+    return { label: 'Not Alloted', color: '#C62828', code };
+  }
+  if (code === 'NOT_APPLIED') {
+    return { label: 'Not Applied', color: '#757575', code };
+  }
+  if (code === 'REJECTED' || /REJECT|FAIL|CANCEL|BLOCK/i.test(statusName)) {
+    return { label: 'Rejected', color: '#C62828', code: 'REJECTED' };
+  }
+  if (code === 'PENDING' || code === 'APPLIED') {
+    return {
+      label: code === 'PENDING' ? 'Pending' : 'Applied',
+      color: '#EF6C00',
+      code,
+    };
+  }
+  return { label: statusName || '—', color: '#1B1B1B', code };
+}
+
+function reasonDisplay(detail: ApplicationReportDetail): {
+  text: string;
+  color: string | null;
+} {
+  const rawReason = (detail.reason || '').trim();
+  const remarks = (detail.remarks || '').trim();
+  const { code } = humanizeApplicationStatus(
+    detail.statusName,
+    undefined,
+    remarks || rawReason,
+  );
+
+  // Explicit reason from API
+  if (rawReason && !/^n\/?a$/i.test(rawReason)) {
+    const isBad = code === 'REJECTED' || /insufficien|reject|fail/i.test(rawReason);
+    return { text: rawReason, color: isBad ? '#C62828' : null };
+  }
+
+  // Parse "(Insufficient balance)" style from remarks
+  const paren = remarks.match(/\(([^)]+)\)\s*$/);
+  if (paren?.[1] && /insufficien|balance|reject|fail/i.test(paren[1])) {
+    return { text: paren[1].trim(), color: '#C62828' };
+  }
+
+  if (
+    code === 'REJECTED' ||
+    /INSUFFICIENT|NOT ENOUGH|LOW BALANCE|BLOCK[_\s-]?FAIL/i.test(
+      `${detail.statusName} ${remarks}`,
+    )
+  ) {
+    if (/insufficien|balance/i.test(`${detail.statusName} ${remarks}`)) {
+      return { text: 'Insufficient balance', color: '#C62828' };
+    }
+    return { text: 'Application rejected', color: '#C62828' };
+  }
+
+  if (code === 'ALLOTTED') {
+    return { text: 'Allotted', color: '#2E7D32' };
+  }
+  if (code === 'NOT_ALLOTTED') {
+    return { text: 'Not allotted', color: null };
+  }
+
+  return { text: '—', color: null };
+}
+
+function remarksLine(detail: ApplicationReportDetail): string {
+  const raw = (detail.remarks || '').trim();
+  if (raw) return raw;
+  const { code } = humanizeApplicationStatus(
+    detail.statusName,
+    undefined,
+    detail.reason,
+  );
+  if (code === 'ALLOTTED' || code === 'NOT_ALLOTTED') {
+    return 'Block Amount Status - Amount Released';
+  }
+  if (code === 'REJECTED') {
+    const reason = reasonDisplay(detail).text;
+    if (reason && reason !== '—') {
+      return `Block Amount Status - Amount Rejected (${reason})`;
+    }
+    return 'Block Amount Status - Amount Rejected';
+  }
+  return '—';
+}
+
+/** Prefer real branch; otherwise "{Bank} - Head Office". */
+function displayBranch(
+  branch?: string,
+  bank?: string,
+): string {
+  const b = (branch || '').trim();
+  if (b && !/^n\/?a$/i.test(b) && !/^-+$/.test(b) && b !== '—') return b;
+  const bankName = (bank || '').trim();
+  if (!bankName) return '—';
+  if (/head\s*office/i.test(bankName)) return bankName;
+  return `${bankName} - Head Office`;
+}
+
+function toTitleCase(name: string): string {
+  return name
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => (w ? w[0]!.toUpperCase() + w.slice(1) : w))
+    .join(' ');
 }
 
 export function IpoStatusDetailScreen() {
@@ -61,8 +165,8 @@ export function IpoStatusDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'IpoStatusDetail'>>();
   const insets = useSafeAreaInsets();
   const { accounts } = useAccounts();
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const { accountId, report } = route.params;
   const account = accounts.find((a) => a.id === accountId) ?? null;
@@ -83,6 +187,7 @@ export function IpoStatusDetailScreen() {
       const row = await loadApplicationReportDetailForUi(account, report);
       setDetail(row);
     } catch (e) {
+      const bankName = account.bankName;
       setDetail({
         companyShareId: report.companyShareId,
         companyName: report.companyName,
@@ -93,7 +198,9 @@ export function IpoStatusDetailScreen() {
         appliedKitta: report.appliedKitta,
         amount:
           report.appliedKitta != null ? report.appliedKitta * 100 : null,
-        bankName: account.bankName,
+        bankName,
+        branchName: displayBranch(undefined, bankName),
+        accountNumber: account.accountNumber,
         boid: account.demat,
         appliedDate: report.appliedDate,
       });
@@ -115,15 +222,20 @@ export function IpoStatusDetailScreen() {
     statusName: report.statusName,
     appliedKitta: report.appliedKitta,
     appliedDate: report.appliedDate,
+    bankName: account?.bankName,
+    accountNumber: account?.accountNumber,
+    amount:
+      report.appliedKitta != null ? report.appliedKitta * 100 : null,
   };
 
-  const status = statusDisplay(data.statusName);
-  const { code: statusCode } = humanizeApplicationStatus(data.statusName);
-  const isAllotted = statusCode === 'ALLOTTED';
+  const status = statusDisplay(data.statusName, data.remarks || data.reason);
+  const reason = reasonDisplay(data);
   const titleScrip = data.scrip || 'IPO';
   const companyTitle = data.scrip
-    ? `${data.companyName} (${data.scrip})`
-    : data.companyName;
+    ? `${toTitleCase(data.companyName)} (${data.scrip})`
+    : toTitleCase(data.companyName);
+  const bankValue = data.bankName || account?.bankName || '—';
+  const branchValue = displayBranch(data.branchName, bankValue === '—' ? undefined : bankValue);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -134,6 +246,7 @@ export function IpoStatusDetailScreen() {
         <Text style={styles.title} numberOfLines={1}>
           IPO Details - {titleScrip}
         </Text>
+        <View style={{ width: rs(22) }} />
       </View>
 
       {loading && !detail ? (
@@ -142,9 +255,15 @@ export function IpoStatusDetailScreen() {
           style={{ marginTop: rs(40) }}
         />
       ) : (
-        <ScrollView contentContainerStyle={styles.body}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.body,
+            { paddingBottom: Math.max(insets.bottom, rs(32)) },
+          ]}
+        >
           <View style={styles.card}>
             <Text style={styles.company}>{companyTitle}</Text>
+            <View style={styles.divider} />
 
             <View style={styles.row2}>
               <View style={styles.col}>
@@ -161,29 +280,11 @@ export function IpoStatusDetailScreen() {
               </View>
             </View>
 
-            {isAllotted ? (
-              <View style={styles.field}>
-                <Text style={styles.label}>Allotted Quantity</Text>
-                <Text style={[styles.value, { color: '#66BB6A' }]}>
-                  {data.allottedKitta != null
-                    ? `${data.allottedKitta} kitta`
-                    : data.appliedKitta != null
-                      ? `${data.appliedKitta} kitta`
-                      : '—'}
-                </Text>
-              </View>
-            ) : null}
-
-            <Field label="BOID" value={data.boid || '—'} styles={styles} />
-            <Field label="Bank" value={data.bankName || '—'} styles={styles} />
-            <Field
-              label="Branch"
-              value={data.branchName || '—'}
-              styles={styles}
-            />
+            <Field label="Bank" value={bankValue} styles={styles} />
+            <Field label="Branch" value={branchValue} styles={styles} />
             <Field
               label="Account Number"
-              value={data.accountNumber || '—'}
+              value={data.accountNumber || account?.accountNumber || '—'}
               styles={styles}
             />
             <Field
@@ -197,9 +298,20 @@ export function IpoStatusDetailScreen() {
                 {status.label}
               </Text>
             </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Reason</Text>
+              <Text
+                style={[
+                  styles.value,
+                  reason.color ? { color: reason.color } : null,
+                ]}
+              >
+                {reason.text}
+              </Text>
+            </View>
             <Field
               label="Remarks"
-              value={data.remarks || '—'}
+              value={remarksLine(data)}
               styles={styles}
             />
           </View>
@@ -227,7 +339,7 @@ function Field({
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
     header: {
@@ -238,45 +350,57 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(12),
       backgroundColor: c.bgElevated,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
+      borderBottomColor: c.borderMuted,
     },
     title: {
       flex: 1,
       color: c.text,
       fontSize: rs(15),
       fontWeight: '700',
+      textAlign: 'center',
     },
-    body: { padding: rs(16), paddingBottom: rs(40) },
+    body: {
+      paddingHorizontal: rs(16),
+      paddingTop: rs(16),
+    },
     card: {
+      backgroundColor: isDark ? c.surface : '#FFFFFF',
+      borderRadius: rs(14),
       borderWidth: 1,
-      borderColor: c.border,
-      borderRadius: rs(12),
-      padding: rs(16),
-      backgroundColor: c.surface,
+      borderColor: isDark ? c.borderMuted : '#D5DED0',
+      paddingHorizontal: rs(18),
+      paddingTop: rs(18),
+      paddingBottom: rs(8),
     },
     company: {
       color: c.text,
       fontSize: rs(15),
       fontWeight: '700',
       textAlign: 'center',
-      marginBottom: rs(18),
       lineHeight: rs(22),
+      marginBottom: rs(14),
+    },
+    divider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: isDark ? c.borderMuted : '#D5DED0',
+      marginBottom: rs(18),
     },
     row2: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      marginBottom: rs(14),
+      marginBottom: rs(18),
     },
     col: { flex: 1 },
     colRight: { alignItems: 'flex-end' },
-    field: { marginBottom: rs(14) },
+    field: { marginBottom: rs(18) },
     label: {
-      color: c.textMuted,
+      color: isDark ? c.textMuted : '#8A9285',
       fontSize: rs(12),
-      marginBottom: rs(3),
+      marginBottom: rs(4),
+      fontWeight: '500',
     },
     value: {
-      color: c.text,
+      color: isDark ? c.text : '#1B1B1B',
       fontSize: rs(14),
       fontWeight: '600',
       lineHeight: rs(20),

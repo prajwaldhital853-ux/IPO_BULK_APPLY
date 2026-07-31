@@ -129,6 +129,7 @@ export function StockDetailScreen() {
   const [watched, setWatched] = useState(false);
   const [chartRange, setChartRange] = useState<StockChartRange>('1D');
   const [chartPoints, setChartPoints] = useState<CandlePoint[]>([]);
+  const [chartScrubbing, setChartScrubbing] = useState(false);
 
   const [history, setHistory] = useState<PriceHistoryRow[]>([]);
   const [floorsheet, setFloorsheet] = useState<FloorsheetRow[]>([]);
@@ -288,6 +289,7 @@ export function StockDetailScreen() {
         nestedScrollEnabled
         removeClippedSubviews={false}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!chartScrubbing}
       >
         {/* Overview card */}
         <View style={styles.card}>
@@ -393,8 +395,10 @@ export function StockDetailScreen() {
                 points={chartPoints}
                 isDark={isDark}
                 up={up}
-                height={rs(210)}
+                height={rs(290)}
                 showAxes
+                interactive
+                onInteractionChange={setChartScrubbing}
               />
             )}
           </View>
@@ -550,109 +554,106 @@ export function StockDetailScreen() {
 
   const renderFloorsheet = () => (
     <View style={styles.fsRoot}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.fsWrap}
-        nestedScrollEnabled
-      >
-        <View style={styles.fsCard}>
-          <View style={styles.fsInputRow}>
-            <Ionicons
-              name="calendar-outline"
-              size={rs(16)}
-              color={colors.primary}
-              style={{ marginRight: rs(8) }}
-            />
-            <TextInput
-              value={fsDate}
-              onChangeText={setFsDate}
-              placeholder="Business date"
-              placeholderTextColor={colors.textMuted}
-              style={styles.fsInput}
-            />
-          </View>
-          <View style={styles.filterRow}>
-            <TextInput
-              value={fsBuyer}
-              onChangeText={setFsBuyer}
-              placeholder="Buyer broker Id"
-              placeholderTextColor={colors.textMuted}
-              style={[styles.fsInputSolo, { flex: 1 }]}
-              keyboardType="number-pad"
-            />
-            <TextInput
-              value={fsSeller}
-              onChangeText={setFsSeller}
-              placeholder="Seller broker id"
-              placeholderTextColor={colors.textMuted}
-              style={[styles.fsInputSolo, { flex: 1 }]}
-              keyboardType="number-pad"
-            />
-          </View>
-          <View style={styles.fsActionRow}>
-            <Pressable
-              style={styles.fsFilterBtn}
-              onPress={() => void applyFloorFilter()}
-            >
-              <Ionicons name="filter" size={rs(16)} color="#fff" />
-              <Text style={styles.filterBtnText}>Filter</Text>
-            </Pressable>
-            <Pressable
-              style={styles.fsRefreshBtn}
-              onPress={() => void applyFloorFilter()}
-            >
-              <Ionicons name="refresh" size={rs(18)} color="#fff" />
-            </Pressable>
-          </View>
-
-          <View style={styles.fsTableHead}>
-            <Text style={[styles.fsTh, { width: rs(26) }]}>SN</Text>
-            <Text style={[styles.fsTh, { width: rs(44) }]}>SYM</Text>
-            <Text style={[styles.fsTh, { width: rs(28) }]}>BB</Text>
-            <Text style={[styles.fsTh, { width: rs(28) }]}>SB</Text>
-            <Text style={[styles.fsTh, styles.thNum, { flex: 0.9 }]}>QTY</Text>
-            <Text style={[styles.fsTh, styles.thNum, { flex: 0.9 }]}>RATE</Text>
-            <Text style={[styles.fsTh, styles.thNum, { flex: 1.1 }]}>AMT</Text>
-            <Text style={[styles.fsTh, styles.thNum, { flex: 1.2 }]}>TIME</Text>
-          </View>
-
-          {floorsheet.length === 0 ? (
-            <Text style={styles.empty}>No floor sheet data.</Text>
-          ) : (
-            floorsheet.map((item, index) => (
-              <View
-                key={`${item.contractId}-${index}`}
-                style={styles.fsRow}
-              >
-                <Text style={[styles.fsTd, { width: rs(26) }]}>
-                  {(fsPage - 1) * FS_PAGE_SIZE + index + 1}
-                </Text>
-                <Text style={[styles.fsTdSym, { width: rs(44) }]}>
-                  {item.symbol}
-                </Text>
-                <Text style={[styles.fsTd, { width: rs(28) }]}>
-                  {item.buyerBroker}
-                </Text>
-                <Text style={[styles.fsTd, { width: rs(28) }]}>
-                  {item.sellerBroker}
-                </Text>
-                <Text style={[styles.fsTd, styles.thNum, { flex: 0.9 }]}>
-                  {item.quantity?.toLocaleString('en-NP') ?? '—'}
-                </Text>
-                <Text style={[styles.fsTd, styles.thNum, { flex: 0.9 }]}>
-                  {fmtNum(item.rate, 1)}
-                </Text>
-                <Text style={[styles.fsTd, styles.thNum, { flex: 1.1 }]}>
-                  {fmtAmtShort(item.amount)}
-                </Text>
-                <Text style={[styles.fsTdTime, { flex: 1.2 }]}>
-                  {fmtFloorTime(item.tradeTime)}
-                </Text>
-              </View>
-            ))
-          )}
+      <View style={styles.fsFilters}>
+        <View style={styles.fsInputRow}>
+          <Ionicons
+            name="calendar-outline"
+            size={rs(16)}
+            color={colors.primary}
+            style={{ marginRight: rs(8) }}
+          />
+          <TextInput
+            value={fsDate}
+            onChangeText={setFsDate}
+            placeholder="Business date"
+            placeholderTextColor={colors.textMuted}
+            style={styles.fsInput}
+          />
         </View>
-      </ScrollView>
+        <View style={styles.filterRow}>
+          <TextInput
+            value={fsBuyer}
+            onChangeText={setFsBuyer}
+            placeholder="Buyer broker Id"
+            placeholderTextColor={colors.textMuted}
+            style={[styles.fsInputSolo, { flex: 1 }]}
+            keyboardType="number-pad"
+          />
+          <TextInput
+            value={fsSeller}
+            onChangeText={setFsSeller}
+            placeholder="Seller broker id"
+            placeholderTextColor={colors.textMuted}
+            style={[styles.fsInputSolo, { flex: 1 }]}
+            keyboardType="number-pad"
+          />
+        </View>
+        <View style={styles.fsActionRow}>
+          <Pressable
+            style={styles.fsFilterBtn}
+            onPress={() => void applyFloorFilter()}
+          >
+            <Ionicons name="filter" size={rs(16)} color="#fff" />
+            <Text style={styles.filterBtnText}>Filter</Text>
+          </Pressable>
+          <Pressable
+            style={styles.fsRefreshBtn}
+            onPress={() => void applyFloorFilter()}
+          >
+            <Ionicons name="refresh" size={rs(18)} color="#fff" />
+          </Pressable>
+        </View>
+
+        <View style={styles.fsTableHead}>
+          <Text style={[styles.fsTh, { width: rs(26) }]}>SN</Text>
+          <Text style={[styles.fsTh, { width: rs(44) }]}>SYM</Text>
+          <Text style={[styles.fsTh, { width: rs(28) }]}>BB</Text>
+          <Text style={[styles.fsTh, { width: rs(28) }]}>SB</Text>
+          <Text style={[styles.fsTh, styles.thNum, { flex: 0.9 }]}>QTY</Text>
+          <Text style={[styles.fsTh, styles.thNum, { flex: 0.9 }]}>RATE</Text>
+          <Text style={[styles.fsTh, styles.thNum, { flex: 1.1 }]}>AMT</Text>
+          <Text style={[styles.fsTh, styles.thNum, { flex: 1.2 }]}>TIME</Text>
+        </View>
+      </View>
+
+      <FlatList
+        style={styles.fsDataList}
+        data={floorsheet}
+        keyExtractor={(item, index) => `${item.contractId}-${index}`}
+        contentContainerStyle={styles.fsDataBody}
+        nestedScrollEnabled
+        ListEmptyComponent={
+          <Text style={styles.empty}>No floor sheet data.</Text>
+        }
+        renderItem={({ item, index }) => (
+          <View style={styles.fsRow}>
+            <Text style={[styles.fsTd, { width: rs(26) }]}>
+              {(fsPage - 1) * FS_PAGE_SIZE + index + 1}
+            </Text>
+            <Text style={[styles.fsTdSym, { width: rs(44) }]}>
+              {item.symbol}
+            </Text>
+            <Text style={[styles.fsTd, { width: rs(28) }]}>
+              {item.buyerBroker}
+            </Text>
+            <Text style={[styles.fsTd, { width: rs(28) }]}>
+              {item.sellerBroker}
+            </Text>
+            <Text style={[styles.fsTd, styles.thNum, { flex: 0.9 }]}>
+              {item.quantity?.toLocaleString('en-NP') ?? '—'}
+            </Text>
+            <Text style={[styles.fsTd, styles.thNum, { flex: 0.9 }]}>
+              {fmtNum(item.rate, 1)}
+            </Text>
+            <Text style={[styles.fsTd, styles.thNum, { flex: 1.1 }]}>
+              {fmtAmtShort(item.amount)}
+            </Text>
+            <Text style={[styles.fsTdTime, { flex: 1.2 }]}>
+              {fmtFloorTime(item.tradeTime)}
+            </Text>
+          </View>
+        )}
+      />
 
       <View style={styles.fsStickyFooter}>
         <View style={styles.fsPager}>
@@ -1059,10 +1060,10 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderColor: c.borderMuted,
       overflow: 'hidden',
       backgroundColor: isDark ? c.bg : '#FFFFFF',
-      minHeight: rs(210),
+      minHeight: rs(290),
     },
     chartLoading: {
-      height: rs(210),
+      height: rs(290),
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1164,6 +1165,20 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
 
     fsWrap: { padding: rs(12), paddingBottom: rs(16) },
     fsRoot: { flex: 1 },
+    fsFilters: {
+      paddingHorizontal: rs(12),
+      paddingTop: rs(10),
+      paddingBottom: rs(4),
+      backgroundColor: isDark ? c.bg : c.bg,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.borderMuted,
+    },
+    fsDataList: { flex: 1 },
+    fsDataBody: {
+      paddingHorizontal: rs(12),
+      paddingBottom: rs(8),
+      flexGrow: 1,
+    },
     fsStickyFooter: {
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: c.borderMuted,
@@ -1182,8 +1197,10 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     fsInputRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: isDark ? c.surfaceAlt : '#F3F6F0',
+      backgroundColor: isDark ? c.surfaceAlt : '#FFFFFF',
       borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
       paddingHorizontal: rs(12),
       marginBottom: rs(8),
     },
@@ -1194,8 +1211,10 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       paddingVertical: rs(11),
     },
     fsInputSolo: {
-      backgroundColor: isDark ? c.surfaceAlt : '#F3F6F0',
+      backgroundColor: isDark ? c.surfaceAlt : '#FFFFFF',
       borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
       paddingHorizontal: rs(12),
       paddingVertical: rs(11),
       color: c.text,
@@ -1206,7 +1225,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       gap: rs(10),
       marginTop: rs(4),
-      marginBottom: rs(12),
+      marginBottom: rs(10),
     },
     fsFilterBtn: {
       flex: 1,
@@ -1230,8 +1249,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       paddingVertical: rs(8),
+      paddingHorizontal: rs(2),
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.borderMuted,
+      backgroundColor: isDark ? c.surface : '#FFFFFF',
+      borderTopLeftRadius: rs(10),
+      borderTopRightRadius: rs(10),
     },
     fsTh: {
       color: c.textMuted,

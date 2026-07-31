@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -32,10 +32,10 @@ import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 
-const ACCENT = '#A3C78B';
+const ACCENT = '#1B5E20';
 /** Pure status colors — high contrast on light (and dark) backgrounds */
-const GREEN = '#00C853';
-const RED = '#E53935';
+const GREEN = '#2E7D32';
+const RED = '#C62828';
 
 function badgeType(shareTypeName: string): string {
   const s = (shareTypeName || 'IPO').toUpperCase();
@@ -44,16 +44,29 @@ function badgeType(shareTypeName: string): string {
   return 'IPO';
 }
 
-function classify(row: ResultAccountStatus): 'allotted' | 'not' | 'rejected' {
+function classify(row: ResultAccountStatus): 'allotted' | 'not' | 'rejected' | 'not_applied' {
+  if (
+    row.status === 'NOT_APPLIED' ||
+    /no application found|not applied|have not applied/i.test(row.message)
+  ) {
+    return 'not_applied';
+  }
   if (!row.ok) return 'rejected';
   const { code } = humanizeApplicationStatus(row.status, row.allotmentStatus);
   if (code === 'ALLOTTED') return 'allotted';
+  if (code === 'NOT_APPLIED') return 'not_applied';
   if (code === 'NOT_ALLOTTED' || /NOT.?ALLOT/i.test(row.message)) return 'not';
   if (/REJECT|FAIL|ERROR|CANCEL/i.test(row.status + row.message)) return 'rejected';
   return 'not';
 }
 
 function statusLine(row: ResultAccountStatus): string {
+  if (
+    row.status === 'NOT_APPLIED' ||
+    /no application found|not applied|have not applied/i.test(row.message)
+  ) {
+    return 'You have not applied for this IPO';
+  }
   if (row.message && /quantity\s*:/i.test(row.message)) {
     return row.message;
   }
@@ -61,6 +74,9 @@ function statusLine(row: ResultAccountStatus): string {
   const qty = row.appliedKitta;
   if (kind === 'allotted') {
     return qty != null ? `Alloted ( quantity : ${qty} )` : 'Alloted';
+  }
+  if (kind === 'not_applied') {
+    return 'You have not applied for this IPO';
   }
   if (kind === 'rejected') {
     return row.message || 'Rejected';
@@ -101,9 +117,9 @@ export function IpoBulkStatusScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { accounts } = useAccounts();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const [checkAccountIds, setCheckAccountIds] = useState<string[]>([]);
   const [checkPickerOpen, setCheckPickerOpen] = useState(false);
@@ -119,6 +135,7 @@ export function IpoBulkStatusScreen() {
   const [filter, setFilter] = useState<'all' | 'allotted' | 'not' | 'rejected'>(
     'all',
   );
+  const loadGenRef = useRef(0);
 
   const checkAccounts = useMemo(() => {
     const set = new Set(
@@ -138,41 +155,112 @@ export function IpoBulkStatusScreen() {
     });
   }, [accounts]);
 
+  const checkAccountKey = useMemo(
+    () =>
+      checkAccounts
+        .map((a) => a.id)
+        .sort()
+        .join('|'),
+    [checkAccounts],
+  );
+
   const loadCompanies = useCallback(async () => {
-    if (!checkAccounts.length) {
-      setCompanies([]);
-      setSelected(null);
+    const gen = ++loadGenRef.current;
+    const selectedAccounts = accounts.filter((a) => {
+      if (!checkAccountKey) return true;
+      const ids = new Set(checkAccountKey.split('|').filter(Boolean));
+      return ids.has(a.id);
+    });
+    const queue =
+      selectedAccounts.length > 0
+        ? selectedAccounts
+        : accounts;
+
+    if (!queue.length) {
+      if (gen === loadGenRef.current) {
+        setCompanies([]);
+        setSelected(null);
+        setLoadingList(false);
+      }
       return;
     }
+
     setLoadingList(true);
     try {
       const map = new Map<number, ApplicationReportRow>();
-      const realAccounts = checkAccounts.filter(
+      const realAccounts = queue.filter(
         (a) => !a.id.startsWith('demo_') && !isMockAccountId(a.id),
       );
-      for (const acc of realAccounts.slice(0, 3)) {
-        const { reports } = await loadCheckableIssuesForUi(acc);
-        for (const r of reports) {
-          if (!map.has(r.companyShareId)) map.set(r.companyShareId, r);
+      const targets = (realAccounts.length ? realAccounts : queue).slice(0, 5);
+      let lastError: string | null = null;
+
+      for (const acc of targets) {
+        if (acc.id.startsWith('demo_') || isMockAccountId(acc.id)) continue;
+        try {
+          const loaded = await loadCheckableIssuesForUi(acc);
+          if (gen !== loadGenRef.current) return;
+
+          // Prefer application reports; also map open/applicable issues so the
+          // dropdown is not empty when reports are briefly unavailable.
+          for (const r of loaded.reports) {
+            if (r.companyShareId > 0 && !map.has(r.companyShareId)) {
+              map.set(r.companyShareId, r);
+            }
+          }
+          for (const issue of loaded.issues) {
+            if (issue.companyShareId <= 0 || map.has(issue.companyShareId)) {
+              continue;
+            }
+            map.set(issue.companyShareId, {
+              companyShareId: issue.companyShareId,
+              companyName: issue.companyName,
+              scrip: issue.scrip,
+              shareTypeName: issue.shareTypeName ?? 'IPO',
+              statusName: issue.alreadyApplied
+                ? 'TRANSACTION_SUCCESS'
+                : 'OPEN',
+              appliedDate: issue.issueOpenDate,
+            });
+          }
+        } catch (e) {
+          lastError = e instanceof Error ? e.message : 'Failed to load';
         }
       }
+
+      if (gen !== loadGenRef.current) return;
+
       const list = Array.from(map.values()).sort((a, b) =>
         a.companyName.localeCompare(b.companyName),
       );
-      // Offer a demo IPO to exercise the UI when mock/demo accounts are selected.
+
       if (
-        checkAccounts.some(
+        queue.some(
           (a) => a.id.startsWith('demo_') || isMockAccountId(a.id),
         )
       ) {
-        list.unshift({
-          companyShareId: 999001,
-          companyName: 'DEMO CEMENT INDUSTRIES LIMITED',
-          scrip: 'DEMO',
-          shareTypeName: 'IPO',
-          statusName: 'CREATE_APPROVE',
-        });
+        if (!list.some((c) => c.companyShareId === 999001)) {
+          list.unshift({
+            companyShareId: 999001,
+            companyName: 'DEMO CEMENT INDUSTRIES LIMITED',
+            scrip: 'DEMO',
+            shareTypeName: 'IPO',
+            statusName: 'CREATE_APPROVE',
+          });
+        }
       }
+
+      if (!list.length) {
+        // Keep prior list if we already had one; only blank when first load fails.
+        setCompanies((prev) => {
+          if (prev.length) return prev;
+          return [];
+        });
+        if (lastError && gen === loadGenRef.current) {
+          Alert.alert('Could not load', lastError);
+        }
+        return;
+      }
+
       setCompanies(list);
       setSelected((prev) =>
         prev && list.some((c) => c.companyShareId === prev.companyShareId)
@@ -180,14 +268,15 @@ export function IpoBulkStatusScreen() {
           : list[0] ?? null,
       );
     } catch (e) {
+      if (gen !== loadGenRef.current) return;
       Alert.alert(
         'Could not load',
         e instanceof Error ? e.message : 'Failed to load listed IPOs',
       );
     } finally {
-      setLoadingList(false);
+      if (gen === loadGenRef.current) setLoadingList(false);
     }
-  }, [checkAccounts]);
+  }, [accounts, checkAccountKey]);
 
   useEffect(() => {
     void loadCompanies();
@@ -346,14 +435,18 @@ export function IpoBulkStatusScreen() {
           <Text style={styles.dropdownText} numberOfLines={1}>
             {checkLabel}
           </Text>
-          <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
+          <Ionicons
+            name="chevron-down"
+            size={rs(18)}
+            color={isDark ? colors.textMuted : '#1B5E20'}
+          />
         </Pressable>
 
         <View style={styles.labelRow}>
           <MaterialCommunityIcons
             name="bank-outline"
             size={rs(16)}
-            color={colors.text}
+            color={isDark ? colors.text : '#1B2E1B'}
           />
           <Text style={styles.label}>Listed IPO/FPO</Text>
         </View>
@@ -381,9 +474,13 @@ export function IpoBulkStatusScreen() {
             </Text>
           )}
           {loadingList ? (
-            <ActivityIndicator size="small" color={ACCENT} />
+            <ActivityIndicator size="small" color={isDark ? ACCENT : '#1B5E20'} />
           ) : (
-            <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
+            <Ionicons
+              name="chevron-down"
+              size={rs(18)}
+              color={isDark ? colors.textMuted : '#1B5E20'}
+            />
           )}
         </Pressable>
 
@@ -393,7 +490,7 @@ export function IpoBulkStatusScreen() {
           disabled={running || !selected}
         >
           {running ? (
-            <ActivityIndicator color={ACCENT} />
+            <ActivityIndicator color={isDark ? ACCENT : '#FFFFFF'} />
           ) : (
             <Text style={styles.actionText}>IPO Bulk Status</Text>
           )}
@@ -401,7 +498,7 @@ export function IpoBulkStatusScreen() {
 
         {running && progress ? (
           <View style={styles.progressWrap}>
-            <ActivityIndicator size="small" color={ACCENT} />
+            <ActivityIndicator size="small" color={isDark ? ACCENT : '#1B5E20'} />
             <Text style={styles.progressText}>
               Checking account {progress.done}/{progress.total}…
             </Text>
@@ -561,7 +658,7 @@ export function IpoBulkStatusScreen() {
               }}
             />
             <Pressable
-              style={styles.modalDone}
+              style={[styles.modalDone, styles.actionBtn]}
               onPress={() => setCheckPickerOpen(false)}
             >
               <Text style={styles.actionText}>Done</Text>
@@ -613,7 +710,7 @@ export function IpoBulkStatusScreen() {
               )}
             />
             <Pressable
-              style={styles.modalDone}
+              style={[styles.modalDone, styles.actionBtn]}
               onPress={() => setCompanyPickerOpen(false)}
             >
               <Text style={styles.actionText}>Close</Text>
@@ -627,7 +724,16 @@ export function IpoBulkStatusScreen() {
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
+  const fieldBg = isDark ? c.surface : '#FFFFFF';
+  const fieldBorder = isDark ? c.border : '#1B5E20';
+  const fieldText = isDark ? c.textMuted : '#121212';
+  const btnBg = isDark ? 'transparent' : '#1B5E20';
+  const btnBorder = isDark ? ACCENT : '#0D3B12';
+  const btnText = isDark ? ACCENT : '#FFFFFF';
+  const cardBg = isDark ? c.surface : '#FFFFFF';
+  const boxBorder = isDark ? c.border : '#1B5E20';
+
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
     header: {
@@ -636,9 +742,9 @@ function makeStyles(c: ThemeColors) {
       justifyContent: 'space-between',
       paddingHorizontal: rs(14),
       paddingVertical: rs(12),
-      backgroundColor: c.bgElevated,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
+      backgroundColor: isDark ? c.bgElevated : '#FFFFFF',
+      borderBottomWidth: isDark ? StyleSheet.hairlineWidth : 1.5,
+      borderBottomColor: isDark ? c.border : '#1B5E20',
     },
     title: {
       color: c.text,
@@ -663,23 +769,32 @@ function makeStyles(c: ThemeColors) {
     dropdown: {
       flexDirection: 'row',
       alignItems: 'center',
-      borderWidth: 1,
-      borderColor: c.border,
-      borderRadius: rs(22),
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: fieldBorder,
+      borderRadius: rs(14),
       paddingHorizontal: rs(14),
       paddingVertical: rs(14),
-      backgroundColor: c.surface,
+      backgroundColor: fieldBg,
       marginBottom: rs(14),
       gap: rs(8),
     },
-    dropdownText: { flex: 1, color: c.textMuted, fontSize: rs(14) },
+    dropdownText: {
+      flex: 1,
+      color: fieldText,
+      fontSize: rs(14),
+      fontWeight: isDark ? '400' : '600',
+    },
     labelRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(6),
       marginBottom: rs(8),
     },
-    label: { color: c.text, fontSize: rs(13), fontWeight: '600' },
+    label: {
+      color: isDark ? c.text : '#1B2E1B',
+      fontSize: rs(13),
+      fontWeight: '700',
+    },
     companyRow: {
       flex: 1,
       flexDirection: 'row',
@@ -687,26 +802,32 @@ function makeStyles(c: ThemeColors) {
       gap: rs(8),
     },
     ipoBadge: {
-      backgroundColor: GREEN,
+      backgroundColor: isDark ? GREEN : '#1B5E20',
       borderRadius: rs(4),
       paddingHorizontal: rs(6),
       paddingVertical: rs(2),
     },
     ipoBadgeText: { color: '#FFF', fontWeight: '800', fontSize: rs(10) },
-    companyText: { flex: 1, color: c.text, fontSize: rs(13), fontWeight: '600' },
+    companyText: {
+      flex: 1,
+      color: isDark ? c.text : '#1B2E1B',
+      fontSize: rs(13),
+      fontWeight: '700',
+    },
     actionBtn: {
       alignSelf: 'center',
-      borderWidth: 1,
-      borderColor: ACCENT,
+      borderWidth: isDark ? 1 : 0,
+      borderColor: btnBorder,
       borderRadius: rs(24),
       paddingHorizontal: rs(28),
-      paddingVertical: rs(12),
+      paddingVertical: rs(13),
       marginTop: rs(4),
       marginBottom: rs(10),
       minWidth: rs(160),
       alignItems: 'center',
+      backgroundColor: btnBg,
     },
-    actionText: { color: ACCENT, fontWeight: '700', fontSize: rs(14) },
+    actionText: { color: btnText, fontWeight: '800', fontSize: rs(14) },
     progressWrap: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -723,21 +844,22 @@ function makeStyles(c: ThemeColors) {
       marginBottom: rs(12),
     },
     chip: {
-      borderWidth: 1,
-      borderColor: c.border,
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: isDark ? c.border : '#5F6B5F',
       borderRadius: rs(16),
       paddingHorizontal: rs(12),
       paddingVertical: rs(6),
-      backgroundColor: c.surface,
+      backgroundColor: isDark ? c.surface : '#FFFFFF',
     },
     chipText: { fontSize: rs(11), fontWeight: '700' },
     updatesBox: {
       flex: 1,
-      borderWidth: 1,
-      borderColor: c.border,
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: boxBorder,
       borderRadius: rs(14),
       padding: rs(12),
       minHeight: 0,
+      backgroundColor: isDark ? 'transparent' : '#FFFFFF',
     },
     updatesHead: {
       flexDirection: 'row',
@@ -757,7 +879,11 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       gap: rs(12),
     },
-    shareText: { color: ACCENT, fontSize: rs(12), fontWeight: '700' },
+    shareText: {
+      color: isDark ? ACCENT : '#1B5E20',
+      fontSize: rs(12),
+      fontWeight: '800',
+    },
     clearText: { color: c.textMuted, fontSize: rs(12) },
     resultCard: {
       flexDirection: 'row',
@@ -766,7 +892,7 @@ function makeStyles(c: ThemeColors) {
       borderRadius: rs(12),
       padding: rs(13),
       marginBottom: rs(10),
-      backgroundColor: c.surface,
+      backgroundColor: cardBg,
       alignItems: 'flex-start',
     },
     resultIcon: {
@@ -794,7 +920,7 @@ function makeStyles(c: ThemeColors) {
     },
     modalSheet: {
       maxHeight: '75%',
-      backgroundColor: c.bgElevated,
+      backgroundColor: isDark ? c.bgElevated : '#FFFFFF',
       borderTopLeftRadius: rs(18),
       borderTopRightRadius: rs(18),
       paddingHorizontal: rs(16),

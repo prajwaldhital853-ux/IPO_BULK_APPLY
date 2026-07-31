@@ -89,10 +89,18 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       const list = await loadAccountMeta();
-      // Drop leftover old demo_* accounts; keep mock_* sample accounts.
-      const cleaned = list.filter((a) => !a.id.startsWith('demo_'));
-      if (cleaned.length !== list.length) {
-        await saveAccountMeta(cleaned);
+      const allowedMockIds = new Set(MOCK_ACCOUNT_SEEDS.map((s) => s.meta.id));
+      // Drop leftover demo_* and any mock_* beyond the current 30-seed set.
+      const cleaned = list.filter(
+        (a) =>
+          !a.id.startsWith('demo_') &&
+          (!isMockAccountId(a.id) || allowedMockIds.has(a.id)),
+      );
+      const removed = list.filter((a) => !cleaned.some((c) => c.id === a.id));
+      if (removed.length) {
+        for (const a of removed) {
+          await removeAccountFully(a.id);
+        }
         setAccounts(await loadAccountMeta());
       } else {
         setAccounts(list);

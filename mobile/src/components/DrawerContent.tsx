@@ -375,7 +375,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     <View
       style={[
         styles.root,
-        { paddingTop: insets.top + rs(10), backgroundColor: theme.bg },
+        { paddingTop: insets.top + rs(10), backgroundColor: isDark ? theme.bg : '#F2F4F0' },
       ]}
     >
       <ScrollView
@@ -400,19 +400,25 @@ export function DrawerContent(props: DrawerContentComponentProps) {
 }
 
 function makeStyles(colors: ThemeColors, isDark: boolean) {
+  const panelBg = isDark ? colors.bg : '#F2F4F0';
+  const cardBg = isDark ? '#262626' : '#FFFFFF';
+  const cardBorder = isDark ? '#3A3A3A' : '#3D4F3A';
+  const brandBg = isDark ? '#252724' : '#E8F0E6';
+  const lineBg = isDark ? '#3A3A3A' : '#8A9680';
+
   return StyleSheet.create({
     root: {
       flex: 1,
-      backgroundColor: colors.bg,
+      backgroundColor: panelBg,
       paddingHorizontal: rs(14),
     },
     brand: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(14),
-      borderWidth: isDark ? 1 : 2,
-      borderColor: isDark ? '#434540' : colors.accentGreen,
-      backgroundColor: isDark ? '#252724' : '#C5D4B0',
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: isDark ? '#434540' : colors.primary,
+      backgroundColor: brandBg,
       borderRadius: rs(16),
       paddingVertical: rs(14),
       paddingHorizontal: rs(14),
@@ -427,6 +433,8 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
       justifyContent: 'center',
       overflow: 'hidden',
       padding: rs(4),
+      borderWidth: isDark ? 0 : 1,
+      borderColor: cardBorder,
     },
     brandLogo: {
       width: '100%',
@@ -451,7 +459,7 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
     line: {
       flex: 1,
       height: StyleSheet.hairlineWidth,
-      backgroundColor: isDark ? '#3A3A3A' : '#9AAB8A',
+      backgroundColor: lineBg,
     },
     sectionTitle: {
       color: isDark ? '#A0A0A0' : '#1B2A14',
@@ -462,14 +470,14 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
     item: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: isDark ? '#262626' : '#D5DEC8',
+      backgroundColor: cardBg,
       borderRadius: rs(10),
-      paddingVertical: rs(8),
+      paddingVertical: rs(10),
       paddingHorizontal: rs(10),
-      marginBottom: rs(7),
+      marginBottom: rs(8),
       gap: rs(10),
-      borderWidth: 1,
-      borderColor: isDark ? '#262626' : '#A8B89A',
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: cardBorder,
     },
     itemPressed: { opacity: 0.88 },
     itemIcon: {

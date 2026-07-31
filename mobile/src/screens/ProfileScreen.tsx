@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Linking,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
@@ -13,7 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
@@ -175,8 +176,14 @@ export function ProfileScreen() {
   const openDrawer = useOpenDrawer();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { isPremium, daysLeft: ctxDaysLeft, isPending, maxAccounts, state } =
-    useSubscription();
+  const {
+    isPremium,
+    daysLeft: ctxDaysLeft,
+    isPending,
+    maxAccounts,
+    state,
+    refresh: refreshSubscription,
+  } = useSubscription();
   const { accounts, addAccount } = useAccounts();
   const auth = useAuth();
   const { colors, isDark, toggle } = useTheme();
@@ -188,16 +195,53 @@ export function ProfileScreen() {
   const [publicSettings, setPublicSettings] = useState<PublicAppSettings | null>(null);
   const [copied, setCopied] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [refreshing, setRefreshing] = useState(false);
+
+  const reloadProfile = useCallback(async () => {
+    const tasks: Array<Promise<unknown>> = [
+      fetchPublicAppSettings().then(setPublicSettings),
+      refreshSubscription(),
+    ];
+    if (auth.isAuthenticated && auth.refreshProfile) {
+      tasks.push(auth.refreshProfile());
+    }
+    await Promise.allSettled(tasks);
+  }, [auth, refreshSubscription]);
 
   useEffect(() => {
     void fetchPublicAppSettings().then(setPublicSettings);
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void reloadProfile();
+    }, [reloadProfile]),
+  );
+
+  const onPullRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await reloadProfile();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [reloadProfile]);
 
   // Refresh countdown periodically so "days left" drops as calendar days pass.
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  // While Profile is open, poll subscription every 5 minutes.
+  useFocusEffect(
+    useCallback(() => {
+      const id = setInterval(() => {
+        void refreshSubscription();
+      }, 5 * 60_000);
+      return () => clearInterval(id);
+    }, [refreshSubscription]),
+  );
 
   const contact = publicSettings?.contact ?? FALLBACK_CONTACT;
   const contactItems = useMemo(() => buildContactItems(contact), [contact]);
@@ -415,7 +459,18 @@ export function ProfileScreen() {
       />
       <AdminPromoBanner page="profile" />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void onPullRefresh()}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
         <View style={styles.heroCard}>
           <View style={styles.heroGlow} />
           <View style={styles.logoCircle}>

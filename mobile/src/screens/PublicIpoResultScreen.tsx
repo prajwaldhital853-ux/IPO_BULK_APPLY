@@ -650,32 +650,19 @@ export function PublicIpoResultScreen() {
             : result
               ? result.message
               : null;
-          const iconName = isChecking
-            ? 'time'
-            : isAllotted
-              ? 'checkmark'
-              : isError
-                ? 'alert'
-                : isNotAllotted
-                  ? 'alert'
-                  : 'help';
-          const iconBg = isChecking
-            ? colors.primary
-            : isAllotted
-              ? '#2E7D32'
-              : isError
-                ? '#EF6C00'
-                : isNotAllotted
-                  ? '#C62828'
-                  : colors.surfaceAlt;
+          const initial = (
+            account.name.trim().charAt(0) ||
+            account.username.trim().charAt(0) ||
+            '?'
+          ).toUpperCase();
 
           return (
             <View style={styles.resultCard}>
-              <View style={[styles.resultIcon, { backgroundColor: iconBg }]}>
+              <View style={styles.resultAvatar}>
                 {isChecking ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={colors.primary} />
                 ) : (
-                  <Ionicons name={iconName} size={rs(22)} color="#FFFFFF" />
+                  <Text style={styles.resultAvatarLetter}>{initial}</Text>
                 )}
               </View>
               <View style={styles.resultBody}>
@@ -1033,12 +1020,20 @@ function makeStyles(c: ThemeColors) {
       backgroundColor: c.surface,
       marginBottom: rs(10),
     },
-    resultIcon: {
+    resultAvatar: {
       width: rs(44),
       height: rs(44),
       borderRadius: rs(22),
       alignItems: 'center',
       justifyContent: 'center',
+      backgroundColor: c.primarySoft,
+      borderWidth: 1.5,
+      borderColor: c.primary,
+    },
+    resultAvatarLetter: {
+      color: c.primary,
+      fontSize: rs(18),
+      fontWeight: '800',
     },
     resultBody: { flex: 1 },
     resultName: {

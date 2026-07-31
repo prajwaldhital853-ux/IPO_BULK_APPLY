@@ -119,6 +119,8 @@ export type ApplicationReportDetail = {
   boid?: string;
   appliedDate?: string;
   remarks?: string;
+  /** Short rejection/allotment reason (e.g. "Insufficient balance"). */
+  reason?: string;
 };
 
 export type BulkResultSummary = {

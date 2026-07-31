@@ -371,10 +371,10 @@ function buildExpandedPeople(targetCount: number): PersonSeed[] {
 }
 
 /**
- * 100 realistic sample accounts for Expo Go / offline demos.
+ * 30 realistic sample accounts for Expo Go / offline demos.
  * Holdings include a mix of gains and losses vs previous close & WACC.
  */
-export const MOCK_ACCOUNT_SEEDS: MockAccountSeed[] = buildExpandedPeople(100).map(
+export const MOCK_ACCOUNT_SEEDS: MockAccountSeed[] = buildExpandedPeople(30).map(
   buildSeed,
 );
 

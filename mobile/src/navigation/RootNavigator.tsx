@@ -253,7 +253,7 @@ export function RootNavigator() {
           swipeEnabled: true,
           drawerStyle: {
             width: drawerWidth,
-            backgroundColor: colors.bg,
+            backgroundColor: isDark ? colors.bg : '#F2F4F0',
           },
         }}
       >

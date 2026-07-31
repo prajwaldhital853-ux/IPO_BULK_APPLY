@@ -313,104 +313,107 @@ export function BulkPortfolioScreen() {
         </View>
       ) : null}
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.account.id}
-        contentContainerStyle={styles.list}
-        ListHeaderComponent={
-          <>
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryTop}>
-              <View style={styles.summaryLabelRow}>
-                <Ionicons name="wallet-outline" size={rs(16)} color="#2E7D32" />
-                <Text style={styles.summaryLabel}>Total Portfolio Value</Text>
-              </View>
-              <View style={styles.allUsersPill}>
-                <Text style={styles.allUsersText}>ALL USERS</Text>
-              </View>
+      <View style={styles.stickyTop}>
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryTop}>
+            <View style={styles.summaryLabelRow}>
+              <Ionicons name="wallet-outline" size={rs(16)} color="#2E7D32" />
+              <Text style={styles.summaryLabel}>Total Portfolio Value</Text>
             </View>
+            <View style={styles.allUsersPill}>
+              <Text style={styles.allUsersText}>ALL USERS</Text>
+            </View>
+          </View>
 
-            <View style={styles.summaryValueRow}>
-              <Text style={styles.summaryValue}>
-                {formatRs(totals.value, hidden)}
-              </Text>
-              <View
+          <View style={styles.summaryValueRow}>
+            <Text style={styles.summaryValue}>
+              {formatRs(totals.value, hidden)}
+            </Text>
+            <View
+              style={[
+                styles.changePill,
+                { backgroundColor: changeTint(totals.change).bg },
+              ]}
+            >
+              <Text
                 style={[
-                  styles.changePill,
-                  { backgroundColor: changeTint(totals.change).bg },
+                  styles.changePillText,
+                  { color: changeTint(totals.change).fg },
                 ]}
               >
-                <Text
-                  style={[
-                    styles.changePillText,
-                    { color: changeTint(totals.change).fg },
-                  ]}
-                >
-                  {formatChange(totals.change, hidden)}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => setHidden((v) => !v)}
-                hitSlop={10}
-                style={styles.eyeBtn}
-              >
-                <Ionicons
-                  name={hidden ? 'eye-off-outline' : 'eye-outline'}
-                  size={rs(18)}
-                  color={colors.textMuted}
-                />
-              </Pressable>
+                {formatChange(totals.change, hidden)}
+              </Text>
             </View>
-
-            <View style={styles.summaryFooter}>
+            <Pressable
+              onPress={() => setHidden((v) => !v)}
+              hitSlop={10}
+              style={styles.eyeBtn}
+            >
               <Ionicons
-                name="information-circle-outline"
-                size={rs(14)}
+                name={hidden ? 'eye-off-outline' : 'eye-outline'}
+                size={rs(18)}
                 color={colors.textMuted}
               />
-              <Text style={styles.summaryFooterText}>
-                {totals.accounts} accounts · {totals.holdings} holdings
-              </Text>
-              {running ? (
-                <ActivityIndicator
-                  size="small"
-                  color={colors.primary}
-                  style={{ marginLeft: rs(8) }}
-                />
-              ) : null}
-            </View>
+            </Pressable>
           </View>
 
-          <View style={styles.chipRow}>
-            {(
-              [
-                { key: 'all', label: 'All', count: counts.all, icon: null, tint: colors.textMuted },
-                { key: 'gained', label: 'Gained', count: counts.gained, icon: 'caret-up', tint: '#2E9E5B' },
-                { key: 'loss', label: 'Loss', count: counts.loss, icon: 'caret-down', tint: '#E5484D' },
-                { key: 'unch', label: 'Unch', count: counts.unch, icon: 'remove', tint: colors.textMuted },
-              ] as const
-            ).map((chip) => {
-              const active = filter === chip.key;
-              return (
-                <Pressable
-                  key={chip.key}
-                  onPress={() => setFilter(chip.key)}
-                  style={[styles.chip, active && styles.chipActive]}
-                >
-                  {chip.icon ? (
-                    <Ionicons name={chip.icon} size={rs(12)} color={chip.tint} />
-                  ) : (
-                    <View style={[styles.chipDot, { backgroundColor: chip.tint }]} />
-                  )}
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                    {chip.label} {chip.count}
-                  </Text>
-                </Pressable>
-              );
-            })}
+          <View style={styles.summaryFooter}>
+            <Ionicons
+              name="information-circle-outline"
+              size={rs(14)}
+              color={colors.textMuted}
+            />
+            <Text style={styles.summaryFooterText}>
+              {totals.accounts} accounts · {totals.holdings} holdings
+            </Text>
+            {running ? (
+              <ActivityIndicator
+                size="small"
+                color={colors.primary}
+                style={{ marginLeft: rs(8) }}
+              />
+            ) : null}
           </View>
-          </>
-        }
+        </View>
+
+        <View style={styles.chipRow}>
+          {(
+            [
+              { key: 'all', label: 'All', count: counts.all, icon: null, tint: colors.textMuted },
+              { key: 'gained', label: 'Gained', count: counts.gained, icon: 'caret-up', tint: '#2E9E5B' },
+              { key: 'loss', label: 'Loss', count: counts.loss, icon: 'caret-down', tint: '#E5484D' },
+              { key: 'unch', label: 'Unch', count: counts.unch, icon: 'remove', tint: colors.textMuted },
+            ] as const
+          ).map((chip) => {
+            const active = filter === chip.key;
+            return (
+              <Pressable
+                key={chip.key}
+                onPress={() => setFilter(chip.key)}
+                style={[styles.chip, active && styles.chipActive]}
+              >
+                {chip.icon ? (
+                  <Ionicons name={chip.icon} size={rs(12)} color={chip.tint} />
+                ) : (
+                  <View style={[styles.chipDot, { backgroundColor: chip.tint }]} />
+                )}
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                  {chip.label} {chip.count}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <FlatList
+        style={styles.accountList}
+        data={filtered}
+        keyExtractor={(item) => item.account.id}
+        contentContainerStyle={[
+          styles.list,
+          { paddingBottom: Math.max(insets.bottom, rs(40)) },
+        ]}
         ListEmptyComponent={
           <Text style={styles.empty}>
             {accounts.length === 0
@@ -573,7 +576,16 @@ function makeStyles(c: ThemeColors) {
     },
     list: {
       paddingHorizontal: rs(14),
+      paddingTop: rs(4),
       paddingBottom: rs(40),
+    },
+    stickyTop: {
+      paddingHorizontal: rs(14),
+      paddingBottom: rs(4),
+      backgroundColor: c.bg,
+    },
+    accountList: {
+      flex: 1,
     },
     summaryCard: {
       backgroundColor: c.primarySoft,

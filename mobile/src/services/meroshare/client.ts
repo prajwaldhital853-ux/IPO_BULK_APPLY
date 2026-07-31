@@ -1,6 +1,10 @@
 import { resolveClientId } from './capital';
 import { DEFAULT_HEADERS, MEROSHARE_BASE, PATHS } from './endpoints';
-import { MeroshareError } from './errors';
+import {
+  isTransientMeroshareMessage,
+  MeroshareError,
+  withMeroshareRetries,
+} from './errors';
 import {
   isProbablyHtml,
   parseJsonBody,
@@ -83,6 +87,25 @@ export class MeroshareClient {
       auth?: boolean;
       /** Prefer portal-like Origin/Referer (needed for some migrated routes). */
       browserLike?: boolean;
+      /** Disable automatic retries for transient CDSC flakiness. */
+      noRetry?: boolean;
+    } = {},
+  ): Promise<T> {
+    const { noRetry, ...rest } = init;
+    if (noRetry) {
+      return this.requestOnce<T>(path, rest);
+    }
+    return withMeroshareRetries(
+      () => this.requestOnce<T>(path, rest),
+      { attempts: 3, label: path },
+    );
+  }
+
+  private async requestOnce<T>(
+    path: string,
+    init: RequestInit & {
+      auth?: boolean;
+      browserLike?: boolean;
     } = {},
   ): Promise<T> {
     const headers: Record<string, string> = {
@@ -127,7 +150,7 @@ export class MeroshareClient {
       }
       if (!res.ok) {
         throw new MeroshareError(
-          'UNKNOWN',
+          res.status >= 500 ? 'NETWORK' : 'UNKNOWN',
           `HTTP ${res.status} from ${path}`,
         );
       }
@@ -183,7 +206,38 @@ export class MeroshareClient {
           `${msg} (HTTP ${res.status} · ${path})`,
         );
       }
+      if (
+        res.status === 429 ||
+        res.status >= 500 ||
+        isTransientMeroshareMessage(msg)
+      ) {
+        throw new MeroshareError(
+          res.status === 429 ? 'RATE' : 'NETWORK',
+          msg,
+        );
+      }
       throw new MeroshareError('UNKNOWN', `${msg} (HTTP ${res.status})`);
+    }
+
+    // CDSC sometimes returns HTTP 200 with a soft failure message.
+    const softMsg =
+      typeof data === 'object' &&
+      data &&
+      'message' in data &&
+      typeof (data as { message: unknown }).message === 'string'
+        ? (data as { message: string }).message
+        : '';
+    if (softMsg && isTransientMeroshareMessage(softMsg)) {
+      const softCode =
+        typeof data === 'object' &&
+        data &&
+        'statusCode' in data &&
+        typeof (data as { statusCode: unknown }).statusCode === 'number'
+          ? (data as { statusCode: number }).statusCode
+          : 0;
+      if (softCode >= 400 || softCode === 0) {
+        throw new MeroshareError('NETWORK', softMsg);
+      }
     }
 
     return data as T;
@@ -202,6 +256,13 @@ export class MeroshareClient {
   }
 
   async login(args: LoginArgs): Promise<MeroshareSession> {
+    return withMeroshareRetries(
+      () => this.loginOnce(args),
+      { attempts: 3, label: 'login' },
+    );
+  }
+
+  private async loginOnce(args: LoginArgs): Promise<MeroshareSession> {
     const resolved = await resolveClientId(args.clientId, {
       clientId: args.dpCode ? Number(args.clientId) : undefined,
       dpCode: args.dpCode,
@@ -257,6 +318,16 @@ export class MeroshareClient {
       if (/password|username|credential|unauthorized|invalid/i.test(msg)) {
         throw new MeroshareError('AUTH', msg);
       }
+      if (
+        result.status >= 500 ||
+        result.status === 429 ||
+        isTransientMeroshareMessage(msg)
+      ) {
+        throw new MeroshareError(
+          result.status === 429 ? 'RATE' : 'NETWORK',
+          msg,
+        );
+      }
       throw new MeroshareError('UNKNOWN', msg);
     }
 
@@ -270,7 +341,7 @@ export class MeroshareClient {
         /* ignore */
       }
       throw new MeroshareError(
-        'AUTH',
+        'NETWORK',
         `Login OK but no Authorization token in headers (${keys.join(', ') || 'none'}). Retry once.`,
       );
     }
@@ -290,7 +361,7 @@ export class MeroshareClient {
     }
 
     try {
-      const me = await this.request<{
+      const me = await this.requestOnce<{
         demat?: string;
         boid?: string;
         accountNumber?: string;
@@ -839,7 +910,7 @@ export class MeroshareClient {
       return {
         dryRun: false,
         status: 'NOT_APPLIED',
-        message: 'No application found for this issue on this account',
+        message: 'You have not applied for this IPO',
       };
     }
 
@@ -887,7 +958,11 @@ export class MeroshareClient {
       }
     }
 
-    const label = humanizeApplicationStatus(statusName, allotmentStatus);
+    const label = humanizeApplicationStatus(
+      statusName,
+      allotmentStatus,
+      remarks,
+    );
     let message = label.message;
     if (label.code === 'ALLOTTED') {
       message =
@@ -897,6 +972,8 @@ export class MeroshareClient {
         kitta != null
           ? `Not Alloted ( quantity : ${kitta} )`
           : 'Not Alloted';
+    } else if (label.code === 'REJECTED') {
+      message = label.message;
     }
 
     if (!remarks) {
@@ -964,6 +1041,10 @@ export class MeroshareClient {
       'active/default',
     );
 
+    // Soft failures already retried inside softSearchReports. Returning empty
+    // (instead of throwing) keeps Bulk Status dropdown from going blank when
+    // CDSC is briefly flaky — callers that need a hard error can detect empty.
+
     const seen = new Set<string>();
     const out: ApplicationReportRow[] = [];
     for (const row of defaultRes.rows ?? []) {
@@ -1016,63 +1097,76 @@ export class MeroshareClient {
     if (!this.session?.token) {
       return { rows: [], error: `${label}: not logged in` };
     }
-    try {
-      const result = await rawRequest(base, path, {
-        method: 'POST',
-        headers: {
-          Authorization: this.session.token,
-        },
-        body: JSON.stringify(body),
-      });
-      if (__DEV__) {
-        const preview = (result.text || '').replace(/\s+/g, ' ').slice(0, 160);
-        console.log(
-          `[meroshare] ${label} HTTP ${result.status} preview=${preview}`,
-        );
-      }
-      if (isProbablyHtml(result.text)) {
-        return {
-          rows: [],
-          error: `${label}: HTML response HTTP ${result.status}`,
-        };
-      }
-      let data: Record<string, unknown> = {};
+
+    let lastError = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        data = result.text
-          ? parseJsonBody<Record<string, unknown>>(result.text, label)
-          : {};
-      } catch {
-        return {
-          rows: [],
-          error: `${label}: bad JSON HTTP ${result.status}`,
-        };
+        const result = await rawRequest(base, path, {
+          method: 'POST',
+          headers: {
+            Authorization: this.session.token,
+          },
+          body: JSON.stringify(body),
+        });
+        if (__DEV__) {
+          const preview = (result.text || '').replace(/\s+/g, ' ').slice(0, 160);
+          console.log(
+            `[meroshare] ${label} try=${attempt + 1} HTTP ${result.status} preview=${preview}`,
+          );
+        }
+        if (isProbablyHtml(result.text)) {
+          lastError = `${label}: HTML response HTTP ${result.status}`;
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+            continue;
+          }
+          return { rows: [], error: lastError };
+        }
+        let data: Record<string, unknown> = {};
+        try {
+          data = result.text
+            ? parseJsonBody<Record<string, unknown>>(result.text, label)
+            : {};
+        } catch {
+          lastError = `${label}: bad JSON HTTP ${result.status}`;
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+            continue;
+          }
+          return { rows: [], error: lastError };
+        }
+        const msg = typeof data.message === 'string' ? data.message : '';
+        const code =
+          typeof data.statusCode === 'number' ? data.statusCode : result.status;
+        if (
+          !result.ok ||
+          (code >= 400 && code !== 200) ||
+          isTransientMeroshareMessage(msg)
+        ) {
+          lastError = `${label}: ${msg || `HTTP ${result.status}`}`;
+          if (attempt < 2 && isTransientMeroshareMessage(lastError)) {
+            await new Promise((r) => setTimeout(r, 900 * (attempt + 1)));
+            continue;
+          }
+          return { rows: [], error: lastError };
+        }
+        const rows = this.extractReportRows(data);
+        if (__DEV__) {
+          console.log(
+            `[meroshare] ${label} rows=${rows.length} totalCount=${String(data.totalCount ?? '')}`,
+          );
+        }
+        return { rows };
+      } catch (e) {
+        lastError = `${label}: ${e instanceof Error ? e.message : 'failed'}`;
+        if (attempt < 2 && isTransientMeroshareMessage(lastError)) {
+          await new Promise((r) => setTimeout(r, 900 * (attempt + 1)));
+          continue;
+        }
+        return { rows: [], error: lastError };
       }
-      const msg = typeof data.message === 'string' ? data.message : '';
-      const code =
-        typeof data.statusCode === 'number' ? data.statusCode : result.status;
-      if (
-        !result.ok ||
-        (code >= 400 && code !== 200) ||
-        /unable to process/i.test(msg)
-      ) {
-        return {
-          rows: [],
-          error: `${label}: ${msg || `HTTP ${result.status}`}`,
-        };
-      }
-      const rows = this.extractReportRows(data);
-      if (__DEV__) {
-        console.log(
-          `[meroshare] ${label} rows=${rows.length} totalCount=${String(data.totalCount ?? '')}`,
-        );
-      }
-      return { rows };
-    } catch (e) {
-      return {
-        rows: [],
-        error: `${label}: ${e instanceof Error ? e.message : 'failed'}`,
-      };
     }
+    return { rows: [], error: lastError || `${label}: failed` };
   }
 
   private extractReportRows(
@@ -1168,6 +1262,22 @@ function pickStr(
   return undefined;
 }
 
+/** Walk common nested bank/branch objects MeroShare sometimes returns. */
+function pickNestedStr(
+  row: Record<string, unknown>,
+  objectKeys: string[],
+  valueKeys: string[],
+): string | undefined {
+  for (const ok of objectKeys) {
+    const obj = row[ok];
+    if (obj && typeof obj === 'object') {
+      const found = pickStr(obj as Record<string, unknown>, ...valueKeys);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 function normalizeReportDetail(
   row: Record<string, unknown>,
   fallback?: ApplicationReportRow,
@@ -1187,10 +1297,20 @@ function normalizeReportDetail(
     (kitta != null && !Number.isNaN(kitta) ? kitta * 100 : null);
 
   const bank =
-    pickStr(row, 'bankName', 'bank', 'accountBankName') ??
-    (row.bank && typeof row.bank === 'object'
-      ? pickStr(row.bank as Record<string, unknown>, 'name', 'bankName')
-      : undefined);
+    pickStr(
+      row,
+      'bankName',
+      'bank',
+      'accountBankName',
+      'bankNameEn',
+      'bankNameNp',
+    ) ??
+    pickNestedStr(
+      row,
+      ['bank', 'accountBank', 'bankAccount', 'asbaBank'],
+      ['name', 'bankName', 'bankNameEn', 'nameEn'],
+    );
+
   const branch =
     pickStr(
       row,
@@ -1199,14 +1319,29 @@ function normalizeReportDetail(
       'branch',
       'bankBranchName',
       'branchNameEn',
+      'branchNameNp',
+      'accountBranchNameEn',
+      'bankAccountBranchName',
     ) ??
-    (row.accountBranch && typeof row.accountBranch === 'object'
-      ? pickStr(
-          row.accountBranch as Record<string, unknown>,
-          'name',
-          'branchName',
-        )
-      : undefined);
+    pickNestedStr(
+      row,
+      [
+        'accountBranch',
+        'bankBranch',
+        'branch',
+        'bankAccount',
+        'account',
+        'asbaAccount',
+      ],
+      [
+        'name',
+        'branchName',
+        'accountBranchName',
+        'nameEn',
+        'branchNameEn',
+        'displayName',
+      ],
+    );
 
   const boid = pickStr(row, 'boid', 'demat', 'dematNumber', 'dematAccountNumber');
   const allotted = nestedNumber(
@@ -1245,19 +1380,32 @@ function normalizeReportDetail(
       'accountNumber',
       'bankAccountNumber',
       'accountNo',
-    ),
+      'bankAccountNo',
+    ) ??
+      pickNestedStr(
+        row,
+        ['bankAccount', 'account', 'asbaAccount'],
+        ['accountNumber', 'accountNo', 'number'],
+      ),
     boid,
     appliedDate:
       pickStr(row, 'appliedDate', 'applicationDate', 'submittedDate') ??
       base.appliedDate,
     remarks: pickStr(
       row,
-      'reasonOrRemark',
       'meroshareRemark',
       'remarks',
       'remark',
-      'reason',
       'blockAmountStatus',
+      'reasonOrRemark',
+    ),
+    reason: pickStr(
+      row,
+      'reason',
+      'rejectionReason',
+      'failReason',
+      'failureReason',
+      'reasonName',
     ),
   };
 }
@@ -1266,15 +1414,34 @@ function normalizeReportDetail(
 export function humanizeApplicationStatus(
   statusName: string,
   allotmentStatus?: string,
+  remarks?: string,
 ): { code: string; message: string } {
   const s = statusName.toUpperCase();
   const a = (allotmentStatus ?? '').toUpperCase();
+  const r = (remarks ?? '').toUpperCase();
+  const combined = `${s} ${a} ${r}`;
 
-  if (/NOT.?ALLOT|UNALLOT|REJECT/.test(a) || /NOT.?ALLOT/.test(s)) {
+  if (/NOT.?ALLOT|UNALLOT/.test(a) || /NOT.?ALLOT/.test(s)) {
     return { code: 'NOT_ALLOTTED', message: 'Not allotted' };
   }
-  if (/ALLOT/.test(a) && !/NOT/.test(a)) {
+  if (
+    (/ALLOT/.test(a) && !/NOT/.test(a)) ||
+    (/ALLOT/.test(s) && !/NOT.?ALLOT/.test(s))
+  ) {
     return { code: 'ALLOTTED', message: 'Allotted' };
+  }
+  // Insufficient ASBA / bank balance (BLOCK_FAILED is the usual CDSC code).
+  if (
+    /INSUFFICIENT|NOT ENOUGH|LOW BALANCE|INSUFFICEN|BALANCE.?NOT.?AVAILABLE|INSUFFICIENT.?FUND/i.test(
+      combined,
+    ) ||
+    /BLOCK[_\s-]?FAIL|AMOUNT.?BLOCK.?FAIL|BLOCK.?AMOUNT.?FAIL/i.test(combined)
+  ) {
+    return {
+      code: 'REJECTED',
+      message:
+        'Rejected — you have insufficient amount in your bank account',
+    };
   }
   if (/TRANSACTION_SUCCESS|APPROVED/.test(s)) {
     return {
@@ -1287,8 +1454,16 @@ export function humanizeApplicationStatus(
   if (/PENDING|WAIT|PROCESS/.test(s)) {
     return { code: 'PENDING', message: `Pending (${statusName})` };
   }
-  if (/CANCEL|FAIL|ERROR/.test(s)) {
-    return { code: 'FAILED', message: statusName };
+  if (/REJECT/.test(combined)) {
+    return { code: 'REJECTED', message: allotmentStatus || statusName || 'Rejected' };
+  }
+  if (/CANCEL/.test(s) || (/FAIL|ERROR/.test(s) && !/BLOCK/.test(s))) {
+    return {
+      code: 'FAILED',
+      message: /FAIL|ERROR/i.test(statusName)
+        ? 'Application failed — try again later or check on MeroShare'
+        : statusName,
+    };
   }
   return { code: s || 'UNKNOWN', message: statusName };
 }

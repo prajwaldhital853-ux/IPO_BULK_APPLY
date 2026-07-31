@@ -34,15 +34,15 @@ export function CheckScreen() {
   const cards = [
     {
       title: 'Check From MeroShare',
-      desc: 'Check CDSC results using the safer in-app phone session flow.',
+      desc: 'CDSC check via this phone’s session (auto captcha, WAF-safe).',
       tint: '#A1887F',
       icon: 'file-document-outline' as const,
       onPress: () =>
-        needAccounts(() => navigation.navigate('PublicIpoResult')),
+        needAccounts(() => navigation.navigate('CheckResultWeb')),
     },
     {
       title: 'IPO Bulk Result',
-      desc: 'View IPO results in bulk',
+      desc: 'View IPO results in bulk (issue managers + CDSC)',
       tint: '#2E7D32',
       icon: 'format-list-checks' as const,
       onPress: () =>

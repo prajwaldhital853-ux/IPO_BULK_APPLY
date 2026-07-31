@@ -207,7 +207,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       width: rs(40),
       height: rs(40),
       borderRadius: rs(20),
-      backgroundColor: isDark ? c.accentGreen : '#2D5A27',
+      backgroundColor: isDark ? c.accentGreen : '#1B5E20',
       alignItems: 'center',
       justifyContent: 'center',
     },

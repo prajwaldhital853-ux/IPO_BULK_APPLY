@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,6 +10,8 @@ import {
   View,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -127,6 +130,10 @@ export function NepseCalendarScreen() {
   const [selectedIso, setSelectedIso] = useState(todayIso);
   const [filter, setFilter] = useState<FilterId>('all');
   const [detailTab, setDetailTab] = useState<DetailTab>('selected');
+  const filterScrollRef = useRef<ScrollView>(null);
+  const filterChipLayouts = useRef<Record<string, { x: number; width: number }>>(
+    {},
+  );
   const [offerings, setOfferings] = useState<{
     ipo: PublicOffering[];
     fpo: PublicOffering[];
@@ -292,6 +299,42 @@ export function NepseCalendarScreen() {
     void load(true);
   };
 
+  const scrollFilterChipIntoView = useCallback((id: FilterId) => {
+    const layout = filterChipLayouts.current[id];
+    if (!layout || !filterScrollRef.current) return;
+    const screenW = Dimensions.get('window').width;
+    const targetX = Math.max(0, layout.x - (screenW - layout.width) / 2);
+    filterScrollRef.current.scrollTo({ x: targetX, animated: true });
+  }, []);
+
+  const shiftFilter = useCallback(
+    (dir: 1 | -1) => {
+      const idx = FILTERS.findIndex((f) => f.id === filter);
+      const next = idx + dir;
+      if (next < 0 || next >= FILTERS.length) return;
+      const nextId = FILTERS[next].id;
+      setFilter(nextId);
+      scrollFilterChipIntoView(nextId);
+    },
+    [filter, scrollFilterChipIntoView],
+  );
+
+  const swipeFilters = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-28, 28])
+        .failOffsetY([-18, 18])
+        .onEnd((e) => {
+          'worklet';
+          if (e.translationX <= -56) {
+            runOnJS(shiftFilter)(1);
+          } else if (e.translationX >= 56) {
+            runOnJS(shiftFilter)(-1);
+          }
+        }),
+    [shiftFilter],
+  );
+
   const dotsFor = (iso: string) => {
     const list = eventsByDate.get(iso) ?? [];
     const kinds = new Set(list.map((e) => e.kind));
@@ -327,6 +370,7 @@ export function NepseCalendarScreen() {
       </View>
 
       <ScrollView
+        ref={filterScrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.filterRow}
@@ -337,7 +381,16 @@ export function NepseCalendarScreen() {
           return (
             <Pressable
               key={f.id}
-              onPress={() => setFilter(f.id)}
+              onPress={() => {
+                setFilter(f.id);
+                scrollFilterChipIntoView(f.id);
+              }}
+              onLayout={(e) => {
+                filterChipLayouts.current[f.id] = {
+                  x: e.nativeEvent.layout.x,
+                  width: e.nativeEvent.layout.width,
+                };
+              }}
               style={[
                 styles.filterChip,
                 { backgroundColor: active ? f.color : `${f.color}33` },
@@ -362,6 +415,7 @@ export function NepseCalendarScreen() {
         })}
       </ScrollView>
 
+      <GestureDetector gesture={swipeFilters}>
       <ScrollView
         contentContainerStyle={styles.body}
         refreshControl={
@@ -592,6 +646,7 @@ export function NepseCalendarScreen() {
           ))
         )}
       </ScrollView>
+      </GestureDetector>
     </View>
   );
 }

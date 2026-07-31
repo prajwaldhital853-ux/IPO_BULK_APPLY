@@ -105,55 +105,58 @@ export const darkColors: ThemeColors = {
   pillText: '#0A0A0A',
 };
 
-/** Soft sage-green light palette (~#E4EAD9) — easier on eyes, matches client SS. */
+/**
+ * Light mode — pure white page, crisp dark borders, saturated greens.
+ * Buttons/accents use clear dark greens (not pastel / washed-out).
+ */
 export const lightColors: ThemeColors = {
-  bg: '#E4EAD9',
-  bgElevated: '#E7ECE0',
-  surface: '#EEF2E6',
-  surfaceAlt: '#DCE5D0',
-  border: '#C5D0B5',
-  borderMuted: '#D5DEC8',
+  bg: '#FFFFFF',
+  bgElevated: '#FFFFFF',
+  surface: '#FFFFFF',
+  surfaceAlt: '#F3F4F2',
+  border: '#3D4F3A',
+  borderMuted: '#6B7A64',
 
-  text: '#1B1B1B',
-  textSecondary: '#5F6B5F',
-  textMuted: '#7A8570',
-  textDim: '#9AA390',
+  text: '#121212',
+  textSecondary: '#3A4338',
+  textMuted: '#5A6556',
+  textDim: '#7A8576',
 
-  primary: '#2D5A27',
-  primarySoft: '#D0DDBF',
-  primaryMid: '#D8E2C8',
-  accentGreen: '#3D7A36',
-  sage: '#81C784',
-  teal: '#26A69A',
-  tealHeader: '#2BBBAD',
+  primary: '#1B5E20',
+  primarySoft: '#E8F5E9',
+  primaryMid: '#C8E6C9',
+  accentGreen: '#2E7D32',
+  sage: '#43A047',
+  teal: '#00897B',
+  tealHeader: '#00796B',
 
-  badgeNew: '#E53935',
-  badgeUpdated: '#FB8C00',
+  badgeNew: '#C62828',
+  badgeUpdated: '#EF6C00',
 
   promoBanner: '#1B5E20',
-  fab: '#2D5A27',
+  fab: '#1B5E20',
   fabIcon: '#FFFFFF',
 
-  checkIconBrown: '#EF6C00',
-  checkIconGreen: '#43A047',
-  checkIconBlue: '#1E88E5',
-  checkIconPurple: '#7E57C2',
+  checkIconBrown: '#E65100',
+  checkIconGreen: '#2E7D32',
+  checkIconBlue: '#1565C0',
+  checkIconPurple: '#6A1B9A',
 
-  meroRed: '#E53935',
-  danger: '#C62828',
+  meroRed: '#C62828',
+  danger: '#B71C1C',
 
-  tabInactive: '#6F7A65',
-  tabActive: '#2D5A27',
-  tabActiveBg: '#D0DDBF',
+  tabInactive: '#5A6556',
+  tabActive: '#1B5E20',
+  tabActiveBg: '#E8F5E9',
 
-  inputBg: '#DCE5D0',
-  overlay: 'rgba(0,0,0,0.35)',
+  inputBg: '#FFFFFF',
+  overlay: 'rgba(0,0,0,0.4)',
 
-  searchBg: '#EEF2E6',
-  pillFree: '#81D4FA',
-  pillMero: '#80CBC4',
-  pillPremiumStart: '#64B5F6',
-  pillPremiumEnd: '#26C6DA',
+  searchBg: '#FFFFFF',
+  pillFree: '#0288D1',
+  pillMero: '#00897B',
+  pillPremiumStart: '#1976D2',
+  pillPremiumEnd: '#0097A7',
   pillText: '#FFFFFF',
 };
 
