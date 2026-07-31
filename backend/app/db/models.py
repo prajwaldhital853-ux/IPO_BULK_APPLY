@@ -240,6 +240,8 @@ class ManagedOffering(Base):
     issue_manager: Mapped[str | None] = mapped_column(String(256), nullable=True)
     # ComingSoon | Proposed | Open | Closed
     status: Mapped[str] = mapped_column(String(32), default='ComingSoon', index=True)
+    # current | upcoming | both — explicit admin-controlled app placement.
+    display_section: Mapped[str] = mapped_column(String(16), default='both', index=True)
     units: Mapped[int | None] = mapped_column(Integer, nullable=True)
     applied_units: Mapped[int | None] = mapped_column(Integer, nullable=True)
     applicants: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -12,6 +12,7 @@ OFFERING_TYPES = frozenset(
     {'Ipo', 'Fpo', 'Right', 'MutualFund', 'BondOrDebenture'},
 )
 STATUSES = frozenset({'ComingSoon', 'Proposed', 'Open', 'Closed'})
+DISPLAY_SECTIONS = frozenset({'current', 'upcoming', 'both'})
 _DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}')
 
 
@@ -91,6 +92,13 @@ def _normalize_status(raw: str | None) -> str:
     return mapped
 
 
+def _normalize_display_section(raw: str | None) -> str:
+    value = (raw or 'both').strip().lower()
+    if value not in DISPLAY_SECTIONS:
+        raise ValueError('Display section must be current, upcoming, or both')
+    return value
+
+
 def _optional_int(raw: int | float | None) -> int | None:
     if raw is None:
         return None
@@ -141,6 +149,7 @@ async def create_managed_offering(
     audience: str | None = None,
     issue_manager: str | None = None,
     status: str = 'ComingSoon',
+    display_section: str = 'both',
     units: int | None = None,
     applied_units: int | None = None,
     applicants: int | None = None,
@@ -176,6 +185,7 @@ async def create_managed_offering(
         audience=(audience or '').strip() or None,
         issue_manager=(issue_manager or '').strip() or None,
         status=_normalize_status(status),
+        display_section=_normalize_display_section(display_section),
         units=_optional_int(units),
         applied_units=_optional_int(applied_units),
         applicants=_optional_int(applicants),
@@ -203,6 +213,7 @@ async def update_managed_offering(
     audience: str | None = None,
     issue_manager: str | None = None,
     status: str = 'ComingSoon',
+    display_section: str = 'both',
     units: int | None = None,
     applied_units: int | None = None,
     applicants: int | None = None,
@@ -240,6 +251,7 @@ async def update_managed_offering(
     row.audience = (audience or '').strip() or None
     row.issue_manager = (issue_manager or '').strip() or None
     row.status = _normalize_status(status)
+    row.display_section = _normalize_display_section(display_section)
     row.units = _optional_int(units)
     row.applied_units = _optional_int(applied_units)
     row.applicants = _optional_int(applicants)

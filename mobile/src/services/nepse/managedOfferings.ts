@@ -13,6 +13,8 @@ export type ManagedOfferingStatus =
   | 'Open'
   | 'Closed';
 
+export type ManagedOfferingDisplaySection = 'current' | 'upcoming' | 'both';
+
 export type ManagedOffering = {
   id: string;
   matchKey: string;
@@ -22,6 +24,7 @@ export type ManagedOffering = {
   audience: string | null;
   issueManager: string | null;
   status: ManagedOfferingStatus | string;
+  displaySection: ManagedOfferingDisplaySection;
   units: number | null;
   appliedUnits: number | null;
   applicants: number | null;
@@ -43,6 +46,7 @@ export type ManagedOfferingInput = {
   audience?: string | null;
   issueManager?: string | null;
   status?: string;
+  displaySection?: ManagedOfferingDisplaySection;
   units?: number | null;
   appliedUnits?: number | null;
   applicants?: number | null;
@@ -89,6 +93,11 @@ function mapOffering(json: Record<string, unknown>): ManagedOffering {
           ? String(json.issue_manager)
           : null,
     status: String(json.status ?? 'ComingSoon'),
+    displaySection: (
+      json.displaySection ??
+      json.display_section ??
+      'both'
+    ) as ManagedOfferingDisplaySection,
     units: num(json.units),
     appliedUnits: num(json.appliedUnits ?? json.applied_units),
     applicants: num(json.applicants),

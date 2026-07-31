@@ -154,6 +154,16 @@ export function IssueOfferingCard({
             <Text style={styles.highlightChipText}>{highlightChip}</Text>
           </View>
         </View>
+        {subscription ? (
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${Math.min(100, subscription.percent)}%` },
+              ]}
+            />
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.dateRow}>
@@ -261,8 +271,9 @@ function makeStyles(c: ThemeColors) {
       marginTop: rs(6),
     },
     highlightValue: {
+      flexShrink: 1,
       color: OPEN_GREEN,
-      fontSize: rs(18),
+      fontSize: rs(15),
       fontWeight: '800',
     },
     highlightChip: {
@@ -278,6 +289,18 @@ function makeStyles(c: ThemeColors) {
       color: OPEN_GREEN,
       fontSize: rs(10),
       fontWeight: '700',
+    },
+    progressTrack: {
+      height: rs(5),
+      marginTop: rs(9),
+      borderRadius: rs(3),
+      backgroundColor: `${OPEN_GREEN}24`,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      borderRadius: rs(3),
+      backgroundColor: OPEN_GREEN,
     },
     dateRow: {
       flexDirection: 'row',

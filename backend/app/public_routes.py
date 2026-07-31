@@ -82,6 +82,7 @@ async def public_ipo_issues(
             audience=r.audience,
             issueManager=r.issue_manager,
             status=r.status,
+            displaySection=r.display_section,
             units=r.units,
             appliedUnits=r.applied_units,
             applicants=r.applicants,

@@ -52,6 +52,8 @@ export type PublicOffering = {
   cdsc: CdscIssueStat | null;
   /** Set when this card comes from (or is overridden by) an admin record. */
   managedId: string | null;
+  /** Explicit admin placement; null means classify from status/dates. */
+  displaySection: 'current' | 'upcoming' | 'both' | null;
   matchKey: string | null;
 };
 
@@ -81,8 +83,20 @@ type ApiEnvelope = {
   data?: ApiPage;
 };
 
-const cache = new Map<string, { at: number; rows: PublicOffering[] }>();
+const cache = new Map<
+  string,
+  {
+    at: number;
+    rows: PublicOffering[];
+    complete: boolean;
+    totalPages: number;
+  }
+>();
 const CACHE_MS = 5 * 60_000;
+/** Hard cap on issues shown per Upcoming tab. */
+export const PREVIOUS_ISSUES_LIMIT = 50;
+/** ShareHub pages are ~10 rows; 5 pages ≈ 50 items per type. */
+const MAX_HISTORY_PAGES = 5;
 
 export function invalidatePublicOfferingCache(): void {
   cache.clear();
@@ -143,6 +157,7 @@ function normalizeRow(raw: Record<string, unknown>): PublicOffering {
     appliedAmount: num(raw.appliedAmount),
     cdsc: null,
     managedId: null,
+    displaySection: null,
     matchKey: offeringMatchKey({ name, symbol, audience }),
   };
 }
@@ -175,6 +190,7 @@ function managedToOffering(row: ManagedOffering): PublicOffering {
     appliedAmount: row.appliedAmount,
     cdsc: null,
     managedId: row.id,
+    displaySection: row.displaySection,
     matchKey: row.matchKey || offeringMatchKey(row),
   };
 }
@@ -209,6 +225,7 @@ function applyAdminOverride(
     applicants: pick(admin.applicants, base.applicants),
     appliedAmount: pick(admin.appliedAmount, base.appliedAmount),
     managedId: admin.id,
+    displaySection: admin.displaySection,
     matchKey: admin.matchKey || base.matchKey,
   };
 }
@@ -242,56 +259,12 @@ function dedupeOfferings(rows: PublicOffering[]): PublicOffering[] {
   return out;
 }
 
-export async function loadPublicOfferingsByType(
-  type: PublicOfferingType,
-  force = false,
-): Promise<PublicOffering[]> {
-  const hit = cache.get(`${type}:v2`);
-  if (!force && hit && Date.now() - hit.at < CACHE_MS) {
-    return hit.rows;
-  }
-
-  const first = await fetchPage(type, 1);
-  if (!first) {
-    const stale = cache.get(`${type}:v2`);
-    return stale?.rows ?? [];
-  }
-
-  const rows = [...first.content];
-  const totalPages = first.totalPages || 1;
-
-  const rest = await Promise.all(
-    Array.from({ length: Math.max(0, totalPages - 1) }, (_, i) =>
-      fetchPage(type, i + 2),
-    ),
-  );
-  for (const page of rest) {
-    if (page?.content.length) rows.push(...page.content);
-  }
-
-  const unique = dedupeOfferings(rows);
-  cache.set(`${type}:v2`, { at: Date.now(), rows: unique });
-  return unique;
-}
-
-/**
- * Every offering type merged into one list, newest opening first, with live
- * CDSC subscription figures and admin overrides applied.
- */
-export async function loadAllPublicOfferings(
-  force = false,
-): Promise<PublicOffering[]> {
-  const [pages, stats, managed] = await Promise.all([
-    Promise.all(
-      ISSUE_TABS.map((tab) =>
-        loadPublicOfferingsByType(tab.apiType, force).catch(() => []),
-      ),
-    ),
-    loadCdscIssueStats(force).catch(() => [] as CdscIssueStat[]),
-    fetchManagedOfferings().catch(() => [] as ManagedOffering[]),
-  ]);
-
-  const withCdsc = dedupeOfferings(pages.flat()).map((row) => {
+function mergeWithLiveAndAdmin(
+  sharehubRows: PublicOffering[],
+  stats: CdscIssueStat[],
+  managed: ManagedOffering[],
+): PublicOffering[] {
+  const withCdsc = dedupeOfferings(sharehubRows).map((row) => {
     const cdsc = matchCdscStat(stats, row);
     if (!cdsc) return row;
     return {
@@ -305,7 +278,7 @@ export async function loadAllPublicOfferings(
   });
 
   const byKey = new Map<string, PublicOffering>();
-  const byNameAudience = new Map<string, string>(); // soft key -> primary key
+  const byNameAudience = new Map<string, string>();
   for (const row of withCdsc) {
     const key = row.matchKey || offeringMatchKey(row);
     const soft = offeringNameAudienceKey(row);
@@ -346,6 +319,157 @@ export async function loadAllPublicOfferings(
     const bt = b.openingDate ? Date.parse(b.openingDate) : 0;
     return bt - at;
   });
+}
+
+async function loadExtras(force = false): Promise<{
+  stats: CdscIssueStat[];
+  managed: ManagedOffering[];
+}> {
+  const [stats, managed] = await Promise.all([
+    loadCdscIssueStats(force).catch(() => [] as CdscIssueStat[]),
+    fetchManagedOfferings().catch(() => [] as ManagedOffering[]),
+  ]);
+  return { stats, managed };
+}
+
+export async function loadPublicOfferingsByType(
+  type: PublicOfferingType,
+  force = false,
+): Promise<PublicOffering[]> {
+  const hit = cache.get(`${type}:v2`);
+  if (!force && hit?.complete && Date.now() - hit.at < CACHE_MS) {
+    return hit.rows;
+  }
+
+  const first = await fetchPage(type, 1);
+  if (!first) {
+    const stale = cache.get(`${type}:v2`);
+    return stale?.rows ?? [];
+  }
+
+  const rows = [...first.content];
+  const totalPages = Math.min(first.totalPages || 1, MAX_HISTORY_PAGES);
+
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(0, totalPages - 1) }, (_, i) =>
+      fetchPage(type, i + 2),
+    ),
+  );
+  for (const page of rest) {
+    if (page?.content.length) rows.push(...page.content);
+  }
+
+  const unique = dedupeOfferings(rows);
+  cache.set(`${type}:v2`, {
+    at: Date.now(),
+    rows: unique,
+    complete: true,
+    totalPages,
+  });
+  return unique;
+}
+
+/**
+ * Fast first paint for one type: page 1 + CDSC/admin merge.
+ * Call `loadOfferingsTypeRemainingPages` afterward when totalPages > 1.
+ */
+export async function loadOfferingsTypeFirstPage(
+  type: PublicOfferingType,
+  force = false,
+): Promise<{
+  rows: PublicOffering[];
+  totalPages: number;
+}> {
+  const cacheKey = `${type}:v2`;
+  const hit = cache.get(cacheKey);
+  if (!force && hit && Date.now() - hit.at < CACHE_MS) {
+    const { stats, managed } = await loadExtras(force);
+    return {
+      rows: mergeWithLiveAndAdmin(hit.rows, stats, managed),
+      totalPages: hit.complete ? 1 : hit.totalPages,
+    };
+  }
+
+  const [first, extras] = await Promise.all([
+    fetchPage(type, 1),
+    loadExtras(force),
+  ]);
+  if (!first) {
+    const stale = cache.get(cacheKey);
+    return {
+      rows: mergeWithLiveAndAdmin(stale?.rows ?? [], extras.stats, extras.managed),
+      totalPages: 1,
+    };
+  }
+
+  const page1 = dedupeOfferings(first.content);
+  const totalPages = Math.min(first.totalPages || 1, MAX_HISTORY_PAGES);
+  cache.set(cacheKey, {
+    at: Date.now(),
+    rows: page1,
+    complete: totalPages <= 1,
+    totalPages,
+  });
+  return {
+    rows: mergeWithLiveAndAdmin(page1, extras.stats, extras.managed),
+    totalPages,
+  };
+}
+
+/** Background pages 2..N for one type; updates cache and returns merged list. */
+export async function loadOfferingsTypeRemainingPages(
+  type: PublicOfferingType,
+  totalPages: number,
+  force = false,
+): Promise<PublicOffering[]> {
+  const cacheKey = `${type}:v2`;
+  if (totalPages <= 1) {
+    const hit = cache.get(cacheKey);
+    if (hit?.complete) {
+      const { stats, managed } = await loadExtras(force);
+      return mergeWithLiveAndAdmin(hit.rows, stats, managed);
+    }
+  }
+
+  const cached = cache.get(cacheKey)?.rows ?? [];
+  const pages = await Promise.all(
+    Array.from({ length: Math.max(0, totalPages - 1) }, (_, i) =>
+      fetchPage(type, i + 2),
+    ),
+  );
+  const rows = [...cached];
+  for (const page of pages) {
+    if (page?.content.length) rows.push(...page.content);
+  }
+  const unique = dedupeOfferings(rows);
+  cache.set(cacheKey, {
+    at: Date.now(),
+    rows: unique,
+    complete: true,
+    totalPages,
+  });
+
+  const { stats, managed } = await loadExtras(force);
+  return mergeWithLiveAndAdmin(unique, stats, managed);
+}
+
+/**
+ * Every offering type merged into one list, newest opening first, with live
+ * CDSC subscription figures and admin overrides applied.
+ */
+export async function loadAllPublicOfferings(
+  force = false,
+): Promise<PublicOffering[]> {
+  const [pages, extras] = await Promise.all([
+    Promise.all(
+      ISSUE_TABS.map((tab) =>
+        loadPublicOfferingsByType(tab.apiType, force).catch(() => []),
+      ),
+    ),
+    loadExtras(force),
+  ]);
+
+  return mergeWithLiveAndAdmin(pages.flat(), extras.stats, extras.managed);
 }
 
 function startOfDay(d: Date): Date {
@@ -516,9 +640,18 @@ export function formatOfferingDateLong(raw?: string | null): string {
 export function offeringSubscription(
   row: PublicOffering,
 ): { percent: number; label: string } | null {
-  if (row.appliedUnits == null || !row.units) return null;
-  const percent = (row.appliedUnits / row.units) * 100;
-  return { percent, label: `${percent.toFixed(2)}%` };
+  let ratio: number | null = null;
+  if (row.appliedUnits != null && row.units) {
+    ratio = row.appliedUnits / row.units;
+  } else if (row.appliedAmount != null && row.totalAmount) {
+    ratio = row.appliedAmount / row.totalAmount;
+  }
+  if (ratio == null || !Number.isFinite(ratio)) return null;
+  const percent = ratio * 100;
+  return {
+    percent,
+    label: `${percent.toFixed(2)}% · ${ratio.toFixed(2)}x subscribed`,
+  };
 }
 
 export function offeringStatusLabel(row: PublicOffering): {

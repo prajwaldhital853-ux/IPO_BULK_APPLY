@@ -488,6 +488,7 @@ class ManagedOfferingOut(BaseModel):
     audience: str | None = None
     issue_manager: str | None = Field(default=None, alias='issueManager')
     status: str = 'ComingSoon'
+    display_section: str = Field(default='both', alias='displaySection')
     units: int | None = None
     applied_units: int | None = Field(default=None, alias='appliedUnits')
     applicants: int | None = None
@@ -514,6 +515,7 @@ class ManagedOfferingIn(BaseModel):
     audience: str | None = None
     issue_manager: str | None = Field(default=None, alias='issueManager')
     status: str = 'ComingSoon'
+    display_section: str = Field(default='both', alias='displaySection')
     units: int | None = None
     applied_units: int | None = Field(default=None, alias='appliedUnits')
     applicants: int | None = None

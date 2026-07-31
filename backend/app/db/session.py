@@ -171,6 +171,15 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     'ADD COLUMN reminder_1d_sent_at TIMESTAMP'
                 )
             )
+    if 'managed_offerings' in tables:
+        cols = {c['name'] for c in insp.get_columns('managed_offerings')}
+        if 'display_section' not in cols:
+            sync_conn.execute(
+                text(
+                    "ALTER TABLE managed_offerings "
+                    "ADD COLUMN display_section VARCHAR(16) NOT NULL DEFAULT 'both'"
+                )
+            )
 
 
 async def init_db() -> None:
@@ -211,6 +220,16 @@ def _apply_postgres_patches(sync_conn) -> None:
                 text(
                     'ALTER TABLE premium_entitlements '
                     'ADD COLUMN IF NOT EXISTS reminder_1d_sent_at TIMESTAMPTZ'
+                )
+            )
+    if 'managed_offerings' in tables:
+        cols = {c['name'] for c in insp.get_columns('managed_offerings')}
+        if 'display_section' not in cols:
+            sync_conn.execute(
+                text(
+                    "ALTER TABLE managed_offerings "
+                    "ADD COLUMN IF NOT EXISTS display_section VARCHAR(16) "
+                    "NOT NULL DEFAULT 'both'"
                 )
             )
     if 'site_settings' not in tables:

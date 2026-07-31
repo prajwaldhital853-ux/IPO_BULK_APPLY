@@ -15,6 +15,9 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker, {
+  type DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +30,7 @@ import {
   adminUpdateManagedOffering,
   buildManagedMatchKey,
   type ManagedOffering,
+  type ManagedOfferingDisplaySection,
   type ManagedOfferingInput,
 } from '../services/nepse/managedOfferings';
 import {
@@ -50,6 +54,15 @@ const STATUS_OPTIONS = [
   { id: 'Closed', label: 'Closed' },
 ] as const;
 
+const DISPLAY_OPTIONS: {
+  id: ManagedOfferingDisplaySection;
+  label: string;
+}[] = [
+  { id: 'current', label: 'Current only' },
+  { id: 'upcoming', label: 'Upcoming only' },
+  { id: 'both', label: 'Both sections' },
+];
+
 type Draft = {
   id: string | null;
   name: string;
@@ -58,6 +71,7 @@ type Draft = {
   audience: string;
   issueManager: string;
   status: string;
+  displaySection: ManagedOfferingDisplaySection;
   units: string;
   appliedUnits: string;
   applicants: string;
@@ -72,6 +86,21 @@ type Draft = {
   matchKey: string | null;
 };
 
+type DateField = 'openingDate' | 'closingDate' | 'extendedClosingDate';
+
+function parseDateOrToday(raw: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!match) return new Date();
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function toIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function emptyDraft(): Draft {
   return {
     id: null,
@@ -81,6 +110,7 @@ function emptyDraft(): Draft {
     audience: 'GeneralPublic',
     issueManager: '',
     status: 'ComingSoon',
+    displaySection: 'both',
     units: '',
     appliedUnits: '',
     applicants: '',
@@ -105,6 +135,7 @@ function toDraft(row: ManagedOffering): Draft {
     audience: row.audience ?? '',
     issueManager: row.issueManager ?? '',
     status: String(row.status || 'ComingSoon'),
+    displaySection: row.displaySection,
     units: row.units != null ? String(row.units) : '',
     appliedUnits: row.appliedUnits != null ? String(row.appliedUnits) : '',
     applicants: row.applicants != null ? String(row.applicants) : '',
@@ -129,6 +160,7 @@ function fromExternal(row: PublicOffering): Draft {
     audience: row.audience ?? '',
     issueManager: row.issueManager ?? '',
     status: String(row.status || 'ComingSoon'),
+    displaySection: 'both',
     units: row.units != null ? String(row.units) : '',
     appliedUnits: row.appliedUnits != null ? String(row.appliedUnits) : '',
     applicants: row.applicants != null ? String(row.applicants) : '',
@@ -163,6 +195,7 @@ function draftToInput(draft: Draft): ManagedOfferingInput {
     audience: draft.audience.trim() || null,
     issueManager: draft.issueManager.trim() || null,
     status: draft.status,
+    displaySection: draft.displaySection,
     units: parseOptionalNumber(draft.units),
     appliedUnits: parseOptionalNumber(draft.appliedUnits),
     applicants: parseOptionalNumber(draft.applicants),
@@ -196,6 +229,7 @@ export function AdminIpoIssuesScreen() {
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [dateField, setDateField] = useState<DateField | null>(null);
 
   const load = useCallback(async (adminToken: string) => {
     setLoading(true);
@@ -309,6 +343,12 @@ export function AdminIpoIssuesScreen() {
     setDraft((d) => (d ? { ...d, [key]: value } : d));
   };
 
+  const onDateChange = (event: DateTimePickerEvent, date?: Date) => {
+    setDateField(null);
+    if (event.type !== 'set' || !date || !dateField) return;
+    setField(dateField, toIsoDate(date));
+  };
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -360,6 +400,9 @@ export function AdminIpoIssuesScreen() {
                 <Text style={styles.cardMeta}>
                   {typeLabel(String(item.type))} · {item.status}
                   {item.audience ? ` · ${item.audience}` : ''}
+                </Text>
+                <Text style={styles.cardMeta}>
+                  Display: {DISPLAY_OPTIONS.find((o) => o.id === item.displaySection)?.label}
                 </Text>
                 <Text style={styles.cardMeta}>
                   Units {item.units ?? '—'} · Open {item.openingDate ?? '—'} · Close{' '}
@@ -463,6 +506,26 @@ export function AdminIpoIssuesScreen() {
                 })}
               </View>
 
+              <Text style={styles.label}>Show issue in</Text>
+              <View style={styles.chipRow}>
+                {DISPLAY_OPTIONS.map((opt) => {
+                  const active = draft?.displaySection === opt.id;
+                  return (
+                    <Pressable
+                      key={opt.id}
+                      style={[styles.chip, active && styles.chipActive]}
+                      onPress={() => setField('displaySection', opt.id)}
+                    >
+                      <Text
+                        style={[styles.chipText, active && styles.chipTextActive]}
+                      >
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
               <Field
                 label="Audience (e.g. GeneralPublic)"
                 value={draft?.audience ?? ''}
@@ -547,29 +610,38 @@ export function AdminIpoIssuesScreen() {
                 </View>
               </View>
 
-              <Field
-                label="Open date (YYYY-MM-DD)"
+              <DateFieldButton
+                label="Open date"
                 value={draft?.openingDate ?? ''}
-                onChangeText={(t) => setField('openingDate', t)}
-                colors={colors}
+                onPress={() => setDateField('openingDate')}
+                onClear={() => setField('openingDate', '')}
                 styles={styles}
-                placeholder="2026-07-30"
+                colors={colors}
               />
-              <Field
-                label="Close date (YYYY-MM-DD)"
+              <DateFieldButton
+                label="Close date"
                 value={draft?.closingDate ?? ''}
-                onChangeText={(t) => setField('closingDate', t)}
-                colors={colors}
+                onPress={() => setDateField('closingDate')}
+                onClear={() => setField('closingDate', '')}
                 styles={styles}
-                placeholder="2026-08-04"
+                colors={colors}
               />
-              <Field
-                label="Extended close (YYYY-MM-DD)"
+              <DateFieldButton
+                label="Extended close date"
                 value={draft?.extendedClosingDate ?? ''}
-                onChangeText={(t) => setField('extendedClosingDate', t)}
-                colors={colors}
+                onPress={() => setDateField('extendedClosingDate')}
+                onClear={() => setField('extendedClosingDate', '')}
                 styles={styles}
+                colors={colors}
               />
+              {dateField ? (
+                <DateTimePicker
+                  value={parseDateOrToday(draft?.[dateField] ?? '')}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'calendar'}
+                  onChange={onDateChange}
+                />
+              ) : null}
               <Field
                 label="Right share ratio"
                 value={draft?.rightShareRatio ?? ''}
@@ -691,6 +763,47 @@ function Field({
   );
 }
 
+function DateFieldButton({
+  label,
+  value,
+  onPress,
+  onClear,
+  colors,
+  styles,
+}: {
+  label: string;
+  value: string;
+  onPress: () => void;
+  onClear: () => void;
+  colors: ThemeColors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <>
+      <Text style={styles.label}>{label}</Text>
+      <Pressable style={styles.dateBtn} onPress={onPress}>
+        <Ionicons name="calendar-outline" size={rs(18)} color={colors.primary} />
+        <Text style={[styles.dateText, !value && { color: colors.textMuted }]}>
+          {value || 'Choose from calendar'}
+        </Text>
+        {value ? (
+          <Pressable
+            onPress={(event) => {
+              event.stopPropagation();
+              onClear();
+            }}
+            hitSlop={10}
+          >
+            <Ionicons name="close-circle" size={rs(18)} color={colors.textMuted} />
+          </Pressable>
+        ) : (
+          <Ionicons name="chevron-down" size={rs(16)} color={colors.textMuted} />
+        )}
+      </Pressable>
+    </>
+  );
+}
+
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
@@ -783,6 +896,24 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(14),
       backgroundColor: c.surface,
       marginTop: rs(4),
+    },
+    dateBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: rs(10),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(12),
+      backgroundColor: c.surface,
+      marginTop: rs(4),
+    },
+    dateText: {
+      flex: 1,
+      color: c.text,
+      fontSize: rs(14),
+      fontWeight: '700',
     },
     chipRow: {
       flexDirection: 'row',
