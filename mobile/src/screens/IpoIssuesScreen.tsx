@@ -19,9 +19,11 @@ import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import {
   ISSUE_TABS,
+  isOfferingClosed,
   isOfferingCurrent,
+  isOfferingNonCurrent,
   isOfferingUpcoming,
-  loadPublicOfferingsByType,
+  loadAllPublicOfferings,
   type IssueTab,
   type PublicOffering,
 } from '../services/nepse/publicOffering';
@@ -34,13 +36,30 @@ type Mode = 'current' | 'upcoming';
 const COPY: Record<Mode, { title: string; empty: string }> = {
   current: {
     title: 'Current Issues',
-    empty: 'No issues are open for application right now in this category.',
+    empty: 'No issues are open for application right now.',
   },
   upcoming: {
     title: 'Upcoming Issues',
-    empty: 'No upcoming issues in this category.',
+    empty: 'No upcoming or closed issues in this category.',
   },
 };
+
+function sortUpcomingList(rows: PublicOffering[]): PublicOffering[] {
+  const rank = (row: PublicOffering) => {
+    if (isOfferingUpcoming(row)) return 0;
+    if (isOfferingClosed(row)) return 1;
+    return 2;
+  };
+  return [...rows].sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    const at = a.openingDate ? Date.parse(a.openingDate) : 0;
+    const bt = b.openingDate ? Date.parse(b.openingDate) : 0;
+    // Upcoming: soonest first; Closed: newest first.
+    return ra === 0 ? at - bt : bt - at;
+  });
+}
 
 export function IpoIssuesScreen() {
   const navigation =
@@ -52,35 +71,40 @@ export function IpoIssuesScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [tab, setTab] = useState<IssueTab>(ISSUE_TABS[0]);
   const [all, setAll] = useState<PublicOffering[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [tab, setTab] = useState<IssueTab>(ISSUE_TABS[0]);
 
   const rows = useMemo(() => {
-    const filter = mode === 'current' ? isOfferingCurrent : isOfferingUpcoming;
-    return all.filter((row) => filter(row));
-  }, [all, mode]);
+    if (mode === 'current') {
+      return all.filter((row) => isOfferingCurrent(row));
+    }
+    const scoped = all.filter(
+      (row) =>
+        isOfferingNonCurrent(row) && String(row.type) === tab.apiType,
+    );
+    return sortUpcomingList(scoped);
+  }, [all, mode, tab.apiType]);
 
-  const refresh = useCallback(
-    async (force = false) => {
-      setError(null);
-      try {
-        const list = await loadPublicOfferingsByType(tab.apiType, force);
-        setAll(list);
-        if (!list.length) {
-          setError('ShareHub returned no issues for this category.');
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not load issues');
-        setAll([]);
-      } finally {
-        setLoading(false);
+  const refresh = useCallback(async (force = false) => {
+    setError(null);
+    try {
+      const list = await loadAllPublicOfferings(force);
+      setAll(list);
+      setUpdatedAt(Date.now());
+      if (!list.length) {
+        setError('No issues available right now.');
       }
-    },
-    [tab.apiType],
-  );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load issues');
+      setAll([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -89,57 +113,64 @@ export function IpoIssuesScreen() {
 
   usePollingRefresh((silent) => refresh(Boolean(silent)));
 
-  const onTabChange = (next: IssueTab) => {
-    setTab(next);
-    setLoading(true);
-    setAll([]);
-  };
-
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
-        <Text style={styles.title}>{copy.title}</Text>
+        <View style={styles.headerMid}>
+          <Text style={styles.title}>{copy.title}</Text>
+          {rows.length ? (
+            <Text style={styles.subtitle}>
+              {rows.length} {rows.length === 1 ? 'issue' : 'issues'}
+            </Text>
+          ) : null}
+        </View>
         <Pressable onPress={() => void refresh(true)} hitSlop={10}>
           <Ionicons name="refresh" size={rs(22)} color={colors.primary} />
         </Pressable>
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tabs}
-      >
-        {ISSUE_TABS.map((t) => {
-          const active = tab.id === t.id;
-          return (
-            <Pressable
-              key={t.id}
-              style={styles.tabBtn}
-              onPress={() => onTabChange(t)}
-            >
-              <Text style={[styles.tabText, active && styles.tabTextActive]}>
-                {t.label}
-              </Text>
-              {active ? <View style={styles.tabLine} /> : null}
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {mode === 'upcoming' ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabs}
+        >
+          {ISSUE_TABS.map((t) => {
+            const active = tab.id === t.id;
+            return (
+              <Pressable
+                key={t.id}
+                style={styles.tabBtn}
+                onPress={() => setTab(t)}
+              >
+                <Text style={[styles.tabText, active && styles.tabTextActive]}>
+                  {t.label}
+                </Text>
+                {active ? <View style={styles.tabLine} /> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
 
       {error && !loading ? <Text style={styles.error}>{error}</Text> : null}
 
       {loading && rows.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} size="large" />
-          <Text style={styles.loadingText}>Loading {tab.label}…</Text>
+          <Text style={styles.loadingText}>Loading issues…</Text>
         </View>
       ) : (
         <FlatList
           data={rows}
-          keyExtractor={(item) => `${tab.id}-${item.id}`}
+          keyExtractor={(item) =>
+            item.managedId
+              ? `m-${item.managedId}`
+              : `${item.type}-${item.id}`
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -152,10 +183,10 @@ export function IpoIssuesScreen() {
           contentContainerStyle={
             rows.length === 0 ? styles.emptyList : styles.list
           }
-          ListEmptyComponent={
-            <Text style={styles.empty}>{copy.empty}</Text>
-          }
-          renderItem={({ item }) => <IssueOfferingCard row={item} />}
+          ListEmptyComponent={<Text style={styles.empty}>{copy.empty}</Text>}
+          renderItem={({ item }) => (
+            <IssueOfferingCard row={item} updatedAt={updatedAt} />
+          )}
         />
       )}
     </View>
@@ -171,8 +202,11 @@ function makeStyles(c: ThemeColors) {
       justifyContent: 'space-between',
       paddingHorizontal: rs(16),
       paddingVertical: rs(12),
+      gap: rs(12),
     },
+    headerMid: { flex: 1 },
     title: { color: c.text, fontWeight: '800', fontSize: rs(16) },
+    subtitle: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
     tabs: {
       paddingHorizontal: rs(12),
       paddingBottom: rs(4),
@@ -209,7 +243,11 @@ function makeStyles(c: ThemeColors) {
       gap: rs(10),
     },
     loadingText: { color: c.textSecondary, fontSize: rs(13) },
-    list: { paddingHorizontal: rs(16), paddingBottom: rs(24) },
+    list: {
+      paddingHorizontal: rs(16),
+      paddingTop: rs(4),
+      paddingBottom: rs(24),
+    },
     emptyList: { flexGrow: 1, paddingHorizontal: rs(16) },
     empty: {
       color: c.textSecondary,

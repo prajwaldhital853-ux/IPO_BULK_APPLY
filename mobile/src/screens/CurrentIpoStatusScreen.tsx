@@ -32,6 +32,12 @@ import { useSensitiveAction } from '../hooks/useSensitiveAction';
 const ACCENT = '#1B5E20';
 const GREEN = '#2E7D32';
 const RED = '#C62828';
+const REJECT = '#E66A5C';
+const CHIP_ORANGE = '#EF6C00';
+const APPLY_GREEN = '#66BB6A';
+
+type ResultKind = 'allotted' | 'not' | 'rejected' | 'not_applied';
+type StatusFilter = 'all' | ResultKind;
 
 function classify(
   row: ResultAccountStatus,
@@ -56,17 +62,69 @@ function classify(
   return 'not';
 }
 
+function appliedQty(row: ResultAccountStatus): number | undefined {
+  if (row.appliedKitta != null && Number.isFinite(row.appliedKitta)) {
+    return row.appliedKitta;
+  }
+  const m = String(row.message || '').match(
+    /quantity\s*:\s*(\d+)/i,
+  );
+  if (m?.[1]) {
+    const n = Number(m[1]);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return undefined;
+}
+
 function statusLine(row: ResultAccountStatus): string {
   const kind = classify(row);
-  const qty = row.appliedKitta;
+  const qty = appliedQty(row);
   if (kind === 'allotted') {
-    return qty != null ? `Allotted ( quantity : ${qty} )` : 'Allotted';
+    return qty != null ? `Alloted ( quantity : ${qty} )` : 'Alloted';
   }
-  if (kind === 'not_applied') {
-    return 'You have not applied for this IPO';
+  if (kind === 'not_applied') return 'NOT APPLIED';
+  if (kind === 'rejected') {
+    return qty != null ? `Rejected ( quantity : ${qty} )` : 'Rejected';
   }
-  if (kind === 'rejected') return row.message || 'Rejected';
-  return qty != null ? `Not Allotted ( quantity : ${qty} )` : 'Not Allotted';
+  return qty != null ? `Not Alloted ( quantity : ${qty} )` : 'Not Alloted';
+}
+
+/** Strip status boilerplate so the pill never repeats the line above it. */
+function cleanReason(raw: string): string | null {
+  const text = raw
+    .replace(/\s*\(HTTP\s*\d+\)\s*$/i, '')
+    .replace(/^rejected\s*\(\s*quantity\s*:\s*\d+\s*\)\s*[-–—]?\s*/i, '')
+    .replace(/^rejected\s*[-–—:]\s*/i, '')
+    .trim();
+  if (!text) return null;
+  if (/^rejected\.?$/i.test(text)) return null;
+  if (/^not\s*allot/i.test(text)) return null;
+  if (/^block\s*amount\s*status/i.test(text)) return null;
+  if (/^\(?\s*quantity\s*:/i.test(text)) return null;
+  return text;
+}
+
+function rejectReason(row: ResultAccountStatus): string | null {
+  for (const candidate of [row.remarks, row.allotmentStatus, row.message]) {
+    const text = cleanReason(String(candidate ?? ''));
+    if (!text) continue;
+    if (/insufficient|not enough|low balance|block[_\s-]?fail/i.test(text)) {
+      return 'Insufficient Balance';
+    }
+    if (/\bcrn\b/i.test(text)) return 'CRN Mismatch';
+    if (/\bpan\b/i.test(text)) return 'PAN Not Registered';
+    if (/duplicate|already applied/i.test(text)) return 'Duplicate Application';
+    if (/expire/i.test(text)) return 'Account Expired';
+    return text.length > 42 ? `${text.slice(0, 40)}…` : text;
+  }
+  return null;
+}
+
+function kindColor(kind: ResultKind): string {
+  if (kind === 'allotted') return GREEN;
+  if (kind === 'rejected') return REJECT;
+  if (kind === 'not_applied') return RED;
+  return RED;
 }
 
 export function CurrentIpoStatusScreen() {
@@ -86,8 +144,46 @@ export function CurrentIpoStatusScreen() {
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<ResultAccountStatus[]>([]);
+  const [filter, setFilter] = useState<StatusFilter>('all');
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(
     null,
+  );
+
+  const counts = useMemo(() => {
+    const base: Record<ResultKind, number> = {
+      allotted: 0,
+      not: 0,
+      rejected: 0,
+      not_applied: 0,
+    };
+    for (const row of results) base[classify(row)] += 1;
+    return base;
+  }, [results]);
+
+  const chips = useMemo(() => {
+    const kinds = (
+      [
+        { key: 'allotted', label: 'Alloted', color: GREEN },
+        { key: 'not', label: 'Not Alloted', color: RED },
+        { key: 'rejected', label: 'Rejected', color: REJECT },
+        { key: 'not_applied', label: 'Not Applied', color: CHIP_ORANGE },
+      ] as const
+    )
+      .map((chip) => ({ ...chip, count: counts[chip.key] }))
+      .filter((chip) => chip.count > 0);
+    if (kinds.length <= 1) return kinds;
+    return [
+      { key: 'all' as const, label: 'All', color: ACCENT, count: results.length },
+      ...kinds,
+    ];
+  }, [counts, results.length]);
+
+  const visibleResults = useMemo(
+    () =>
+      filter === 'all'
+        ? results
+        : results.filter((row) => classify(row) === filter),
+    [filter, results],
   );
 
   const checkAccounts = useMemo(() => {
@@ -132,6 +228,7 @@ export function CurrentIpoStatusScreen() {
 
   useEffect(() => {
     setResults([]);
+    setFilter('all');
     setProgress(null);
   }, [selected?.companyShareId]);
 
@@ -172,6 +269,7 @@ export function CurrentIpoStatusScreen() {
       async () => {
         setRunning(true);
         setResults([]);
+        setFilter('all');
         setProgress({ done: 0, total: checkAccounts.length });
         try {
           await runBulkResultCheck({
@@ -219,7 +317,7 @@ export function CurrentIpoStatusScreen() {
           <Ionicons
             name="information-circle-outline"
             size={rs(22)}
-            color={ACCENT}
+            color={colors.text}
           />
         </Pressable>
       </View>
@@ -232,7 +330,11 @@ export function CurrentIpoStatusScreen() {
           <Text style={styles.dropdownText} numberOfLines={1}>
             {checkLabel}
           </Text>
-          <Ionicons name="chevron-down" size={rs(18)} color={isDark ? colors.textMuted : '#1B5E20'} />
+          <Ionicons
+            name="chevron-down"
+            size={rs(18)}
+            color={isDark ? colors.textMuted : '#8A938A'}
+          />
         </Pressable>
 
         <View style={styles.labelRow}>
@@ -253,85 +355,195 @@ export function CurrentIpoStatusScreen() {
             {openingLabel}
           </Text>
           {loading ? (
-            <ActivityIndicator size="small" color={isDark ? ACCENT : '#1B5E20'} />
+            <ActivityIndicator size="small" color={GREEN} />
           ) : (
-            <Ionicons name="chevron-down" size={rs(18)} color={isDark ? colors.textMuted : '#1B5E20'} />
+            <Ionicons
+              name="chevron-down"
+              size={rs(18)}
+              color={isDark ? colors.textMuted : '#8A938A'}
+            />
           )}
         </Pressable>
 
         <Pressable
-          style={[styles.actionBtn, running && { opacity: 0.6 }]}
+          style={[styles.actionBtn, running && styles.actionBtnLoading]}
           onPress={runCheck}
           disabled={running || !selected}
         >
           {running ? (
-            <ActivityIndicator color={isDark ? ACCENT : '#FFFFFF'} />
+            <ActivityIndicator color={GREEN} />
           ) : (
             <Text style={styles.actionText}>Check Bulk Status</Text>
           )}
         </Pressable>
-
-        {running && progress ? (
-          <Text style={styles.progressText}>
-            Checking {Math.min(progress.done + 1, progress.total)} of{' '}
-            {progress.total}…
-            {results.length
-              ? ` · ${results.length} result${results.length === 1 ? '' : 's'} so far`
-              : ''}
-          </Text>
-        ) : null}
       </View>
 
-      <FlatList
-        style={styles.resultsList}
-        contentContainerStyle={[
-          styles.resultsContent,
-          { paddingBottom: Math.max(insets.bottom, rs(16)) },
-        ]}
-        data={results}
-        keyExtractor={(row) => row.accountId}
-        renderItem={({ item: row, index: idx }) => {
-          const kind = classify(row);
-          const color =
-            kind === 'allotted'
-              ? GREEN
-              : kind === 'not_applied'
-                ? colors.textMuted
-                : RED;
-          return (
-            <View style={[styles.resultCard, { borderColor: color }]}>
-              <View style={[styles.resultIcon, { backgroundColor: color }]}>
-                <Ionicons
-                  name={
-                    kind === 'allotted'
-                      ? 'checkmark'
-                      : kind === 'not_applied'
-                        ? 'remove'
-                        : 'close'
-                  }
-                  size={rs(20)}
-                  color="#1B1B1B"
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.resultName, { color }]}>
-                  {idx + 1}. {row.accountName.toUpperCase()}
+      {results.length > 0 ? (
+        <View
+          style={[
+            styles.resultsPane,
+            { paddingBottom: Math.max(insets.bottom, rs(12)) },
+          ]}
+        >
+          <View style={styles.updatesBox}>
+            <View style={styles.updatesHead}>
+              <Text style={styles.updatesTitle}>
+                IPO/FPO Status Updates{' '}
+                <Text style={styles.updatesCount}>
+                  ({results.length}/{counts.allotted})
                 </Text>
-                <Text style={[styles.resultStatus, { color }]}>
-                  {statusLine(row)}
-                </Text>
-              </View>
+              </Text>
+              <Pressable
+                hitSlop={8}
+                onPress={() => {
+                  setResults([]);
+                  setFilter('all');
+                }}
+              >
+                <Text style={styles.clearText}>clear</Text>
+              </Pressable>
             </View>
-          );
-        }}
-        ListEmptyComponent={
-          !running ? (
-            <Text style={styles.empty}>
-              Run Check Bulk Status to see account results here.
-            </Text>
-          ) : null
-        }
-      />
+
+            <View style={styles.chipRow}>
+              {chips.map((chip) => {
+                const active =
+                  filter === chip.key || (filter === 'all' && chips.length === 1);
+                return (
+                  <Pressable
+                    key={chip.key}
+                    onPress={() => setFilter(chip.key)}
+                    style={[
+                      styles.chip,
+                      {
+                        borderColor: active ? chip.color : colors.borderMuted,
+                        backgroundColor: active
+                          ? `${chip.color}1A`
+                          : 'transparent',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        { color: active ? chip.color : colors.textMuted },
+                      ]}
+                    >
+                      {chip.label} ({chip.count})
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <FlatList
+              style={styles.resultsList}
+              data={visibleResults}
+              keyExtractor={(row) => row.accountId}
+              contentContainerStyle={styles.resultsListBody}
+              ListEmptyComponent={
+                <Text style={styles.empty}>No accounts in this category.</Text>
+              }
+              renderItem={({ item: row }) => {
+                const idx = results.indexOf(row);
+                const kind = classify(row);
+                const color = kindColor(kind);
+                const reason =
+                  kind === 'rejected' ? rejectReason(row) : null;
+                const showApply =
+                  kind === 'not_applied' || kind === 'rejected';
+                const applyBtnColor =
+                  kind === 'not_applied' ? APPLY_GREEN : color;
+                return (
+                  <View
+                    style={[
+                      styles.resultCard,
+                      {
+                        borderColor: `${color}55`,
+                        backgroundColor: isDark ? colors.surface : `${color}12`,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.resultIcon,
+                        styles.resultIconSquare,
+                        { backgroundColor: `${color}26` },
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name={
+                          kind === 'allotted'
+                            ? 'check-bold'
+                            : kind === 'rejected'
+                              ? 'alert-octagon'
+                              : 'cancel'
+                        }
+                        size={rs(19)}
+                        color={color}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.resultName, { color }]}>
+                        {idx + 1}. {row.accountName.toUpperCase()}
+                      </Text>
+                      <Text style={[styles.resultStatus, { color }]}>
+                        {statusLine(row)}
+                      </Text>
+                      {reason ? (
+                        <View
+                          style={[
+                            styles.reasonPill,
+                            { backgroundColor: `${color}22` },
+                          ]}
+                        >
+                          <Text
+                            style={[styles.reasonPillText, { color }]}
+                            numberOfLines={2}
+                          >
+                            {reason}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    {showApply ? (
+                      <Pressable
+                        style={[
+                          styles.rowApplyBtn,
+                          {
+                            borderColor: isDark
+                              ? `${applyBtnColor}66`
+                              : '#D0D0D0',
+                          },
+                        ]}
+                        onPress={() =>
+                          navigation.navigate('MainTabs', { screen: 'Apply' })
+                        }
+                      >
+                        <Text
+                          style={[
+                            styles.rowApplyText,
+                            { color: applyBtnColor },
+                          ]}
+                        >
+                          Apply
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                );
+              }}
+            />
+          </View>
+        </View>
+      ) : (
+        <View style={styles.emptyWrap}>
+          <Text style={styles.empty}>
+            {running && progress
+              ? `Checking ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
+              : 'Run Check Bulk Status to see account results here.'}
+          </Text>
+        </View>
+      )}
 
       <Modal visible={checkPickerOpen} animationType="slide" transparent>
         <View style={styles.modalBackdrop}>
@@ -426,13 +638,10 @@ export function CurrentIpoStatusScreen() {
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const fieldBg = isDark ? c.surface : '#FFFFFF';
-  const fieldBorder = isDark ? c.border : '#1B5E20';
-  const fieldText = isDark ? c.textMuted : '#121212';
-  const btnBg = isDark ? 'transparent' : '#1B5E20';
-  const btnBorder = isDark ? ACCENT : '#0D3B12';
-  const btnText = isDark ? ACCENT : '#FFFFFF';
-  const cardBg = isDark ? c.surface : '#FFFFFF';
+  const fieldBg = isDark ? c.surface : '#F4F6F4';
+  const fieldBorder = isDark ? c.border : '#E2E6E2';
+  const fieldText = isDark ? c.textMuted : '#6C766C';
+  const cardBg = isDark ? c.bgElevated : '#FFFFFF';
 
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
@@ -443,8 +652,8 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       paddingHorizontal: rs(14),
       paddingVertical: rs(12),
       backgroundColor: isDark ? c.bgElevated : '#FFFFFF',
-      borderBottomWidth: isDark ? StyleSheet.hairlineWidth : 1.5,
-      borderBottomColor: isDark ? c.border : '#1B5E20',
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? c.border : '#E2E6E2',
     },
     title: {
       color: c.text,
@@ -456,83 +665,137 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     body: { padding: rs(16), paddingBottom: rs(40) },
     controls: {
       paddingHorizontal: rs(16),
-      paddingBottom: rs(8),
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.borderMuted,
+      paddingTop: rs(14),
+      paddingBottom: rs(4),
     },
-    resultsList: { flex: 1 },
-    resultsContent: {
-      paddingHorizontal: rs(16),
-      paddingTop: rs(12),
-      flexGrow: 1,
-    },
+    resultsList: { flex: 1, minHeight: 0 },
+    resultsListBody: { paddingBottom: rs(8) },
     dropdown: {
       flexDirection: 'row',
       alignItems: 'center',
-      borderWidth: isDark ? 1 : 1.5,
+      borderWidth: 1,
       borderColor: fieldBorder,
-      borderRadius: rs(14),
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(14),
+      borderRadius: rs(8),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(12),
       backgroundColor: fieldBg,
-      marginBottom: rs(16),
+      marginBottom: rs(12),
       gap: rs(8),
     },
     dropdownText: {
       flex: 1,
       color: fieldText,
-      fontSize: rs(14),
-      fontWeight: isDark ? '400' : '600',
+      fontSize: rs(13),
+      fontWeight: '500',
     },
     labelRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(6),
-      marginBottom: rs(8),
+      marginBottom: rs(10),
     },
     label: {
       color: isDark ? c.textSecondary : '#1B2E1B',
       fontSize: rs(13),
-      fontWeight: isDark ? '400' : '700',
+      fontWeight: '700',
     },
     actionBtn: {
       alignSelf: 'center',
-      borderWidth: isDark ? 1 : 0,
-      borderColor: btnBorder,
-      borderRadius: rs(24),
+      borderRadius: rs(22),
       paddingHorizontal: rs(28),
       paddingVertical: rs(13),
-      marginTop: rs(8),
-      marginBottom: rs(16),
+      marginTop: rs(16),
+      marginBottom: rs(14),
       minWidth: rs(180),
       alignItems: 'center',
-      backgroundColor: btnBg,
+      justifyContent: 'center',
+      backgroundColor: ACCENT,
     },
-    actionText: { color: btnText, fontWeight: '800', fontSize: rs(14) },
-    progressText: {
-      color: c.textSecondary,
-      fontSize: rs(12),
-      textAlign: 'center',
-      marginBottom: rs(8),
+    actionBtnLoading: {
+      backgroundColor: isDark ? c.surface : '#EDF0ED',
+      minWidth: rs(92),
+      paddingHorizontal: rs(24),
     },
+    actionText: { color: '#FFFFFF', fontWeight: '800', fontSize: rs(14) },
+    resultsPane: { flex: 1, paddingHorizontal: rs(14) },
+    updatesBox: {
+      flex: 1,
+      minHeight: 0,
+      borderWidth: 1,
+      borderColor: isDark ? c.border : '#E2E6E2',
+      borderRadius: rs(12),
+      backgroundColor: cardBg,
+      paddingHorizontal: rs(10),
+      paddingTop: rs(10),
+    },
+    updatesHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: rs(10),
+    },
+    updatesTitle: { color: c.text, fontWeight: '800', fontSize: rs(13) },
+    updatesCount: { color: GREEN, fontWeight: '800' },
+    clearText: { color: c.textMuted, fontSize: rs(12), fontWeight: '600' },
+    chipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: rs(8),
+      marginTop: rs(10),
+      marginBottom: rs(10),
+    },
+    chip: {
+      borderWidth: 1,
+      borderRadius: rs(14),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(5),
+    },
+    chipText: { fontSize: rs(11), fontWeight: '700' },
     resultCard: {
       flexDirection: 'row',
+      alignItems: 'center',
       gap: rs(10),
-      borderWidth: isDark ? 1 : 1.5,
-      borderRadius: rs(12),
-      padding: rs(12),
-      marginBottom: rs(10),
-      backgroundColor: cardBg,
+      borderWidth: 1,
+      borderRadius: rs(10),
+      padding: rs(10),
+      marginBottom: rs(8),
     },
     resultIcon: {
-      width: rs(40),
-      height: rs(40),
-      borderRadius: rs(20),
+      width: rs(34),
+      height: rs(34),
+      borderRadius: rs(17),
       alignItems: 'center',
       justifyContent: 'center',
     },
-    resultName: { fontWeight: '800', fontSize: rs(13) },
-    resultStatus: { fontSize: rs(12), fontWeight: '600', marginTop: rs(2) },
+    resultIconSquare: {
+      borderRadius: rs(8),
+    },
+    resultName: { fontWeight: '800', fontSize: rs(12) },
+    resultStatus: {
+      fontSize: rs(11),
+      fontWeight: '700',
+      marginTop: rs(2),
+    },
+    reasonPill: {
+      alignSelf: 'flex-start',
+      marginTop: rs(6),
+      borderRadius: rs(12),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(4),
+    },
+    reasonPillText: {
+      fontSize: rs(11),
+      fontWeight: '700',
+    },
+    rowApplyBtn: {
+      borderWidth: 1,
+      borderRadius: rs(14),
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(6),
+      backgroundColor: isDark ? 'transparent' : '#FFFFFF',
+    },
+    rowApplyText: { fontSize: rs(11), fontWeight: '700' },
+    emptyWrap: { flex: 1, justifyContent: 'flex-start', paddingTop: rs(24) },
     empty: { color: c.textMuted, textAlign: 'center', padding: rs(20) },
     modalBackdrop: {
       flex: 1,

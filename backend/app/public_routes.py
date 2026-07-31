@@ -10,10 +10,12 @@ from .public_settings import settings_to_public
 from .site_settings import get_or_create_settings
 from .team import get_team_member, list_team_members, photo_public_path
 from .market_closures import list_market_closures
+from .managed_offerings import list_managed_offerings
 from .admin.schemas import (
     FeedbackSubmitIn,
     FeedbackSubmitOut,
     MarketClosureOut,
+    ManagedOfferingOut,
     PublicAppSettingsOut,
     TeamMemberOut,
 )
@@ -60,6 +62,38 @@ async def public_market_closures(
             notice=r.notice or '',
             color=r.color,
             active=bool(r.active),
+        )
+        for r in rows
+    ]
+
+
+@router.get('/ipo-issues', response_model=list[ManagedOfferingOut])
+async def public_ipo_issues(
+    db: AsyncSession = Depends(get_db),
+) -> list[ManagedOfferingOut]:
+    rows = await list_managed_offerings(db, active_only=True)
+    return [
+        ManagedOfferingOut(
+            id=r.id,
+            matchKey=r.match_key,
+            name=r.name,
+            symbol=r.symbol or '',
+            type=r.offering_type,
+            audience=r.audience,
+            issueManager=r.issue_manager,
+            status=r.status,
+            units=r.units,
+            appliedUnits=r.applied_units,
+            applicants=r.applicants,
+            price=r.price,
+            totalAmount=r.total_amount,
+            appliedAmount=r.applied_amount,
+            openingDate=r.opening_date,
+            closingDate=r.closing_date,
+            extendedClosingDate=r.extended_closing_date,
+            rightShareRatio=r.right_share_ratio,
+            active=bool(r.active),
+            updatedAt=r.updated_at.isoformat() if r.updated_at else None,
         )
         for r in rows
     ]

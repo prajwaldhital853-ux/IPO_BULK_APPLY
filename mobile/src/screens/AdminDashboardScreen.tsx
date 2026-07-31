@@ -745,6 +745,15 @@ export function AdminDashboardScreen() {
             Closed days
           </Text>
         </Pressable>
+        <Pressable
+          style={styles.toolTile}
+          onPress={() => navigation.navigate('AdminIpoIssues')}
+        >
+          <Ionicons name="trending-up-outline" size={rs(20)} color={colors.primary} />
+          <Text style={styles.toolTileText} numberOfLines={2}>
+            IPO Issues
+          </Text>
+        </Pressable>
       </View>
 
       <View style={styles.tabs}>
@@ -977,12 +986,15 @@ function makeStyles(c: ThemeColors) {
     },
     toolsRow: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
       gap: rs(8),
       paddingHorizontal: rs(16),
       marginBottom: rs(10),
     },
     toolTile: {
-      flex: 1,
+      flexGrow: 1,
+      flexBasis: '22%',
+      minWidth: rs(72),
       alignItems: 'center',
       justifyContent: 'center',
       gap: rs(4),

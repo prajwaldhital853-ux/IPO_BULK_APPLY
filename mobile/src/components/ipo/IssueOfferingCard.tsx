@@ -1,164 +1,190 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
 import {
-  formatOfferingDate,
+  formatOfferingAmount,
+  formatOfferingDateLong,
   formatOfferingUnits,
+  offeringAudienceLabel,
   offeringStatusLabel,
+  offeringSubscription,
+  offeringTypeLabel,
+  relativeFromNow,
   type PublicOffering,
 } from '../../services/nepse/publicOffering';
 import { rs } from '../../utils/responsive';
 
-function GridCell({
-  icon,
+const OPEN_GREEN = '#2E7D32';
+const CLOSE_RED = '#C62828';
+const SOON_AMBER = '#EF6C00';
+
+function Stat({
   label,
   value,
-  colors,
   styles,
 }: {
-  icon: React.ReactNode;
   label: string;
   value: string;
-  colors: ThemeColors;
   styles: ReturnType<typeof makeStyles>;
 }) {
   return (
-    <View style={styles.cell}>
-      <View style={styles.cellHead}>
-        {icon}
-        <Text style={[styles.cellLabel, { color: colors.textMuted }]}>
-          {label}
-        </Text>
-      </View>
-      <Text style={[styles.cellValue, { color: colors.text }]} numberOfLines={1}>
+    <View style={styles.stat}>
+      <Text style={styles.statLabel} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={styles.statValue} numberOfLines={1}>
         {value}
       </Text>
     </View>
   );
 }
 
-export function IssueOfferingCard({ row }: { row: PublicOffering }) {
+export function IssueOfferingCard({
+  row,
+  updatedAt,
+}: {
+  row: PublicOffering;
+  updatedAt?: number | null;
+}) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
   const status = offeringStatusLabel(row);
-
-  const statusStyle =
+  const tone =
     status.tone === 'open'
-      ? styles.statusOpen
-      : status.tone === 'soon'
-        ? styles.statusSoon
-        : status.tone === 'proposed'
-          ? styles.statusProposed
-          : styles.statusClosed;
+      ? OPEN_GREEN
+      : status.tone === 'closed'
+        ? CLOSE_RED
+        : SOON_AMBER;
 
-  const statusTextStyle =
-    status.tone === 'open'
-      ? styles.statusTextOpen
-      : status.tone === 'soon'
-        ? styles.statusTextSoon
-        : status.tone === 'proposed'
-          ? styles.statusTextProposed
-          : styles.statusTextClosed;
+  const live = row.cdsc;
+  const symbol = live?.symbol ?? row.symbol;
+  const issueManager = live?.issueManager ?? row.issueManager;
+  const audience = live?.audience ?? offeringAudienceLabel(row);
+  const subtitle = [live?.kind ?? offeringTypeLabel(row), audience]
+    .filter(Boolean)
+    .join(' - ');
+
+  const subscription = offeringSubscription(row);
+  const minInvestment =
+    row.price != null ? formatOfferingAmount(row.price * 10) : '—';
+  const highlightChip = subscription
+    ? `${formatOfferingAmount(live?.appliedAmount ?? row.appliedAmount)} applied`
+    : row.rightShareRatio
+      ? `Ratio ${row.rightShareRatio}`
+      : row.price != null
+        ? `Rs. ${row.price.toFixed(0)} × 10 units`
+        : '10 units minimum';
+
+  const openRelative = relativeFromNow(live?.openDate ?? row.openingDate);
+  const closeRelative = relativeFromNow(live?.closeDate ?? row.closingDate);
+  const updatedRelative = relativeFromNow(live?.updatedAt ?? updatedAt ?? null);
 
   return (
     <View style={styles.card}>
-      <Text style={styles.title} numberOfLines={2}>
-        {row.name}
-      </Text>
-
-      <View style={styles.grid}>
-        <GridCell
-          icon={
-            <MaterialCommunityIcons
-              name="chart-line"
-              size={rs(13)}
-              color={colors.textMuted}
-            />
-          }
-          label="Symbol"
-          value={row.symbol || '—'}
-          colors={colors}
-          styles={styles}
-        />
-        <GridCell
-          icon={
-            <MaterialCommunityIcons
-              name="chart-bar"
-              size={rs(13)}
-              color={colors.textMuted}
-            />
-          }
-          label="Issued Units"
-          value={formatOfferingUnits(row.units)}
-          colors={colors}
-          styles={styles}
-        />
-        <GridCell
-          icon={
-            <Ionicons
-              name="calendar-outline"
-              size={rs(13)}
-              color={colors.textMuted}
-            />
-          }
-          label="Opening Date"
-          value={formatOfferingDate(row.openingDate)}
-          colors={colors}
-          styles={styles}
-        />
-        <GridCell
-          icon={
-            <Ionicons
-              name="time-outline"
-              size={rs(13)}
-              color={colors.textMuted}
-            />
-          }
-          label="Closing Date"
-          value={formatOfferingDate(row.closingDate)}
-          colors={colors}
-          styles={styles}
-        />
-      </View>
-
-      <View style={styles.divider} />
-
-      <View style={styles.managerRow}>
-        <Text style={styles.managerLabel}>Issue Manager:</Text>
-        <Text style={styles.managerName} numberOfLines={2}>
-          {row.issueManager || '—'}
+      <View style={styles.headRow}>
+        <Text style={styles.title}>
+          {live?.company ?? row.name}
+          {symbol ? ` - ${symbol}` : ''}
+          {subtitle ? (
+            <Text style={styles.titleSub}> ({subtitle})</Text>
+          ) : null}
         </Text>
-        {row.rightShareRatio ? (
-          <View style={styles.ratioBadge}>
-            <Text style={styles.ratioText}>{row.rightShareRatio}</Text>
-          </View>
-        ) : null}
-      </View>
-
-      <View style={styles.footer}>
-        <Text style={styles.price}>
-          Issue Price:{' '}
-          <Text style={styles.priceAmt}>
-            Rs. {row.price != null ? row.price.toFixed(2) : '—'}
+        <View style={[styles.statusPill, { backgroundColor: `${tone}1A` }]}>
+          <Text style={[styles.statusText, { color: tone }]}>
+            {status.label}
           </Text>
-        </Text>
-        <View style={[styles.statusPill, statusStyle]}>
-          <Ionicons
-            name="time-outline"
-            size={rs(11)}
-            color={
-              status.tone === 'soon'
-                ? '#FFA726'
-                : status.tone === 'open'
-                  ? colors.accentGreen
-                  : '#EF5350'
-            }
-          />
-          <Text style={[styles.statusText, statusTextStyle]}>{status.label}</Text>
         </View>
       </View>
+
+      <Text style={styles.manager} numberOfLines={2}>
+        Issue Manager: {(issueManager || '—').toUpperCase()}
+      </Text>
+
+      <View style={styles.statRow}>
+        <Stat
+          label="Issued Units"
+          value={formatOfferingUnits(row.units)}
+          styles={styles}
+        />
+        {row.appliedUnits != null ? (
+          <Stat
+            label="Applied Units"
+            value={formatOfferingUnits(row.appliedUnits)}
+            styles={styles}
+          />
+        ) : (
+          <Stat
+            label="Issue Price"
+            value={row.price != null ? `Rs. ${row.price.toFixed(0)}` : '—'}
+            styles={styles}
+          />
+        )}
+        {row.applicants != null ? (
+          <Stat
+            label="Applicants"
+            value={formatOfferingUnits(row.applicants)}
+            styles={styles}
+          />
+        ) : (
+          <Stat
+            label="Total Amount"
+            value={formatOfferingAmount(row.totalAmount)}
+            styles={styles}
+          />
+        )}
+      </View>
+
+      <View style={styles.highlight}>
+        <Text style={styles.highlightLabel}>
+          {subscription ? 'Subscription' : 'Min. Investment'}
+        </Text>
+        <View style={styles.highlightRow}>
+          <Text style={styles.highlightValue}>
+            {subscription ? subscription.label : minInvestment}
+          </Text>
+          <View style={styles.highlightChip}>
+            <MaterialCommunityIcons
+              name={subscription ? 'chart-line-variant' : 'file-document-outline'}
+              size={rs(12)}
+              color={OPEN_GREEN}
+            />
+            <Text style={styles.highlightChipText}>{highlightChip}</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.dateRow}>
+        <View style={[styles.dateBox, styles.dateBoxOpen]}>
+          <Text style={[styles.dateLabel, { color: OPEN_GREEN }]}>
+            Open Date
+          </Text>
+          <Text style={styles.dateValue}>
+            {formatOfferingDateLong(live?.openDate ?? row.openingDate)}
+          </Text>
+          {openRelative ? (
+            <Text style={styles.dateHint}>{openRelative}</Text>
+          ) : null}
+        </View>
+
+        <View style={[styles.dateBox, styles.dateBoxClose]}>
+          <Text style={[styles.dateLabel, { color: CLOSE_RED }]}>
+            Close Date
+          </Text>
+          <Text style={styles.dateValue}>
+            {formatOfferingDateLong(live?.closeDate ?? row.closingDate)}
+          </Text>
+          {closeRelative ? (
+            <Text style={styles.dateHint}>{closeRelative}</Text>
+          ) : null}
+        </View>
+      </View>
+
+      {updatedRelative ? (
+        <Text style={styles.updated}>Updated {updatedRelative}</Text>
+      ) : null}
     </View>
   );
 }
@@ -167,88 +193,130 @@ function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
     card: {
       borderWidth: 1,
-      borderColor: '#2E5FA8',
+      borderColor: c.border,
       borderRadius: rs(14),
       padding: rs(14),
       backgroundColor: c.surface,
       marginBottom: rs(12),
     },
+    headRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: rs(8),
+    },
     title: {
-      color: c.tealHeader,
-      fontWeight: '800',
-      fontSize: rs(14),
-      lineHeight: rs(19),
-      marginBottom: rs(12),
-    },
-    grid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      rowGap: rs(10),
-    },
-    cell: {
-      width: '50%',
-      paddingRight: rs(6),
-    },
-    cellHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(4),
-      marginBottom: rs(3),
-    },
-    cellLabel: { fontSize: rs(10), fontWeight: '600' },
-    cellValue: { fontSize: rs(12), fontWeight: '700' },
-    divider: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: c.border,
-      marginVertical: rs(10),
-    },
-    managerRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      alignItems: 'center',
-      gap: rs(4),
-      marginBottom: rs(10),
-    },
-    managerLabel: { color: c.textMuted, fontSize: rs(11) },
-    managerName: {
       flex: 1,
       color: c.text,
-      fontWeight: '700',
+      fontWeight: '800',
+      fontSize: rs(14),
+      lineHeight: rs(20),
+    },
+    titleSub: {
+      color: c.textSecondary,
+      fontWeight: '600',
+      fontSize: rs(12),
+    },
+    statusPill: {
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(3),
+      borderRadius: rs(10),
+    },
+    statusText: { fontWeight: '800', fontSize: rs(10) },
+    manager: {
+      color: c.textMuted,
       fontSize: rs(11),
-      minWidth: '40%',
+      lineHeight: rs(16),
+      marginTop: rs(6),
     },
-    ratioBadge: {
+    statRow: {
+      flexDirection: 'row',
+      marginTop: rs(12),
+      gap: rs(8),
+    },
+    stat: { flex: 1 },
+    statLabel: { color: c.textMuted, fontSize: rs(10), fontWeight: '600' },
+    statValue: {
+      color: c.text,
+      fontSize: rs(13),
+      fontWeight: '800',
+      marginTop: rs(3),
+    },
+    highlight: {
+      marginTop: rs(12),
+      borderRadius: rs(10),
       backgroundColor: c.primarySoft,
-      paddingHorizontal: rs(8),
-      paddingVertical: rs(2),
-      borderRadius: rs(8),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
     },
-    ratioText: { color: c.tealHeader, fontWeight: '800', fontSize: rs(10) },
-    footer: {
+    highlightLabel: {
+      color: c.textSecondary,
+      fontSize: rs(11),
+      fontWeight: '700',
+    },
+    highlightRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: rs(8),
+      marginTop: rs(6),
     },
-    price: { color: c.textSecondary, fontSize: rs(11), flex: 1 },
-    priceAmt: { color: '#FFB74D', fontWeight: '800' },
-    statusPill: {
+    highlightValue: {
+      color: OPEN_GREEN,
+      fontSize: rs(18),
+      fontWeight: '800',
+    },
+    highlightChip: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(4),
-      paddingHorizontal: rs(8),
-      paddingVertical: rs(4),
+      backgroundColor: c.surface,
       borderRadius: rs(12),
-      borderWidth: 1,
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(4),
     },
-    statusOpen: { borderColor: '#4CAF5088' },
-    statusSoon: { borderColor: '#FFA726' },
-    statusProposed: { borderColor: c.tealHeader },
-    statusClosed: { borderColor: '#EF5350' },
-    statusText: { fontWeight: '800', fontSize: rs(9) },
-    statusTextOpen: { color: c.accentGreen },
-    statusTextSoon: { color: '#FFA726' },
-    statusTextProposed: { color: c.tealHeader },
-    statusTextClosed: { color: '#EF5350' },
+    highlightChipText: {
+      color: OPEN_GREEN,
+      fontSize: rs(10),
+      fontWeight: '700',
+    },
+    dateRow: {
+      flexDirection: 'row',
+      gap: rs(10),
+      marginTop: rs(12),
+    },
+    dateBox: {
+      flex: 1,
+      borderWidth: 1,
+      borderRadius: rs(10),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(8),
+    },
+    dateBoxOpen: {
+      borderColor: `${OPEN_GREEN}55`,
+      backgroundColor: `${OPEN_GREEN}0F`,
+    },
+    dateBoxClose: {
+      borderColor: `${CLOSE_RED}55`,
+      backgroundColor: `${CLOSE_RED}0F`,
+    },
+    dateLabel: { fontSize: rs(10), fontWeight: '800' },
+    dateValue: {
+      color: c.text,
+      fontSize: rs(13),
+      fontWeight: '800',
+      marginTop: rs(4),
+    },
+    dateHint: {
+      color: c.textMuted,
+      fontSize: rs(10),
+      marginTop: rs(2),
+    },
+    updated: {
+      color: c.textMuted,
+      fontSize: rs(10),
+      fontStyle: 'italic',
+      textAlign: 'right',
+      marginTop: rs(10),
+    },
   });
 }

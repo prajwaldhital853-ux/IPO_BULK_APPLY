@@ -66,8 +66,8 @@ function makeDemoResult(
       ok: false,
       status: 'REJECTED',
       allotmentStatus: 'Rejected',
-      message: 'Rejected ( quantity : 10 ) - Insufficient balance',
-      remarks: 'Insufficient balance in linked bank account',
+      message: 'Rejected ( quantity : 10 )',
+      remarks: 'Insufficient Balance',
     };
   }
   // Not allotted

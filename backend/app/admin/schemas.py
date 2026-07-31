@@ -477,3 +477,57 @@ class MarketClosureIn(BaseModel):
     active: bool = True
 
     model_config = {'populate_by_name': True}
+
+
+class ManagedOfferingOut(BaseModel):
+    id: str
+    match_key: str = Field(alias='matchKey')
+    name: str
+    symbol: str = ''
+    type: str
+    audience: str | None = None
+    issue_manager: str | None = Field(default=None, alias='issueManager')
+    status: str = 'ComingSoon'
+    units: int | None = None
+    applied_units: int | None = Field(default=None, alias='appliedUnits')
+    applicants: int | None = None
+    price: float | None = None
+    total_amount: float | None = Field(default=None, alias='totalAmount')
+    applied_amount: float | None = Field(default=None, alias='appliedAmount')
+    opening_date: str | None = Field(default=None, alias='openingDate')
+    closing_date: str | None = Field(default=None, alias='closingDate')
+    extended_closing_date: str | None = Field(
+        default=None,
+        alias='extendedClosingDate',
+    )
+    right_share_ratio: str | None = Field(default=None, alias='rightShareRatio')
+    active: bool = True
+    updated_at: str | None = Field(default=None, alias='updatedAt')
+
+    model_config = {'populate_by_name': True}
+
+
+class ManagedOfferingIn(BaseModel):
+    name: str
+    symbol: str = ''
+    type: str = 'Ipo'
+    audience: str | None = None
+    issue_manager: str | None = Field(default=None, alias='issueManager')
+    status: str = 'ComingSoon'
+    units: int | None = None
+    applied_units: int | None = Field(default=None, alias='appliedUnits')
+    applicants: int | None = None
+    price: float | None = None
+    total_amount: float | None = Field(default=None, alias='totalAmount')
+    applied_amount: float | None = Field(default=None, alias='appliedAmount')
+    opening_date: str | None = Field(default=None, alias='openingDate')
+    closing_date: str | None = Field(default=None, alias='closingDate')
+    extended_closing_date: str | None = Field(
+        default=None,
+        alias='extendedClosingDate',
+    )
+    right_share_ratio: str | None = Field(default=None, alias='rightShareRatio')
+    active: bool = True
+    match_key: str | None = Field(default=None, alias='matchKey')
+
+    model_config = {'populate_by_name': True}

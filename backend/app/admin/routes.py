@@ -46,6 +46,8 @@ from .schemas import (
     TeamMemberOut,
     MarketClosureIn,
     MarketClosureOut,
+    ManagedOfferingIn,
+    ManagedOfferingOut,
 )
 from ..emailer import EmailNotConfiguredError
 from ..feedback import list_feedback, update_feedback_status
@@ -61,6 +63,12 @@ from ..market_closures import (
     delete_market_closure,
     list_market_closures,
     update_market_closure,
+)
+from ..managed_offerings import (
+    create_managed_offering,
+    delete_managed_offering,
+    list_managed_offerings,
+    update_managed_offering,
 )
 from ..public_settings import _contact_out, _payment_out, _popup_notice_out
 from ..site_settings import (
@@ -800,6 +808,127 @@ async def admin_delete_closure(
 ) -> dict[str, bool]:
     try:
         await delete_market_closure(db, closure_id)
+        await db.commit()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {'ok': True}
+
+
+def _managed_offering_out(row) -> ManagedOfferingOut:  # noqa: ANN001
+    return ManagedOfferingOut(
+        id=row.id,
+        matchKey=row.match_key,
+        name=row.name,
+        symbol=row.symbol or '',
+        type=row.offering_type,
+        audience=row.audience,
+        issueManager=row.issue_manager,
+        status=row.status,
+        units=row.units,
+        appliedUnits=row.applied_units,
+        applicants=row.applicants,
+        price=row.price,
+        totalAmount=row.total_amount,
+        appliedAmount=row.applied_amount,
+        openingDate=row.opening_date,
+        closingDate=row.closing_date,
+        extendedClosingDate=row.extended_closing_date,
+        rightShareRatio=row.right_share_ratio,
+        active=bool(row.active),
+        updatedAt=row.updated_at.isoformat() if row.updated_at else None,
+    )
+
+
+@router.get('/ipo-issues', response_model=list[ManagedOfferingOut])
+async def admin_list_ipo_issues(
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[ManagedOfferingOut]:
+    rows = await list_managed_offerings(db, active_only=False)
+    return [_managed_offering_out(r) for r in rows]
+
+
+@router.post('/ipo-issues', response_model=ManagedOfferingOut)
+async def admin_create_ipo_issue(
+    body: ManagedOfferingIn,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> ManagedOfferingOut:
+    try:
+        row = await create_managed_offering(
+            db,
+            name=body.name,
+            symbol=body.symbol,
+            offering_type=body.type,
+            audience=body.audience,
+            issue_manager=body.issue_manager,
+            status=body.status,
+            units=body.units,
+            applied_units=body.applied_units,
+            applicants=body.applicants,
+            price=body.price,
+            total_amount=body.total_amount,
+            applied_amount=body.applied_amount,
+            opening_date=body.opening_date,
+            closing_date=body.closing_date,
+            extended_closing_date=body.extended_closing_date,
+            right_share_ratio=body.right_share_ratio,
+            active=body.active,
+            match_key=body.match_key,
+        )
+        await db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await db.refresh(row)
+    return _managed_offering_out(row)
+
+
+@router.put('/ipo-issues/{offering_id}', response_model=ManagedOfferingOut)
+async def admin_update_ipo_issue(
+    offering_id: str,
+    body: ManagedOfferingIn,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> ManagedOfferingOut:
+    try:
+        row = await update_managed_offering(
+            db,
+            offering_id,
+            name=body.name,
+            symbol=body.symbol,
+            offering_type=body.type,
+            audience=body.audience,
+            issue_manager=body.issue_manager,
+            status=body.status,
+            units=body.units,
+            applied_units=body.applied_units,
+            applicants=body.applicants,
+            price=body.price,
+            total_amount=body.total_amount,
+            applied_amount=body.applied_amount,
+            opening_date=body.opening_date,
+            closing_date=body.closing_date,
+            extended_closing_date=body.extended_closing_date,
+            right_share_ratio=body.right_share_ratio,
+            active=body.active,
+        )
+        await db.commit()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await db.refresh(row)
+    return _managed_offering_out(row)
+
+
+@router.delete('/ipo-issues/{offering_id}')
+async def admin_delete_ipo_issue(
+    offering_id: str,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    try:
+        await delete_managed_offering(db, offering_id)
         await db.commit()
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

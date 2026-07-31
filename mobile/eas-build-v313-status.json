@@ -1,0 +1,47 @@
+﻿{
+  "id": "b80b4dd5-3b1f-452b-96ee-6765201b1f90",
+  "status": "FINISHED",
+  "platform": "ANDROID",
+  "artifacts": {
+    "buildUrl": "https://expo.dev/artifacts/eas/zWiuy8qP7bT34JuZXHQHj8LSOxzAcqw48QCF-MMmyqw.apk",
+    "applicationArchiveUrl": "https://expo.dev/artifacts/eas/zWiuy8qP7bT34JuZXHQHj8LSOxzAcqw48QCF-MMmyqw.apk"
+  },
+  "fingerprint": {
+    "id": "019fb697-7af0-73a9-a30b-cf57d0537622",
+    "hash": "cdc8835430efe75f1e2a3a886aa724021483f597"
+  },
+  "initiatingActor": {
+    "id": "f51377b8-c437-4b2a-93d3-b70bd4354a8f",
+    "displayName": "hellohello636g"
+  },
+  "logFiles": [
+    "https://storage.googleapis.com/eas-workflows-production/logs/0a36c499-7902-465c-a03a-75f885ee337e/b80b4dd5-3b1f-452b-96ee-6765201b1f90/2026-07-31T05%3A13%3A31Z-b5962fea-3d81-4a6f-91f7-feab35207780.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260731%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260731T052448Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=9779a25a9ee775fd6b42393e5835590f1916c55f8a96bdf71a0cc6e29765bf33cf62454ff38772898878bc063ddf4cf88e5221318018ae3760a2efc9d3413aa93201be5fe0475c9840af82d232aa22a5f8382bacd161de1790c6309c39087d8a414fee8db35882f57935557f9d59262a8a09b8ef98695dec18ee1bff55bc67363056bf107bfc18f68080f845a229a3e216025d42637e89e9b92ca03de805327b12c65562d018f4138e6563cb58498f7649de1a114907ba969c52fc9678b3b74c2d337febf1170dc77480e033407445b469f965511ed2d2e4a8a0fe81489548c3439cf563d73e347e1545341c779f5ee23a7792a3929eaa5a14f3a5ce1bb15045"
+  ],
+  "project": {
+    "id": "0a36c499-7902-465c-a03a-75f885ee337e",
+    "name": "hello35eg",
+    "slug": "hello35eg",
+    "ownerAccount": {
+      "id": "5644645e-b6fb-45a6-b350-3333f4e75828",
+      "name": "hellohello636gs-team"
+    }
+  },
+  "distribution": "INTERNAL",
+  "buildProfile": "preview",
+  "sdkVersion": "54.0.0",
+  "appVersion": "3.4.13",
+  "appBuildVersion": "58",
+  "gitCommitHash": "d8140458edbb23b86fcb7ec030d5a3f50fc48f3a",
+  "gitCommitMessage": "Ship mobile UI polish and IPO flow improvements for APK 3.4.13.\n\nIncludes draggable apply results, IPO result name avatars, light theme, bulk apply continue-all, and related screen fixes.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>",
+  "priority": "NORMAL",
+  "createdAt": "2026-07-31T05:13:28.513Z",
+  "updatedAt": "2026-07-31T05:27:41.065Z",
+  "completedAt": "2026-07-31T05:27:40.876Z",
+  "expirationDate": "2026-08-14T05:13:28.549Z",
+  "isForIosSimulator": false,
+  "metrics": {
+    "buildWaitTime": 2572,
+    "buildQueueTime": 4737,
+    "buildDuration": 845054
+  }
+}

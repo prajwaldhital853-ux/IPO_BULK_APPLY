@@ -223,6 +223,45 @@ class MarketClosure(Base):
     )
 
 
+class ManagedOffering(Base):
+    """Admin-curated IPO/FPO/Right/etc. shown in Current / Upcoming Issues."""
+
+    __tablename__ = 'managed_offerings'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Deterministic key used to override ShareHub/CDSC rows.
+    match_key: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(512), default='')
+    symbol: Mapped[str] = mapped_column(String(32), default='')
+    # Ipo | Fpo | Right | MutualFund | BondOrDebenture
+    offering_type: Mapped[str] = mapped_column(String(32), default='Ipo', index=True)
+    # GeneralPublic | ForeignEmployment | …
+    audience: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    issue_manager: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # ComingSoon | Proposed | Open | Closed
+    status: Mapped[str] = mapped_column(String(32), default='ComingSoon', index=True)
+    units: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    applied_units: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    applicants: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    applied_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_date: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    closing_date: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    extended_closing_date: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    right_share_ratio: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class AdminOtpReset(Base):
     __tablename__ = 'admin_otp_resets'
 

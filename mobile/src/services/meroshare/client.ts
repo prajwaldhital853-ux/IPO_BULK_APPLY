@@ -924,10 +924,7 @@ export class MeroshareClient {
     let remarks: string | undefined;
 
     const formId = match.applicantFormId ?? match.id;
-    if (
-      formId != null &&
-      /TRANSACTION_SUCCESS|APPROVED|ALLOT|WAIT/i.test(statusName)
-    ) {
+    if (formId != null) {
       try {
         const detail = await this.request<Record<string, unknown>>(
           PATHS.reportDetail(Number(formId)),
@@ -942,6 +939,7 @@ export class MeroshareClient {
               detail.meroshareRemark ??
               detail.blockAmountStatus ??
               detail.remarks ??
+              detail.reason ??
               '',
           ).trim() || undefined;
         const detailQty = nestedNumber(
@@ -973,7 +971,14 @@ export class MeroshareClient {
           ? `Not Alloted ( quantity : ${kitta} )`
           : 'Not Alloted';
     } else if (label.code === 'REJECTED') {
-      message = label.message;
+      message =
+        kitta != null ? `Rejected ( quantity : ${kitta} )` : 'Rejected';
+      // Keep the "why" out of the status line so the UI can show it separately.
+      if (!remarks) {
+        remarks =
+          label.message.replace(/^rejected\s*[-–—:]\s*/i, '').trim() ||
+          undefined;
+      }
     }
 
     if (!remarks) {

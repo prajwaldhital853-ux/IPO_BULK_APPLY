@@ -1077,6 +1077,22 @@ export function AdminSettingsScreen() {
             <Text style={styles.hint}>Admin: {settings.adminEmail}</Text>
           ) : null}
 
+          <Pressable
+            style={styles.ipoLinkCard}
+            onPress={() => navigation.navigate('AdminIpoIssues')}
+          >
+            <View style={styles.ipoLinkIcon}>
+              <Ionicons name="trending-up" size={rs(20)} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.ipoLinkTitle}>IPO Issues</Text>
+              <Text style={styles.ipoLinkSub}>
+                Add or edit Current / Upcoming issue cards
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={rs(18)} color={colors.textMuted} />
+          </Pressable>
+
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -2124,6 +2140,29 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: rs(16),
       marginBottom: rs(8),
     },
+    ipoLinkCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      marginHorizontal: rs(16),
+      marginBottom: rs(10),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(12),
+      borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: c.surface,
+    },
+    ipoLinkIcon: {
+      width: rs(36),
+      height: rs(36),
+      borderRadius: rs(10),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: c.primarySoft,
+    },
+    ipoLinkTitle: { color: c.text, fontWeight: '800', fontSize: rs(14) },
+    ipoLinkSub: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
     tabBar: { flexGrow: 0, marginBottom: rs(4) },
     tabRow: {
       gap: rs(8),
