@@ -43,7 +43,6 @@ module.exports = {
       favicon: './assets/nepse-ghar-logo.png',
     },
     plugins: [
-      '@react-native-community/datetimepicker',
       ...(process.env.EAS_BUILD_PROFILE === 'development'
         ? ['expo-dev-client']
         : []),

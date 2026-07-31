@@ -4,6 +4,7 @@ import {
   FlatList,
   Modal,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   View,
@@ -21,6 +22,7 @@ import {
   type ApplicationReportRow,
 } from '../services/meroshare';
 import { rs } from '../utils/responsive';
+import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 
 const GREEN = '#43A047';
@@ -89,6 +91,8 @@ export function AllIpoStatusScreen() {
     }
   }, [account]);
 
+  const { refreshing, onRefresh } = usePullToRefresh(refresh);
+
   const accountLabel = account
     ? `${account.name.toUpperCase()} - ${account.username}`
     : 'Select Account';
@@ -137,6 +141,14 @@ export function AllIpoStatusScreen() {
             keyExtractor={(item) =>
               `${item.companyShareId}-${item.applicantFormId ?? 0}`
             }
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={[colors.primary]}
+                tintColor={colors.primary}
+              />
+            }
             contentContainerStyle={[
               styles.list,
               { paddingBottom: Math.max(insets.bottom, rs(24)) },
@@ -161,7 +173,7 @@ export function AllIpoStatusScreen() {
                       {badgeType(item.shareTypeName)}
                     </Text>
                   </View>
-                  <Text style={styles.bullet}>ï</Text>
+                  <Text style={styles.bullet}>ù</Text>
                   <Text style={styles.audience} numberOfLines={1}>
                     {audienceLabel(item)}
                   </Text>

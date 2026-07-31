@@ -545,10 +545,7 @@ export function ProfileScreen() {
             <Text style={styles.rowLabel}>Subscription</Text>
             <Ionicons name="refresh-circle" size={rs(22)} color={colors.teal} />
           </Pressable>
-        </View>
-
-        <Text style={styles.sectionOutside}>Admin</Text>
-        <View style={styles.card}>
+          <View style={[styles.divider, { backgroundColor: colors.borderMuted }]} />
           <Pressable
             style={styles.row}
             onPress={() => navigation.navigate('AdminLogin')}
@@ -630,25 +627,26 @@ export function ProfileScreen() {
         </View>
 
         <Text style={styles.sectionOutside}>Connect With Us</Text>
-        <Text style={styles.sectionHint}>{contact.companyName}</Text>
-        <View style={styles.contactList}>
-          {contactItems.map((item) => (
-            <Pressable
-              key={item.id}
-              style={styles.contactCard}
-              onPress={item.onPress}
-            >
-              <View style={[styles.rowIcon, { backgroundColor: item.bg }]}>
-                <Ionicons name={item.ion} size={rs(18)} color={item.iconColor} />
-              </View>
-              <View style={styles.rowTextWrap}>
-                <Text style={styles.rowLabel}>{item.label}</Text>
-                <Text style={styles.rowDetail} numberOfLines={2}>
-                  {item.detail}
-                </Text>
-              </View>
-              <Ionicons name="open-outline" size={rs(16)} color={colors.textDim} />
-            </Pressable>
+        <View style={styles.card}>
+          <Text style={styles.cardSubtitle}>{contact.companyName}</Text>
+          {contactItems.map((item, index) => (
+            <View key={item.id}>
+              <Pressable style={styles.row} onPress={item.onPress}>
+                <View style={[styles.rowIcon, { backgroundColor: item.bg }]}>
+                  <Ionicons name={item.ion} size={rs(18)} color={item.iconColor} />
+                </View>
+                <View style={styles.rowTextWrap}>
+                  <Text style={styles.rowLabel}>{item.label}</Text>
+                  <Text style={styles.rowDetail} numberOfLines={2}>
+                    {item.detail}
+                  </Text>
+                </View>
+                <Ionicons name="open-outline" size={rs(16)} color={colors.textDim} />
+              </Pressable>
+              {index < contactItems.length - 1 ? (
+                <View style={[styles.divider, { backgroundColor: colors.borderMuted }]} />
+              ) : null}
+            </View>
           ))}
         </View>
 
@@ -865,12 +863,13 @@ function makeStyles(c: ThemeColors) {
       marginBottom: rs(8),
       marginTop: rs(4),
     },
-    sectionHint: {
+    cardSubtitle: {
       color: c.textSecondary,
       fontSize: rs(12),
-      marginHorizontal: rs(20),
-      marginBottom: rs(8),
-      marginTop: rs(-4),
+      fontWeight: '600',
+      paddingHorizontal: rs(4),
+      paddingTop: rs(8),
+      paddingBottom: rs(4),
     },
     card: {
       marginHorizontal: rs(16),
@@ -881,22 +880,6 @@ function makeStyles(c: ThemeColors) {
       backgroundColor: c.surface,
       paddingHorizontal: rs(14),
       paddingVertical: rs(6),
-    },
-    contactList: {
-      marginHorizontal: rs(16),
-      marginBottom: rs(16),
-      gap: rs(10),
-    },
-    contactCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(14),
-      borderRadius: rs(16),
-      borderWidth: 1,
-      borderColor: c.borderMuted,
-      backgroundColor: c.surface,
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(14),
     },
     row: {
       flexDirection: 'row',

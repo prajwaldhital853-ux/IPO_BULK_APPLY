@@ -1519,7 +1519,8 @@ function normalizeIssue(row: Record<string, unknown>): OpenIssue {
     issueOpenDate: row.issueOpenDate ? String(row.issueOpenDate) : undefined,
     issueCloseDate: row.issueCloseDate ? String(row.issueCloseDate) : undefined,
     maxUnit: row.maxUnit != null ? Number(row.maxUnit) : undefined,
-    minUnit: row.minUnit != null ? Number(row.minUnit) : 10,
+    // Do not invent 10: debentures/FPOs can require 25, 50, 80, etc.
+    minUnit: row.minUnit != null ? Number(row.minUnit) : undefined,
     alreadyApplied: row.action === 'edit',
   };
 }

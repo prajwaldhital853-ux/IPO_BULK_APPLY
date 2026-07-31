@@ -2,13 +2,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
-  PanResponder,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -16,7 +18,12 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IssueOfferingCard } from '../components/ipo/IssueOfferingCard';
+import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
+import {
+  loadOpenIssuesForUi,
+  type OpenIssue,
+} from '../services/meroshare';
 import type { ThemeColors } from '../theme/colors';
 import {
   ISSUE_TABS,
@@ -28,11 +35,12 @@ import {
   loadAllPublicOfferings,
   loadOfferingsTypeFirstPage,
   loadOfferingsTypeRemainingPages,
-  type IssueTab,
   type PublicOffering,
+  type PublicOfferingType,
 } from '../services/nepse/publicOffering';
 import { rs } from '../utils/responsive';
 import { usePollingRefresh } from '../utils/usePollingRefresh';
+import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 
 type Mode = 'current' | 'upcoming';
@@ -49,24 +57,74 @@ const COPY: Record<Mode, { title: string; empty: string }> = {
 };
 
 function sortUpcomingList(rows: PublicOffering[]): PublicOffering[] {
+  // Open first, then coming-soon/proposed, then closed. Admin rows float to
+  // the top within each group so curated issues aren't buried at the end.
   const rank = (row: PublicOffering) => {
-    if (isOfferingUpcoming(row)) return 0;
-    if (isOfferingClosed(row)) return 1;
-    return 2;
+    if (row.status === 'Open' || isOfferingCurrent(row)) return 0;
+    if (isOfferingUpcoming(row)) return 1;
+    if (isOfferingClosed(row) || row.status === 'Closed') return 2;
+    return 3;
   };
   return [...rows].sort((a, b) => {
     const ra = rank(a);
     const rb = rank(b);
     if (ra !== rb) return ra - rb;
+    const aAdmin = a.managedId ? 0 : 1;
+    const bAdmin = b.managedId ? 0 : 1;
+    if (aAdmin !== bAdmin) return aAdmin - bAdmin;
     const at = a.openingDate ? Date.parse(a.openingDate) : 0;
     const bt = b.openingDate ? Date.parse(b.openingDate) : 0;
-    return ra === 0 ? at - bt : bt - at;
+    // Open / upcoming: soonest open first. Closed: newest first.
+    return ra <= 1 ? at - bt : bt - at;
   });
 }
 
 /** Hard cap: never show more than PREVIOUS_ISSUES_LIMIT cards in a tab. */
 function limitPreviousIssues(rows: PublicOffering[]): PublicOffering[] {
   return rows.slice(0, PREVIOUS_ISSUES_LIMIT);
+}
+
+function upcomingRowsForType(
+  apiType: PublicOfferingType,
+  data: PublicOffering[],
+): PublicOffering[] {
+  const scoped = data.filter(
+    (row) =>
+      String(row.type) === apiType &&
+      (row.displaySection
+        ? row.displaySection === 'upcoming' || row.displaySection === 'both'
+        : isOfferingNonCurrent(row)),
+  );
+  return limitPreviousIssues(sortUpcomingList(scoped));
+}
+
+function offeringSlug(raw?: string | null): string {
+  return (raw ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** Add MeroShare's authoritative minUnit to matching currently open cards. */
+function mergeMeroShareMinimums(
+  rows: PublicOffering[],
+  openings: OpenIssue[],
+): PublicOffering[] {
+  if (!openings.length) return rows;
+  const bySymbol = new Map(
+    openings
+      .filter((issue) => offeringSlug(issue.scrip))
+      .map((issue) => [offeringSlug(issue.scrip), issue]),
+  );
+  const byName = new Map(
+    openings.map((issue) => [offeringSlug(issue.companyName), issue]),
+  );
+  return rows.map((row) => {
+    const issue =
+      bySymbol.get(offeringSlug(row.symbol)) ??
+      byName.get(offeringSlug(row.name));
+    const minimumUnits = Number(issue?.minUnit);
+    return Number.isFinite(minimumUnits) && minimumUnits > 0
+      ? { ...row, minimumUnits }
+      : row;
+  });
 }
 
 export function IpoIssuesScreen() {
@@ -76,137 +134,184 @@ export function IpoIssuesScreen() {
   const mode: Mode = route.params?.mode ?? 'upcoming';
   const copy = COPY[mode];
   const insets = useSafeAreaInsets();
+  const { width: pageWidth } = useWindowDimensions();
+  const { accounts } = useAccounts();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [all, setAll] = useState<PublicOffering[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
-  const [tab, setTab] = useState<IssueTab>(ISSUE_TABS[0]);
-  const loadGen = useRef(0);
-  // Types whose background pages already finished — never re-run for them.
+
+  const [tabIndex, setTabIndex] = useState(0);
+  const [highlightIndex, setHighlightIndex] = useState(0);
+  const activeTab = ISSUE_TABS[tabIndex];
+
+  const [dataByType, setDataByType] = useState<
+    Partial<Record<PublicOfferingType, PublicOffering[]>>
+  >({});
+  const [loadingByType, setLoadingByType] = useState<
+    Partial<Record<PublicOfferingType, boolean>>
+  >({});
+  const [loadingMoreByType, setLoadingMoreByType] = useState<
+    Partial<Record<PublicOfferingType, boolean>>
+  >({});
+  const [updatedAtByType, setUpdatedAtByType] = useState<
+    Partial<Record<PublicOfferingType, number>>
+  >({});
+
+  const pagerRef = useRef<ScrollView>(null);
+  const tabIndexRef = useRef(0);
+  const highlightIndexRef = useRef(0);
+  const loadGenByType = useRef<Partial<Record<PublicOfferingType, number>>>({});
   const filledTypes = useRef<Set<string>>(new Set());
+  const fetchStartedRef = useRef<Set<PublicOfferingType>>(new Set());
 
-  const swipeResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) =>
-          mode === 'upcoming' &&
-          Math.abs(gesture.dx) > rs(18) &&
-          Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.4,
-        onPanResponderRelease: (_, gesture) => {
-          if (Math.abs(gesture.dx) < rs(55)) return;
-          const currentIndex = ISSUE_TABS.findIndex((item) => item.id === tab.id);
-          const nextIndex =
-            gesture.dx < 0 ? currentIndex + 1 : currentIndex - 1;
-          if (nextIndex >= 0 && nextIndex < ISSUE_TABS.length) {
-            setTab(ISSUE_TABS[nextIndex]);
-          }
-        },
-      }),
-    [mode, tab.id],
-  );
+  tabIndexRef.current = tabIndex;
+  highlightIndexRef.current = highlightIndex;
 
-  const rows = useMemo(() => {
-    if (mode === 'current') {
-      return all.filter((row) =>
-        row.displaySection
-          ? row.displaySection === 'current' || row.displaySection === 'both'
-          : isOfferingCurrent(row),
-      );
-    }
-    const scoped = all.filter(
-      (row) =>
-        String(row.type) === tab.apiType &&
-        (row.displaySection
-          ? row.displaySection === 'upcoming' || row.displaySection === 'both'
-          : isOfferingNonCurrent(row)),
-    );
-    return limitPreviousIssues(sortUpcomingList(scoped));
-  }, [all, mode, tab.apiType]);
-
-  const refreshCurrent = useCallback(async (force = false) => {
-    setError(null);
-    try {
-      const list = await loadAllPublicOfferings(force);
-      setAll(list);
-      setUpdatedAt(Date.now());
-      if (!list.length) setError('No issues available right now.');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load issues');
-      setAll([]);
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
+  const markTypeLoading = useCallback((type: PublicOfferingType) => {
+    setLoadingByType((prev) => {
+      if (prev[type]) return prev;
+      return { ...prev, [type]: true };
+    });
   }, []);
 
-  const refreshUpcoming = useCallback(
-    async (force = false, type = tab.apiType) => {
-      const gen = ++loadGen.current;
-      if (force) filledTypes.current.delete(type);
+  const setActiveTabIndex = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= ISSUE_TABS.length) return;
+      if (index === tabIndexRef.current) return;
+      tabIndexRef.current = index;
+      setTabIndex(index);
+      markTypeLoading(ISSUE_TABS[index].apiType);
+    },
+    [markTypeLoading],
+  );
+
+  const currentRows = useMemo(() => {
+    return all.filter((row) =>
+      row.displaySection
+        ? row.displaySection === 'current' || row.displaySection === 'both'
+        : isOfferingCurrent(row),
+    );
+  }, [all]);
+
+  const activeUpcomingRows = useMemo(
+    () =>
+      upcomingRowsForType(
+        activeTab.apiType,
+        dataByType[activeTab.apiType] ?? [],
+      ),
+    [activeTab.apiType, dataByType],
+  );
+
+  const headerRows = mode === 'current' ? currentRows : activeUpcomingRows;
+  const headerLoadingMore =
+    mode === 'upcoming'
+      ? Boolean(loadingMoreByType[activeTab.apiType])
+      : loadingMore;
+
+  const refreshCurrent = useCallback(
+    async (force = false) => {
       setError(null);
-      setLoadingMore(false);
+      const openingsPromise = loadOpenIssuesForUi(accounts).catch(
+        () => [] as OpenIssue[],
+      );
       try {
-        // 1) First page only — paint cards as soon as this resolves.
-        const first = await loadOfferingsTypeFirstPage(type, force);
-        if (gen !== loadGen.current) return;
-        setAll(first.rows);
+        const list = await loadAllPublicOfferings(force);
+        setAll(list);
         setUpdatedAt(Date.now());
         setLoading(false);
+        if (!list.length) setError('No issues available right now.');
 
-        if (first.totalPages <= 1 || filledTypes.current.has(type)) {
-          filledTypes.current.add(type);
-          return;
+        const openings = await openingsPromise;
+        if (openings.length) {
+          setAll((current) => mergeMeroShareMinimums(current, openings));
         }
-
-        // 2) Remaining pages once, in background (total capped at 50 cards).
-        setLoadingMore(true);
-        const rest = await loadOfferingsTypeRemainingPages(
-          type,
-          first.totalPages,
-          force,
-        );
-        if (gen !== loadGen.current) return;
-        filledTypes.current.add(type);
-        setAll(rest);
-        setUpdatedAt(Date.now());
       } catch (e) {
-        if (gen !== loadGen.current) return;
         setError(e instanceof Error ? e.message : 'Could not load issues');
-        setAll((prev) => prev);
+        setAll([]);
       } finally {
-        if (gen === loadGen.current) {
-          setLoading(false);
-          setLoadingMore(false);
-        }
+        setLoading(false);
+        setLoadingMore(false);
       }
     },
-    [tab.apiType],
+    [accounts],
   );
+
+  const refreshUpcoming = useCallback(async (force = false, type: PublicOfferingType) => {
+    const gen = (loadGenByType.current[type] ?? 0) + 1;
+    loadGenByType.current[type] = gen;
+    if (force) {
+      filledTypes.current.delete(type);
+      fetchStartedRef.current.delete(type);
+    }
+    setError(null);
+    setLoadingByType((prev) => {
+      if (prev[type]) return prev;
+      return { ...prev, [type]: true };
+    });
+    setLoadingMoreByType((prev) => ({ ...prev, [type]: false }));
+    try {
+      const first = await loadOfferingsTypeFirstPage(type, force);
+      if (loadGenByType.current[type] !== gen) return;
+      setDataByType((prev) => ({ ...prev, [type]: first.rows }));
+      setUpdatedAtByType((prev) => ({ ...prev, [type]: Date.now() }));
+      setLoadingByType((prev) => ({ ...prev, [type]: false }));
+
+      if (first.totalPages <= 1 || filledTypes.current.has(type)) {
+        filledTypes.current.add(type);
+        return;
+      }
+
+      setLoadingMoreByType((prev) => ({ ...prev, [type]: true }));
+      const rest = await loadOfferingsTypeRemainingPages(
+        type,
+        first.totalPages,
+        force,
+      );
+      if (loadGenByType.current[type] !== gen) return;
+      filledTypes.current.add(type);
+      setDataByType((prev) => ({ ...prev, [type]: rest }));
+      setUpdatedAtByType((prev) => ({ ...prev, [type]: Date.now() }));
+    } catch (e) {
+      if (loadGenByType.current[type] !== gen) return;
+      setError(e instanceof Error ? e.message : 'Could not load issues');
+      setDataByType((prev) => ({ ...prev, [type]: prev[type] ?? [] }));
+    } finally {
+      if (loadGenByType.current[type] === gen) {
+        setLoadingByType((prev) => ({ ...prev, [type]: false }));
+        setLoadingMoreByType((prev) => ({ ...prev, [type]: false }));
+      }
+    }
+  }, []);
 
   const refresh = useCallback(
     async (force = false) => {
       if (mode === 'current') return refreshCurrent(force);
-      return refreshUpcoming(force);
+      return refreshUpcoming(force, ISSUE_TABS[tabIndex].apiType);
     },
-    [mode, refreshCurrent, refreshUpcoming],
+    [mode, tabIndex, refreshCurrent, refreshUpcoming],
   );
 
   useEffect(() => {
+    if (mode !== 'current') return;
     setLoading(true);
     setAll([]);
-    if (mode === 'current') {
-      void refreshCurrent();
-    } else {
-      void refreshUpcoming(false, tab.apiType);
-    }
-  }, [mode, tab.apiType]); // eslint-disable-line react-hooks/exhaustive-deps
+    void refreshCurrent();
+  }, [mode, refreshCurrent]);
 
-  // Upcoming/closed data barely changes; polling there caused repeat reloads.
+  useEffect(() => {
+    if (mode !== 'upcoming') return;
+    const type = ISSUE_TABS[tabIndex].apiType;
+    if (dataByType[type] !== undefined) return;
+    if (fetchStartedRef.current.has(type)) return;
+    fetchStartedRef.current.add(type);
+    void refreshUpcoming(false, type);
+  }, [mode, tabIndex, dataByType, refreshUpcoming]);
+
   usePollingRefresh(
     (silent) => {
       void refreshCurrent(Boolean(silent));
@@ -214,6 +319,98 @@ export function IpoIssuesScreen() {
     undefined,
     mode === 'current',
   );
+
+  const { refreshing, onRefresh } = usePullToRefresh(() => refresh(true));
+
+  const onTabPress = (index: number) => {
+    highlightIndexRef.current = index;
+    setHighlightIndex(index);
+    setActiveTabIndex(index);
+    pagerRef.current?.scrollTo({ x: index * pageWidth, animated: true });
+  };
+
+  const pagerIndexFromOffset = (offsetX: number) =>
+    Math.min(
+      ISSUE_TABS.length - 1,
+      Math.max(0, Math.round(offsetX / pageWidth)),
+    );
+
+  const onPagerScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const index = pagerIndexFromOffset(event.nativeEvent.contentOffset.x);
+    if (index === highlightIndexRef.current) return;
+    highlightIndexRef.current = index;
+    setHighlightIndex(index);
+  };
+
+  const onPagerMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const index = pagerIndexFromOffset(event.nativeEvent.contentOffset.x);
+    highlightIndexRef.current = index;
+    setHighlightIndex(index);
+    setActiveTabIndex(index);
+  };
+
+  const renderUpcomingPage = (tab: typeof ISSUE_TABS[number]) => {
+    const rawData = dataByType[tab.apiType];
+    const hasLoaded = rawData !== undefined;
+    const pageRows = upcomingRowsForType(tab.apiType, rawData ?? []);
+    const pageLoading =
+      Boolean(loadingByType[tab.apiType]) || !hasLoaded;
+    const pageLoadingMore = Boolean(loadingMoreByType[tab.apiType]);
+    const pageUpdatedAt = updatedAtByType[tab.apiType] ?? null;
+    const isActiveTab = tab.id === activeTab.id;
+
+    if (pageLoading && pageRows.length === 0) {
+      return (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} size="large" />
+          <Text style={styles.loadingText}>Loading issues…</Text>
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        style={styles.listFlex}
+        data={pageRows}
+        keyExtractor={(item) =>
+          item.managedId
+            ? `m-${item.managedId}`
+            : `${item.type}-${item.id}`
+        }
+        initialNumToRender={6}
+        maxToRenderPerBatch={8}
+        windowSize={11}
+        removeClippedSubviews={false}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing && isActiveTab}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+        contentContainerStyle={
+          pageRows.length === 0 ? styles.emptyList : styles.list
+        }
+        ListEmptyComponent={
+          hasLoaded ? <Text style={styles.empty}>{copy.empty}</Text> : null
+        }
+        ListFooterComponent={
+          pageLoadingMore ? (
+            <View style={styles.footerLoading}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.footerText}>Loading more…</Text>
+            </View>
+          ) : null
+        }
+        renderItem={({ item }) => (
+          <IssueOfferingCard row={item} updatedAt={pageUpdatedAt} />
+        )}
+      />
+    );
+  };
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -223,20 +420,15 @@ export function IpoIssuesScreen() {
         </Pressable>
         <View style={styles.headerMid}>
           <Text style={styles.title}>{copy.title}</Text>
-          {rows.length ? (
+          {headerRows.length ? (
             <Text style={styles.subtitle}>
-              {rows.length} {rows.length === 1 ? 'issue' : 'issues'}
-              {loadingMore ? ' · loading more…' : ''}
+              {headerRows.length}{' '}
+              {headerRows.length === 1 ? 'issue' : 'issues'}
+              {headerLoadingMore ? ' · loading more…' : ''}
             </Text>
           ) : null}
         </View>
-        <Pressable
-          onPress={() => {
-            setRefreshing(true);
-            void refresh(true).finally(() => setRefreshing(false));
-          }}
-          hitSlop={10}
-        >
+        <Pressable onPress={onRefresh} hitSlop={10}>
           <Ionicons name="refresh" size={rs(22)} color={colors.primary} />
         </Pressable>
       </View>
@@ -244,16 +436,17 @@ export function IpoIssuesScreen() {
       {mode === 'upcoming' ? (
         <ScrollView
           horizontal
+          style={styles.tabsBar}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tabs}
         >
-          {ISSUE_TABS.map((t) => {
-            const active = tab.id === t.id;
+          {ISSUE_TABS.map((t, index) => {
+            const active = highlightIndex === index;
             return (
               <Pressable
                 key={t.id}
                 style={styles.tabBtn}
-                onPress={() => setTab(t)}
+                onPress={() => onTabPress(index)}
               >
                 <Text style={[styles.tabText, active && styles.tabTextActive]}>
                   {t.label}
@@ -265,36 +458,38 @@ export function IpoIssuesScreen() {
         </ScrollView>
       ) : null}
 
-      <View style={styles.content} {...swipeResponder.panHandlers}>
-        {error && !loading ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        {loading && rows.length === 0 ? (
+      {mode === 'current' ? (
+        loading && currentRows.length === 0 ? (
           <View style={styles.center}>
             <ActivityIndicator color={colors.primary} size="large" />
             <Text style={styles.loadingText}>Loading issues…</Text>
           </View>
         ) : (
           <FlatList
-            data={rows}
+            style={styles.listFlex}
+            data={currentRows}
             keyExtractor={(item) =>
               item.managedId
                 ? `m-${item.managedId}`
                 : `${item.type}-${item.id}`
             }
-            initialNumToRender={2}
-            maxToRenderPerBatch={4}
-            windowSize={5}
+            initialNumToRender={6}
+            maxToRenderPerBatch={8}
+            windowSize={11}
+            removeClippedSubviews={false}
+            keyboardShouldPersistTaps="handled"
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
-                onRefresh={() => {
-                  setRefreshing(true);
-                  void refresh(true).finally(() => setRefreshing(false));
-                }}
+                onRefresh={onRefresh}
+                colors={[colors.primary]}
+                tintColor={colors.primary}
               />
             }
             contentContainerStyle={
-              rows.length === 0 ? styles.emptyList : styles.list
+              currentRows.length === 0 ? styles.emptyList : styles.list
             }
             ListEmptyComponent={<Text style={styles.empty}>{copy.empty}</Text>}
             ListFooterComponent={
@@ -309,8 +504,28 @@ export function IpoIssuesScreen() {
               <IssueOfferingCard row={item} updatedAt={updatedAt} />
             )}
           />
-        )}
-      </View>
+        )
+      ) : (
+        <ScrollView
+          ref={pagerRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          scrollEventThrottle={16}
+          directionalLockEnabled
+          decelerationRate="fast"
+          disableIntervalMomentum
+          onScroll={onPagerScroll}
+          onMomentumScrollEnd={onPagerMomentumEnd}
+          style={styles.pager}
+        >
+          {ISSUE_TABS.map((t) => (
+            <View key={t.id} style={{ width: pageWidth, flex: 1 }}>
+              {renderUpcomingPage(t)}
+            </View>
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -318,7 +533,8 @@ export function IpoIssuesScreen() {
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
-    content: { flex: 1 },
+    listFlex: { flex: 1 },
+    pager: { flex: 1 },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -330,10 +546,12 @@ function makeStyles(c: ThemeColors) {
     headerMid: { flex: 1 },
     title: { color: c.text, fontWeight: '800', fontSize: rs(16) },
     subtitle: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
+    tabsBar: { flexGrow: 0, flexShrink: 0 },
     tabs: {
       paddingHorizontal: rs(12),
       paddingBottom: rs(4),
       gap: rs(16),
+      alignItems: 'center',
     },
     tabBtn: {
       alignItems: 'center',

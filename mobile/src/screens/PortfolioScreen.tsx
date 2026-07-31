@@ -5,6 +5,7 @@ import {
   FlatList,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -41,6 +42,7 @@ import {
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import { usePollingRefresh } from '../utils/usePollingRefresh';
+import { usePullToRefresh } from '../utils/usePullToRefresh';
 
 const FAB_GREEN = '#B8DFB9';
 const RECEIVABLE = '#5BA3D9';
@@ -94,6 +96,8 @@ export function PortfolioScreen() {
     }, [reload]),
   );
   usePollingRefresh(reload);
+
+  const { refreshing, onRefresh } = usePullToRefresh(reload);
 
   const agg = useMemo(
     () => aggregatePortfolios(portfolios, quotes),
@@ -224,6 +228,14 @@ export function PortfolioScreen() {
             styles.list,
             { paddingBottom: insets.bottom + rs(90) },
           ]}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
           ListHeaderComponent={
             <View style={styles.hero}>
               <Text style={styles.heroLabel}>TOTAL VALUE</Text>

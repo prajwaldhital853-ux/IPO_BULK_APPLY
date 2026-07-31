@@ -5,6 +5,8 @@ import {
   FlatList,
   Modal,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -25,6 +27,7 @@ import {
   type ResultAccountStatus,
 } from '../services/meroshare';
 import { rs } from '../utils/responsive';
+import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
@@ -225,6 +228,16 @@ export function CurrentIpoStatusScreen() {
   useEffect(() => {
     void refreshIssues();
   }, [refreshIssues]);
+
+  const { refreshing, onRefresh } = usePullToRefresh(refreshIssues);
+  const refreshControl = (
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      colors={[colors.primary]}
+      tintColor={colors.primary}
+    />
+  );
 
   useEffect(() => {
     setResults([]);
@@ -440,6 +453,7 @@ export function CurrentIpoStatusScreen() {
               data={visibleResults}
               keyExtractor={(row) => row.accountId}
               contentContainerStyle={styles.resultsListBody}
+              refreshControl={refreshControl}
               ListEmptyComponent={
                 <Text style={styles.empty}>No accounts in this category.</Text>
               }
@@ -536,13 +550,17 @@ export function CurrentIpoStatusScreen() {
           </View>
         </View>
       ) : (
-        <View style={styles.emptyWrap}>
+        <ScrollView
+          style={styles.emptyScroll}
+          contentContainerStyle={styles.emptyWrap}
+          refreshControl={refreshControl}
+        >
           <Text style={styles.empty}>
             {running && progress
               ? `Checking ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
               : 'Run Check Bulk Status to see account results here.'}
           </Text>
-        </View>
+        </ScrollView>
       )}
 
       <Modal visible={checkPickerOpen} animationType="slide" transparent>
@@ -795,7 +813,8 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'transparent' : '#FFFFFF',
     },
     rowApplyText: { fontSize: rs(11), fontWeight: '700' },
-    emptyWrap: { flex: 1, justifyContent: 'flex-start', paddingTop: rs(24) },
+    emptyScroll: { flex: 1 },
+    emptyWrap: { flexGrow: 1, justifyContent: 'flex-start', paddingTop: rs(24) },
     empty: { color: c.textMuted, textAlign: 'center', padding: rs(20) },
     modalBackdrop: {
       flex: 1,

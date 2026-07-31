@@ -1,13 +1,20 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
 import {
+  loadOfferingDetail,
+  peekOfferingDetail,
+  type OfferingDetailStats,
+} from '../../services/nepse/offeringDetail';
+import {
   formatOfferingAmount,
   formatOfferingDateLong,
   formatOfferingUnits,
+  offeringAllotmentChance,
   offeringAudienceLabel,
+  offeringMinimumUnits,
   offeringStatusLabel,
   offeringSubscription,
   offeringTypeLabel,
@@ -19,6 +26,39 @@ import { rs } from '../../utils/responsive';
 const OPEN_GREEN = '#2E7D32';
 const CLOSE_RED = '#C62828';
 const SOON_AMBER = '#EF6C00';
+
+/**
+ * ShareHub's list endpoint omits applicant and subscription figures, so each
+ * card pulls its own detail row unless CDSC already supplied live numbers.
+ */
+function useOfferingStats(row: PublicOffering): OfferingDetailStats | null {
+  const slug = row.slug;
+  const needsFetch = slug != null && row.cdsc == null;
+  const [stats, setStats] = useState<OfferingDetailStats | null>(() =>
+    needsFetch ? (peekOfferingDetail(slug) ?? null) : null,
+  );
+
+  useEffect(() => {
+    if (!needsFetch || !slug) {
+      setStats(null);
+      return;
+    }
+    const cached = peekOfferingDetail(slug);
+    if (cached !== undefined) {
+      setStats(cached);
+      return;
+    }
+    let alive = true;
+    void loadOfferingDetail(slug).then((next) => {
+      if (alive) setStats(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [needsFetch, slug]);
+
+  return stats;
+}
 
 function Stat({
   label,
@@ -67,16 +107,29 @@ export function IssueOfferingCard({
     .filter(Boolean)
     .join(' - ');
 
-  const subscription = offeringSubscription(row);
-  const minInvestment =
-    row.price != null ? formatOfferingAmount(row.price * 10) : '—';
-  const highlightChip = subscription
-    ? `${formatOfferingAmount(live?.appliedAmount ?? row.appliedAmount)} applied`
+  const stats = useOfferingStats(row);
+  const appliedUnits =
+    live?.appliedUnits ?? row.appliedUnits ?? stats?.appliedUnits ?? null;
+  const applicants =
+    live?.applicants ?? row.applicants ?? stats?.applicants ?? null;
+  const subscription = offeringSubscription(row, stats);
+  const allotment = offeringAllotmentChance(row, stats);
+  const minimumUnits = offeringMinimumUnits(row, stats);
+  const hasMinimum = minimumUnits != null && row.price != null;
+  const minInvestment = hasMinimum
+    ? formatOfferingAmount(row.price! * minimumUnits!)
+    : null;
+  // Null hides the chip entirely rather than showing a placeholder.
+  const fallbackChip = subscription
+    ? hasMinimum
+      ? `Min. ${minInvestment}`
+      : null
     : row.rightShareRatio
       ? `Ratio ${row.rightShareRatio}`
-      : row.price != null
-        ? `Rs. ${row.price.toFixed(0)} × 10 units`
-        : '10 units minimum';
+      : hasMinimum
+        ? `Rs. ${row.price!.toFixed(0)} × ${formatOfferingUnits(minimumUnits)} units`
+        : null;
+  const showHighlight = subscription != null || minInvestment != null;
 
   const openRelative = relativeFromNow(live?.openDate ?? row.openingDate);
   const closeRelative = relativeFromNow(live?.closeDate ?? row.closingDate);
@@ -106,13 +159,13 @@ export function IssueOfferingCard({
       <View style={styles.statRow}>
         <Stat
           label="Issued Units"
-          value={formatOfferingUnits(row.units)}
+          value={formatOfferingUnits(live?.issuedUnits ?? row.units)}
           styles={styles}
         />
-        {row.appliedUnits != null ? (
+        {appliedUnits != null ? (
           <Stat
             label="Applied Units"
-            value={formatOfferingUnits(row.appliedUnits)}
+            value={formatOfferingUnits(appliedUnits)}
             styles={styles}
           />
         ) : (
@@ -122,10 +175,10 @@ export function IssueOfferingCard({
             styles={styles}
           />
         )}
-        {row.applicants != null ? (
+        {applicants != null ? (
           <Stat
             label="Applicants"
-            value={formatOfferingUnits(row.applicants)}
+            value={formatOfferingUnits(applicants)}
             styles={styles}
           />
         ) : (
@@ -137,34 +190,42 @@ export function IssueOfferingCard({
         )}
       </View>
 
-      <View style={styles.highlight}>
-        <Text style={styles.highlightLabel}>
-          {subscription ? 'Subscription' : 'Min. Investment'}
-        </Text>
-        <View style={styles.highlightRow}>
-          <Text style={styles.highlightValue}>
-            {subscription ? subscription.label : minInvestment}
+      {showHighlight ? (
+        <View style={styles.highlight}>
+          <Text style={styles.highlightLabel}>
+            {subscription ? 'Subscription' : 'Min. Investment'}
           </Text>
-          <View style={styles.highlightChip}>
-            <MaterialCommunityIcons
-              name={subscription ? 'chart-line-variant' : 'file-document-outline'}
-              size={rs(12)}
-              color={OPEN_GREEN}
-            />
-            <Text style={styles.highlightChipText}>{highlightChip}</Text>
+          <View style={styles.highlightRow}>
+            <Text style={styles.highlightValue}>
+              {subscription ? subscription.label : minInvestment}
+            </Text>
+            {allotment ? (
+              <View style={styles.highlightChip}>
+                <MaterialCommunityIcons
+                  name="chart-line-variant"
+                  size={rs(12)}
+                  color={OPEN_GREEN}
+                />
+                <Text style={styles.highlightChipText}>{allotment.label}</Text>
+                <Text style={styles.highlightChipMuted}>
+                  ({allotment.ratio})
+                </Text>
+              </View>
+            ) : fallbackChip ? (
+              <View style={styles.highlightChip}>
+                <MaterialCommunityIcons
+                  name={
+                    subscription ? 'chart-line-variant' : 'file-document-outline'
+                  }
+                  size={rs(12)}
+                  color={OPEN_GREEN}
+                />
+                <Text style={styles.highlightChipText}>{fallbackChip}</Text>
+              </View>
+            ) : null}
           </View>
         </View>
-        {subscription ? (
-          <View style={styles.progressTrack}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${Math.min(100, subscription.percent)}%` },
-              ]}
-            />
-          </View>
-        ) : null}
-      </View>
+      ) : null}
 
       <View style={styles.dateRow}>
         <View style={[styles.dateBox, styles.dateBoxOpen]}>
@@ -260,20 +321,20 @@ function makeStyles(c: ThemeColors) {
     },
     highlightLabel: {
       color: c.textSecondary,
-      fontSize: rs(11),
-      fontWeight: '700',
+      fontSize: rs(12),
+      fontWeight: '600',
     },
     highlightRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: rs(8),
-      marginTop: rs(6),
+      marginTop: rs(8),
     },
     highlightValue: {
       flexShrink: 1,
       color: OPEN_GREEN,
-      fontSize: rs(15),
+      fontSize: rs(18),
       fontWeight: '800',
     },
     highlightChip: {
@@ -281,26 +342,19 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       gap: rs(4),
       backgroundColor: c.surface,
-      borderRadius: rs(12),
+      borderRadius: rs(999),
       paddingHorizontal: rs(10),
-      paddingVertical: rs(4),
+      paddingVertical: rs(5),
     },
     highlightChipText: {
       color: OPEN_GREEN,
-      fontSize: rs(10),
-      fontWeight: '700',
+      fontSize: rs(12),
+      fontWeight: '800',
     },
-    progressTrack: {
-      height: rs(5),
-      marginTop: rs(9),
-      borderRadius: rs(3),
-      backgroundColor: `${OPEN_GREEN}24`,
-      overflow: 'hidden',
-    },
-    progressFill: {
-      height: '100%',
-      borderRadius: rs(3),
-      backgroundColor: OPEN_GREEN,
+    highlightChipMuted: {
+      color: c.textSecondary,
+      fontSize: rs(11),
+      fontWeight: '600',
     },
     dateRow: {
       flexDirection: 'row',

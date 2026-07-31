@@ -90,7 +90,7 @@ import { TmsBrokersScreen } from '../screens/TmsBrokersScreen';
 import { DrawerContent } from '../components/DrawerContent';
 import { AppTabBar } from '../components/AppTabBar';
 import { useTheme } from '../context/ThemeContext';
-import { isTablet, wp } from '../utils/responsive';
+import { isTablet, rs, wp } from '../utils/responsive';
 import type { MainTabParamList, RootStackParamList } from './types';
 
 enableScreens(true);
@@ -227,7 +227,7 @@ function RootStack() {
 
 export function RootNavigator() {
   const { colors, isDark } = useTheme();
-  const drawerWidth = isTablet ? Math.min(wp(48), 420) : wp(86);
+  const drawerWidth = isTablet ? Math.min(wp(42), 380) : wp(70);
 
   const navTheme = useMemo(
     () => ({
@@ -255,7 +255,10 @@ export function RootNavigator() {
           swipeEnabled: true,
           drawerStyle: {
             width: drawerWidth,
-            backgroundColor: isDark ? colors.bg : '#F2F4F0',
+            backgroundColor: isDark ? colors.bg : '#F5F6F2',
+            borderTopRightRadius: rs(18),
+            borderBottomRightRadius: rs(18),
+            overflow: 'hidden',
           },
         }}
       >

@@ -4,6 +4,7 @@ import {
   FlatList,
   Modal,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -35,6 +36,7 @@ import {
 } from '../storage/watchlistStorage';
 import { rs } from '../utils/responsive';
 import { usePollingRefresh } from '../utils/usePollingRefresh';
+import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 
 const LIME = '#4CAF50';
@@ -138,6 +140,8 @@ export function WatchlistScreen() {
   );
 
   usePollingRefresh(reload);
+
+  const { refreshing, onRefresh } = usePullToRefresh(() => reload(false));
 
   const onRemove = useCallback(async (symbol: string) => {
     await removeFromWatchlist(symbol);
@@ -372,6 +376,14 @@ export function WatchlistScreen() {
               contentContainerStyle={styles.listBody}
               renderItem={renderCard}
               activationDistance={10}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  colors={[colors.primary]}
+                  tintColor={colors.primary}
+                />
+              }
             />
           )}
 

@@ -8,6 +8,7 @@ import {
   fetchManagedOfferings,
   type ManagedOffering,
 } from './managedOfferings';
+import type { OfferingDetailStats } from './offeringDetail';
 
 const DATA_BASE = 'https://sharehubnepal.com/data/api/v1';
 
@@ -27,11 +28,15 @@ export type PublicOfferingStatus =
 
 export type PublicOffering = {
   id: number;
+  /** ShareHub detail-endpoint slug; needed for per-issue application stats. */
+  slug: string | null;
   symbol: string;
   name: string;
   type: PublicOfferingType | string;
   status: PublicOfferingStatus;
   units: number | null;
+  /** Minimum application quantity from MeroShare's live issue API. */
+  minimumUnits: number | null;
   price: number | null;
   priceUpto: number | null;
   cutOffPrice: number | null;
@@ -134,11 +139,15 @@ function normalizeRow(raw: Record<string, unknown>): PublicOffering {
   const audience = raw.for ? String(raw.for) : null;
   return {
     id: Number(raw.id ?? 0),
+    slug: raw.slug ? String(raw.slug) : null,
     symbol,
     name,
     type: String(raw.type ?? ''),
     status: String(raw.status ?? ''),
     units: num(raw.units),
+    minimumUnits: num(
+      raw.minUnit ?? raw.minimumUnit ?? raw.minimumUnits ?? raw.minUnits,
+    ),
     price: num(raw.price),
     priceUpto: num(raw.priceUpto),
     cutOffPrice: num(raw.cutOffPrice),
@@ -169,11 +178,13 @@ function managedToOffering(row: ManagedOffering): PublicOffering {
   );
   return {
     id: -(hash || 1),
+    slug: null,
     symbol: row.symbol || '',
     name: row.name,
     type: row.type,
     status: row.status,
     units: row.units,
+    minimumUnits: null,
     price: row.price,
     priceUpto: null,
     cutOffPrice: null,
@@ -210,6 +221,7 @@ function applyAdminOverride(
     type: pick(admin.type, base.type),
     status: pick(admin.status, base.status),
     units: pick(admin.units, base.units),
+    minimumUnits: base.minimumUnits,
     price: pick(admin.price, base.price),
     totalAmount: pick(admin.totalAmount, base.totalAmount),
     openingDate: pick(admin.openingDate, base.openingDate),
@@ -637,20 +649,88 @@ export function formatOfferingDateLong(raw?: string | null): string {
   return `${day} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+/**
+ * Minimum application quantity. MeroShare's `minUnit` is authoritative, then
+ * ShareHub's stated allotment minimum, then the SEBON standard lot implied by
+ * the instrument's face value (debentures Rs 1,000 -> 25, mutual funds Rs 10 ->
+ * 100, ordinary shares Rs 100 -> 10). Returns null when none of these apply.
+ */
+export function offeringMinimumUnits(
+  row: PublicOffering,
+  stats?: OfferingDetailStats | null,
+): number | null {
+  if (row.minimumUnits != null && row.minimumUnits > 0) return row.minimumUnits;
+  if (stats?.minimumUnits != null && stats.minimumUnits > 0) {
+    return stats.minimumUnits;
+  }
+
+  const type = String(row.type);
+  if (type === 'BondOrDebenture') return 25;
+  if (type === 'MutualFund') return 100;
+
+  const price = row.price;
+  if (price == null || !Number.isFinite(price) || price <= 0) return null;
+  if (price >= 1000) return 25;
+  if (price <= 10) return 100;
+  return 10;
+}
+
 export function offeringSubscription(
   row: PublicOffering,
+  stats?: OfferingDetailStats | null,
 ): { percent: number; label: string } | null {
-  let ratio: number | null = null;
-  if (row.appliedUnits != null && row.units) {
-    ratio = row.appliedUnits / row.units;
-  } else if (row.appliedAmount != null && row.totalAmount) {
-    ratio = row.appliedAmount / row.totalAmount;
+  let percent: number | null = null;
+  const appliedUnits = row.cdsc?.appliedUnits ?? row.appliedUnits;
+  const issuedUnits = row.cdsc?.issuedUnits ?? row.units;
+  const appliedAmount = row.cdsc?.appliedAmount ?? row.appliedAmount;
+
+  if (appliedUnits != null && issuedUnits) {
+    percent = (appliedUnits / issuedUnits) * 100;
+  } else if (stats?.appliedPercentage != null) {
+    percent = stats.appliedPercentage;
+  } else if (stats?.appliedUnits != null && issuedUnits) {
+    percent = (stats.appliedUnits / issuedUnits) * 100;
+  } else if (appliedAmount != null && row.totalAmount) {
+    percent = (appliedAmount / row.totalAmount) * 100;
   }
-  if (ratio == null || !Number.isFinite(ratio)) return null;
-  const percent = ratio * 100;
+
+  if (percent == null || !Number.isFinite(percent)) return null;
+  return { percent, label: `${percent.toFixed(2)}%` };
+}
+
+/**
+ * Odds of a single applicant being allotted. ShareHub publishes this directly
+ * for settled issues; otherwise it is how many minimum-lot allotments the issue
+ * can cover divided by the applicant count.
+ */
+export function offeringAllotmentChance(
+  row: PublicOffering,
+  stats?: OfferingDetailStats | null,
+): { percent: number; label: string; ratio: string } | null {
+  const published = stats?.allotmentPercentage;
+  if (published != null && published > 0) {
+    const percent = Math.min(100, published);
+    return {
+      percent,
+      label: `${percent.toFixed(1)}%`,
+      ratio: `1:${Math.max(1, Math.round(100 / percent))}`,
+    };
+  }
+
+  const applicants = row.cdsc?.applicants ?? row.applicants ?? stats?.applicants;
+  const issuedUnits = row.cdsc?.issuedUnits ?? row.units;
+  const minimumUnits = offeringMinimumUnits(row, stats);
+  if (!applicants || !issuedUnits || !minimumUnits) return null;
+
+  const allottees = Math.floor(issuedUnits / minimumUnits);
+  if (allottees <= 0) return null;
+
+  const percent = Math.min(100, (allottees / applicants) * 100);
+  const oneIn = Math.max(1, Math.round(applicants / allottees));
   return {
     percent,
-    label: `${percent.toFixed(2)}% · ${ratio.toFixed(2)}x subscribed`,
+    label: `${percent.toFixed(1)}%`,
+    ratio: `1:${oneIn}`,
   };
 }
 

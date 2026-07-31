@@ -15,9 +15,6 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import DateTimePicker, {
-  type DateTimePickerEvent,
-} from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -40,6 +37,17 @@ import {
 } from '../services/nepse/publicOffering';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
+import { nepalTodayIso } from '../services/nepse/holidays';
+import {
+  WEEKDAYS_NP,
+  adIsoToBs,
+  bsMonthTitle,
+  buildBsMonthGrid,
+  formatAdShort,
+  formatBsAdShort,
+  shiftBsMonth,
+  toNepaliDigits,
+} from '../utils/bsDate';
 import { rs } from '../utils/responsive';
 
 const TYPE_OPTIONS = ISSUE_TABS.map((t) => ({
@@ -88,17 +96,14 @@ type Draft = {
 
 type DateField = 'openingDate' | 'closingDate' | 'extendedClosingDate';
 
-function parseDateOrToday(raw: string): Date {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-  if (!match) return new Date();
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-}
+const DATE_FIELD_LABEL: Record<DateField, string> = {
+  openingDate: 'Open date',
+  closingDate: 'Close date',
+  extendedClosingDate: 'Extended close date',
+};
 
-function toIsoDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function isIsoDate(raw: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw);
 }
 
 function emptyDraft(): Draft {
@@ -219,8 +224,8 @@ export function AdminIpoIssuesScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const [token, setToken] = useState<string | null>(null);
   const [rows, setRows] = useState<ManagedOffering[]>([]);
@@ -230,6 +235,15 @@ export function AdminIpoIssuesScreen() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [dateField, setDateField] = useState<DateField | null>(null);
+
+  const todayIso = nepalTodayIso();
+  const todayBs = useMemo(() => adIsoToBs(todayIso), [todayIso]);
+  const [bsYear, setBsYear] = useState(todayBs.year);
+  const [bsMonth, setBsMonth] = useState(todayBs.month);
+  const weeks = useMemo(
+    () => buildBsMonthGrid(bsYear, bsMonth),
+    [bsYear, bsMonth],
+  );
 
   const load = useCallback(async (adminToken: string) => {
     setLoading(true);
@@ -343,10 +357,12 @@ export function AdminIpoIssuesScreen() {
     setDraft((d) => (d ? { ...d, [key]: value } : d));
   };
 
-  const onDateChange = (event: DateTimePickerEvent, date?: Date) => {
-    setDateField(null);
-    if (event.type !== 'set' || !date || !dateField) return;
-    setField(dateField, toIsoDate(date));
+  const openCalendar = (field: DateField) => {
+    const current = draft?.[field] ?? '';
+    const bs = isIsoDate(current) ? adIsoToBs(current) : todayBs;
+    setBsYear(bs.year);
+    setBsMonth(bs.month);
+    setDateField(field);
   };
 
   return (
@@ -611,37 +627,29 @@ export function AdminIpoIssuesScreen() {
               </View>
 
               <DateFieldButton
-                label="Open date"
+                label={DATE_FIELD_LABEL.openingDate}
                 value={draft?.openingDate ?? ''}
-                onPress={() => setDateField('openingDate')}
+                onPress={() => openCalendar('openingDate')}
                 onClear={() => setField('openingDate', '')}
                 styles={styles}
                 colors={colors}
               />
               <DateFieldButton
-                label="Close date"
+                label={DATE_FIELD_LABEL.closingDate}
                 value={draft?.closingDate ?? ''}
-                onPress={() => setDateField('closingDate')}
+                onPress={() => openCalendar('closingDate')}
                 onClear={() => setField('closingDate', '')}
                 styles={styles}
                 colors={colors}
               />
               <DateFieldButton
-                label="Extended close date"
+                label={DATE_FIELD_LABEL.extendedClosingDate}
                 value={draft?.extendedClosingDate ?? ''}
-                onPress={() => setDateField('extendedClosingDate')}
+                onPress={() => openCalendar('extendedClosingDate')}
                 onClear={() => setField('extendedClosingDate', '')}
                 styles={styles}
                 colors={colors}
               />
-              {dateField ? (
-                <DateTimePicker
-                  value={parseDateOrToday(draft?.[dateField] ?? '')}
-                  mode="date"
-                  display={Platform.OS === 'ios' ? 'inline' : 'calendar'}
-                  onChange={onDateChange}
-                />
-              ) : null}
               <Field
                 label="Right share ratio"
                 value={draft?.rightShareRatio ?? ''}
@@ -724,6 +732,121 @@ export function AdminIpoIssuesScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={dateField != null}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setDateField(null)}
+      >
+        <View style={styles.calRoot}>
+          <Pressable
+            style={styles.backdrop}
+            onPress={() => setDateField(null)}
+          />
+          <View
+            style={[
+              styles.calSheet,
+              { paddingBottom: Math.max(insets.bottom, rs(14)) },
+            ]}
+          >
+            <Text style={styles.sheetTitle}>
+              {dateField ? DATE_FIELD_LABEL[dateField] : ''}
+            </Text>
+
+            <View style={styles.calNav}>
+              <Pressable
+                onPress={() => {
+                  const n = shiftBsMonth(bsYear, bsMonth, -1);
+                  setBsYear(n.year);
+                  setBsMonth(n.month);
+                }}
+                hitSlop={10}
+                style={styles.calNavBtn}
+              >
+                <Ionicons name="chevron-back" size={rs(22)} color={colors.text} />
+              </Pressable>
+              <Text style={styles.calMonthTitle}>
+                {bsMonthTitle(bsYear, bsMonth)}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  const n = shiftBsMonth(bsYear, bsMonth, 1);
+                  setBsYear(n.year);
+                  setBsMonth(n.month);
+                }}
+                hitSlop={10}
+                style={styles.calNavBtn}
+              >
+                <Ionicons
+                  name="chevron-forward"
+                  size={rs(22)}
+                  color={colors.text}
+                />
+              </Pressable>
+            </View>
+
+            <View style={styles.calWeekHead}>
+              {WEEKDAYS_NP.map((w) => (
+                <Text key={w} style={styles.calWeekHeadText}>
+                  {w}
+                </Text>
+              ))}
+            </View>
+
+            {weeks.map((week, wi) => (
+              <View key={`w${wi}`} style={styles.calWeekRow}>
+                {week.map((cell) => {
+                  const selected =
+                    cell.inMonth &&
+                    dateField != null &&
+                    draft?.[dateField] === cell.adIso;
+                  const isToday = cell.inMonth && cell.adIso === todayIso;
+                  return (
+                    <Pressable
+                      key={`${cell.adIso}-${cell.inMonth ? 'in' : 'out'}`}
+                      style={styles.calDayCell}
+                      disabled={!cell.inMonth}
+                      onPress={() => {
+                        if (!cell.inMonth || !dateField) return;
+                        setField(dateField, cell.adIso);
+                        setDateField(null);
+                      }}
+                    >
+                      <View
+                        style={[
+                          styles.calDayInner,
+                          selected && styles.calDaySelected,
+                          isToday && !selected && styles.calDayToday,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.calDayBs,
+                            !cell.inMonth && styles.calDayMuted,
+                            selected && styles.calDaySelectedText,
+                          ]}
+                        >
+                          {toNepaliDigits(cell.bsDay)}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.calDayAd,
+                            !cell.inMonth && styles.calDayMuted,
+                            selected && styles.calDaySelectedText,
+                          ]}
+                        >
+                          {cell.adDay}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -783,9 +906,14 @@ function DateFieldButton({
       <Text style={styles.label}>{label}</Text>
       <Pressable style={styles.dateBtn} onPress={onPress}>
         <Ionicons name="calendar-outline" size={rs(18)} color={colors.primary} />
-        <Text style={[styles.dateText, !value && { color: colors.textMuted }]}>
-          {value || 'Choose from calendar'}
-        </Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.dateText, !value && { color: colors.textMuted }]}>
+            {value ? formatBsAdShort(value) : 'Choose from calendar'}
+          </Text>
+          {value ? (
+            <Text style={styles.dateSub}>AD {formatAdShort(value)}</Text>
+          ) : null}
+        </View>
         {value ? (
           <Pressable
             onPress={(event) => {
@@ -804,7 +932,7 @@ function DateFieldButton({
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
     header: {
@@ -910,11 +1038,53 @@ function makeStyles(c: ThemeColors) {
       marginTop: rs(4),
     },
     dateText: {
-      flex: 1,
       color: c.text,
       fontSize: rs(14),
       fontWeight: '700',
     },
+    dateSub: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
+    calRoot: { flex: 1, justifyContent: 'center', padding: rs(16) },
+    calSheet: {
+      backgroundColor: c.bgElevated,
+      borderRadius: rs(18),
+      padding: rs(14),
+    },
+    calNav: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: rs(8),
+    },
+    calNavBtn: {
+      width: rs(40),
+      height: rs(40),
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    calMonthTitle: { color: c.text, fontWeight: '800', fontSize: rs(16) },
+    calWeekHead: { flexDirection: 'row', marginBottom: rs(4) },
+    calWeekHeadText: {
+      flex: 1,
+      textAlign: 'center',
+      color: c.textMuted,
+      fontSize: rs(11),
+      fontWeight: '700',
+    },
+    calWeekRow: { flexDirection: 'row' },
+    calDayCell: { flex: 1, aspectRatio: 1, padding: rs(2) },
+    calDayInner: {
+      flex: 1,
+      borderRadius: rs(10),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? '#2A2A2A' : '#F5F5F5',
+    },
+    calDaySelected: { backgroundColor: c.primary },
+    calDayToday: { borderWidth: 1.5, borderColor: c.primary },
+    calDayBs: { color: c.text, fontWeight: '800', fontSize: rs(13) },
+    calDayAd: { color: c.textMuted, fontSize: rs(9), fontWeight: '600' },
+    calDayMuted: { opacity: 0.28 },
+    calDaySelectedText: { color: '#FFF' },
     chipRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',

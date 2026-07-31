@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -31,6 +32,7 @@ import { loadAccountMeta } from '../storage/accountsStorage';
 import type { ThemeColors } from '../theme/colors';
 import { guardAddAccount } from '../utils/accountLimits';
 import { rs } from '../utils/responsive';
+import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 import type { AccountMeta } from '../types/account';
 
@@ -110,6 +112,7 @@ export function HomeScreen() {
     removeAccount,
     reorderAccounts,
     loadSecrets,
+    reloadAccounts,
     seedMockAccounts,
     removeMockAccounts,
   } = useAccounts();
@@ -135,6 +138,13 @@ export function HomeScreen() {
   useEffect(() => {
     void refreshBranding();
   }, [refreshBranding]);
+
+  const refreshAccountsTab = useCallback(async () => {
+    await reloadAccounts();
+    await refreshBranding();
+  }, [reloadAccounts, refreshBranding]);
+  const { refreshing, onRefresh } = usePullToRefresh(refreshAccountsTab);
+
   const [tab, setTab] = useState<'Accounts' | 'Market'>('Accounts');
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -435,6 +445,14 @@ export function HomeScreen() {
             style={styles.listFlex}
             containerStyle={styles.listFlex}
             showsVerticalScrollIndicator
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={[colors.primary]}
+                tintColor={colors.primary}
+              />
+            }
             contentContainerStyle={
               filteredAccounts.length === 0 ? styles.listEmpty : styles.list
             }

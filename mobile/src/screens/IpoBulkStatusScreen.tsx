@@ -5,6 +5,7 @@ import {
   FlatList,
   Modal,
   Pressable,
+  RefreshControl,
   Share,
   StyleSheet,
   Text,
@@ -28,6 +29,7 @@ import {
   type ResultAccountStatus,
 } from '../services/meroshare';
 import { rs } from '../utils/responsive';
+import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
@@ -281,6 +283,16 @@ export function IpoBulkStatusScreen() {
   useEffect(() => {
     void loadCompanies();
   }, [loadCompanies]);
+
+  const { refreshing, onRefresh } = usePullToRefresh(loadCompanies);
+  const refreshControl = (
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      colors={[colors.primary]}
+      tintColor={colors.primary}
+    />
+  );
 
   useEffect(() => {
     setResults([]);
@@ -568,6 +580,7 @@ export function IpoBulkStatusScreen() {
               data={visibleResults}
               keyExtractor={(row) => row.accountId}
               contentContainerStyle={styles.resultsListBody}
+              refreshControl={refreshControl}
               ListEmptyComponent={
                 <Text style={styles.empty}>No accounts in this category.</Text>
               }

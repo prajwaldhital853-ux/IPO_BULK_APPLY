@@ -110,8 +110,8 @@ export async function addAccountWithSecrets(
     addedAt: meta.addedAt ?? new Date().toISOString(),
   };
   await saveSecrets(id, secrets);
-  // Newest accounts first so they show at the top of Home / Apply lists.
-  await saveAccountMeta([next, ...list]);
+  // Oldest accounts stay first; newly added accounts go to the end.
+  await saveAccountMeta([...list, next]);
   return next;
 }
 
