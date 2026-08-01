@@ -35,6 +35,8 @@ import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 
 const ACCENT = '#2D5A27';
+/** Darker forest green for check CTAs in dark mode */
+const ACCENT_DARK = '#145218';
 const HEADER_BG = '#E8F0E6';
 const BODY_BG = '#F6F8F2';
 /** Pure status colors — high contrast on light (and dark) backgrounds */
@@ -513,7 +515,7 @@ export function IpoBulkStatusScreen() {
           disabled={running || !selected}
         >
           {running ? (
-            <ActivityIndicator color={ACCENT} />
+            <ActivityIndicator color={isDark ? '#FFFFFF' : ACCENT} />
           ) : (
             <Text style={styles.actionText}>IPO Bulk Status</Text>
           )}
@@ -845,7 +847,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     actionBtn: {
       alignSelf: 'center',
       borderWidth: 1,
-      borderColor: isDark ? ACCENT : '#C5D0C5',
+      borderColor: isDark ? ACCENT_DARK : '#C5D0C5',
       borderRadius: rs(24),
       paddingHorizontal: rs(28),
       paddingVertical: rs(12),
@@ -853,7 +855,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(10),
       minWidth: rs(168),
       alignItems: 'center',
-      backgroundColor: isDark ? c.surface : BODY_BG,
+      backgroundColor: isDark ? ACCENT_DARK : BODY_BG,
       shadowColor: '#000',
       shadowOpacity: isDark ? 0 : 0.06,
       shadowRadius: 3,
@@ -861,7 +863,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       elevation: isDark ? 0 : 1,
     },
     actionText: {
-      color: ACCENT,
+      color: isDark ? '#FFFFFF' : ACCENT,
       fontWeight: '700',
       fontSize: rs(14),
     },

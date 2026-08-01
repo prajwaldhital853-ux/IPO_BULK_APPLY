@@ -954,8 +954,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
   const fieldBorder = isDark ? c.border : '#B8B8B8';
   const cardBorder = isDark ? c.borderMuted : '#E0E0E0';
   const mutedText = isDark ? c.textMuted : '#757575';
-  const checkBtnBg = isDark ? c.surfaceAlt : '#F0EEEA';
-  const forestGreen = isDark ? c.primary : '#2D5A27';
+  const checkBtnBg = isDark ? '#145218' : '#F0EEEA';
+  const forestGreen = isDark ? '#FFFFFF' : '#2D5A27';
+  const checkBtnBorder = isDark ? '#145218' : cardBorder;
 
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: pageBg },
@@ -1055,13 +1056,13 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     statLabel: { fontSize: rs(10), fontWeight: '600' },
     checkNowBtn: {
       borderWidth: 1,
-      borderColor: cardBorder,
+      borderColor: checkBtnBorder,
       borderRadius: rs(20),
       minHeight: rs(40),
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: rs(8),
-      backgroundColor: cardBg,
+      backgroundColor: checkBtnBg,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 1 },
       shadowOpacity: isDark ? 0 : 0.06,
@@ -1132,15 +1133,15 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     checkNowBtnDisabled: {
       borderWidth: 1,
-      borderColor: cardBorder,
+      borderColor: isDark ? '#0F3A12' : cardBorder,
       borderRadius: rs(20),
       minHeight: rs(40),
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? c.surfaceAlt : '#F0EEEA',
+      backgroundColor: isDark ? '#0F3A12' : '#F0EEEA',
     },
     checkingNowText: {
-      color: mutedText,
+      color: isDark ? 'rgba(255,255,255,0.7)' : mutedText,
       fontWeight: '600',
       fontSize: rs(13),
     },

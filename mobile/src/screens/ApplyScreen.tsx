@@ -109,9 +109,9 @@ export function ApplyScreen() {
   const { accounts, updateAccountMeta } = useAccounts();
   const { user } = useAuth();
   const { isPremium, maxAccounts } = useSubscription();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const goAddCapital = useCallback(() => {
     if (
@@ -753,7 +753,11 @@ export function ApplyScreen() {
   const renderDaysLeftBadge = () =>
     daysLeft ? (
       <View style={styles.daysBadge}>
-        <Ionicons name="time-outline" size={rs(12)} color="#C45C00" />
+        <Ionicons
+          name="time-outline"
+          size={rs(12)}
+          color={isDark ? '#FFB74D' : '#C45C00'}
+        />
         <Text style={styles.daysBadgeText}>{daysLeft}</Text>
       </View>
     ) : null;
@@ -1204,9 +1208,12 @@ export function ApplyScreen() {
   );
 }
 
-function makeStyles(c: ThemeColors) {
-  const cardBg = '#F9F8F4';
-  const fieldBorder = '#B8B8B8';
+function makeStyles(c: ThemeColors, isDark: boolean) {
+  const cardBg = isDark ? c.bgElevated : '#F9F8F4';
+  const fieldBg = isDark ? c.surface : '#F9F8F4';
+  const fieldBorder = isDark ? c.borderMuted : '#B8B8B8';
+  const ink = isDark ? c.text : '#1B1B1B';
+  const inkMuted = isDark ? c.textSecondary : '#5A6556';
 
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
@@ -1300,7 +1307,7 @@ function makeStyles(c: ThemeColors) {
     },
     summaryCard: {
       borderWidth: 1,
-      borderColor: c.borderMuted,
+      borderColor: isDark ? c.borderMuted : '#D8D6CF',
       borderRadius: rs(11),
       paddingHorizontal: rs(12),
       paddingTop: rs(10),
@@ -1309,7 +1316,7 @@ function makeStyles(c: ThemeColors) {
       marginBottom: rs(10),
     },
     summaryName: {
-      color: c.text,
+      color: ink,
       fontWeight: '800',
       fontSize: rs(12),
       letterSpacing: 0.3,
@@ -1322,12 +1329,12 @@ function makeStyles(c: ThemeColors) {
       marginBottom: rs(7),
     },
     summaryLabel: {
-      color: c.textSecondary,
+      color: inkMuted,
       fontSize: rs(10),
       marginBottom: rs(1),
     },
     summaryValue: {
-      color: c.text,
+      color: ink,
       fontWeight: '800',
       fontSize: rs(19),
       letterSpacing: -0.2,
@@ -1342,13 +1349,15 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(4),
-      backgroundColor: c.surfaceAlt,
+      backgroundColor: isDark ? c.surface : c.surfaceAlt,
       borderRadius: rs(12),
       paddingHorizontal: rs(7),
       paddingVertical: rs(3),
+      borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
+      borderColor: c.borderMuted,
     },
     plPillText: {
-      color: c.text,
+      color: ink,
       fontWeight: '600',
       fontSize: rs(10),
     },
@@ -1358,17 +1367,17 @@ function makeStyles(c: ThemeColors) {
     summaryBtn: {
       alignSelf: 'center',
       borderWidth: 1,
-      borderColor: c.border,
+      borderColor: c.primary,
       borderRadius: rs(12),
       paddingVertical: rs(6),
       paddingHorizontal: rs(14),
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: cardBg,
+      backgroundColor: isDark ? c.surface : cardBg,
       maxWidth: '82%',
     },
     summaryBtnText: {
-      color: c.primary,
+      color: isDark ? c.sage : c.primary,
       fontWeight: '700',
       fontSize: rs(11),
       textAlign: 'center',
@@ -1397,9 +1406,11 @@ function makeStyles(c: ThemeColors) {
       flexShrink: 1,
       width: rs(180),
       flexDirection: 'row',
-      backgroundColor: c.primarySoft,
+      backgroundColor: isDark ? c.surface : c.primarySoft,
       borderRadius: rs(16),
       padding: rs(3),
+      borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
+      borderColor: c.borderMuted,
     },
     modeBtn: {
       flex: 1,
@@ -1408,7 +1419,11 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
     },
     modeBtnActive: { backgroundColor: c.primary },
-    modeText: { color: c.primary, fontWeight: '700', fontSize: rs(12) },
+    modeText: {
+      color: isDark ? c.sage : c.primary,
+      fontWeight: '700',
+      fontSize: rs(12),
+    },
     modeTextActive: { color: '#FFFFFF' },
     fieldBlock: { marginBottom: rs(12) },
     labelRow: {
@@ -1440,11 +1455,11 @@ function makeStyles(c: ThemeColors) {
     },
     label: { color: c.textSecondary, fontSize: rs(12) },
     fieldLabel: {
-      color: '#1B1B1B',
+      color: ink,
       fontSize: rs(12),
       fontWeight: '600',
     },
-    hash: { color: '#1B1B1B', fontWeight: '700', fontSize: rs(12) },
+    hash: { color: ink, fontWeight: '700', fontSize: rs(12) },
     dropdown: {
       minHeight: rs(36),
       borderRadius: rs(14),
@@ -1454,18 +1469,18 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: cardBg,
+      backgroundColor: fieldBg,
       marginBottom: rs(8),
     },
     dropdownText: {
       flex: 1,
-      color: c.textMuted,
+      color: isDark ? c.textMuted : '#6B7280',
       fontSize: rs(12),
       marginRight: rs(6),
     },
     dropdownValueText: {
       flex: 1,
-      color: '#1B1B1B',
+      color: ink,
       fontSize: rs(12),
       fontWeight: '700',
       marginRight: rs(6),
@@ -1482,7 +1497,7 @@ function makeStyles(c: ThemeColors) {
     },
     qtyInput: {
       flex: 1,
-      color: '#1B1B1B',
+      color: ink,
       fontSize: rs(14),
       fontWeight: '700',
       paddingVertical: rs(7),
@@ -1515,16 +1530,16 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(3),
-      backgroundColor: '#FFF8F0',
+      backgroundColor: isDark ? 'rgba(255,183,77,0.12)' : '#FFF8F0',
       borderWidth: 1,
-      borderColor: '#E8C9A8',
+      borderColor: isDark ? 'rgba(255,183,77,0.35)' : '#E8C9A8',
       borderRadius: rs(12),
       paddingHorizontal: rs(8),
       paddingVertical: rs(3),
       flexShrink: 0,
     },
     daysBadgeText: {
-      color: '#C45C00',
+      color: isDark ? '#FFB74D' : '#C45C00',
       fontSize: rs(10),
       fontWeight: '600',
     },
@@ -1543,15 +1558,15 @@ function makeStyles(c: ThemeColors) {
       lineHeight: rs(18),
     },
     updatesTitleLabel: {
-      color: '#1B1B1B',
+      color: ink,
       fontWeight: '700',
     },
     updatesParen: {
-      color: '#1B1B1B',
+      color: ink,
       fontWeight: '700',
     },
     updatesCountOk: {
-      color: '#2E7D32',
+      color: isDark ? '#81C784' : '#2E7D32',
       fontWeight: '700',
     },
     updatesCountTotal: {
@@ -1583,7 +1598,7 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'flex-start',
       gap: rs(10),
       borderWidth: 1,
-      borderColor: '#F0C4B8',
+      borderColor: isDark ? 'rgba(229,115,115,0.4)' : '#F0C4B8',
       borderRadius: rs(10),
       padding: rs(12),
       marginBottom: rs(8),
@@ -1615,14 +1630,14 @@ function makeStyles(c: ThemeColors) {
     updateMsgOk: { color: c.textSecondary },
     updateApplyBtn: {
       borderWidth: 1,
-      borderColor: '#FB8C00',
+      borderColor: isDark ? '#FFB74D' : '#FB8C00',
       borderRadius: rs(8),
       paddingHorizontal: rs(12),
       paddingVertical: rs(6),
-      backgroundColor: '#FFF8F0',
+      backgroundColor: isDark ? 'rgba(255,183,77,0.12)' : '#FFF8F0',
     },
     updateApplyText: {
-      color: '#E65100',
+      color: isDark ? '#FFB74D' : '#E65100',
       fontWeight: '700',
       fontSize: rs(12),
     },
@@ -1757,7 +1772,7 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'flex-start',
       gap: rs(8),
-      backgroundColor: '#FFEBEE',
+      backgroundColor: isDark ? 'rgba(229,57,53,0.15)' : '#FFEBEE',
       borderRadius: rs(10),
       padding: rs(12),
       marginBottom: rs(8),
@@ -1778,7 +1793,7 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(14),
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: cardBg,
+      backgroundColor: isDark ? c.bgElevated : cardBg,
       borderWidth: 1,
       borderColor: c.border,
     },
