@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { fetchWithTimeout } from './fetchWithTimeout';
 import { nepseFetchJson } from './http';
 
 const DATA_BASE = 'https://sharehubnepal.com/data/api/v1';
@@ -114,9 +115,10 @@ function unwrapList<T>(json: ApiList<T> | null | undefined): T[] {
 
 async function dataFetch<T>(path: string, bust = false): Promise<T | null> {
   try {
-    const res = await fetch(`${DATA_BASE}${withCacheBust(path, bust)}`, {
-      headers: FETCH_HEADERS,
-    });
+    const res = await fetchWithTimeout(
+      `${DATA_BASE}${withCacheBust(path, bust)}`,
+      { headers: FETCH_HEADERS },
+    );
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -126,9 +128,10 @@ async function dataFetch<T>(path: string, bust = false): Promise<T | null> {
 
 async function liveV2Fetch<T>(path: string, bust = false): Promise<T | null> {
   try {
-    const res = await fetch(`${LIVE_V2}${withCacheBust(path, bust)}`, {
-      headers: FETCH_HEADERS,
-    });
+    const res = await fetchWithTimeout(
+      `${LIVE_V2}${withCacheBust(path, bust)}`,
+      { headers: FETCH_HEADERS },
+    );
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -367,16 +370,18 @@ export async function loadMiniScreener(
   }));
 }
 
-/** Live LTP for one symbol — uses todays-price overlay (ShareHub website parity). */
+/**
+ * Live LTP for one symbol — uses todays-price overlay (ShareHub website parity).
+ * Uses the SWR-cached screener (todays-price overlay stays live via its own
+ * 20s TTL) instead of forcing a full network refetch, and no longer blocks
+ * on the ShareSansar email scrape — fetch that separately if needed.
+ */
 export async function loadLiveQuote(
   symbol: string,
 ): Promise<MiniScreenerRow | null> {
   const sym = symbol.toUpperCase();
-  const rows = await loadMiniScreener(true);
-  const row = rows.find((r) => r.symbol.toUpperCase() === sym) ?? null;
-  if (!row) return null;
-  const email = await loadCompanyEmail(sym);
-  return email ? { ...row, email } : row;
+  const rows = await loadMiniScreener();
+  return rows.find((r) => r.symbol.toUpperCase() === sym) ?? null;
 }
 
 /** Best-effort company email from ShareSansar company page. */
@@ -384,12 +389,15 @@ export async function loadCompanyEmail(symbol: string): Promise<string | null> {
   const sym = symbol.trim().toLowerCase();
   if (!sym) return null;
   try {
-    const res = await fetch(`https://www.sharesansar.com/company/${sym}`, {
-      headers: {
-        Accept: 'text/html',
-        'User-Agent': 'Mozilla/5.0 NEPSEGHAR',
+    const res = await fetchWithTimeout(
+      `https://www.sharesansar.com/company/${sym}`,
+      {
+        headers: {
+          Accept: 'text/html',
+          'User-Agent': 'Mozilla/5.0 NEPSEGHAR',
+        },
       },
-    });
+    );
     if (!res.ok) return null;
     const html = await res.text();
     const matches = html.match(
@@ -664,7 +672,7 @@ type Paged<T> = {
 
 async function absFetch<T>(url: string, bust = false): Promise<T | null> {
   try {
-    const res = await fetch(withCacheBust(url, bust), {
+    const res = await fetchWithTimeout(withCacheBust(url, bust), {
       headers: {
         ...FETCH_HEADERS,
         'User-Agent': 'Mozilla/5.0',
@@ -1007,6 +1015,16 @@ export async function loadSecurityBySymbol(
   symbol: string,
 ): Promise<MiniScreenerRow | null> {
   return loadLiveQuote(symbol);
+}
+
+/** Sync quote for instant Stock Detail / Watchlist paint. */
+export function peekSecurityBySymbolSync(
+  symbol: string,
+): MiniScreenerRow | null {
+  const sym = symbol.trim().toUpperCase();
+  if (!sym || !screenerBaseCache?.length) return null;
+  const hit = screenerBaseCache.find((r) => r.symbol.toUpperCase() === sym);
+  return hit ? { ...hit, iconUrl: iconUri(hit.iconUrl) } : null;
 }
 
 export type PriceHistoryRow = {

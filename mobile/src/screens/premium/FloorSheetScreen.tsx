@@ -22,6 +22,7 @@ import {
 } from '../../services/nepse/screener';
 import { rs } from '../../utils/responsive';
 import { safeGoBack } from '../../utils/safeGoBack';
+import { useAfterInteractions } from '../../utils/useAfterInteractions';
 import type { RootStackParamList } from '../../navigation/types';
 
 const GREEN = '#2E7D32';
@@ -77,6 +78,7 @@ export function FloorSheetScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const ready = useAfterInteractions();
 
   const [symbolDraft, setSymbolDraft] = useState('');
   const [dateDraft, setDateDraft] = useState(nepalTodayIso());
@@ -164,13 +166,14 @@ export function FloorSheetScreen() {
   );
 
   useEffect(() => {
+    if (!ready) return;
     void fetchPage(1, {
       symbol,
       businessDate,
       buyerId,
       sellerId,
     });
-  }, [fetchPage, symbol, businessDate, buyerId, sellerId]);
+  }, [ready, fetchPage, symbol, businessDate, buyerId, sellerId]);
 
   const applyFilter = () => {
     setSymbol(symbolDraft.trim().toUpperCase());
@@ -196,7 +199,7 @@ export function FloorSheetScreen() {
 
   const snBase = (page - 1) * PAGE_SIZE;
 
-  const body = loading && rows.length === 0 ? (
+  const body = !ready || (loading && rows.length === 0) ? (
     <View style={styles.center}>
       <ActivityIndicator color={GREEN} />
       <Text style={styles.loadingHint}>Loading floor sheet…</Text>

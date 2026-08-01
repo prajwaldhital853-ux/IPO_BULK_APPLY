@@ -4,6 +4,7 @@ import {
   MEROSHARE_BASE_FALLBACK,
 } from './endpoints';
 import { MeroshareError } from './errors';
+import { Platform } from 'react-native';
 
 export function isProbablyHtml(text: string): boolean {
   const t = text.trimStart().slice(0, 48).toLowerCase();
@@ -66,7 +67,7 @@ export async function rawRequest(
   const method = init.method ?? 'GET';
   const headers = { ...DEFAULT_HEADERS, ...init.headers };
 
-  try {
+  const viaFetch = async (): Promise<RawHttpResult> => {
     const res = await fetch(url, {
       method,
       headers,
@@ -80,10 +81,36 @@ export async function rawRequest(
       headers: res.headers,
       url,
     };
-  } catch (fetchErr) {
-    // Fall through to XHR
+  };
+
+  const viaXhr = () => xhrRequest(url, method, headers, init.body);
+
+  // Android RN fetch often throws "Network request failed" for CDSC POST
+  // while XMLHttpRequest succeeds — prefer XHR for writes on Android.
+  if (Platform.OS === 'android' && method !== 'GET') {
     try {
-      return await xhrRequest(url, method, headers, init.body);
+      return await viaXhr();
+    } catch (xhrErr) {
+      try {
+        return await viaFetch();
+      } catch {
+        throw xhrErr instanceof MeroshareError
+          ? xhrErr
+          : new MeroshareError(
+              'NETWORK',
+              xhrErr instanceof Error
+                ? xhrErr.message
+                : 'Network request failed',
+            );
+      }
+    }
+  }
+
+  try {
+    return await viaFetch();
+  } catch (fetchErr) {
+    try {
+      return await viaXhr();
     } catch {
       throw new MeroshareError(
         'NETWORK',
@@ -139,7 +166,7 @@ function xhrRequest(
         reject(new MeroshareError('NETWORK', 'XMLHttpRequest network error'));
       xhr.ontimeout = () =>
         reject(new MeroshareError('NETWORK', 'Request timed out'));
-      xhr.timeout = 30000;
+      xhr.timeout = 45000;
       xhr.send(body ?? null);
     } catch (e) {
       reject(e);
@@ -151,22 +178,28 @@ export async function meroshareFetch(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
+  const method = init.method ?? 'GET';
+  const body =
+    typeof init.body === 'string' ? init.body : undefined;
   const headers: Record<string, string> = {
     ...DEFAULT_HEADERS,
     ...(init.headers as Record<string, string> | undefined),
   };
 
-  try {
-    return await fetch(`${MEROSHARE_BASE.replace(/\/$/, '')}${path}`, {
-      ...init,
-      headers,
-    });
-  } catch (e) {
-    throw new MeroshareError(
-      'NETWORK',
-      e instanceof Error ? e.message : 'Network request failed',
-    );
-  }
+  const result = await rawRequestWithFallback(path, {
+    method,
+    headers,
+    body,
+  });
+
+  return {
+    ok: result.ok,
+    status: result.status,
+    headers: result.headers,
+    url: result.url,
+    text: async () => result.text,
+    json: async () => parseJsonBody(result.text, path),
+  } as Response;
 }
 
 /** Try primary + fallback host until we get non-HTML JSON (or final error). */

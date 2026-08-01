@@ -434,10 +434,17 @@ export function HomeScreen() {
         count={2}
         onIndexChange={(i) => setTab(i === 0 ? 'Accounts' : 'Market')}
       >
-      {tab === 'Market' ? (
+      {/* Keep both panels mounted — remounting Market on every tab switch felt laggy. */}
+      <View
+        style={[styles.tabPane, tab !== 'Market' && styles.tabPaneHidden]}
+        pointerEvents={tab === 'Market' ? 'auto' : 'none'}
+      >
         <HomeMarketPanel active={tab === 'Market'} />
-      ) : (
-        <>
+      </View>
+      <View
+        style={[styles.tabPane, tab !== 'Accounts' && styles.tabPaneHidden]}
+        pointerEvents={tab === 'Accounts' ? 'auto' : 'none'}
+      >
           {/* Sticky total-accounts bar — stays above the scrolling list */}
           <View style={styles.stickyHead}>
             <View style={styles.totalCard}>
@@ -595,8 +602,7 @@ export function HomeScreen() {
             }
             onDelete={confirmDelete}
           />
-        </>
-      )}
+      </View>
       </SwipeTabGesture>
     </GestureHandlerRootView>
   );
@@ -609,6 +615,8 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
 
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
+    tabPane: { flex: 1 },
+    tabPaneHidden: { display: 'none' },
     tabs: {
       flexDirection: 'row',
       alignItems: 'stretch',

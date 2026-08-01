@@ -29,6 +29,7 @@ import {
   type ResultAccountStatus,
 } from '../services/meroshare';
 import { rs } from '../utils/responsive';
+import { useAfterInteractions } from '../utils/useAfterInteractions';
 import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
@@ -126,13 +127,14 @@ export function IpoBulkStatusScreen() {
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const ready = useAfterInteractions();
 
   const [checkAccountIds, setCheckAccountIds] = useState<string[]>([]);
   const [checkPickerOpen, setCheckPickerOpen] = useState(false);
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [companies, setCompanies] = useState<ApplicationReportRow[]>([]);
   const [selected, setSelected] = useState<ApplicationReportRow | null>(null);
-  const [loadingList, setLoadingList] = useState(false);
+  const [loadingList, setLoadingList] = useState(true);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<ResultAccountStatus[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(
@@ -284,9 +286,11 @@ export function IpoBulkStatusScreen() {
     }
   }, [accounts, checkAccountKey]);
 
+  // Shell paints first; MeroShare company list waits for the stack transition.
   useEffect(() => {
+    if (!ready) return;
     void loadCompanies();
-  }, [loadCompanies]);
+  }, [ready, loadCompanies]);
 
   const { refreshing, onRefresh } = usePullToRefresh(loadCompanies);
   const refreshControl = (

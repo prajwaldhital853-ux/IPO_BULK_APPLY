@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Image,
+  InteractionManager,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -22,6 +23,7 @@ import {
   loadBrokerDirectory,
   loadBrokerFavoriteBuys,
   loadPremiumIntel,
+  peekBrokerFavorites,
   priorSessionReason,
   type BrokerInfo,
   type PremiumIntelRow,
@@ -88,6 +90,7 @@ export function BrokerFavoritesScreen() {
   const [sessionDate, setSessionDate] = useState<string | null>(null);
   const [priorReason, setPriorReason] = useState<string | null>(null);
   const [pickedBroker, setPickedBroker] = useState<BrokerInfo | null>(null);
+  const hasRowsRef = useRef(false);
 
   const refresh = useCallback(async () => {
     const [snap, dir] = await Promise.all([
@@ -95,6 +98,7 @@ export function BrokerFavoritesScreen() {
       loadBrokerDirectory(),
     ]);
     setRows(snap.rows);
+    hasRowsRef.current = snap.rows.length > 0;
     setBrokers(dir);
     setSessionDate(snap.sessionDate ?? nepalTodayIso());
     setPriorReason(null);
@@ -102,8 +106,26 @@ export function BrokerFavoritesScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      void refresh().finally(() => setLoading(false));
+      let cancelled = false;
+      // Shell-first: keep prior rows; only full-spinner when empty.
+      if (!hasRowsRef.current) setLoading(true);
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (cancelled) return;
+        const warm = peekBrokerFavorites();
+        if (warm?.rows.length) {
+          setRows(warm.rows);
+          hasRowsRef.current = true;
+          setSessionDate(warm.sessionDate ?? nepalTodayIso());
+          setLoading(false);
+        }
+        void refresh().finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      });
+      return () => {
+        cancelled = true;
+        task.cancel();
+      };
     }, [refresh]),
   );
 

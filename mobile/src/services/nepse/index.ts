@@ -39,7 +39,7 @@ export {
   type MarketClosure,
 } from './marketClosures';
 
-export { loadNepseMarketSnapshot } from './market';
+export { loadNepseMarketSnapshot, peekNepseMarketSnapshot } from './market';
 export type { StockListKind, DemandBoardResult, DemandRow } from './screener';
 export {
   fmtMcap,

@@ -21,12 +21,14 @@ import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
 import {
   loadPremiumScreener,
+  peekPremiumScreener,
   type PremiumScreenerRow,
   type PremiumScreenerSnapshot,
 } from '../../services/nepse/premiumScreeners';
 import { fmtNum, iconUri } from '../../services/nepse/screener';
 import { rs } from '../../utils/responsive';
 import { safeGoBack } from '../../utils/safeGoBack';
+import { useAfterInteractions } from '../../utils/useAfterInteractions';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -89,6 +91,8 @@ export function PriceDroppersScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
+  const ready = useAfterInteractions();
+  // Shell-first — warm wide table during push freezes Services→section.
   const [snap, setSnap] = useState<PremiumScreenerSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -119,10 +123,20 @@ export function PriceDroppersScreen() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!ready) return;
+    const warm = peekPremiumScreener('price-droppers');
+    if (warm?.rows.length) {
+      setSnap(warm);
+      setLoading(false);
+      void refresh(true);
+    } else {
+      void refresh(false);
+    }
+  }, [ready, refresh]);
 
-  usePollingRefresh(refresh, undefined, true, { invalidate: false });
+  usePollingRefresh(ready ? refresh : async () => undefined, undefined, true, {
+    invalidate: false,
+  });
 
   const rows = snap?.rows ?? [];
   const filtered = useMemo(() => {

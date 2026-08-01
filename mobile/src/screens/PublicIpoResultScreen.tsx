@@ -35,6 +35,7 @@ import {
 } from '../services/issuemanager';
 import { maskBoid, resolveBoidSync } from '../utils/boid';
 import { rs } from '../utils/responsive';
+import { useAfterInteractions } from '../utils/useAfterInteractions';
 import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import {
@@ -95,6 +96,7 @@ export function PublicIpoResultScreen() {
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const ready = useAfterInteractions();
   const bridgeRef = useRef<IpoResultWebBridgeHandle | null>(null);
   const ocrRef = useRef<CaptchaOcrHandle | null>(null);
 
@@ -103,7 +105,7 @@ export function PublicIpoResultScreen() {
   const [checkAccountIds, setCheckAccountIds] = useState<string[]>([]);
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [checkPickerOpen, setCheckPickerOpen] = useState(false);
-  const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [loadingCompanies, setLoadingCompanies] = useState(true);
   const [loadingCdsc, setLoadingCdsc] = useState(false);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
@@ -272,17 +274,20 @@ export function PublicIpoResultScreen() {
     setProgress('');
   }, [bridgeReady, loadCdscPhoneCompanies]);
 
+  // Shell paints first; issue-manager fan-out waits for the stack transition.
   useEffect(() => {
+    if (!ready) return;
     void refreshCompanies();
-  }, [refreshCompanies]);
+  }, [ready, refreshCompanies]);
 
   useEffect(() => {
+    if (!ready) return;
     if (!bridgeReady) return;
     if (!isCdscBackendConfigured()) return;
     if (running) return;
     if (hasCdscCompanies) return;
     void refreshCompanies();
-  }, [bridgeReady, hasCdscCompanies, refreshCompanies, running]);
+  }, [ready, bridgeReady, hasCdscCompanies, refreshCompanies, running]);
 
   useEffect(() => {
     setResultsMap({});

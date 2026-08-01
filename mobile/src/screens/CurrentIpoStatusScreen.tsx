@@ -27,6 +27,7 @@ import {
   type ResultAccountStatus,
 } from '../services/meroshare';
 import { rs } from '../utils/responsive';
+import { useAfterInteractions } from '../utils/useAfterInteractions';
 import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
@@ -142,13 +143,14 @@ export function CurrentIpoStatusScreen() {
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const ready = useAfterInteractions();
 
   const [checkAccountIds, setCheckAccountIds] = useState<string[]>([]);
   const [checkPickerOpen, setCheckPickerOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [issues, setIssues] = useState<OpenIssue[]>([]);
   const [selected, setSelected] = useState<OpenIssue | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<ResultAccountStatus[]>([]);
   const [filter, setFilter] = useState<StatusFilter>('all');
@@ -229,9 +231,11 @@ export function CurrentIpoStatusScreen() {
     }
   }, [accounts]);
 
+  // Shell paints first; MeroShare issue fetch waits for the stack transition.
   useEffect(() => {
+    if (!ready) return;
     void refreshIssues();
-  }, [refreshIssues]);
+  }, [ready, refreshIssues]);
 
   const { refreshing, onRefresh } = usePullToRefresh(refreshIssues);
   const refreshControl = (

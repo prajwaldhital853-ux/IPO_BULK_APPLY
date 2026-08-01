@@ -21,6 +21,7 @@ import {
   fmtMcap,
   fmtNum,
   loadNepseMarketSnapshot,
+  peekNepseMarketSnapshot,
   type IndexQuote,
   type MoverRow,
   type NepseMarketSnapshot,
@@ -28,9 +29,12 @@ import {
 } from '../../services/nepse';
 import {
   loadMarketPulse,
+  peekMarketPulse,
   type MarketPulse,
 } from '../../services/nepse/premiumAnalytics';
 import { rs } from '../../utils/responsive';
+import { safeGoBack } from '../../utils/safeGoBack';
+import { useAfterInteractions } from '../../utils/useAfterInteractions';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -139,18 +143,21 @@ export function LiveMarketPulseScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
+  const ready = useAfterInteractions();
+  // Shell-first — never mount the chart during the stack push.
   const [data, setData] = useState<NepseMarketSnapshot | null>(null);
   const [pulse, setPulse] = useState<MarketPulse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [chartReady, setChartReady] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [listTab, setListTab] = useState<ListTab>('gainers');
   const [selectedIndex, setSelectedIndex] = useState<IndexQuote | null>(null);
 
   const refresh = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
+    if (!silent && !peekNepseMarketSnapshot()) setLoading(true);
     try {
       const [snap, pulseData] = await Promise.all([
-        loadNepseMarketSnapshot({ allowCache: !silent }),
+        loadNepseMarketSnapshot({ allowCache: true }),
         loadMarketPulse(),
       ]);
       setData(snap);
@@ -162,10 +169,21 @@ export function LiveMarketPulseScreen() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!ready) return;
+    const warmSnap = peekNepseMarketSnapshot();
+    const warmPulse = peekMarketPulse();
+    if (warmSnap) {
+      setData(warmSnap);
+      setLoading(false);
+    }
+    if (warmPulse) setPulse(warmPulse);
+    void refresh(!!warmSnap);
+    // Chart mounts one frame later so back / open never hitch on Skia/SVG.
+    const t = requestAnimationFrame(() => setChartReady(true));
+    return () => cancelAnimationFrame(t);
+  }, [ready, refresh]);
 
-  usePollingRefresh(refresh);
+  usePollingRefresh(ready ? refresh : async () => undefined);
 
   const indexQuote = selectedIndex ?? {
     name: 'NEPSE',
@@ -318,7 +336,7 @@ export function LiveMarketPulseScreen() {
   }, [data, pulse, listTab, colors]);
 
 
-  const body = loading && !data ? (
+  const body = !ready || (loading && !data) ? (
     <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />
   ) : (
     <ScrollView
@@ -448,8 +466,8 @@ export function LiveMarketPulseScreen() {
         ) : null}
       </View>
 
-      {/* Chart */}
-      {data ? (
+      {/* Chart — deferred until after transition so open/back stay instant */}
+      {data && chartReady ? (
         <View style={styles.chartWrap}>
           <Text style={styles.section}>Index chart</Text>
           <MarketChartSection
@@ -555,7 +573,7 @@ export function LiveMarketPulseScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => safeGoBack(navigation)} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>Live Market Pulse</Text>

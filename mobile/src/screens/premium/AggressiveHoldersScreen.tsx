@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
@@ -331,18 +332,30 @@ export function AggressiveHoldersScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      setVisibleCount(0);
-      void refresh(false);
-      // Warm symbol index for search-priority resolution
-      void loadMiniScreener(false).then((rows) => {
-        const map = new Map<string, string>();
-        for (const r of rows) {
-          map.set(r.symbol.toUpperCase(), r.symbol.toUpperCase());
-          map.set(r.name.toUpperCase(), r.symbol.toUpperCase());
-        }
-        symbolIndex.current = map;
+      let cancelled = false;
+      // Keep prior cards visible; only full-spinner when we have nothing yet.
+      if (!stocksRef.current.length) {
+        setLoading(true);
+        setVisibleCount(0);
+      }
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (cancelled) return;
+        void refresh(false);
+        // Warm symbol index for search-priority resolution
+        void loadMiniScreener(false).then((rows) => {
+          if (cancelled) return;
+          const map = new Map<string, string>();
+          for (const r of rows) {
+            map.set(r.symbol.toUpperCase(), r.symbol.toUpperCase());
+            map.set(r.name.toUpperCase(), r.symbol.toUpperCase());
+          }
+          symbolIndex.current = map;
+        });
       });
+      return () => {
+        cancelled = true;
+        task.cancel();
+      };
     }, [refresh]),
   );
 

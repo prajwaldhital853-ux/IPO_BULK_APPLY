@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MarketChartSection } from '../nepse/MarketChartSection';
 import { useTheme } from '../../context/ThemeContext';
@@ -22,6 +22,7 @@ import {
   fmtMcap,
   fmtNum,
   loadNepseMarketSnapshot,
+  peekNepseMarketSnapshot,
   type IndexQuote,
   type MoverRow,
   type NepseMarketSnapshot,
@@ -163,20 +164,23 @@ const DOT_RADIUS = rs(4);
 export function HomeMarketPanel({ active }: Props) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const tabFocused = useIsFocused();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
-  const [data, setData] = useState<NepseMarketSnapshot | null>(null);
-  const [loading, setLoading] = useState(true);
+  const warm = peekNepseMarketSnapshot();
+  const [data, setData] = useState<NepseMarketSnapshot | null>(() => warm);
+  const [loading, setLoading] = useState(() => !warm);
   const [refreshing, setRefreshing] = useState(false);
   const [moverPage, setMoverPage] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState<IndexQuote | null>(null);
   const moversRef = useRef<FlatList<(typeof LIST_TABS)[number]>>(null);
 
   const refresh = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
+    // Never blank a warm board — only spinner when we have nothing yet.
+    if (!silent && !peekNepseMarketSnapshot()) setLoading(true);
     try {
-      const snap = await loadNepseMarketSnapshot({ allowCache: !silent });
+      const snap = await loadNepseMarketSnapshot({ allowCache: true });
       setData(snap);
     } finally {
       setLoading(false);
@@ -184,12 +188,26 @@ export function HomeMarketPanel({ active }: Props) {
     }
   }, []);
 
+  // Prefetch while Accounts is visible so Market opens with data already warm.
   useEffect(() => {
-    if (!active) return;
-    void refresh();
-  }, [active, refresh]);
+    void refresh(true);
+  }, [refresh]);
 
-  usePollingRefresh(refresh, undefined, active);
+  useEffect(() => {
+    if (!active || !tabFocused) return;
+    const peek = peekNepseMarketSnapshot();
+    if (peek) {
+      setData(peek);
+      setLoading(false);
+      void refresh(true);
+    } else if (!data) {
+      void refresh(false);
+    }
+  }, [active, tabFocused, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Only poll while Market is the visible home sub-tab AND Home is focused —
+  // otherwise background polls fight tab switches on the JS thread.
+  usePollingRefresh(() => refresh(true), undefined, active && tabFocused);
 
   const indexQuote = selectedIndex ?? {
     name: 'NEPSE',

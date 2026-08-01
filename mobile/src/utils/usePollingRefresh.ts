@@ -16,7 +16,10 @@ export function usePollingRefresh(
 ): void {
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
-  const invalidate = opts.invalidate !== false;
+  // Default OFF: wiping caches on every tick forced cold 4–5s reloads on
+  // every polled screen. Loaders have their own TTLs (e.g. 20s todays-price)
+  // so background refreshes still pick up fresh data without a cache wipe.
+  const invalidate = opts.invalidate === true;
 
   useFocusEffect(
     useCallback(() => {

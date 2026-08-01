@@ -24,6 +24,7 @@ import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
 import {
   fetchCapitalList,
+  getStaticCapitalList,
   verifyMeroshareLogin,
   type CapitalDp,
 } from '../services/meroshare';
@@ -34,20 +35,18 @@ import type { RootStackParamList } from '../navigation/types';
 
 type DpOption = { id: string; code: string; name: string };
 
-const FALLBACK_DPS: DpOption[] = [
-  { id: '13700', code: '13700', name: 'NIC ASIA BANK LIMITED (13700)' },
-  { id: '12300', code: '12300', name: 'NABIL INVESTMENT BANKING LTD. (12300)' },
-  { id: '11900', code: '11900', name: 'NIBL ACE CAPITAL LIMITED (11900)' },
-  { id: '13200', code: '13200', name: 'GLOBAL IME CAPITAL LIMITED (13200)' },
-  { id: '11700', code: '11700', name: 'CIVIL CAPITAL LTD. (11700)' },
-];
-
 function toOption(d: CapitalDp): DpOption {
   return {
     id: String(d.id),
     code: d.code,
     name: `${d.name} (${d.code})`,
   };
+}
+
+function initialDpOptions(): DpOption[] {
+  return getStaticCapitalList()
+    .map(toOption)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function AddCapitalScreen() {
@@ -60,9 +59,10 @@ export function AddCapitalScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const scrollRef = useRef<ScrollView>(null);
 
-  const [dps, setDps] = useState<DpOption[]>(FALLBACK_DPS);
+  const initialDps = useMemo(() => initialDpOptions(), []);
+  const [dps, setDps] = useState<DpOption[]>(initialDps);
   const [loadingDps, setLoadingDps] = useState(true);
-  const [dp, setDp] = useState<DpOption>(FALLBACK_DPS[0]);
+  const [dp, setDp] = useState<DpOption>(initialDps[0]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [hidePass, setHidePass] = useState(true);

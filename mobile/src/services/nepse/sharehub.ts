@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from './fetchWithTimeout';
 import { iconUri } from './screener';
 import type {
   ChartPoint,
@@ -22,7 +23,7 @@ async function shFetch<T>(
 ): Promise<T | null> {
   try {
     const url = `${base}${path}${bust ? (path.includes('?') ? '&' : '?') + '_=' + Date.now() : ''}`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: {
         Accept: 'application/json',
         'Cache-Control': 'no-cache',

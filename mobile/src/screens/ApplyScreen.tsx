@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
@@ -199,14 +200,28 @@ export function ApplyScreen() {
     }
   }, [refreshInvestment, refreshIssues]);
 
+  // MeroShare login is expensive — never start it mid tab-switch animation.
+  const issuesStartedRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
-      void refreshInvestment();
-    }, [refreshInvestment]),
+      let cancelled = false;
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (cancelled) return;
+        void refreshInvestment();
+        if (!issuesStartedRef.current) {
+          issuesStartedRef.current = true;
+          void refreshIssues();
+        }
+      });
+      return () => {
+        cancelled = true;
+        task.cancel();
+      };
+    }, [refreshInvestment, refreshIssues]),
   );
 
   useEffect(() => {
-    void refreshIssues();
+    if (issuesStartedRef.current) void refreshIssues();
   }, [refreshIssues]);
 
   useEffect(() => {

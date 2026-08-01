@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { Easing } from 'react-native';
 import {
   NavigationContainer,
   DarkTheme,
@@ -62,11 +61,11 @@ import { AppSettingsScreen } from '../screens/AppSettingsScreen';
 import { FeedbackFormScreen } from '../screens/FeedbackFormScreen';
 import { InvestmentSummaryScreen } from '../screens/premium/InvestmentSummaryScreen';
 import { LiveMarketPulseScreen } from '../screens/premium/LiveMarketPulseScreen';
+import { AggressiveHoldersScreen } from '../screens/premium/AggressiveHoldersScreen';
 import {
   AccumulationScreen,
-  AggressiveHoldersScreen,
   DistributionScreen,
-} from '../screens/premium/PremiumScannerScreen';
+} from '../screens/premium/BrokerFlowScreen';
 import { BrokerFavoritesScreen } from '../screens/premium/BrokerFavoritesScreen';
 import { BrokerTopBuySellScreen } from '../screens/premium/BrokerTopBuySellScreen';
 import {
@@ -99,35 +98,26 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Drawer = createDrawerNavigator();
 
-const tabTransitionSpec = {
-  animation: 'timing' as const,
-  config: {
-    duration: 120,
-    easing: Easing.out(Easing.cubic),
-  },
-};
-
 function MainTabs() {
   return (
     <Tab.Navigator
       tabBar={(props) => <AppTabBar {...props} />}
+      // Keep inactive tabs attached so switches never pay re-attach/unfreeze cost.
       detachInactiveScreens={false}
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
-        animation: 'shift',
-        transitionSpec: tabTransitionSpec,
+        // Instant content swap — fade/shift animates heavy Home/Apply trees
+        // and feels delayed. Smoothness comes from the tab-bar spring.
+        animation: 'none',
+        // Pre-mount all main tabs so first visits don't hitch.
         lazy: false,
         freezeOnBlur: false,
       }}
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Home' }} />
       <Tab.Screen name="Apply" component={ApplyScreen} options={{ title: 'Apply' }} />
-      <Tab.Screen
-        name="Services"
-        component={ServicesScreen}
-        options={{ title: 'Services' }}
-      />
+      <Tab.Screen name="Services" component={ServicesScreen} options={{ title: 'Services' }} />
       <Tab.Screen name="Check" component={CheckScreen} options={{ title: 'Check' }} />
       <Tab.Screen
         name="Profile"
@@ -142,13 +132,18 @@ function RootStack() {
   const { colors } = useTheme();
   return (
     <Stack.Navigator
+      // Keep Services/previous screen attached under the pushed page so back
+      // (arrow or Android system back) never waits on re-attach.
+      detachInactiveScreens={false}
       screenOptions={{
         headerShown: false,
-        animation: 'slide_from_right',
-        animationDuration: 160,
+        // Instant push + pop — slide animations stall when JS is busy and make
+        // back feel delayed. Shell-first screens handle the open polish.
+        animation: 'none',
         animationTypeForReplace: 'push',
         gestureEnabled: true,
         fullScreenGestureEnabled: true,
+        freezeOnBlur: false,
         contentStyle: { backgroundColor: colors.bg },
       }}
     >

@@ -23,6 +23,11 @@ export function invalidateNepseMarketCache(): void {
   lastSnapshot = null;
 }
 
+/** Instant paint for Market tab — last good live snapshot (may be seconds old). */
+export function peekNepseMarketSnapshot(): NepseMarketSnapshot | null {
+  return lastSnapshot;
+}
+
 function num(v: unknown): number | null {
   if (v == null || v === '') return null;
   const n = Number(v);
@@ -204,6 +209,31 @@ function buildSnapshot(
   };
 }
 
+function emptySnapshot(): NepseMarketSnapshot {
+  return buildSnapshot(
+    {
+      status: 'unknown',
+      asOf: null,
+      summary: emptySummary(),
+      indices: [],
+      gainers: [],
+      losers: [],
+      turnovers: [],
+      transactions: [],
+      tradedShares: [],
+      subIndices: [],
+      securities: [],
+      chartPoints: [],
+    },
+    'offline',
+  );
+}
+
+/**
+ * Live NEPSE market snapshot — always fetches fresh from ShareHub/NEPSE.
+ * Callers should `peekNepseMarketSnapshot()` for instant paint, then call this
+ * to revalidate. `allowCache` only controls the *failure* fallback.
+ */
 export async function loadNepseMarketSnapshot(
   opts: { allowCache?: boolean } = {},
 ): Promise<NepseMarketSnapshot> {
@@ -233,10 +263,7 @@ export async function loadNepseMarketSnapshot(
         sharehub.securities,
         officialSecurities,
       );
-      const snapshot = buildSnapshot(
-        { ...sharehub, securities },
-        'live',
-      );
+      const snapshot = buildSnapshot({ ...sharehub, securities }, 'live');
       lastSnapshot = snapshot;
       return snapshot;
     }
@@ -265,46 +292,17 @@ export async function loadNepseMarketSnapshot(
       return snapshot;
     }
 
-    const fallback = buildSnapshot(
-      {
-        status: 'unknown',
-        asOf: null,
-        summary: emptySummary(),
-        indices: [],
-        gainers: [],
-        losers: [],
-        turnovers: [],
-        transactions: [],
-        tradedShares: [],
-        subIndices: [],
-        securities: [],
-        chartPoints: [],
-      },
-      'offline',
-    );
+    if (allowCache && lastSnapshot) {
+      return { ...lastSnapshot, source: 'cached' };
+    }
+    const fallback = emptySnapshot();
     lastSnapshot = fallback;
     return fallback;
   } catch {
     if (allowCache && lastSnapshot) {
       return { ...lastSnapshot, source: 'cached' };
     }
-    return buildSnapshot(
-      {
-        status: 'unknown',
-        asOf: null,
-        summary: emptySummary(),
-        indices: [],
-        gainers: [],
-        losers: [],
-        turnovers: [],
-        transactions: [],
-        tradedShares: [],
-        subIndices: [],
-        securities: [],
-        chartPoints: [],
-      },
-      'offline',
-    );
+    return emptySnapshot();
   }
 }
 

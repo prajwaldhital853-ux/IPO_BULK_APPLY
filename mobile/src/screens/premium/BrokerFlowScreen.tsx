@@ -4,6 +4,7 @@ import {
   Animated,
   FlatList,
   Image,
+  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
@@ -141,6 +142,14 @@ function SymLogo({
   );
 }
 
+export function AccumulationScreen() {
+  return <BrokerFlowScreen mode="accumulation" />;
+}
+
+export function DistributionScreen() {
+  return <BrokerFlowScreen mode="distribution" />;
+}
+
 export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -155,30 +164,20 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   const qtyLabel = isAcc ? 'Acc Qty' : 'Dis Qty';
   const pctLabel = isAcc ? 'Acc %' : 'Dis %';
   const sortAccent = isAcc ? '#2E9E5B' : '#E5484D';
-  const warmSnap = peekBrokerFlowIntel(
-    isAcc ? 'top-holders' : 'top-releases',
-  );
 
-  const [rows, setRows] = useState<PremiumIntelRow[]>(
-    () => warmSnap?.rows ?? [],
-  );
+  // Shell-first: never seed rows/table on the first paint. Painting a warm
+  // 100+ row sticky table during the stack transition freezes the UI for seconds.
+  const [rows, setRows] = useState<PremiumIntelRow[]>([]);
   const [searchHits, setSearchHits] = useState<PremiumIntelRow[]>([]);
   const [searchingBroker, setSearchingBroker] = useState(false);
-  const [displayCount, setDisplayCount] = useState(
-    () => warmSnap?.rows.length ?? 0,
-  );
-  const [sessionDate, setSessionDate] = useState<string | null>(
-    () => warmSnap?.sessionDate ?? null,
-  );
-  const [priorReason, setPriorReason] = useState<string | null>(
-    () => warmSnap?.priorSessionReason ?? null,
-  );
-  const [brokerBreakdown, setBrokerBreakdown] = useState(
-    () => warmSnap?.brokerBreakdown ?? false,
-  );
-  const [loading, setLoading] = useState(() => !(warmSnap?.rows.length));
+  const [displayCount, setDisplayCount] = useState(0);
+  const [sessionDate, setSessionDate] = useState<string | null>(null);
+  const [priorReason, setPriorReason] = useState<string | null>(null);
+  const [brokerBreakdown, setBrokerBreakdown] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [tableReady, setTableReady] = useState(false);
   const [period, setPeriod] = useState<Period>('1d');
   const [periodOpen, setPeriodOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -187,7 +186,7 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   const genRef = useRef(0);
   const busyRef = useRef(false);
   const revealDoneRef = useRef(false);
-  const hasRowsRef = useRef((warmSnap?.rows.length ?? 0) > 0);
+  const hasRowsRef = useRef(false);
   const hScrollX = useRef(new Animated.Value(0)).current;
 
   const rowKey = useCallback(
@@ -259,8 +258,16 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
             setPriorReason(snap.priorSessionReason ?? null);
             setBrokerBreakdown(snap.brokerBreakdown);
             setLoading(false);
-            // Show ranked rows as they arrive; stop "loading more" when stream finishes.
-            setDisplayCount(snap.rows.length);
+            // Progressive reveal — avoid mounting 100+ complex rows in one frame.
+            const total = snap.rows.length;
+            setDisplayCount((prev) => {
+              const capped = Math.min(24, total);
+              if (!meta.partial && total > capped && prev < total) {
+                requestAnimationFrame(() => setDisplayCount(total));
+                return Math.max(prev, capped);
+              }
+              return meta.partial ? Math.max(prev, capped) : total;
+            });
             setLoadingMore(meta.partial && snap.rows.length > 0);
             if (!meta.partial) {
               setLoadingMore(false);
@@ -282,29 +289,42 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
     [isAcc],
   );
 
-  // Open: hydrate day-cache, paint instantly, then validate against floorsheet API.
+  // Open shell immediately; hydrate + stream only after the stack animation finishes.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      void (async () => {
-        await ensureBrokerFlowIntelHydrated();
+      setTableReady(false);
+      setLoading(true);
+
+      const interactionTask = InteractionManager.runAfterInteractions(() => {
         if (cancelled) return;
-        const warm = peekBrokerFlowIntel(
-          isAcc ? 'top-holders' : 'top-releases',
-        );
-        if (warm?.rows.length) {
-          setRows(warm.rows);
-          setDisplayCount(warm.rows.length);
-          setSessionDate(warm.sessionDate);
-          setPriorReason(warm.priorSessionReason ?? null);
-          setBrokerBreakdown(warm.brokerBreakdown);
-          setLoading(false);
-          hasRowsRef.current = true;
-        }
-        void refresh({ silent: false, force: false });
-      })();
+        setTableReady(true);
+        void (async () => {
+          await ensureBrokerFlowIntelHydrated();
+          if (cancelled) return;
+          const warm = peekBrokerFlowIntel(
+            isAcc ? 'top-holders' : 'top-releases',
+          );
+          if (warm?.rows.length) {
+            setRows(warm.rows);
+            setDisplayCount(Math.min(24, warm.rows.length));
+            setSessionDate(warm.sessionDate);
+            setPriorReason(warm.priorSessionReason ?? null);
+            setBrokerBreakdown(warm.brokerBreakdown);
+            setLoading(false);
+            hasRowsRef.current = true;
+            // Expand remaining cached rows on the next ticks.
+            requestAnimationFrame(() => {
+              if (!cancelled) setDisplayCount(warm.rows.length);
+            });
+          }
+          void refresh({ silent: false, force: false });
+        })();
+      });
+
       return () => {
         cancelled = true;
+        interactionTask.cancel();
       };
     }, [refresh, isAcc]),
   );
@@ -561,7 +581,7 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
       </View>
 
       <View style={styles.tableWrap}>
-        {loading && rows.length === 0 ? (
+        {!tableReady || (loading && rows.length === 0) ? (
           <ActivityIndicator style={{ marginTop: rs(40) }} color={HEADER_TEAL} />
         ) : (
           <Animated.ScrollView
@@ -581,10 +601,11 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
                 style={styles.dataList}
                 contentContainerStyle={styles.listContent}
                 nestedScrollEnabled
-                initialNumToRender={30}
-                maxToRenderPerBatch={40}
-                windowSize={8}
-                removeClippedSubviews={false}
+                initialNumToRender={12}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                updateCellsBatchingPeriod={50}
+                removeClippedSubviews
                 keyExtractor={rowKey}
                 refreshControl={
                   <RefreshControl

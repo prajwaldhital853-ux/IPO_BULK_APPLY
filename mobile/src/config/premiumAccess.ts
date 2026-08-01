@@ -1,7 +1,8 @@
 /**
  * Dev-only: open premium screens without subscription / admin approval.
- * Default off — only admin-approved premium users get access.
- * Set EXPO_PUBLIC_PREMIUM_BYPASS=true to re-enable for testing.
+ * TEMPORARILY defaulted ON for testing the performance fixes across premium
+ * tools — set back to 'false' (or EXPO_PUBLIC_PREMIUM_BYPASS=false) before
+ * shipping a production build.
  */
 export const PREMIUM_ACCESS_BYPASS =
-  (process.env.EXPO_PUBLIC_PREMIUM_BYPASS ?? 'false').toLowerCase() === 'true';
+  (process.env.EXPO_PUBLIC_PREMIUM_BYPASS ?? 'true').toLowerCase() === 'true';

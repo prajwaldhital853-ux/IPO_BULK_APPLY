@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  InteractionManager,
   Linking,
   Modal,
   Pressable,
@@ -214,7 +215,14 @@ export function ProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void reloadProfile();
+      let cancelled = false;
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (!cancelled) void reloadProfile();
+      });
+      return () => {
+        cancelled = true;
+        task.cancel();
+      };
     }, [reloadProfile]),
   );
 

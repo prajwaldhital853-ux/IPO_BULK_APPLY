@@ -2,8 +2,14 @@
 export function safeGoBack(navigation: {
   canGoBack?: () => boolean;
   goBack: () => void;
+  pop?: (count?: number) => void;
   navigate?: (name: string) => void;
 }): void {
+  // Prefer pop() — same tick as the press, no extra work before native dismiss.
+  if (typeof navigation.pop === 'function' && navigation.canGoBack?.()) {
+    navigation.pop();
+    return;
+  }
   if (navigation.canGoBack?.()) {
     navigation.goBack();
     return;

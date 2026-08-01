@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -19,7 +19,7 @@ import type { RootStackParamList } from '../navigation/types';
 import type { PremiumScreenerKind } from '../services/nepse/premiumScreeners';
 import type { PremiumToolKind } from '../services/nepse/premiumServices';
 import type { ExtraToolKind } from '../services/nepse/extraData';
-import { prefetchBrokerFlowIntel } from '../services/nepse/brokerAnalytics';
+import { prefetchHotPremiumTools } from '../services/nepse/prefetchServices';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
@@ -363,6 +363,8 @@ function ServiceTile({
         featured && styles.tileFeatured,
         pressed && styles.tilePressed,
       ]}
+      // Fire as soon as the finger lifts — no Android press delay.
+      delayPressIn={0}
       onPress={onPress}
     >
       {item.badge ? (
@@ -607,11 +609,22 @@ export function ServicesScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [query, setQuery] = useState('');
   const sections = useMemo(() => buildSections(), []);
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Warm Acc/Dis day-cache as soon as Services is open so those screens paint fast.
+  // Warm premium tools only after the tab switch has settled — never compete
+  // with the Home↔Services transition on the JS thread.
   useFocusEffect(
     useCallback(() => {
-      prefetchBrokerFlowIntel();
+      prefetchTimerRef.current = setTimeout(() => {
+        prefetchTimerRef.current = null;
+        void prefetchHotPremiumTools();
+      }, 1200);
+      return () => {
+        if (prefetchTimerRef.current) {
+          clearTimeout(prefetchTimerRef.current);
+          prefetchTimerRef.current = null;
+        }
+      };
     }, []),
   );
 
@@ -626,193 +639,61 @@ export function ServicesScreen() {
       .filter((sec) => sec.items.length > 0);
   }, [query, sections]);
 
-  const openItem = (item: ServiceItem) => {
-    if (item.route === 'ApplyTab') {
-      navigation.navigate('MainTabs', { screen: 'Apply' });
-      return;
-    }
-    if (item.route === 'CheckTab') {
-      navigation.navigate('MainTabs', { screen: 'Check' });
-      return;
-    }
-    if (item.route === 'HomeTab') {
-      navigation.navigate('MainTabs', { screen: 'Home' });
-      return;
-    }
-    if (item.route === 'CurrentIpoStatus') {
-      navigation.navigate('CurrentIpoStatus');
-      return;
-    }
-    if (item.route === 'IpoBulkStatus') {
-      navigation.navigate('IpoBulkStatus');
-      return;
-    }
-    if (item.route === 'PublicIpoResult') {
-      navigation.navigate('PublicIpoResult');
-      return;
-    }
-    if (item.route === 'AllIpoStatus') {
-      navigation.navigate('AllIpoStatus');
-      return;
-    }
-    if (item.route === 'AllIpoStatistics') {
-      navigation.navigate('AllIpoStatistics');
-      return;
-    }
-    if (item.route === 'CalculateWacc') {
-      navigation.navigate('CalculateWacc');
-      return;
-    }
-    if (item.route === 'NepseData') {
-      navigation.navigate('NepseData');
-      return;
-    }
-    if (item.route === 'NepseCalendar') {
-      navigation.navigate('NepseCalendar');
-      return;
-    }
-    if (item.route === 'Portfolio') {
-      navigation.navigate('Portfolio');
-      return;
-    }
-    if (item.route === 'UserPortfolio') {
-      navigation.navigate('UserPortfolio');
-      return;
-    }
-    if (item.route === 'HighDemand') {
-      navigation.navigate('HighDemand');
-      return;
-    }
-    if (item.route === 'NepseHistory') {
-      navigation.navigate('NepseHistory');
-      return;
-    }
-    if (item.route === 'BulkTransactions') {
-      navigation.navigate('BulkTransactions');
-      return;
-    }
-    if (item.route === 'ProposedDividend') {
-      navigation.navigate('ProposedDividend');
-      return;
-    }
-    if (item.route === 'Charts') {
-      navigation.navigate('Charts', {});
-      return;
-    }
-    if (item.route === 'Announcements') {
-      navigation.navigate('Announcements');
-      return;
-    }
-    if (item.route === 'Watchlist') {
-      navigation.navigate('Watchlist');
-      return;
-    }
-    if (item.route === 'PriceAlert') {
-      navigation.navigate('PriceAlert');
-      return;
-    }
-    if (item.route === 'BulkPortfolio') {
-      navigation.navigate('BulkPortfolio');
-      return;
-    }
-    if (item.route === 'MeroshareWeb') {
-      navigation.navigate('MeroshareWeb');
-      return;
-    }
-    if (item.route === 'TrackAccountExpiry') {
-      navigation.navigate('TrackAccountExpiry');
-      return;
-    }
-    if (item.route === 'BankTracker') {
-      navigation.navigate('BankTracker');
-      return;
-    }
-    if (item.route === 'ChangePassword') {
-      navigation.navigate('ChangePassword');
-      return;
-    }
-    if (item.route === 'InvestmentSummary') {
-      navigation.navigate('InvestmentSummary');
-      return;
-    }
-    if (item.route === 'AggressiveHolders') {
-      navigation.navigate('AggressiveHolders');
-      return;
-    }
-    if (item.route === 'LiveMarketPulse') {
-      navigation.navigate('LiveMarketPulse');
-      return;
-    }
-    if (item.route === 'Accumulation') {
-      prefetchBrokerFlowIntel();
-      navigation.navigate('Accumulation');
-      return;
-    }
-    if (item.route === 'Distribution') {
-      prefetchBrokerFlowIntel();
-      navigation.navigate('Distribution');
-      return;
-    }
-    if (item.route === 'TopBuyers') {
-      navigation.navigate('TopBuyers');
-      return;
-    }
-    if (item.route === 'TopSellers') {
-      navigation.navigate('TopSellers');
-      return;
-    }
-    if (item.route === 'TopHolders') {
-      navigation.navigate('TopHolders');
-      return;
-    }
-    if (item.route === 'TopReleases') {
-      navigation.navigate('TopReleases');
-      return;
-    }
-    if (item.route === 'BrokerFavorites') {
-      navigation.navigate('BrokerFavorites');
-      return;
-    }
-    if (item.route === 'BrokerTopBuySell') {
-      navigation.navigate('BrokerTopBuySell');
-      return;
-    }
-    if (item.route === 'FiftyTwoWeekHigh') {
-      navigation.navigate('FiftyTwoWeekHigh');
-      return;
-    }
-    if (item.route === 'FiftyTwoWeekLow') {
-      navigation.navigate('FiftyTwoWeekLow');
-      return;
-    }
-    if (item.route === 'PremiumScreener' && item.premiumKind) {
-      navigation.navigate('PremiumScreener', { kind: item.premiumKind });
-      return;
-    }
-    if (item.route === 'PremiumTool' && item.premiumTool) {
-      navigation.navigate('PremiumTool', { kind: item.premiumTool });
-      return;
-    }
-    if (item.route === 'ExtraTool' && item.extraKind) {
-      navigation.navigate('ExtraTool', { kind: item.extraKind });
-      return;
-    }
-    if (item.route === 'Calculator') {
-      navigation.navigate('Calculator');
-      return;
-    }
-    if (item.route === 'IpoIssuesCurrent') {
-      navigation.navigate('IpoIssues', { mode: 'current' });
-      return;
-    }
-    if (item.route === 'IpoIssuesUpcoming') {
-      navigation.navigate('IpoIssues', { mode: 'upcoming' });
-      return;
-    }
-    if (item.route === 'StockList' && item.stockKind) {
-      navigation.navigate('StockList', { kind: item.stockKind });
-    }
-  };
+  const openItem = useCallback(
+    (item: ServiceItem) => {
+      // Cancel background warmup so the push isn't fighting floorsheet work.
+      if (prefetchTimerRef.current) {
+        clearTimeout(prefetchTimerRef.current);
+        prefetchTimerRef.current = null;
+      }
+      // Navigate in this tick — never prefetch / hydrate before the push starts.
+      const route = item.route;
+      if (!route) return;
+      if (route === 'ApplyTab') {
+        navigation.navigate('MainTabs', { screen: 'Apply' });
+        return;
+      }
+      if (route === 'CheckTab') {
+        navigation.navigate('MainTabs', { screen: 'Check' });
+        return;
+      }
+      if (route === 'HomeTab') {
+        navigation.navigate('MainTabs', { screen: 'Home' });
+        return;
+      }
+      if (route === 'PremiumScreener' && item.premiumKind) {
+        navigation.navigate('PremiumScreener', { kind: item.premiumKind });
+        return;
+      }
+      if (route === 'PremiumTool' && item.premiumTool) {
+        navigation.navigate('PremiumTool', { kind: item.premiumTool });
+        return;
+      }
+      if (route === 'ExtraTool' && item.extraKind) {
+        navigation.navigate('ExtraTool', { kind: item.extraKind });
+        return;
+      }
+      if (route === 'IpoIssuesCurrent') {
+        navigation.navigate('IpoIssues', { mode: 'current' });
+        return;
+      }
+      if (route === 'IpoIssuesUpcoming') {
+        navigation.navigate('IpoIssues', { mode: 'upcoming' });
+        return;
+      }
+      if (route === 'StockList' && item.stockKind) {
+        navigation.navigate('StockList', { kind: item.stockKind });
+        return;
+      }
+      if (route === 'Charts') {
+        navigation.navigate('Charts', {});
+        return;
+      }
+      // Plain stack screens (CurrentIpoStatus, Accumulation, Watchlist, …).
+      navigation.navigate(route as keyof RootStackParamList);
+    },
+    [navigation],
+  );
 
   return (
     <View style={[styles.root, { backgroundColor: isDark ? colors.bg : SS.cream }]}>
@@ -849,6 +730,9 @@ export function ServicesScreen() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        removeClippedSubviews
       >
         {filtered.map((sec) => (
           <SectionBlock

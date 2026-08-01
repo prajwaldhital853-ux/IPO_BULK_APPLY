@@ -102,7 +102,7 @@ export function AnnouncementsScreen() {
         ))}
       </View>
 
-      {loading ? (
+      {loading && dividends.length === 0 && news.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
         </View>

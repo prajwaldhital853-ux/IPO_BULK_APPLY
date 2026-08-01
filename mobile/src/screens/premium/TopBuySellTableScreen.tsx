@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
+  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
@@ -21,6 +22,7 @@ import type { ThemeColors } from '../../theme/colors';
 import {
   invalidateBrokerAnalyticsCache,
   loadTopSideForQuery,
+  peekTopSideBoard,
   streamTopSideBoard,
   type TopSideTradeRow,
 } from '../../services/nepse/brokerAnalytics';
@@ -68,6 +70,7 @@ function TopBuySellTableScreen({ side }: Props) {
   const title = side === 'buy' ? 'Top Buyers' : 'Top Sellers';
   const partyPlaceholder = side === 'buy' ? 'Buyer' : 'Seller';
 
+  // Shell-first — warm rows hydrate after the stack push settles.
   const [rows, setRows] = useState<TopSideTradeRow[]>([]);
   const [visibleCount, setVisibleCount] = useState(0);
   const [sessionDate, setSessionDate] = useState<string | null>(null);
@@ -83,6 +86,7 @@ function TopBuySellTableScreen({ side }: Props) {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [priorityFetching, setPriorityFetching] = useState(false);
   const priorityGen = useRef(0);
+  const hasRowsRef = useRef(false);
 
   const refresh = useCallback(
     async (force = false) => {
@@ -91,6 +95,7 @@ function TopBuySellTableScreen({ side }: Props) {
         invalidateBrokerAnalyticsCache();
         setVisibleCount(0);
         setRows([]);
+        hasRowsRef.current = false;
       }
       setLoadingMore(true);
       try {
@@ -102,9 +107,11 @@ function TopBuySellTableScreen({ side }: Props) {
             setRows(board.rows);
             setVisibleCount(0);
             setLoading(false);
+            hasRowsRef.current = board.rows.length > 0;
           } else if (board.rows.length) {
             setRows(board.rows);
             setLoading(false);
+            hasRowsRef.current = true;
           }
         });
       } finally {
@@ -118,10 +125,30 @@ function TopBuySellTableScreen({ side }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      setVisibleCount(0);
-      void refresh(false);
-    }, [refresh]),
+      let cancelled = false;
+      // Keep shell light during push — hydrate peek only after transition.
+      if (!hasRowsRef.current) {
+        setLoading(true);
+        setVisibleCount(0);
+      }
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (cancelled) return;
+        const peek = peekTopSideBoard(side);
+        if (peek?.rows.length) {
+          setRows(peek.rows);
+          setSessionDate(peek.sessionDate);
+          setPriorReason(peek.priorSessionReason ?? null);
+          setVisibleCount(Math.min(24, peek.rows.length));
+          setLoading(false);
+          hasRowsRef.current = true;
+        }
+        void refresh(false);
+      });
+      return () => {
+        cancelled = true;
+        task.cancel();
+      };
+    }, [refresh, side]),
   );
 
   // Reveal rows progressively after the correct ranked list is ready.

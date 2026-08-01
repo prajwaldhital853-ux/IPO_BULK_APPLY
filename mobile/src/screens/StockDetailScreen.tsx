@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  InteractionManager,
   Linking,
   Pressable,
   ScrollView,
@@ -29,12 +30,14 @@ import {
   fmtRatio,
   loadAnnouncements,
   loadCandles,
+  loadCompanyEmail,
   loadFinancialReports,
   loadFloorsheet,
   loadFundamentals,
   loadPriceHistory,
   loadProposedDividends,
   loadSecurityBySymbol,
+  peekSecurityBySymbolSync,
   type AnnouncementRow,
   type CandlePoint,
   type DividendRow,
@@ -147,9 +150,10 @@ export function StockDetailScreen() {
   const newsCacheRef = useRef<{ symbol: string; rows: ShareNewsItem[] } | null>(
     null,
   );
-  const [loading, setLoading] = useState(true);
+  const warmQuote = peekSecurityBySymbolSync(symbol);
+  const [loading, setLoading] = useState(() => !warmQuote);
   const [chartLoading, setChartLoading] = useState(false);
-  const [stock, setStock] = useState<MiniScreenerRow | null>(null);
+  const [stock, setStock] = useState<MiniScreenerRow | null>(() => warmQuote);
   const [watched, setWatched] = useState(false);
   const [chartRange, setChartRange] = useState<StockChartRange>('1D');
   const [chartPoints, setChartPoints] = useState<CandlePoint[]>([]);
@@ -181,14 +185,31 @@ export function StockDetailScreen() {
 
   const loadCore = useCallback(
     async (silent = false) => {
-      if (!silent) setLoading(true);
+      if (!silent && !peekSecurityBySymbolSync(symbol)) setLoading(true);
       const [sec, watch] = await Promise.all([
         loadSecurityBySymbol(symbol),
         isWatched(symbol),
       ]);
-      setStock(sec);
+      setStock((prev) =>
+        // Keep an already-scraped email when polls refresh the quote.
+        sec && prev?.email && prev.symbol === sec.symbol && !sec.email
+          ? { ...sec, email: prev.email }
+          : sec,
+      );
       setWatched(watch);
       setLoading(false);
+      // Company email comes from a slow ShareSansar HTML scrape — enrich
+      // after the quote has painted instead of blocking it.
+      if (sec && !sec.email) {
+        void loadCompanyEmail(symbol).then((email) => {
+          if (!email) return;
+          setStock((prev) =>
+            prev && prev.symbol.toUpperCase() === symbol.toUpperCase()
+              ? { ...prev, email }
+              : prev,
+          );
+        });
+      }
     },
     [symbol],
   );
@@ -206,16 +227,25 @@ export function StockDetailScreen() {
   );
 
   useEffect(() => {
-    void loadCore();
+    const warm = peekSecurityBySymbolSync(symbol);
+    if (warm) {
+      setStock(warm);
+      setLoading(false);
+    }
     newsCacheRef.current = null;
     newsInFlightRef.current = false;
     setNewsRows([]);
     setNewsLoading(false);
     setNewsLoadingMore(false);
-  }, [loadCore, symbol]);
+    const task = InteractionManager.runAfterInteractions(() => {
+      void loadCore(!!warm);
+      void loadChart(chartRange, true);
+    });
+    return () => task.cancel();
+  }, [loadCore, loadChart, symbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    void loadChart(chartRange);
+    void loadChart(chartRange, true);
   }, [loadChart, chartRange]);
 
   const loadNewsTab = useCallback(async () => {

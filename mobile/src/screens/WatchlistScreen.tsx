@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
@@ -24,6 +25,7 @@ import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import {
   fmtNum,
+  getCachedMiniScreenerSync,
   loadMiniScreener,
   type MiniScreenerRow,
 } from '../services/nepse/screener';
@@ -200,46 +202,77 @@ export function WatchlistScreen() {
     [sections, items],
   );
 
-  const reload = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
+  const applyWatchlistPayload = useCallback(
+    (
+      saved: WatchItem[],
+      screenerRows: MiniScreenerRow[],
+      storeSections: WatchSection[],
+    ) => {
+      setScreener(screenerRows);
+      setItems(enrichItems(saved, screenerRows));
+
+      const orderedIds: string[] = [];
+      for (const item of saved) {
+        if (!orderedIds.includes(item.sectionId)) orderedIds.push(item.sectionId);
+      }
+      for (const sec of storeSections) {
+        if (!orderedIds.includes(sec.id)) orderedIds.push(sec.id);
+      }
+
+      const byId = new Map(storeSections.map((s) => [s.id, s]));
+      setSections(
+        orderedIds.map(
+          (id) =>
+            byId.get(id) ?? {
+              id,
+              name: id === 'default' ? 'My Watchlist' : 'Section',
+            },
+        ),
+      );
+      setWatchedSet(new Set(saved.map((w) => w.symbol.toUpperCase())));
+      setLoading(false);
+    },
+    [],
+  );
+
+  const reload = useCallback(async (_silent = false) => {
     const [saved, screenerRows, storeSections] = await Promise.all([
       listWatchlist(),
-      loadMiniScreener(Boolean(silent)),
+      loadMiniScreener(false),
       listWatchlistSections(),
     ]);
-    setScreener(screenerRows);
-    const enriched = enrichItems(saved, screenerRows);
-    setItems(enriched);
-
-    const orderedIds: string[] = [];
-    for (const item of saved) {
-      if (!orderedIds.includes(item.sectionId)) orderedIds.push(item.sectionId);
-    }
-    for (const sec of storeSections) {
-      if (!orderedIds.includes(sec.id)) orderedIds.push(sec.id);
-    }
-
-    const byId = new Map(storeSections.map((s) => [s.id, s]));
-    setSections(
-      orderedIds.map(
-        (id) =>
-          byId.get(id) ?? {
-            id,
-            name: id === 'default' ? 'My Watchlist' : 'Section',
-          },
-      ),
-    );
-    setWatchedSet(new Set(saved.map((w) => w.symbol.toUpperCase())));
-    setLoading(false);
-  }, []);
+    applyWatchlistPayload(saved, screenerRows, storeSections);
+  }, [applyWatchlistPayload]);
 
   useFocusEffect(
     useCallback(() => {
-      void reload();
-    }, [reload]),
+      let cancelled = false;
+      // Instant paint from disk symbols + warm screener, then live prices.
+      void (async () => {
+        const [saved, storeSections] = await Promise.all([
+          listWatchlist(),
+          listWatchlistSections(),
+        ]);
+        if (cancelled) return;
+        const warm = getCachedMiniScreenerSync() ?? [];
+        if (saved.length) {
+          applyWatchlistPayload(saved, warm, storeSections);
+        } else {
+          setSections(storeSections);
+          setItems([]);
+          setLoading(false);
+        }
+        InteractionManager.runAfterInteractions(() => {
+          if (!cancelled) void reload(true);
+        });
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [applyWatchlistPayload, reload]),
   );
 
-  usePollingRefresh(reload);
+  usePollingRefresh(() => reload(true));
 
   const { refreshing, onRefresh } = usePullToRefresh(() => reload(false));
 
@@ -489,7 +522,7 @@ export function WatchlistScreen() {
             </View>
           </View>
 
-          {loading ? (
+          {loading && items.length === 0 ? (
             <View style={styles.center}>
               <ActivityIndicator color={colors.primary} />
             </View>

@@ -25,6 +25,7 @@ import {
   loadMarketDepthBoard,
   loadPremiumFloorsheet,
   loadStockFilter,
+  peekFinancialReportsFeed,
   STOCK_FILTER_PRESETS,
   type FinancialReportFeedRow,
   type MarketDepthRow,
@@ -34,6 +35,8 @@ import {
 } from '../../services/nepse/premiumServices';
 import { fmtMcap, fmtNum, type FloorsheetRow } from '../../services/nepse/screener';
 import { rs } from '../../utils/responsive';
+import { safeGoBack } from '../../utils/safeGoBack';
+import { useAfterInteractions } from '../../utils/useAfterInteractions';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 import { SwipeTabGesture } from '../../components/SwipeTabGesture';
@@ -174,6 +177,7 @@ function StockFilterBody({
   styles: ReturnType<typeof makeStyles>;
   navigation: NativeStackNavigationProp<RootStackParamList>;
 }) {
+  const ready = useAfterInteractions();
   const [preset, setPreset] = useState<StockFilterPreset>('gainers');
   const [rows, setRows] = useState<PremiumScreenerRow[]>([]);
   const [summary, setSummary] = useState<Array<{ label: string; value: string }>>([]);
@@ -191,10 +195,11 @@ function StockFilterBody({
   }, [preset]);
 
   useEffect(() => {
+    if (!ready) return;
     void refresh();
-  }, [refresh]);
+  }, [ready, refresh]);
 
-  usePollingRefresh(refresh);
+  usePollingRefresh(ready ? refresh : async () => undefined);
 
   const activePreset = STOCK_FILTER_PRESETS.find((p) => p.id === preset);
   const presetIndex = Math.max(
@@ -212,7 +217,7 @@ function StockFilterBody({
       }}
     >
       <View style={styles.body}>
-        {loading && rows.length === 0 ? (
+        {!ready || (loading && rows.length === 0) ? (
           <ActivityIndicator style={{ marginTop: rs(24) }} color={colors.primary} />
         ) : (
           <FlatList
@@ -290,9 +295,13 @@ function FinancialReportsBody({
   styles: ReturnType<typeof makeStyles>;
   navigation: NativeStackNavigationProp<RootStackParamList>;
 }) {
+  const ready = useAfterInteractions();
+  // Shell-first — do not mount 400 warm report rows during the stack push.
   const [rows, setRows] = useState<FinancialReportFeedRow[]>([]);
-  const [summary, setSummary] = useState<Array<{ label: string; value: string }>>([]);
-  const [asOf, setAsOf] = useState(new Date().toISOString());
+  const [summary, setSummary] = useState<Array<{ label: string; value: string }>>(
+    [],
+  );
+  const [asOf, setAsOf] = useState(() => new Date().toISOString());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -306,10 +315,20 @@ function FinancialReportsBody({
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!ready) return;
+    const warm = peekFinancialReportsFeed(400);
+    if (warm?.rows.length) {
+      setRows(warm.rows);
+      setSummary(warm.summary);
+      setAsOf(warm.asOf);
+      setLoading(false);
+      void refresh(true);
+    } else {
+      void refresh(false);
+    }
+  }, [ready, refresh]);
 
-  usePollingRefresh(refresh);
+  usePollingRefresh(ready ? refresh : async () => undefined);
 
   if (loading && !rows.length) {
     return <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />;
@@ -400,6 +419,7 @@ function FloorSheetBody({
   styles: ReturnType<typeof makeStyles>;
   navigation: NativeStackNavigationProp<RootStackParamList>;
 }) {
+  const ready = useAfterInteractions();
   const [snap, setSnap] = useState<PremiumFloorsheetSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -411,12 +431,13 @@ function FloorSheetBody({
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
     void refresh();
-  }, [refresh]);
+  }, [ready, refresh]);
 
-  usePollingRefresh(refresh);
+  usePollingRefresh(ready ? refresh : async () => undefined);
 
-  if (loading && !snap) {
+  if (!ready || (loading && !snap)) {
     return <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />;
   }
 
@@ -527,6 +548,7 @@ function MarketDepthBody({
   styles: ReturnType<typeof makeStyles>;
   navigation: NativeStackNavigationProp<RootStackParamList>;
 }) {
+  const ready = useAfterInteractions();
   const [rows, setRows] = useState<MarketDepthRow[]>([]);
   const [summary, setSummary] = useState<Array<{ label: string; value: string }>>([]);
   const [asOf, setAsOf] = useState(new Date().toISOString());
@@ -543,12 +565,13 @@ function MarketDepthBody({
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
     void refresh();
-  }, [refresh]);
+  }, [ready, refresh]);
 
-  usePollingRefresh(refresh);
+  usePollingRefresh(ready ? refresh : async () => undefined);
 
-  if (loading && !rows.length) {
+  if (!ready || (loading && !rows.length)) {
     return <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />;
   }
 
@@ -692,7 +715,7 @@ function PremiumToolBody({ kind }: { kind: PremiumToolKind }) {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => safeGoBack(navigation)} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <View style={styles.headerMid}>

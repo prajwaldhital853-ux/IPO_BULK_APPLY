@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  InteractionManager,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -86,7 +87,14 @@ function FiftyTwoWeekScreen({ mode }: { mode: FiftyTwoWeekMode }) {
 
   useFocusEffect(
     useCallback(() => {
-      void refresh();
+      let cancelled = false;
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (!cancelled) void refresh();
+      });
+      return () => {
+        cancelled = true;
+        task.cancel();
+      };
     }, [refresh]),
   );
 

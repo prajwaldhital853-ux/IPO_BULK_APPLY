@@ -24,6 +24,7 @@ import {
 } from '../../services/nepse/brokerAnalytics';
 import { rs } from '../../utils/responsive';
 import { safeGoBack } from '../../utils/safeGoBack';
+import { useAfterInteractions } from '../../utils/useAfterInteractions';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -65,6 +66,7 @@ export function PremiumIntelScreen({ kind }: { kind: PremiumIntelKind }) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const ready = useAfterInteractions();
   const [snap, setSnap] = useState<PremiumIntelSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -76,18 +78,19 @@ export function PremiumIntelScreen({ kind }: { kind: PremiumIntelKind }) {
   }, [kind]);
 
   useEffect(() => {
+    if (!ready) return;
     setLoading(true);
     void refresh();
-  }, [refresh]);
+  }, [ready, refresh]);
 
-  usePollingRefresh(refresh);
+  usePollingRefresh(ready ? refresh : async () => undefined);
 
   const openRow = (item: PremiumIntelRow) => {
     if (item.symbol === 'MARKET' || item.symbol.includes(' stocks')) return;
     navigation.navigate('StockDetail', { symbol: item.symbol.split(' ')[0] });
   };
 
-  const body = loading ? (
+  const body = !ready || (loading && !snap) ? (
     <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />
   ) : (
     <FlatList

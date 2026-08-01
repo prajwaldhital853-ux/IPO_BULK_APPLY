@@ -1,4 +1,5 @@
 /** Multi-source Nepal share / finance news with article images. */
+import { fetchWithTimeout } from './fetchWithTimeout';
 
 export type NewsSourceId =
   | 'sharesansar'
@@ -206,7 +207,7 @@ const googleLinkById = new Map<string, string>();
 
 async function fetchText(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: {
         Accept: 'text/html,application/rss+xml,application/xml,text/xml,*/*',
         'User-Agent': UA,
@@ -415,7 +416,7 @@ async function fetchShareSansarCompanyNewsRows(
   length = 30,
 ): Promise<Array<{ title: string; url: string; date: string }>> {
   try {
-    const res = await fetch('https://www.sharesansar.com/company-news', {
+    const res = await fetchWithTimeout('https://www.sharesansar.com/company-news', {
       method: 'POST',
       headers: {
         'User-Agent': UA,

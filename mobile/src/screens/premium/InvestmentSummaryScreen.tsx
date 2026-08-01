@@ -27,6 +27,8 @@ import {
   type PortfolioInsight,
 } from '../../services/nepse/premiumAnalytics';
 import { rs } from '../../utils/responsive';
+import { safeGoBack } from '../../utils/safeGoBack';
+import { useAfterInteractions } from '../../utils/useAfterInteractions';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -289,6 +291,7 @@ export function InvestmentSummaryScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const ready = useAfterInteractions();
   const [data, setData] = useState<InvestmentSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -305,10 +308,11 @@ export function InvestmentSummaryScreen() {
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
     void refresh();
-  }, [refresh]);
+  }, [ready, refresh]);
 
-  usePollingRefresh(refresh);
+  usePollingRefresh(ready ? refresh : async () => undefined);
 
   const openStock = (symbol: string) => {
     navigation.navigate('StockDetail', { symbol });
@@ -324,7 +328,7 @@ export function InvestmentSummaryScreen() {
   const activeSector =
     data?.sectors.find((s) => s.sector === selectedSector) ?? data?.sectors[0];
 
-  const body = loading ? (
+  const body = !ready || (loading && !data) ? (
     <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />
   ) : !data || data.holdings === 0 ? (
     <View style={styles.emptyWrap}>
@@ -950,7 +954,7 @@ export function InvestmentSummaryScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => safeGoBack(navigation)} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>Investment Summary</Text>

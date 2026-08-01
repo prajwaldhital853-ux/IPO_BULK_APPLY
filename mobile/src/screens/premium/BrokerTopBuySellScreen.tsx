@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
@@ -214,9 +215,18 @@ export function BrokerTopBuySellScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      setVisibleCount(0);
-      void refresh(false);
+      let cancelled = false;
+      if (!brokersRef.current.length) {
+        setLoading(true);
+        setVisibleCount(0);
+      }
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (!cancelled) void refresh(false);
+      });
+      return () => {
+        cancelled = true;
+        task.cancel();
+      };
     }, [refresh]),
   );
 

@@ -1365,8 +1365,9 @@ export async function streamPremiumIntel(
 }
 
 /**
- * Warm screener (logos) + floorsheet + Acc/Dis boards when Services opens.
- * Skips network when day-cache still matches the live floorsheet session.
+ * Warm disk Acc/Dis cache, screener logos, and a light floorsheet session so
+ * Top Buy/Sell / Aggressive / Broker Top can paint from memory on first open.
+ * Full progressive deepen still happens on each screen after navigation.
  */
 export function prefetchBrokerFlowIntel(): void {
   if (brokerFlowPrefetch) return;
@@ -1374,8 +1375,7 @@ export function prefetchBrokerFlowIntel(): void {
     try {
       await hydrateIntelCacheFromDisk();
       await screenerMap().catch(() => null);
-      await streamPremiumIntel('top-holders', () => {}, 120);
-      await streamPremiumIntel('top-releases', () => {}, 120);
+      await loadSessionFloorsheet(false).catch(() => null);
     } catch {
       // Prefetch is best-effort.
     } finally {
@@ -1423,6 +1423,19 @@ export async function searchBrokerNetRows(
   if (!hasBrokerData(rows)) return [];
   const snap = buildNetIntelSnapshot(mode, limit, rows, screener, brokers);
   return snap.rows.filter((r) => brokerKey(r.brokerCode ?? '') === code);
+}
+
+let brokerFavoritesCache: { at: number; snap: PremiumIntelSnapshot } | null =
+  null;
+const BROKER_FAVORITES_TTL_MS = 5 * 60_000;
+
+/** Instant read of a warm Broker Favorites board (memory cache). */
+export function peekBrokerFavorites(): PremiumIntelSnapshot | null {
+  if (!brokerFavoritesCache) return null;
+  if (Date.now() - brokerFavoritesCache.at > BROKER_FAVORITES_TTL_MS) {
+    return null;
+  }
+  return brokerFavoritesCache.snap;
 }
 
 async function loadBrokerFavorites(limit: number): Promise<PremiumIntelSnapshot> {
@@ -1489,7 +1502,7 @@ async function loadBrokerFavorites(limit: number): Promise<PremiumIntelSnapshot>
     })
     .filter(Boolean) as Omit<PremiumIntelRow, 'rank'>[];
 
-  return {
+  const snap: PremiumIntelSnapshot = {
     title: 'Broker Favorites',
     subtitle:
       'Stocks where demand, turnover, momentum and 52-week strength converge — smart-money watchlist.',
@@ -1504,6 +1517,8 @@ async function loadBrokerFavorites(limit: number): Promise<PremiumIntelSnapshot>
     ],
     rows: rankRows(intel, limit),
   };
+  brokerFavoritesCache = { at: Date.now(), snap };
+  return snap;
 }
 
 /** Broker directory for Favorites picker (code + name + logo). */
@@ -2029,6 +2044,21 @@ function buildTopSideBoard(
   };
 }
 
+/** Instant Top Buyers / Sellers board from warm floorsheet memory. */
+export function peekTopSideBoard(side: 'buy' | 'sell'): TopSideBoard | null {
+  if (!floorsheetCache?.length || Date.now() - floorsheetCacheAt >= CACHE_MS) {
+    return null;
+  }
+  if (!hasBrokerData(floorsheetCache)) return null;
+  const sessionDate =
+    floorsheetMeta.date ?? sessionDateFromRows(floorsheetCache, null);
+  return {
+    ...buildTopSideBoard(floorsheetCache, side),
+    sessionDate,
+    priorSessionReason: null,
+  };
+}
+
 /**
  * Top Buyers / Top Sellers board. Publishes final ranked rows when stream ends
  * (warm cache first). Avoids mid-load rank reshuffles.
@@ -2292,7 +2322,16 @@ function buildNetSideBoard(
   };
 }
 
-/** Holders / Release board from live floorsheet — publish when stream completes. */
+/** Instant Top Holders / Release board from warm floorsheet memory. */
+export function peekNetSideBoard(mode: NetSideMode): NetSideBoard | null {
+  if (!floorsheetCache?.length || Date.now() - floorsheetCacheAt >= CACHE_MS) {
+    return null;
+  }
+  if (!hasBrokerData(floorsheetCache)) return null;
+  return buildNetSideBoard(floorsheetCache, mode, undefined);
+}
+
+/** Holders / Release board from live floorsheet — paint progressive rows. */
 export async function streamNetSideBoard(
   mode: NetSideMode,
   onUpdate: (board: NetSideBoard, meta: { partial: boolean }) => void,
@@ -2313,19 +2352,12 @@ export async function streamNetSideBoard(
 
   const emit = (rows: FloorsheetRow[], partial: boolean) => {
     const fresh = buildNetSideBoard(rows, mode, screener);
-    if (partial) {
-      last = {
-        rows: last.rows,
-        sessionDate: fresh.sessionDate,
-        tradesScanned: fresh.tradesScanned,
-        mode,
-        brokerBreakdown: last.brokerBreakdown || fresh.brokerBreakdown,
-      };
-      onUpdate(last, { partial: true });
-      return;
-    }
-    last = fresh;
-    onUpdate(last, { partial: false });
+    // Publish ranked rows as pages arrive (was blank until stream finished).
+    last = {
+      ...fresh,
+      brokerBreakdown: last.brokerBreakdown || fresh.brokerBreakdown,
+    };
+    onUpdate(last, { partial });
   };
 
   if (floorsheetCache?.length && Date.now() - floorsheetCacheAt < CACHE_MS) {
@@ -2870,10 +2902,6 @@ export async function streamAggressiveHolderStocks(
   ) => void,
   limit = 0,
 ): Promise<AggressiveHolderBoard> {
-  // Always reload broker directory so logos are present (TMS list with CDN urls).
-  brokerCache = null;
-  brokerCacheAt = 0;
-
   const liveDate = await resolveLiveMarketDate();
 
   const [screener, brokers] = await Promise.all([
@@ -2921,6 +2949,11 @@ export async function streamAggressiveHolderStocks(
     rememberFloorsheet(rows, asOf);
     emit(rows, !meta.done, asOf);
   };
+
+  // Paint warm floorsheet immediately, then deepen with progressive pages.
+  if (isFloorsheetCacheFresh(liveDate)) {
+    emit(floorsheetCache!, true, floorsheetMeta.date);
+  }
 
   // Deep floorsheet load — Acc/Dis thin cache (4 pages) often misses SAIL-like names.
   try {

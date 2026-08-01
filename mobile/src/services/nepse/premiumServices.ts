@@ -411,6 +411,36 @@ function refreshFinancialReportsInBackground(
  * instantly, and refreshes it in the background unless there's nothing to
  * show yet or `force` is explicitly requested (e.g. pull-to-refresh).
  */
+/** Sync peek of warm financial-reports feed (memory only). */
+export function peekFinancialReportsFeed(limit = 400): {
+  asOf: string;
+  summary: Array<{ label: string; value: string }>;
+  rows: FinancialReportFeedRow[];
+} | null {
+  if (!financialReportsFeedCache?.payload?.rows?.length) return null;
+  return {
+    ...financialReportsFeedCache.payload,
+    rows: financialReportsFeedCache.payload.rows.slice(0, limit),
+  };
+}
+
+/** Kick disk hydrate + background refresh so Financial Reports opens warm. */
+export function prefetchFinancialReportsFeed(): void {
+  void (async () => {
+    try {
+      await hydrateFeedFromDisk();
+      if (
+        !financialReportsFeedCache ||
+        Date.now() - financialReportsFeedCache.at >= FEED_CACHE_TTL_MS
+      ) {
+        await loadFinancialReportsFeed(400);
+      }
+    } catch {
+      // best-effort
+    }
+  })();
+}
+
 export async function loadFinancialReportsFeed(
   limit = 400,
   opts?: { force?: boolean; symbolLimit?: number },

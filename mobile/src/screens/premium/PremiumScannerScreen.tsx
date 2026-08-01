@@ -23,6 +23,7 @@ import {
 import { BrokerFlowScreen } from './BrokerFlowScreen';
 import { fmtNum } from '../../services/nepse/screener';
 import { rs } from '../../utils/responsive';
+import { safeGoBack } from '../../utils/safeGoBack';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -70,7 +71,7 @@ export function PremiumScannerScreen({ kind }: { kind: PremiumScannerKind }) {
 
   usePollingRefresh(refresh);
 
-  const body = loading ? (
+  const body = loading && rows.length === 0 ? (
     <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />
   ) : (
     <FlatList
@@ -127,7 +128,7 @@ export function PremiumScannerScreen({ kind }: { kind: PremiumScannerKind }) {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => safeGoBack(navigation)} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>{copy.title}</Text>

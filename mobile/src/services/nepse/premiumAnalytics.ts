@@ -194,6 +194,16 @@ export async function loadAggressiveHolderRows(limit = 40): Promise<SmartMoneyRo
   return rows.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
+let marketPulseCache: { at: number; pulse: MarketPulse } | null = null;
+const MARKET_PULSE_TTL_MS = 30_000;
+
+/** Instant read of a warm Live Market Pulse board. */
+export function peekMarketPulse(): MarketPulse | null {
+  if (!marketPulseCache) return null;
+  if (Date.now() - marketPulseCache.at > MARKET_PULSE_TTL_MS) return null;
+  return marketPulseCache.pulse;
+}
+
 export async function loadMarketPulse(): Promise<MarketPulse> {
   const home = await fetchHomePage();
   const summary = (home?.marketSummary ?? []).map((r) => ({
@@ -234,7 +244,7 @@ export async function loadMarketPulse(): Promise<MarketPulse> {
   const supply = mapBook(supplyRaw);
   const hotSymbols = demand.map((d) => d.symbol).slice(0, 8);
 
-  return {
+  const pulse: MarketPulse = {
     status: home?.marketStatus?.status ?? 'UNKNOWN',
     asOf: home?.marketStatus?.time ?? null,
     summary,
@@ -243,6 +253,8 @@ export async function loadMarketPulse(): Promise<MarketPulse> {
     demand,
     supply,
   };
+  marketPulseCache = { at: Date.now(), pulse };
+  return pulse;
 }
 
 function buildInsights(args: {

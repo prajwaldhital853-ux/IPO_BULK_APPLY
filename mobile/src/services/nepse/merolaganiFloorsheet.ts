@@ -1,6 +1,9 @@
+import { fetchWithTimeout } from './fetchWithTimeout';
 import type { FloorsheetRow } from './screener';
 
 const MERO_FLOOR = 'https://merolagani.com/Floorsheet.aspx';
+/** Floorsheet HTML pages are large — allow a bit longer than JSON APIs. */
+const MERO_TIMEOUT_MS = 15_000;
 /** 4 pages × ~500 trades is enough for Acc/Dis rankings and stays fast. */
 export const MERO_FLOOR_FAST_PAGES = 4;
 
@@ -113,14 +116,18 @@ export async function probeMerolaganiFloorSession(): Promise<{
   sampleRows: number;
 } | null> {
   try {
-    const res = await fetch(MERO_FLOOR, {
-      headers: {
-        Accept: 'text/html',
-        'User-Agent':
-          'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
-        'Cache-Control': 'no-cache',
+    const res = await fetchWithTimeout(
+      MERO_FLOOR,
+      {
+        headers: {
+          Accept: 'text/html',
+          'User-Agent':
+            'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+          'Cache-Control': 'no-cache',
+        },
       },
-    });
+      MERO_TIMEOUT_MS,
+    );
     if (!res.ok) return null;
     const html = await res.text();
     const asOf = parseAsOf(html);
@@ -196,18 +203,22 @@ async function postFloorSearch(
   body.set('ctl00$ContentPlaceHolder1$PagerControl1$hdnCurrentPage', '1');
   body.set('ctl00$ContentPlaceHolder1$PagerControl1$hdnPCID', 'PC1');
 
-  const res = await fetch(MERO_FLOOR, {
-    method: 'POST',
-    headers: {
-      Accept: 'text/html',
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent':
-        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
-      Referer: MERO_FLOOR,
-      Origin: 'https://merolagani.com',
+  const res = await fetchWithTimeout(
+    MERO_FLOOR,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'text/html',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent':
+          'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+        Referer: MERO_FLOOR,
+        Origin: 'https://merolagani.com',
+      },
+      body: body.toString(),
     },
-    body: body.toString(),
-  });
+    MERO_TIMEOUT_MS,
+  );
   if (!res.ok) throw new Error('Merolagani floorsheet search failed');
   return res.text();
 }
@@ -239,16 +250,20 @@ async function postFloorPage(html: string, page: number): Promise<string> {
   );
   body.set('ctl00$ContentPlaceHolder1$PagerControl1$hdnPCID', 'PC1');
 
-  const res = await fetch(MERO_FLOOR, {
-    method: 'POST',
-    headers: {
-      Accept: 'text/html',
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent':
-        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+  const res = await fetchWithTimeout(
+    MERO_FLOOR,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'text/html',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent':
+          'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+      },
+      body: body.toString(),
     },
-    body: body.toString(),
-  });
+    MERO_TIMEOUT_MS,
+  );
   if (!res.ok) throw new Error(`Merolagani floorsheet page ${page} failed`);
   return res.text();
 }
@@ -270,14 +285,18 @@ export async function loadMerolaganiFloorsheetProgressive(
   maxPages = MERO_FLOOR_FAST_PAGES,
   opts: { dateIso?: string } = {},
 ): Promise<{ rows: FloorsheetRow[]; asOf: string | null }> {
-  const firstRes = await fetch(MERO_FLOOR, {
-    headers: {
-      Accept: 'text/html',
-      'User-Agent':
-        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
-      'Cache-Control': 'no-cache',
+  const firstRes = await fetchWithTimeout(
+    MERO_FLOOR,
+    {
+      headers: {
+        Accept: 'text/html',
+        'User-Agent':
+          'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+        'Cache-Control': 'no-cache',
+      },
     },
-  });
+    MERO_TIMEOUT_MS,
+  );
   if (!firstRes.ok) throw new Error('Merolagani floorsheet unavailable');
   let html = await firstRes.text();
   await yieldUi();
@@ -325,14 +344,18 @@ export async function loadMerolaganiFloorsheetForSymbol(
   const sym = symbol.toUpperCase().trim();
   if (!sym) return { rows: [], asOf: null };
 
-  const firstRes = await fetch(MERO_FLOOR, {
-    headers: {
-      Accept: 'text/html',
-      'User-Agent':
-        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
-      'Cache-Control': 'no-cache',
+  const firstRes = await fetchWithTimeout(
+    MERO_FLOOR,
+    {
+      headers: {
+        Accept: 'text/html',
+        'User-Agent':
+          'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+        'Cache-Control': 'no-cache',
+      },
     },
-  });
+    MERO_TIMEOUT_MS,
+  );
   if (!firstRes.ok) throw new Error('Merolagani floorsheet unavailable');
   let html = await firstRes.text();
 

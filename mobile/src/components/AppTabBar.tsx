@@ -3,7 +3,6 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
@@ -30,7 +29,8 @@ const ICONS: Record<
   Profile: { ion: 'person-outline' },
 };
 
-const SPRING = { damping: 18, stiffness: 280, mass: 0.55 };
+/** Snappy spring — instant press feedback without a soft laggy settle. */
+const SPRING = { damping: 26, stiffness: 420, mass: 0.4 };
 
 function TabItem({
   label,
@@ -62,10 +62,7 @@ function TabItem({
       [0, 1],
       ['rgba(0,0,0,0)', activeBg],
     ),
-    transform: [
-      { scale: interpolate(progress.value, [0, 1], [0.86, 1]) },
-    ],
-    opacity: interpolate(progress.value, [0, 1], [0.75, 1]),
+    transform: [{ scale: interpolate(progress.value, [0, 1], [0.88, 1]) }],
   }));
 
   const wrapStyle = useAnimatedStyle(() => ({
@@ -78,7 +75,6 @@ function TabItem({
       [0, 1],
       [inactiveColor, activeColor],
     ),
-    opacity: interpolate(progress.value, [0, 1], [0.85, 1]),
   }));
 
   return (
@@ -141,7 +137,8 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
               canPreventDefault: true,
             });
             if (!focused && !event.defaultPrevented) {
-              navigation.navigate(route.name);
+              // Instant index change — same feel as the reference video.
+              navigation.jumpTo(route.name);
             }
           };
 
@@ -173,19 +170,19 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
 }
 
 const styles = StyleSheet.create({
-    wrap: {
-      borderTopWidth: StyleSheet.hairlineWidth,
-    },
-    row: {
-      flexDirection: 'row',
-      alignItems: 'flex-end',
-      justifyContent: 'space-between',
-      paddingTop: rs(8),
-      paddingBottom: rs(6),
-      paddingHorizontal: rs(4),
-      minHeight: rs(64),
-      backgroundColor: 'transparent',
-    },
+  wrap: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingTop: rs(8),
+    paddingBottom: rs(6),
+    paddingHorizontal: rs(4),
+    minHeight: rs(64),
+    backgroundColor: 'transparent',
+  },
   item: {
     flex: 1,
     alignItems: 'center',

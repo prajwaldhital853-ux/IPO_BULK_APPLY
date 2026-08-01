@@ -19,12 +19,16 @@ import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
 import {
   loadPremiumScreener,
+  peekPremiumScreener,
+  premiumScreenerMeta,
   type PremiumScreenerKind,
   type PremiumScreenerRow,
   type PremiumScreenerSnapshot,
 } from '../../services/nepse/premiumScreeners';
 import { fmtMcap, fmtNum } from '../../services/nepse/screener';
 import { rs } from '../../utils/responsive';
+import { safeGoBack } from '../../utils/safeGoBack';
+import { useAfterInteractions } from '../../utils/useAfterInteractions';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 import { PriceDroppersScreen } from './PriceDroppersScreen';
@@ -80,7 +84,10 @@ function PremiumScreenerBody({ kind }: { kind: PremiumScreenerKind }) {
     () => makeStyles(colors, accentForKind(kind, colors)),
     [colors, kind],
   );
+  const meta = premiumScreenerMeta(kind);
+  const ready = useAfterInteractions();
 
+  // Shell-first: never mount a warm FlatList during the stack push.
   const [snap, setSnap] = useState<PremiumScreenerSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -91,70 +98,84 @@ function PremiumScreenerBody({ kind }: { kind: PremiumScreenerKind }) {
     setLoading(false);
   }, [kind]);
 
+  // Hydrate after the transition finishes — warm peek is free, lists are not.
   useEffect(() => {
-    setLoading(true);
-    void refresh();
-  }, [refresh]);
+    if (!ready) return;
+    const warm = peekPremiumScreener(kind);
+    if (warm?.rows.length) {
+      setSnap(warm);
+      setLoading(false);
+      void refresh(true);
+    } else {
+      void refresh(false);
+    }
+  }, [ready, kind, refresh]);
 
-  usePollingRefresh(refresh);
+  usePollingRefresh(ready ? refresh : async () => undefined);
 
-  const body = loading && !snap ? (
-    <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />
-  ) : (
-    <FlatList
-      data={snap?.rows ?? []}
-      keyExtractor={(item) => item.symbol}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            void refresh(true).finally(() => setRefreshing(false));
-          }}
-        />
-      }
-      contentContainerStyle={styles.list}
-      ListHeaderComponent={
-        <View style={styles.hero}>
-          <View style={styles.liveRow}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>
-              Live · refreshed {fmtAsOf(snap?.asOf ?? new Date().toISOString())}
-            </Text>
+  const body =
+    loading && !snap ? (
+      <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />
+    ) : (
+      <FlatList
+        data={snap?.rows ?? []}
+        keyExtractor={(item) => item.symbol}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              void refresh(true).finally(() => setRefreshing(false));
+            }}
+          />
+        }
+        contentContainerStyle={styles.list}
+        ListHeaderComponent={
+          <View style={styles.hero}>
+            <View style={styles.liveRow}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>
+                Live · refreshed {fmtAsOf(snap?.asOf ?? new Date().toISOString())}
+              </Text>
+            </View>
+            <Text style={styles.subtitle}>{snap?.subtitle ?? meta.subtitle}</Text>
+            <View style={styles.summaryRow}>
+              {(snap?.summary ?? []).map((s) => (
+                <View key={s.label} style={styles.summaryPill}>
+                  <Text style={styles.summaryVal}>{s.value}</Text>
+                  <Text style={styles.summaryLabel}>{s.label}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-          <Text style={styles.subtitle}>{snap?.subtitle}</Text>
-          <View style={styles.summaryRow}>
-            {(snap?.summary ?? []).map((s) => (
-              <View key={s.label} style={styles.summaryPill}>
-                <Text style={styles.summaryVal}>{s.value}</Text>
-                <Text style={styles.summaryLabel}>{s.label}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      }
-      renderItem={({ item }) => (
-        <ScreenerCard
-          item={item}
-          colors={colors}
-          styles={styles}
-          onPress={() => navigation.navigate('StockDetail', { symbol: item.symbol })}
-        />
-      )}
-      ListEmptyComponent={
-        <Text style={styles.empty}>No stocks match this screener right now.</Text>
-      }
-    />
-  );
+        }
+        renderItem={({ item }) => (
+          <ScreenerCard
+            item={item}
+            colors={colors}
+            styles={styles}
+            onPress={() =>
+              navigation.navigate('StockDetail', { symbol: item.symbol })
+            }
+          />
+        )}
+        ListEmptyComponent={
+          <Text style={styles.empty}>No stocks match this screener right now.</Text>
+        }
+      />
+    );
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => safeGoBack(navigation)} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <View style={styles.headerMid}>
-          <Text style={styles.title}>{snap?.title ?? 'Premium Screener'}</Text>
+          <Text style={styles.title}>{snap?.title ?? meta.title}</Text>
           <View style={styles.premiumTag}>
             <Ionicons name="diamond" size={rs(10)} color="#FFD54F" />
             <Text style={styles.premiumTagText}>PREMIUM</Text>
@@ -162,10 +183,7 @@ function PremiumScreenerBody({ kind }: { kind: PremiumScreenerKind }) {
         </View>
         <View style={{ width: rs(22) }} />
       </View>
-      <PremiumGate
-        title={snap?.title ?? 'Premium Screener'}
-        subtitle={snap?.subtitle ?? 'Advanced live screeners — Premium only.'}
-      >
+      <PremiumGate title={meta.title} subtitle={meta.subtitle}>
         {body}
       </PremiumGate>
     </View>

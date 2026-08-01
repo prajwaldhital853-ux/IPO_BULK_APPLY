@@ -97,11 +97,17 @@ export async function resolveClientId(
   const raw = String(dpIdOrCode).trim();
 
   if (hint?.dpCode && hint.clientId != null && Number.isFinite(hint.clientId)) {
-    return {
-      clientId: hint.clientId,
-      dpCode: String(hint.dpCode),
-      name: hint.name ?? '',
-    };
+    const hintedId = Number(hint.clientId);
+    const hintedCode = String(hint.dpCode);
+    // UI sometimes passes the 5-digit DP code as clientId when the live DP
+    // list could not be loaded — never treat that as the MeroShare login id.
+    if (String(hintedId) !== hintedCode) {
+      return {
+        clientId: hintedId,
+        dpCode: hintedCode,
+        name: hint.name ?? '',
+      };
+    }
   }
   if (hint?.dpCode && /^\d+$/.test(raw) && raw.length < 5) {
     return {

@@ -142,7 +142,7 @@ export function FinancialNewsScreen() {
           if (next) setSourceId(next.id);
         }}
       >
-      {loading ? (
+      {loading && rows.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator color={ACCENT} />
         </View>

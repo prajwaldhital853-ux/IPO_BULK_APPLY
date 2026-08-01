@@ -455,6 +455,36 @@ function loadHighEarners(rows: MiniScreenerRow[], limit: number): PremiumScreene
   return rankRows(picked, limit);
 }
 
+const SCREENER_SNAP_TTL_MS = 5 * 60_000;
+const screenerSnapCache = new Map<
+  PremiumScreenerKind,
+  { at: number; snap: PremiumScreenerSnapshot }
+>();
+let screenerPrefetch: Promise<void> | null = null;
+
+const ALL_SCREENER_KINDS: PremiumScreenerKind[] = [
+  'small-caps',
+  'rising-stocks',
+  'price-droppers',
+  'value-pick',
+  'unlock-period',
+  'hydropower-leaders',
+  'microfinance-leaders',
+  'development-leaders',
+  'finance-leaders',
+  'strong-reserves',
+  'high-earners',
+];
+
+/** Instant read of a warm screener board (memory). */
+export function peekPremiumScreener(
+  kind: PremiumScreenerKind,
+): PremiumScreenerSnapshot | null {
+  const hit = screenerSnapCache.get(kind);
+  if (!hit || Date.now() - hit.at > SCREENER_SNAP_TTL_MS) return null;
+  return hit.snap;
+}
+
 export async function loadPremiumScreener(
   kind: PremiumScreenerKind,
   limit = 50,
@@ -526,7 +556,7 @@ export async function loadPremiumScreener(
             ? [{ label: 'Avg P/B', value: avgMetric(result, (r) => r.pb) }]
             : [];
 
-  return {
+  const snap: PremiumScreenerSnapshot = {
     kind,
     title: copy.title,
     subtitle: copy.subtitle,
@@ -534,6 +564,31 @@ export async function loadPremiumScreener(
     summary: buildSummary(result, extraSummary),
     rows: result,
   };
+  screenerSnapCache.set(kind, { at: Date.now(), snap });
+  return snap;
+}
+
+/**
+ * Warm all premium screener boards in the background (Services focus / app warm-up).
+ * After mini-screener is hot, most kinds are CPU-only and finish quickly.
+ */
+export function prefetchPremiumScreeners(): void {
+  if (screenerPrefetch) return;
+  screenerPrefetch = (async () => {
+    try {
+      await loadMiniScreener().catch(() => null);
+      // Sync kinds first (fast), then unlock-period (needs IPO offerings).
+      const syncKinds = ALL_SCREENER_KINDS.filter((k) => k !== 'unlock-period');
+      await Promise.allSettled(syncKinds.map((k) => loadPremiumScreener(k)));
+      await loadPremiumScreener('unlock-period').catch(() => null);
+    } catch {
+      // best-effort
+    } finally {
+      setTimeout(() => {
+        screenerPrefetch = null;
+      }, 15_000);
+    }
+  })();
 }
 
 function avgMetric(
@@ -553,4 +608,12 @@ function avgMcap(rows: PremiumScreenerRow[]): string {
 
 export function premiumScreenerTitle(kind: PremiumScreenerKind): string {
   return COPY[kind].title;
+}
+
+/** Instant title/subtitle for shell-first open (before data loads). */
+export function premiumScreenerMeta(kind: PremiumScreenerKind): {
+  title: string;
+  subtitle: string;
+} {
+  return COPY[kind];
 }

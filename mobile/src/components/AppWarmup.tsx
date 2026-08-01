@@ -8,9 +8,11 @@ export function AppWarmup() {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const handle = InteractionManager.runAfterInteractions(() => {
+      // Give startup (auth, home data, first taps) ~3s of clear runway
+      // before background warm-up starts competing for the JS thread.
       timer = setTimeout(() => {
         if (!cancelled) prefetchServicesData();
-      }, 600);
+      }, 3000);
     });
     return () => {
       cancelled = true;
