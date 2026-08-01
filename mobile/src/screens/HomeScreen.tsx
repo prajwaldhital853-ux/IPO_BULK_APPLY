@@ -77,14 +77,21 @@ function AccountCard({
             <Text style={styles.railIndex}>{indexLabel}</Text>
           </View>
           <View style={styles.avatarRing}>
-            <Ionicons name="person" size={rs(18)} color={colors.textMuted} />
+            <Ionicons name="person" size={rs(18)} color={colors.primary} />
           </View>
         </View>
 
         <View style={styles.cardBody}>
-          <Text style={styles.name} numberOfLines={1}>
-            {item.name.toUpperCase()}
-          </Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.name} numberOfLines={1}>
+              {item.name.toUpperCase()}
+            </Text>
+            {verified ? (
+              <View style={styles.verifiedBadge}>
+                <Ionicons name="checkmark" size={rs(7)} color="#FFFFFF" />
+              </View>
+            ) : null}
+          </View>
           <Text style={styles.username} numberOfLines={1}>
             Username : {item.username}
           </Text>
@@ -431,90 +438,96 @@ export function HomeScreen() {
         <HomeMarketPanel active={tab === 'Market'} />
       ) : (
         <>
-          {searchOpen ? (
-            <View style={styles.searchBar}>
-              <Ionicons name="search" size={rs(16)} color={colors.textMuted} />
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder="Search name or username"
-                placeholderTextColor={colors.textMuted}
-                style={styles.searchInput}
-                autoFocus
-              />
-              <Pressable
-                onPress={() => {
-                  setQuery('');
-                  setSearchOpen(false);
-                }}
-                hitSlop={8}
-              >
-                <Ionicons name="close" size={rs(20)} color={colors.textMuted} />
-              </Pressable>
-            </View>
-          ) : null}
-
-          <View style={styles.listHead}>
-            <View style={styles.totalWrap}>
-              <Text style={styles.totalLabel}>Total Accounts</Text>
-              <Text style={styles.totalCount}>
-                <Text style={styles.totalCountOn}>{accounts.length}</Text>
-                <Text style={styles.totalCountMax}> / {maxAccounts}</Text>
-              </Text>
-            </View>
-            <View style={styles.listActions}>
-              <Pressable
-                onPress={() => setSearchOpen((v) => !v)}
-                hitSlop={6}
-                style={styles.iconBtn}
-              >
-                <Ionicons name="search" size={rs(18)} color={colors.text} />
-              </Pressable>
-              <Pressable
-                onPress={() => void exportAccounts()}
-                hitSlop={6}
-                style={styles.iconBtn}
-                disabled={!accounts.length || exporting}
-              >
-                <Ionicons
-                  name={exporting ? 'hourglass-outline' : 'share-outline'}
-                  size={rs(18)}
-                  color={
-                    accounts.length && !exporting
-                      ? colors.text
-                      : colors.textMuted
+          {/* Sticky total-accounts bar — stays above the scrolling list */}
+          <View style={styles.stickyHead}>
+            <View style={styles.totalCard}>
+              <View style={styles.totalIconWrap}>
+                <Ionicons name="people" size={rs(16)} color={colors.primary} />
+              </View>
+              <View style={styles.totalWrap}>
+                <Text style={styles.totalLabel}>Total Accounts</Text>
+                <Text style={styles.totalCount}>
+                  <Text style={styles.totalCountOn}>{accounts.length}</Text>
+                  <Text style={styles.totalCountMax}> / {maxAccounts}</Text>
+                </Text>
+              </View>
+              <View style={styles.listActions}>
+                <Pressable
+                  onPress={() => setSearchOpen((v) => !v)}
+                  hitSlop={6}
+                  style={styles.iconBtn}
+                >
+                  <Ionicons name="search" size={rs(15)} color={colors.text} />
+                </Pressable>
+                <Pressable
+                  onPress={() => void exportAccounts()}
+                  hitSlop={6}
+                  style={styles.iconBtn}
+                  disabled={!accounts.length || exporting}
+                >
+                  <Ionicons
+                    name={exporting ? 'hourglass-outline' : 'share-outline'}
+                    size={rs(15)}
+                    color={
+                      accounts.length && !exporting
+                        ? colors.text
+                        : colors.textMuted
+                    }
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={toggleDemoAccounts}
+                  hitSlop={6}
+                  style={styles.iconBtn}
+                  disabled={demoBusy}
+                >
+                  <Ionicons
+                    name={hasMockAccounts ? 'flask' : 'flask-outline'}
+                    size={rs(15)}
+                    color={demoBusy ? colors.textMuted : colors.text}
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    Alert.alert(
+                      'Accounts',
+                      'Tap a card or › to open details. Tap ⋮ for more actions (edit, MeroShare, reorder). Use + to add a MeroShare account.',
+                    )
                   }
-                />
-              </Pressable>
-              <Pressable
-                onPress={toggleDemoAccounts}
-                hitSlop={6}
-                style={styles.iconBtn}
-                disabled={demoBusy}
-              >
-                <Ionicons
-                  name={hasMockAccounts ? 'flask' : 'flask-outline'}
-                  size={rs(18)}
-                  color={demoBusy ? colors.textMuted : colors.text}
-                />
-              </Pressable>
-              <Pressable
-                onPress={() =>
-                  Alert.alert(
-                    'Accounts',
-                    'Tap a card or › to open details. Tap ⋮ for more actions (edit, MeroShare, reorder). Use + to add a MeroShare account.',
-                  )
-                }
-                hitSlop={6}
-                style={styles.iconBtn}
-              >
-                <Ionicons
-                  name="information-circle-outline"
-                  size={rs(18)}
-                  color={colors.text}
-                />
-              </Pressable>
+                  hitSlop={6}
+                  style={styles.iconBtn}
+                >
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={rs(15)}
+                    color={colors.text}
+                  />
+                </Pressable>
+              </View>
             </View>
+
+            {searchOpen ? (
+              <View style={styles.searchBar}>
+                <Ionicons name="search" size={rs(16)} color={colors.textMuted} />
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Search name or username"
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.searchInput}
+                  autoFocus
+                />
+                <Pressable
+                  onPress={() => {
+                    setQuery('');
+                    setSearchOpen(false);
+                  }}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={rs(20)} color={colors.textMuted} />
+                </Pressable>
+              </View>
+            ) : null}
           </View>
 
           <DraggableFlatList
@@ -627,12 +640,42 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderRadius: 2,
       backgroundColor: c.primary,
     },
+    stickyHead: {
+      backgroundColor: c.bg,
+      paddingHorizontal: HOME_H_PAD,
+      paddingTop: rs(10),
+      paddingBottom: rs(8),
+      zIndex: 4,
+    },
+    totalCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
+      borderRadius: rs(12),
+      backgroundColor: cardBg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? c.borderMuted : '#E8ECE6',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: rs(1) },
+      shadowOpacity: isDark ? 0.2 : 0.06,
+      shadowRadius: rs(4),
+      elevation: 2,
+    },
+    totalIconWrap: {
+      width: rs(34),
+      height: rs(34),
+      borderRadius: rs(17),
+      backgroundColor: c.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      marginHorizontal: HOME_H_PAD,
-      marginTop: rs(10),
+      marginTop: rs(8),
       paddingHorizontal: rs(12),
       paddingVertical: rs(10),
       borderRadius: rs(12),
@@ -646,21 +689,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontSize: rs(14),
       padding: 0,
     },
-    listHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: HOME_H_PAD,
-      paddingTop: rs(12),
-      paddingBottom: rs(10),
-      gap: rs(8),
-    },
-    totalWrap: { flexShrink: 1 },
-    totalLabel: { color: c.text, fontSize: rs(14), fontWeight: '800' },
-    totalCount: { marginTop: rs(2) },
+    totalWrap: { flex: 1, minWidth: 0 },
+    totalLabel: { color: c.text, fontSize: rs(12), fontWeight: '700' },
+    totalCount: { marginTop: rs(1) },
     totalCountOn: {
       color: c.primary,
-      fontSize: rs(16),
+      fontSize: rs(18),
       fontWeight: '800',
     },
     totalCountMax: {
@@ -670,12 +704,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     listActions: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
     iconBtn: {
-      width: rs(34),
-      height: rs(34),
-      borderRadius: rs(8),
+      width: rs(28),
+      height: rs(28),
+      borderRadius: rs(7),
       borderWidth: 1,
       borderColor: c.border,
-      backgroundColor: c.surface,
+      backgroundColor: isDark ? c.surfaceAlt : '#F3F7F2',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -683,7 +717,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     list: {
       paddingHorizontal: HOME_H_PAD,
       paddingBottom: rs(100),
-      paddingTop: rs(2),
+      paddingTop: rs(4),
     },
     listEmpty: { flexGrow: 1, paddingBottom: rs(100) },
     card: {
@@ -756,11 +790,27 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       paddingVertical: rs(8),
       paddingRight: rs(40),
     },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(6),
+      minWidth: 0,
+    },
     name: {
+      flexShrink: 1,
       color: c.text,
       fontWeight: '800',
       fontSize: rs(13),
       letterSpacing: 0.15,
+    },
+    verifiedBadge: {
+      width: rs(12),
+      height: rs(12),
+      borderRadius: rs(6),
+      backgroundColor: c.checkIconGreen || c.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
     },
     username: {
       color: c.textMuted,
