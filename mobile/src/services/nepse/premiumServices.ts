@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   fmtAmtShort,
   fmtMcap,
@@ -14,7 +15,11 @@ import {
 import type { PremiumScreenerRow } from './premiumScreeners';
 
 const DATA_BASE = 'https://sharehubnepal.com/data/api/v1';
+/** In-memory freshness — after this, a background refresh is triggered on next open. */
 const FEED_CACHE_TTL_MS = 15 * 60 * 1000;
+/** Disk snapshot stays usable across app restarts so a cold open still paints instantly. */
+const FEED_DISK_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const FEED_DISK_KEY = '@nepse/financial_reports_feed_v1';
 
 export type PremiumToolKind =
   | 'stock-filter'
@@ -70,6 +75,34 @@ type FeedCache = {
 };
 
 let financialReportsFeedCache: FeedCache | null = null;
+let feedDiskHydrateAttempted = false;
+let feedRefreshInFlight: Promise<FeedCache['payload']> | null = null;
+
+async function hydrateFeedFromDisk(): Promise<void> {
+  if (feedDiskHydrateAttempted || financialReportsFeedCache) return;
+  feedDiskHydrateAttempted = true;
+  try {
+    const raw = await AsyncStorage.getItem(FEED_DISK_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as FeedCache;
+    if (
+      parsed?.payload?.rows?.length &&
+      Date.now() - parsed.at < FEED_DISK_MAX_AGE_MS
+    ) {
+      financialReportsFeedCache = parsed;
+    }
+  } catch {
+    // ignore — network fetch below still works
+  }
+}
+
+async function persistFeedToDisk(cache: FeedCache): Promise<void> {
+  try {
+    await AsyncStorage.setItem(FEED_DISK_KEY, JSON.stringify(cache));
+  } catch {
+    // ignore disk errors
+  }
+}
 
 export type MarketDepthRow = {
   symbol: string;
@@ -179,7 +212,7 @@ export async function loadStockFilter(
   preset: StockFilterPreset,
   limit = 60,
 ): Promise<StockFilterSnapshot> {
-  const screener = await loadMiniScreener(true);
+  const screener = await loadMiniScreener();
   const filtered = applyFilterPreset(screener, preset).slice(0, limit);
   const meta = STOCK_FILTER_PRESETS.find((p) => p.id === preset)!;
   const mapped = filtered.map((r, i) =>
@@ -243,27 +276,10 @@ function fundNum(
  * Market-wide financial reports from ShareHub fundamental/values.
  * Previous announcement-title filter only matched a handful of recent notices.
  */
-export async function loadFinancialReportsFeed(
-  limit = 400,
-  opts?: { force?: boolean; symbolLimit?: number },
-): Promise<{
-  asOf: string;
-  summary: Array<{ label: string; value: string }>;
-  rows: FinancialReportFeedRow[];
-}> {
-  if (
-    !opts?.force &&
-    financialReportsFeedCache &&
-    Date.now() - financialReportsFeedCache.at < FEED_CACHE_TTL_MS
-  ) {
-    return {
-      ...financialReportsFeedCache.payload,
-      rows: financialReportsFeedCache.payload.rows.slice(0, limit),
-    };
-  }
-
-  const screener = await loadMiniScreener(true);
-  const symbolLimit = opts?.symbolLimit ?? 160;
+async function fetchFinancialReportsFeed(
+  symbolLimit: number,
+): Promise<FeedCache['payload']> {
+  const screener = await loadMiniScreener();
   const symbols = [...screener]
     .filter((r) => r.symbol && !r.symbol.includes(' '))
     .sort(
@@ -371,11 +387,57 @@ export async function loadFinancialReportsFeed(
     rows: unique,
   };
 
-  financialReportsFeedCache = { at: Date.now(), payload };
-  return {
-    ...payload,
-    rows: unique.slice(0, limit),
-  };
+  return payload;
+}
+
+function refreshFinancialReportsInBackground(
+  symbolLimit: number,
+): Promise<FeedCache['payload']> {
+  if (feedRefreshInFlight) return feedRefreshInFlight;
+  feedRefreshInFlight = (async () => {
+    const payload = await fetchFinancialReportsFeed(symbolLimit);
+    const cache: FeedCache = { at: Date.now(), payload };
+    financialReportsFeedCache = cache;
+    void persistFeedToDisk(cache);
+    return payload;
+  })().finally(() => {
+    feedRefreshInFlight = null;
+  });
+  return feedRefreshInFlight;
+}
+
+/**
+ * Stale-while-revalidate: serves the last known feed (memory, then disk)
+ * instantly, and refreshes it in the background unless there's nothing to
+ * show yet or `force` is explicitly requested (e.g. pull-to-refresh).
+ */
+export async function loadFinancialReportsFeed(
+  limit = 400,
+  opts?: { force?: boolean; symbolLimit?: number },
+): Promise<{
+  asOf: string;
+  summary: Array<{ label: string; value: string }>;
+  rows: FinancialReportFeedRow[];
+}> {
+  const symbolLimit = opts?.symbolLimit ?? 160;
+  await hydrateFeedFromDisk();
+
+  const isFresh =
+    !!financialReportsFeedCache &&
+    Date.now() - financialReportsFeedCache.at < FEED_CACHE_TTL_MS;
+
+  if (!opts?.force && financialReportsFeedCache) {
+    if (!isFresh) {
+      void refreshFinancialReportsInBackground(symbolLimit);
+    }
+    return {
+      ...financialReportsFeedCache.payload,
+      rows: financialReportsFeedCache.payload.rows.slice(0, limit),
+    };
+  }
+
+  const payload = await refreshFinancialReportsInBackground(symbolLimit);
+  return { ...payload, rows: payload.rows.slice(0, limit) };
 }
 
 export async function loadMarketDepthBoard(limit = 50): Promise<{
@@ -386,7 +448,7 @@ export async function loadMarketDepthBoard(limit = 50): Promise<{
   const [demand, supply, screener] = await Promise.all([
     loadHighDemand(),
     loadHighSupply(),
-    loadMiniScreener(true),
+    loadMiniScreener(),
   ]);
   const quoteMap = new Map(
     screener.map((r) => [r.symbol.toUpperCase(), r]),
@@ -458,12 +520,12 @@ export async function loadPremiumFloorsheet(
   pageSize = 50,
   pages = 2,
 ): Promise<PremiumFloorsheetSnapshot> {
-  const all: FloorsheetRow[] = [];
-  for (let p = 1; p <= pages; p += 1) {
-    const res = await loadFloorsheet(p, pageSize);
-    all.push(...res.rows);
-    if (!res.hasNext) break;
-  }
+  // Pages are independent — fetch them together instead of one-await-at-a-time.
+  const pageNums = Array.from({ length: pages }, (_, i) => i + 1);
+  const results = await Promise.all(
+    pageNums.map((p) => loadFloorsheet(p, pageSize)),
+  );
+  const all: FloorsheetRow[] = results.flatMap((res) => res.rows);
 
   const symAgg = new Map<
     string,

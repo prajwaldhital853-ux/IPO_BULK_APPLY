@@ -162,7 +162,7 @@ function scoreRow(
 
 export async function loadAccumulationRows(limit = 40): Promise<SmartMoneyRow[]> {
   const [screener, demand] = await Promise.all([
-    loadMiniScreener(true),
+    loadMiniScreener(),
     loadHighDemand(),
   ]);
   const demandSyms = new Set(demand.map((d) => d.symbol.toUpperCase()));
@@ -175,7 +175,7 @@ export async function loadAccumulationRows(limit = 40): Promise<SmartMoneyRow[]>
 
 export async function loadDistributionRows(limit = 40): Promise<SmartMoneyRow[]> {
   const [screener, supply] = await Promise.all([
-    loadMiniScreener(true),
+    loadMiniScreener(),
     loadHighSupply(),
   ]);
   const supplySyms = new Set(supply.map((d) => d.symbol.toUpperCase()));
@@ -187,7 +187,7 @@ export async function loadDistributionRows(limit = 40): Promise<SmartMoneyRow[]>
 }
 
 export async function loadAggressiveHolderRows(limit = 40): Promise<SmartMoneyRow[]> {
-  const screener = await loadMiniScreener(true);
+  const screener = await loadMiniScreener();
   const rows = screener
     .map((r) => scoreRow(r, 'aggressive'))
     .filter(Boolean) as SmartMoneyRow[];

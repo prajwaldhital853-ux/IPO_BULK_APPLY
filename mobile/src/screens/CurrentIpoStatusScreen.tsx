@@ -33,8 +33,8 @@ import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 
 const ACCENT = '#2D5A27';
-/** Darker forest green for check CTAs in dark mode */
-const ACCENT_DARK = '#145218';
+/** Deep forest green for check CTAs in dark mode */
+const ACCENT_DARK = '#0A3A14';
 const HEADER_BG = '#E8F0E6';
 const BODY_BG = '#F6F8F2';
 const GREEN = '#2E7D32';

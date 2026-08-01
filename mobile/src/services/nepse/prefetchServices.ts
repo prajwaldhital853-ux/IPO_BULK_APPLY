@@ -1,4 +1,4 @@
-import { prefetchBrokerFlowIntel } from './brokerAnalytics';
+import { loadFiftyTwoWeekRows, prefetchBrokerFlowIntel } from './brokerAnalytics';
 import {
   loadForexRates,
   loadFuelPrices,
@@ -7,8 +7,13 @@ import {
   loadMarketIndicators,
 } from './extraData';
 import { loadNepseMarketSnapshot } from './market';
+import { loadMarketPulse } from './premiumAnalytics';
 import { loadPremiumScreener } from './premiumScreeners';
-import { loadStockFilter } from './premiumServices';
+import {
+  loadFinancialReportsFeed,
+  loadMarketDepthBoard,
+  loadStockFilter,
+} from './premiumServices';
 import { loadShareNewsProgressive } from './shareNews';
 import {
   loadFloorsheet,
@@ -56,6 +61,23 @@ export function prefetchServicesData(): void {
       loadPremiumScreener('rising-stocks'),
       loadPremiumScreener('small-caps'),
       loadPremiumScreener('value-pick'),
+      loadPremiumScreener('unlock-period'),
+      loadPremiumScreener('hydropower-leaders'),
+      loadPremiumScreener('microfinance-leaders'),
+      loadPremiumScreener('development-leaders'),
+      loadPremiumScreener('finance-leaders'),
+      loadPremiumScreener('strong-reserves'),
+      loadPremiumScreener('high-earners'),
+    ]);
+
+    // Wave 4 — heavier tools (financial reports, market depth, 52-week, pulse)
+    // so they're warm the first time a user opens them, not just on repeat visits.
+    await Promise.allSettled([
+      loadFinancialReportsFeed(400),
+      loadMarketDepthBoard(),
+      loadFiftyTwoWeekRows('high'),
+      loadFiftyTwoWeekRows('low'),
+      loadMarketPulse(),
     ]);
   })();
 }

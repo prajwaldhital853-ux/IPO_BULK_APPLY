@@ -954,9 +954,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
   const fieldBorder = isDark ? c.border : '#B8B8B8';
   const cardBorder = isDark ? c.borderMuted : '#E0E0E0';
   const mutedText = isDark ? c.textMuted : '#757575';
-  const checkBtnBg = isDark ? '#145218' : '#F0EEEA';
+  const checkBtnBg = isDark ? '#0A3A14' : '#F0EEEA';
   const forestGreen = isDark ? '#FFFFFF' : '#2D5A27';
-  const checkBtnBorder = isDark ? '#145218' : cardBorder;
+  const checkBtnBorder = isDark ? '#06280E' : cardBorder;
 
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: pageBg },
@@ -1133,12 +1133,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     checkNowBtnDisabled: {
       borderWidth: 1,
-      borderColor: isDark ? '#0F3A12' : cardBorder,
+      borderColor: isDark ? '#06280E' : cardBorder,
       borderRadius: rs(20),
       minHeight: rs(40),
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? '#0F3A12' : '#F0EEEA',
+      backgroundColor: isDark ? '#0A3A14' : '#F0EEEA',
     },
     checkingNowText: {
       color: isDark ? 'rgba(255,255,255,0.7)' : mutedText,

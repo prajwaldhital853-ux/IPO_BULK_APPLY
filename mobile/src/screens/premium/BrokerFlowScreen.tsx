@@ -845,7 +845,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       width: LOGO_SZ,
       height: LOGO_SZ,
       borderRadius: LOGO_SZ / 2,
-      backgroundColor: '#DCE8E6',
+      backgroundColor: isDark ? c.surfaceAlt : '#DCE8E6',
       alignItems: 'center',
       justifyContent: 'center',
       flexShrink: 0,
@@ -854,7 +854,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       width: LOGO_SZ,
       height: LOGO_SZ,
       borderRadius: LOGO_SZ / 2,
-      backgroundColor: '#DCE8E6',
+      backgroundColor: isDark ? c.surfaceAlt : '#DCE8E6',
       flexShrink: 0,
     },
     logoText: {

@@ -459,7 +459,7 @@ export async function loadPremiumScreener(
   kind: PremiumScreenerKind,
   limit = 50,
 ): Promise<PremiumScreenerSnapshot> {
-  const rows = await loadMiniScreener(true);
+  const rows = await loadMiniScreener();
   const copy = COPY[kind];
   const asOf = new Date().toISOString();
 

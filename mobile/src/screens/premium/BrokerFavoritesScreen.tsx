@@ -474,7 +474,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       width: rs(36),
       height: rs(36),
       borderRadius: rs(18),
-      backgroundColor: '#FFF',
+      backgroundColor: isDark ? c.surfaceAlt : '#FFF',
     },
     logoFallback: {
       width: rs(36),

@@ -1896,10 +1896,12 @@ export async function loadBrokerTopBuySellBoard(): Promise<BrokerTopBuySellBoard
 export async function streamBrokerTopBuySellBoard(
   onUpdate: (board: BrokerTopBuySellBoard, meta: { partial: boolean }) => void,
 ): Promise<BrokerTopBuySellBoard> {
-  const brokers = await loadBrokers();
+  const [brokers, liveDate] = await Promise.all([
+    loadBrokers(),
+    resolveLiveMarketDate(),
+  ]);
   const brokerDir = brokerDirectoryMap(brokers);
   const nameDir = nameDirectory(brokers);
-  const liveDate = await resolveLiveMarketDate();
   const wantToday = expectTodaySession(liveDate);
 
   let last: BrokerTopBuySellBoard = {
@@ -2540,8 +2542,10 @@ export async function loadFiftyTwoWeekRows(
   asOf: string;
   sourceNote: string;
 }> {
-  const asOf = await resolveLiveMarketDate();
-  const mini = await loadMiniScreener(true);
+  const [asOf, mini] = await Promise.all([
+    resolveLiveMarketDate(),
+    loadMiniScreener(),
+  ]);
   const rows = mini
     .map((s) => {
       const ltp = s.ltp;

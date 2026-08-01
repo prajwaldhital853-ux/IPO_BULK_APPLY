@@ -197,13 +197,103 @@ let screenerBaseCache: MiniScreenerRow[] | null = null;
 let screenerBaseCacheAt = 0;
 /** Fundamentals / sector from mini-screener — refresh less often. */
 const BASE_CACHE_MS = 5 * 60_000;
+/** Disk fallback is usable up to this long so a cold app start still paints instantly. */
+const BASE_DISK_MAX_AGE_MS = 6 * 60 * 60_000;
+const SCREENER_BASE_DISK_KEY = '@nepse/mini_screener_base_v1';
+
+let diskHydrateAttempted = false;
+let baseRefreshInFlight: Promise<void> | null = null;
+
+let todaysPriceCache: Map<string, TodayPriceLiveRow> | null = null;
+let todaysPriceCacheAt = 0;
+/** Live price overlay — short TTL so rapid re-opens/re-focuses don't re-hit the network. */
+const PRICE_CACHE_MS = 20_000;
 
 export function invalidateScreenerCache(): void {
   screenerBaseCache = null;
   screenerBaseCacheAt = 0;
+  todaysPriceCache = null;
+  todaysPriceCacheAt = 0;
 }
 
-async function fetchTodaysPriceMap(): Promise<Map<string, TodayPriceLiveRow>> {
+/** Synchronous snapshot for instant paint before any await — null on a truly cold start. */
+export function getCachedMiniScreenerSync(): MiniScreenerRow[] | null {
+  return screenerBaseCache;
+}
+
+async function hydrateBaseFromDisk(): Promise<void> {
+  if (diskHydrateAttempted || screenerBaseCache) return;
+  diskHydrateAttempted = true;
+  try {
+    const raw = await AsyncStorage.getItem(SCREENER_BASE_DISK_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as { rows?: MiniScreenerRow[]; at?: number };
+    if (
+      parsed?.rows?.length &&
+      typeof parsed.at === 'number' &&
+      Date.now() - parsed.at < BASE_DISK_MAX_AGE_MS
+    ) {
+      screenerBaseCache = parsed.rows;
+      screenerBaseCacheAt = parsed.at;
+    }
+  } catch {
+    // ignore disk errors — network fetch below still works
+  }
+}
+
+async function persistBaseToDisk(rows: MiniScreenerRow[], at: number): Promise<void> {
+  try {
+    await AsyncStorage.setItem(
+      SCREENER_BASE_DISK_KEY,
+      JSON.stringify({ rows, at }),
+    );
+  } catch {
+    // ignore — in-memory cache still works this session
+  }
+}
+
+async function fetchBaseRows(force: boolean): Promise<MiniScreenerRow[] | null> {
+  const raw = await dataFetch<ApiList<MiniScreenerRow>>(
+    '/security/mini-screener',
+    force,
+  );
+  const rows = unwrapList(raw);
+  if (!rows.length) return null;
+  return rows.map((r) => ({
+    ...r,
+    symbol: str(r.symbol).toUpperCase(),
+    iconUrl: iconUri(r.iconUrl),
+  }));
+}
+
+/** Refreshes the base cache; safe to run without blocking a caller that already has stale data. */
+function refreshBaseInBackground(force: boolean): Promise<void> {
+  if (baseRefreshInFlight) return baseRefreshInFlight;
+  baseRefreshInFlight = (async () => {
+    try {
+      const rows = await fetchBaseRows(force);
+      if (rows) {
+        screenerBaseCache = rows;
+        screenerBaseCacheAt = Date.now();
+        void persistBaseToDisk(rows, screenerBaseCacheAt);
+      }
+    } finally {
+      baseRefreshInFlight = null;
+    }
+  })();
+  return baseRefreshInFlight;
+}
+
+async function fetchTodaysPriceMap(
+  force = false,
+): Promise<Map<string, TodayPriceLiveRow>> {
+  if (
+    !force &&
+    todaysPriceCache &&
+    Date.now() - todaysPriceCacheAt < PRICE_CACHE_MS
+  ) {
+    return todaysPriceCache;
+  }
   const raw = await liveV2Fetch<ApiList<TodayPriceLiveRow>>('/todays-price', true);
   const rows = unwrapList(raw);
   const map = new Map<string, TodayPriceLiveRow>();
@@ -211,7 +301,11 @@ async function fetchTodaysPriceMap(): Promise<Map<string, TodayPriceLiveRow>> {
     const sym = str(row.symbol).toUpperCase();
     if (sym) map.set(sym, row);
   }
-  return map;
+  if (map.size) {
+    todaysPriceCache = map;
+    todaysPriceCacheAt = Date.now();
+  }
+  return map.size ? map : (todaysPriceCache ?? map);
 }
 
 function applyLivePriceOverlay(
@@ -243,27 +337,30 @@ function applyLivePriceOverlay(
   });
 }
 
+/**
+ * Screener rows with a stale-while-revalidate strategy:
+ * - Serves memory/disk cache instantly when available (even if a bit stale)
+ *   and refreshes it silently in the background for the next call.
+ * - Only blocks on the network when there's truly no usable cache yet, or
+ *   `force` is set (e.g. explicit pull-to-refresh / "check now" actions).
+ */
 export async function loadMiniScreener(
   force = false,
 ): Promise<MiniScreenerRow[]> {
+  await hydrateBaseFromDisk();
   const needBase =
     force ||
     !screenerBaseCache ||
     Date.now() - screenerBaseCacheAt >= BASE_CACHE_MS;
   if (needBase) {
-    const raw = await dataFetch<ApiList<MiniScreenerRow>>(
-      '/security/mini-screener',
-      force,
-    );
-    // Normalize icon paths to absolute CDN URLs so Image can load them.
-    screenerBaseCache = unwrapList(raw).map((r) => ({
-      ...r,
-      symbol: str(r.symbol).toUpperCase(),
-      iconUrl: iconUri(r.iconUrl),
-    }));
-    screenerBaseCacheAt = Date.now();
+    if (screenerBaseCache && !force) {
+      // Have something to show already — refresh quietly, don't block this call.
+      void refreshBaseInBackground(false);
+    } else {
+      await refreshBaseInBackground(force);
+    }
   }
-  const live = await fetchTodaysPriceMap();
+  const live = await fetchTodaysPriceMap(force);
   return applyLivePriceOverlay(screenerBaseCache ?? [], live).map((r) => ({
     ...r,
     iconUrl: iconUri(r.iconUrl),
