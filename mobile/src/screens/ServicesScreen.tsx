@@ -51,6 +51,11 @@ const GRID_COLS = 4;
 /** Shared grid spacing — same for Free, MeroShare, Premium, Extra. */
 const H_PAD = rs(12);
 const GAP = rs(10);
+/** Reference SS tile proportions — nearly square, icon ~44px well. */
+const TILE_ICON = rs(44);
+const TILE_LABEL_LINE_H = rs(13);
+const TILE_LABEL_LINES = 2;
+const TILE_LABEL_BAND = TILE_LABEL_LINE_H * TILE_LABEL_LINES + rs(2);
 
 type ServiceGridLayout = {
   hPad: number;
@@ -64,7 +69,9 @@ type ServiceGridLayout = {
 function computeServiceGridLayout(screenW: number): ServiceGridLayout {
   const cols = GRID_COLS;
   const tileW = Math.floor((screenW - H_PAD * 2 - GAP * (cols - 1)) / cols);
-  const tileH = tileW;
+  // Reference: cards are nearly square, only a little taller than wide.
+  const chrome = rs(10) + TILE_ICON + rs(4) + rs(6);
+  const tileH = chrome + TILE_LABEL_BAND;
   return { hPad: H_PAD, gap: GAP, cols, tileW, tileH };
 }
 
@@ -348,8 +355,8 @@ function ServiceTile({
         styles.tile,
         {
           width: gridLayout.tileW,
-          height: gridLayout.tileH,
           minWidth: gridLayout.tileW,
+          height: gridLayout.tileH,
           minHeight: gridLayout.tileH,
         },
         !isDark && styles.tileLight,
@@ -375,15 +382,18 @@ function ServiceTile({
       >
         <ServiceIcon item={item} isDark={isDark} />
       </View>
-      <Text
-        style={[
-          styles.tileLabel,
-          { color: isDark ? colors.text : SS.labelInk },
-        ]}
-        numberOfLines={2}
-      >
-        {item.label}
-      </Text>
+      <View style={styles.tileLabelWrap}>
+        <Text
+          style={[
+            styles.tileLabel,
+            { color: isDark ? colors.text : SS.labelInk },
+          ]}
+          numberOfLines={TILE_LABEL_LINES}
+          ellipsizeMode="tail"
+        >
+          {item.label}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -567,8 +577,8 @@ function SectionBlock({
                     styles.tileGhost,
                     {
                       width: gridLayout.tileW,
-                      height: gridLayout.tileH,
                       minWidth: gridLayout.tileW,
+                      height: gridLayout.tileH,
                       minHeight: gridLayout.tileH,
                     },
                   ]}
@@ -959,20 +969,15 @@ function makeStyles(c: ThemeColors, isDark: boolean, layout: ServiceGridLayout) 
     },
     tile: {
       flexShrink: 0,
-      width: layout.tileW,
-      height: layout.tileH,
-      minWidth: layout.tileW,
-      minHeight: layout.tileH,
       backgroundColor: isDark ? c.surface : SS.cream,
-      borderRadius: rs(12),
+      borderRadius: rs(14),
       borderWidth: 1,
       borderColor: isDark ? c.border : SS.cardBorder,
       paddingTop: rs(10),
-      paddingBottom: rs(8),
+      paddingBottom: rs(6),
       paddingHorizontal: rs(4),
       alignItems: 'center',
       justifyContent: 'flex-start',
-      overflow: 'visible',
     },
     tileLight: {
       backgroundColor: SS.cream,
@@ -994,34 +999,35 @@ function makeStyles(c: ThemeColors, isDark: boolean, layout: ServiceGridLayout) 
     },
     tileGhost: {
       flexShrink: 0,
-      width: layout.tileW,
-      height: layout.tileH,
-      minWidth: layout.tileW,
-      minHeight: layout.tileH,
       opacity: 0,
     },
     badgeAbs: {
       position: 'absolute',
-      top: rs(-4),
-      right: rs(-2),
+      top: rs(4),
+      right: rs(4),
       zIndex: 2,
     },
     tileIcon: {
-      width: rs(44),
-      height: rs(44),
-      borderRadius: rs(11),
+      width: TILE_ICON,
+      height: TILE_ICON,
+      borderRadius: rs(12),
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: rs(6),
-      marginTop: rs(2),
+      marginBottom: rs(4),
+    },
+    tileLabelWrap: {
+      width: '100%',
+      minHeight: TILE_LABEL_BAND,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: rs(2),
     },
     tileLabel: {
       width: '100%',
-      fontSize: rs(12),
+      fontSize: rs(11),
       fontWeight: '700',
       textAlign: 'center',
-      lineHeight: rs(14),
-      paddingHorizontal: rs(1),
+      lineHeight: TILE_LABEL_LINE_H,
       letterSpacing: 0,
       includeFontPadding: false,
     },
