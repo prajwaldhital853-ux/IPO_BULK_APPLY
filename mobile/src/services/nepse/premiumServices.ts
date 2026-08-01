@@ -1,8 +1,9 @@
 import {
+  fmtAmtShort,
   fmtMcap,
   fmtNum,
+  formatFiscalQuarter,
   iconUri,
-  loadAnnouncements,
   loadFloorsheet,
   loadHighDemand,
   loadHighSupply,
@@ -11,6 +12,9 @@ import {
   type MiniScreenerRow,
 } from './screener';
 import type { PremiumScreenerRow } from './premiumScreeners';
+
+const DATA_BASE = 'https://sharehubnepal.com/data/api/v1';
+const FEED_CACHE_TTL_MS = 15 * 60 * 1000;
 
 export type PremiumToolKind =
   | 'stock-filter'
@@ -55,6 +59,17 @@ export type FinancialReportFeedRow = {
   details: string;
   iconUrl: string | null;
 };
+
+type FeedCache = {
+  at: number;
+  payload: {
+    asOf: string;
+    summary: Array<{ label: string; value: string }>;
+    rows: FinancialReportFeedRow[];
+  };
+};
+
+let financialReportsFeedCache: FeedCache | null = null;
 
 export type MarketDepthRow = {
   symbol: string;
@@ -195,44 +210,171 @@ export async function loadStockFilter(
   };
 }
 
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const idx = cursor++;
+        out[idx] = await fn(items[idx], idx);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return out;
+}
+
+function fundNum(
+  values: Array<{ key?: string; value?: unknown }>,
+  key: string,
+): number | null {
+  const hit = values.find((v) => v.key === key);
+  const n = hit?.value != null ? Number(hit.value) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Market-wide financial reports from ShareHub fundamental/values.
+ * Previous announcement-title filter only matched a handful of recent notices.
+ */
 export async function loadFinancialReportsFeed(
-  limit = 80,
+  limit = 400,
+  opts?: { force?: boolean; symbolLimit?: number },
 ): Promise<{
   asOf: string;
   summary: Array<{ label: string; value: string }>;
   rows: FinancialReportFeedRow[];
 }> {
-  const announcements = await loadAnnouncements(1, 150);
-  const rows = announcements
-    .filter((r) =>
-      /report|quarter|annual|financial|statement|audited|result|balance sheet/i.test(
-        r.title,
-      ),
-    )
-    .slice(0, limit)
-    .map((r) => ({
-      id: r.id,
-      symbol: r.symbol,
-      securityName: r.securityName,
-      title: r.title,
-      date: r.date,
-      attachmentUrl: r.attachmentUrl,
-      details: r.details,
-      iconUrl: r.iconUrl,
-    }));
+  if (
+    !opts?.force &&
+    financialReportsFeedCache &&
+    Date.now() - financialReportsFeedCache.at < FEED_CACHE_TTL_MS
+  ) {
+    return {
+      ...financialReportsFeedCache.payload,
+      rows: financialReportsFeedCache.payload.rows.slice(0, limit),
+    };
+  }
 
-  const symbols = new Set(rows.map((r) => r.symbol).filter(Boolean));
-  return {
+  const screener = await loadMiniScreener(true);
+  const symbolLimit = opts?.symbolLimit ?? 160;
+  const symbols = [...screener]
+    .filter((r) => r.symbol && !r.symbol.includes(' '))
+    .sort(
+      (a, b) =>
+        (b.marketCap ?? 0) - (a.marketCap ?? 0) ||
+        (b.turnover ?? 0) - (a.turnover ?? 0),
+    )
+    .slice(0, symbolLimit);
+
+  const nameBySym = new Map(
+    symbols.map((r) => [r.symbol.toUpperCase(), r] as const),
+  );
+
+  const batches = await mapPool(symbols, 12, async (row) => {
+    try {
+      const res = await fetch(
+        `${DATA_BASE}/fundamental/values/${encodeURIComponent(row.symbol)}`,
+        {
+          headers: {
+            Accept: 'application/json',
+            'Cache-Control': 'no-cache',
+          },
+        },
+      );
+      if (!res.ok) return [] as FinancialReportFeedRow[];
+      const json = (await res.json()) as {
+        data?: Array<{
+          id?: number;
+          symbol?: string;
+          iconUrl?: string;
+          fiscalYear?: string;
+          quarter?: string;
+          values?: Array<{ key?: string; value?: unknown }>;
+        }>;
+      };
+      const list = json.data ?? [];
+      const out: FinancialReportFeedRow[] = [];
+      for (const item of list) {
+        const values = Array.isArray(item.values) ? item.values : [];
+        if (!values.length) continue;
+        const fy = item.fiscalYear ?? null;
+        const q = item.quarter ?? null;
+        const meta = formatFiscalQuarter(fy, q);
+        const eps = fundNum(values, 'eps') ?? fundNum(values, 'eps_a');
+        const netProfit = fundNum(values, 'net_profit');
+        const roe = fundNum(values, 'roe');
+        const sym = (item.symbol || row.symbol).toUpperCase();
+        const quote = nameBySym.get(sym);
+        out.push({
+          id: Number(item.id ?? 0) || out.length + 1,
+          symbol: sym,
+          securityName: quote?.name || sym,
+          title: meta.title,
+          date: fy ? `FY ${fy}` : meta.quarterLabel || '',
+          attachmentUrl: null,
+          details: [
+            eps != null ? `EPS ${eps.toFixed(2)}` : null,
+            netProfit != null ? `NP ${fmtAmtShort(netProfit)}` : null,
+            roe != null ? `ROE ${roe.toFixed(2)}%` : null,
+          ]
+            .filter(Boolean)
+            .join(' · '),
+          iconUrl: iconUri(item.iconUrl ?? quote?.iconUrl),
+        });
+      }
+      return out;
+    } catch {
+      return [] as FinancialReportFeedRow[];
+    }
+  });
+
+  const qn = (dateOrTitle: string) => {
+    const m = dateOrTitle.toLowerCase().match(/q([1-4])|([1-4])(?:st|nd|rd|th)/);
+    return m ? Number(m[1] || m[2]) : 0;
+  };
+
+  const rows = batches
+    .flat()
+    .sort((a, b) => {
+      const fy = (b.date || '').localeCompare(a.date || '');
+      if (fy !== 0) return fy;
+      return qn(b.title) - qn(a.title);
+    });
+
+  // Deduplicate by id when present, else symbol+title
+  const seen = new Set<string>();
+  const unique = rows.filter((r) => {
+    const key = r.id ? `id:${r.id}` : `${r.symbol}:${r.title}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const symbolsWithReports = new Set(unique.map((r) => r.symbol).filter(Boolean));
+  const payload = {
     asOf: new Date().toISOString(),
     summary: [
-      { label: 'Reports', value: String(rows.length) },
-      { label: 'Companies', value: String(symbols.size) },
+      { label: 'Reports', value: String(unique.length) },
+      { label: 'Companies', value: String(symbolsWithReports.size) },
       {
-        label: 'With PDF',
-        value: String(rows.filter((r) => r.attachmentUrl).length),
+        label: 'Latest FY',
+        value: unique[0]?.date?.replace(/^FY\s*/, '') || '—',
       },
     ],
-    rows,
+    rows: unique,
+  };
+
+  financialReportsFeedCache = { at: Date.now(), payload };
+  return {
+    ...payload,
+    rows: unique.slice(0, limit),
   };
 }
 

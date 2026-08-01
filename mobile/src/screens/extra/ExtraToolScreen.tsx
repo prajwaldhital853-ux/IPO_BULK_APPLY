@@ -14,6 +14,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SwipeTabGesture } from '../../components/SwipeTabGesture';
 import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
 import {
@@ -33,6 +34,10 @@ import {
 import { rs } from '../../utils/responsive';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
+
+const FUEL_TABS = ['petrol', 'diesel', 'kerosene', 'lpg'] as const;
+const INDICATOR_TABS = ['index', 'summary', 'breadth'] as const;
+const FOREX_MODES = ['buy', 'mid', 'sell'] as const;
 
 function fmtAsOf(iso: string): string {
   const d = new Date(iso);
@@ -225,9 +230,9 @@ function GlobalIndicesBody({
   const [selected, setSelected] = useState<GlobalIndexRow | null>(null);
   const [filter, setFilter] = useState<'all' | 'up' | 'down'>('all');
 
-  const refresh = useCallback(async (silent = false) => {
+  const refresh = useCallback(async (silent = false, force = false) => {
     if (!silent) setLoading(true);
-    const snap = await loadGlobalIndices();
+    const snap = await loadGlobalIndices(force);
     setRegions(snap.regions);
     setLoading(false);
   }, []);
@@ -235,7 +240,7 @@ function GlobalIndicesBody({
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  usePollingRefresh(refresh);
+  usePollingRefresh((silent) => refresh(!!silent, false));
 
   const allIndices = useMemo(
     () => regions.flatMap((r) => r.indices),
@@ -285,14 +290,24 @@ function GlobalIndicesBody({
     return <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />;
   }
 
+  const regionIndex = Math.max(0, tabs.findIndex((t) => t === regionTab));
+
   return (
+    <SwipeTabGesture
+      index={regionIndex}
+      count={Math.max(tabs.length, 1)}
+      onIndexChange={(i) => {
+        const next = tabs[i];
+        if (next) setRegionTab(next);
+      }}
+    >
     <ScrollView
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={() => {
             setRefreshing(true);
-            void refresh(true).finally(() => setRefreshing(false));
+            void refresh(true, true).finally(() => setRefreshing(false));
           }}
         />
       }
@@ -445,6 +460,7 @@ function GlobalIndicesBody({
         );
       })}
     </ScrollView>
+    </SwipeTabGesture>
   );
 }
 
@@ -461,9 +477,9 @@ function IndicatorsBody({
   const [tab, setTab] = useState<'index' | 'summary' | 'breadth'>('index');
   const [picked, setPicked] = useState<string | null>(null);
 
-  const refresh = useCallback(async (silent = false) => {
+  const refresh = useCallback(async (silent = false, force = false) => {
     if (!silent) setLoading(true);
-    const snap = await loadMarketIndicators();
+    const snap = await loadMarketIndicators(force);
     setRows(snap.rows);
     setLoading(false);
   }, []);
@@ -471,7 +487,7 @@ function IndicatorsBody({
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  usePollingRefresh(refresh);
+  usePollingRefresh((silent) => refresh(!!silent, false));
 
   const indices = useMemo(() => rows.filter((r) => r.group === 'index'), [rows]);
   const summary = useMemo(() => rows.filter((r) => r.group === 'summary'), [rows]);
@@ -498,14 +514,24 @@ function IndicatorsBody({
     return <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />;
   }
 
+  const indIndex = Math.max(0, INDICATOR_TABS.indexOf(tab));
+
   return (
+    <SwipeTabGesture
+      index={indIndex}
+      count={INDICATOR_TABS.length}
+      onIndexChange={(i) => {
+        const next = INDICATOR_TABS[i];
+        if (next) setTab(next);
+      }}
+    >
     <ScrollView
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={() => {
             setRefreshing(true);
-            void refresh(true).finally(() => setRefreshing(false));
+            void refresh(true, true).finally(() => setRefreshing(false));
           }}
         />
       }
@@ -644,6 +670,7 @@ function IndicatorsBody({
         );
       })}
     </ScrollView>
+    </SwipeTabGesture>
   );
 }
 
@@ -663,9 +690,9 @@ function ForexBody({
   const [amount, setAmount] = useState('100');
   const [sort, setSort] = useState<'name' | 'move' | 'spread'>('move');
 
-  const refresh = useCallback(async (silent = false) => {
+  const refresh = useCallback(async (silent = false, force = false) => {
     if (!silent) setLoading(true);
-    const snap = await loadForexRates();
+    const snap = await loadForexRates(force);
     setRows(snap.rows);
     setDate(snap.date);
     setSelected((prev) =>
@@ -679,7 +706,7 @@ function ForexBody({
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  usePollingRefresh(refresh, 60_000);
+  usePollingRefresh((silent) => refresh(!!silent, false), 60_000);
 
   const focus = rows.find((r) => r.iso3 === selected) ?? rows[0] ?? null;
 
@@ -712,14 +739,27 @@ function ForexBody({
     return <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />;
   }
 
+  const fxIndex = Math.max(
+    0,
+    sorted.findIndex((r) => r.iso3 === (focus?.iso3 ?? selected)),
+  );
+
   return (
+    <SwipeTabGesture
+      index={fxIndex}
+      count={Math.max(sorted.length, 1)}
+      onIndexChange={(i) => {
+        const next = sorted[i];
+        if (next) setSelected(next.iso3);
+      }}
+    >
     <ScrollView
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={() => {
             setRefreshing(true);
-            void refresh(true).finally(() => setRefreshing(false));
+            void refresh(true, true).finally(() => setRefreshing(false));
           }}
         />
       }
@@ -783,7 +823,7 @@ function ForexBody({
       <View style={styles.calcCard}>
         <Text style={styles.sectionTitleInline}>Quick convert to NPR</Text>
         <View style={styles.chipRow}>
-          {(['buy', 'mid', 'sell'] as const).map((m) => (
+          {FOREX_MODES.map((m) => (
             <Pressable
               key={m}
               style={[styles.chipSm, mode === m && styles.chipOn]}
@@ -884,6 +924,7 @@ function ForexBody({
         );
       })}
     </ScrollView>
+    </SwipeTabGesture>
   );
 }
 
@@ -905,9 +946,9 @@ function FuelBody({
   const [regionIdx, setRegionIdx] = useState(0);
   const [liters, setLiters] = useState('10');
 
-  const refresh = useCallback(async (silent = false) => {
+  const refresh = useCallback(async (silent = false, force = false) => {
     if (!silent) setLoading(true);
-    const snap = await loadFuelPrices();
+    const snap = await loadFuelPrices(force);
     setRegions(snap.regions);
     setEffectiveDate(snap.effectiveDate);
     setSource(snap.source);
@@ -946,14 +987,24 @@ function FuelBody({
     return <ActivityIndicator style={{ marginTop: rs(40) }} color={colors.primary} />;
   }
 
+  const fuelIndex = Math.max(0, FUEL_TABS.indexOf(fuel));
+
   return (
+    <SwipeTabGesture
+      index={fuelIndex}
+      count={FUEL_TABS.length}
+      onIndexChange={(i) => {
+        const next = FUEL_TABS[i];
+        if (next) setFuel(next);
+      }}
+    >
     <ScrollView
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={() => {
             setRefreshing(true);
-            void refresh(true).finally(() => setRefreshing(false));
+            void refresh(true, true).finally(() => setRefreshing(false));
           }}
         />
       }
@@ -983,12 +1034,14 @@ function FuelBody({
       </View>
 
       <View style={styles.chipRow}>
-        {([
-          ['petrol', 'Petrol'],
-          ['diesel', 'Diesel'],
-          ['kerosene', 'Kerosene'],
-          ['lpg', 'LPG'],
-        ] as const).map(([id, label]) => (
+        {(
+          [
+            ['petrol', 'Petrol'],
+            ['diesel', 'Diesel'],
+            ['kerosene', 'Kerosene'],
+            ['lpg', 'LPG'],
+          ] as const
+        ).map(([id, label]) => (
           <Pressable
             key={id}
             style={[styles.chip, fuel === id && styles.chipOn]}
@@ -1071,6 +1124,7 @@ function FuelBody({
         );
       })}
     </ScrollView>
+    </SwipeTabGesture>
   );
 }
 
@@ -1141,9 +1195,9 @@ function GoldSilverBody({
   const [refreshing, setRefreshing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const refresh = useCallback(async (silent = false) => {
+  const refresh = useCallback(async (silent = false, force = false) => {
     if (!silent) setLoading(true);
-    const snap = await loadGoldSilver();
+    const snap = await loadGoldSilver(force);
     setRows(snap.rows);
     setAsOf(snap.asOf);
     setLoading(false);
@@ -1152,7 +1206,7 @@ function GoldSilverBody({
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  usePollingRefresh(refresh);
+  usePollingRefresh((silent) => refresh(!!silent, false));
 
   const featured = useMemo(() => {
     if (!rows.length) return null;
@@ -1197,7 +1251,7 @@ function GoldSilverBody({
           refreshing={refreshing}
           onRefresh={() => {
             setRefreshing(true);
-            void refresh(true).finally(() => setRefreshing(false));
+            void refresh(true, true).finally(() => setRefreshing(false));
           }}
           tintColor={colors.accentGreen}
         />

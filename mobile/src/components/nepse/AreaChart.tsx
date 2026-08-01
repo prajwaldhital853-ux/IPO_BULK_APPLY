@@ -27,6 +27,8 @@ type Props = {
   up?: boolean;
   showAxes?: boolean;
   interactive?: boolean;
+  /** Match parent card/surface (defaults to white / dark panel). */
+  backgroundColor?: string;
   /** Parent ScrollView should disable while scrubbing (stops stuck/laggy drag). */
   onInteractionChange?: (active: boolean) => void;
 };
@@ -148,6 +150,12 @@ function buildSmoothAreaPath(
   }
 
   let line = `M ${xs[0]} ${ys[0]}`;
+  const clampSeg = (y: number, yA: number, yB: number) => {
+    const lo = Math.min(yA, yB);
+    const hi = Math.max(yA, yB);
+    return Math.max(lo, Math.min(hi, y));
+  };
+
   for (let i = 0; i < n - 1; i += 1) {
     const h = dx[i]!;
     const x1 = xs[i]!;
@@ -155,9 +163,11 @@ function buildSmoothAreaPath(
     const x2 = xs[i + 1]!;
     const y2 = ys[i + 1]!;
     const cp1x = x1 + h / 3;
-    const cp1y = y1 + (slopes[i]! * h) / 3;
+    let cp1y = y1 + (slopes[i]! * h) / 3;
     const cp2x = x2 - h / 3;
-    const cp2y = y2 - (slopes[i + 1]! * h) / 3;
+    let cp2y = y2 - (slopes[i + 1]! * h) / 3;
+    cp1y = clampSeg(cp1y, y1, y2);
+    cp2y = clampSeg(cp2y, y1, y2);
     line += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${x2} ${y2}`;
   }
   const last = n - 1;
@@ -214,7 +224,8 @@ const StaticChartLayer = memo(function StaticChartLayer({
   grid,
   axis,
 }: StaticProps) {
-  const clipId = 'stockPlotClip';
+  const plotClipId = 'stockPlotClip';
+  const frameClipId = 'stockFrameClip';
   return (
     <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
       <Defs>
@@ -223,7 +234,10 @@ const StaticChartLayer = memo(function StaticChartLayer({
           <Stop offset="55%" stopColor={color} stopOpacity={0.12} />
           <Stop offset="100%" stopColor={color} stopOpacity={0.02} />
         </LinearGradient>
-        <ClipPath id={clipId}>
+        <ClipPath id={frameClipId}>
+          <Rect x={0} y={0} width={width} height={height} />
+        </ClipPath>
+        <ClipPath id={plotClipId}>
           <Rect
             x={chart.padL}
             y={chart.padT}
@@ -233,6 +247,7 @@ const StaticChartLayer = memo(function StaticChartLayer({
         </ClipPath>
       </Defs>
 
+      <G clipPath={`url(#${frameClipId})`}>
       {showAxes
         ? chart.ticks.map((tick, yi) => {
             const y =
@@ -269,7 +284,7 @@ const StaticChartLayer = memo(function StaticChartLayer({
           })
         : null}
 
-      <G clipPath={`url(#${clipId})`}>
+      <G clipPath={`url(#${plotClipId})`}>
         <Path d={chart.area} fill="url(#stockAreaFill)" />
         <Path
           d={chart.line}
@@ -302,6 +317,7 @@ const StaticChartLayer = memo(function StaticChartLayer({
             </SvgText>
           ))
         : null}
+      </G>
     </Svg>
   );
 });
@@ -394,10 +410,11 @@ export function AreaChart({
   up = true,
   showAxes = false,
   interactive = true,
+  backgroundColor,
   onInteractionChange,
 }: Props) {
   const color = up ? '#26a69a' : '#ef5350';
-  const bg = isDark ? '#1A1C1A' : '#FFFFFF';
+  const bg = backgroundColor ?? (isDark ? '#1A1C1A' : '#FFFFFF');
   const grid = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(90,100,80,0.22)';
   const axis = isDark ? '#A8B0A8' : '#6B7364';
 
@@ -448,9 +465,12 @@ export function AreaChart({
     const xs = slice.map(
       (_, i) => padL + (i / Math.max(slice.length - 1, 1)) * plotW,
     );
-    const ys = slice.map(
-      (p) => padT + plotH - ((p.close - min) / span) * plotH,
-    );
+    const yTop = padT;
+    const yBottom = padT + plotH;
+    const ys = slice.map((p) => {
+      const y = yTop + plotH - ((p.close - min) / span) * plotH;
+      return Math.max(yTop, Math.min(yBottom, y));
+    });
     const baselineY = padT + plotH;
     const { line, area } = buildSmoothAreaPath(xs, ys, baselineY);
 
@@ -591,7 +611,10 @@ export function AreaChart({
     >
       {width > 0 && chart ? (
         <GestureDetector gesture={gesture}>
-          <View style={{ width, height }} collapsable={false}>
+          <View
+            style={{ width, height, overflow: 'hidden' }}
+            collapsable={false}
+          >
             <StaticChartLayer
               width={width}
               height={height}

@@ -364,7 +364,7 @@ function maskAccount(n: string): string {
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: isDark ? c.bg : '#FFFFFF' },
+    root: { flex: 1, backgroundColor: c.bg },
     header: {
       flexDirection: 'row',
       alignItems: 'center',

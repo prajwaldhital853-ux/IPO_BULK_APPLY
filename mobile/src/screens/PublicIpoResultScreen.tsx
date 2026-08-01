@@ -11,6 +11,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import Svg, { Line, Path } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -56,14 +57,44 @@ type ProviderLoadError = { provider: string; label: string; message: string };
 type ResultRow = IssueManagerBulkRow | PublicBulkResultRow;
 type BulkSummary = IssueManagerBulkSummary | PublicBulkResultSummary;
 
+/** Pending-state hourglass — top outline, bottom filled (matches reference SS). */
+function PendingHourglass({
+  size = 22,
+  color = '#5A5A5A',
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        d="M7 3h10l-3.5 5H10.5L7 3z"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.7}
+        strokeLinejoin="round"
+      />
+      <Line
+        x1={9}
+        y1={12}
+        x2={15}
+        y2={12}
+        stroke={color}
+        strokeWidth={1.6}
+      />
+      <Path d="M7 21h10l-3.5-5H10.5L7 21z" fill={color} />
+    </Svg>
+  );
+}
+
 export function PublicIpoResultScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { accounts, updateAccountMeta } = useAccounts();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const bridgeRef = useRef<IpoResultWebBridgeHandle | null>(null);
   const ocrRef = useRef<CaptchaOcrHandle | null>(null);
 
@@ -429,10 +460,18 @@ export function PublicIpoResultScreen() {
     [displayRows],
   );
 
+  const checkedProgress = useMemo(
+    () => Object.keys(resultsMap).length,
+    [resultsMap],
+  );
+
+  const progressPct =
+    checkAccounts.length > 0
+      ? Math.min(100, (checkedProgress / checkAccounts.length) * 100)
+      : 0;
+
   const showSummary =
     checkComplete && !running && Object.keys(resultsMap).length > 0;
-  const usesCdscBridge = selected?.provider === 'cdsc';
-  const showCdscBridge = usesCdscBridge && (!bridgeReady || running);
 
   const modalAllotted =
     summary?.results.filter((r) => r.ok && r.allotted).length ?? allottedCount;
@@ -510,56 +549,76 @@ export function PublicIpoResultScreen() {
         <Pressable
           style={styles.companyPicker}
           onPress={() => setCheckPickerOpen(true)}
-          disabled={!accounts.length}
+          disabled={!accounts.length || running}
         >
           <Text style={styles.companyPickerText} numberOfLines={1}>
             {checkLabel}
           </Text>
-          <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
+          <Ionicons name="chevron-down" size={rs(16)} color={colors.textMuted} />
         </Pressable>
 
         <Pressable
           style={styles.companyPicker}
           onPress={() => setCompanyPickerOpen(true)}
-          disabled={loadingCompanies || companies.length === 0}
+          disabled={loadingCompanies || companies.length === 0 || running}
         >
-          <Text style={styles.companyPickerText} numberOfLines={2}>
-            {selected?.name ??
-              (loadingCompanies
-                ? 'Loading companies…'
-                : 'Select IPO / FPO / Debenture')}
+          <Text style={styles.companyPickerText} numberOfLines={1}>
+            {selected?.name ?? 'Select IPO / FPO / Debenture'}
           </Text>
           {loadingCompanies || loadingCdsc ? (
             <ActivityIndicator size="small" color={colors.primary} />
           ) : (
-            <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
+            <Ionicons name="chevron-down" size={rs(16)} color={colors.textMuted} />
           )}
         </Pressable>
 
-        <Pressable
-          style={[
-            styles.checkNowBtn,
-            (running || !selected) && styles.checkNowDisabled,
-          ]}
-          onPress={onCheckAll}
-          disabled={running || !selected}
-        >
-          {running ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : (
+        {running ? (
+          <View style={styles.checkingBlock}>
+            <View style={styles.checkingHead}>
+              <View style={styles.checkingIconWrap}>
+                <MaterialCommunityIcons
+                  name="cached"
+                  size={rs(16)}
+                  color="#FFFFFF"
+                />
+              </View>
+              <Text style={styles.checkingTitle}>Checking IPO Status.</Text>
+              <ActivityIndicator size="small" color={colors.textMuted} />
+            </View>
+            <Text style={styles.progressLabel}>
+              Progress: {checkedProgress} of {checkAccounts.length}
+            </Text>
+            <View style={styles.progressTrack}>
+              <View
+                style={[styles.progressFill, { width: `${progressPct}%` }]}
+              />
+            </View>
+            <View style={styles.infoBox}>
+              <Ionicons
+                name="information-circle-outline"
+                size={rs(16)}
+                color={colors.textMuted}
+              />
+              <Text style={styles.infoBoxText}>
+                Please wait while we are checking your demat accounts…
+              </Text>
+            </View>
+            <View style={styles.checkNowBtnDisabled}>
+              <Text style={styles.checkingNowText}>Checking Now...</Text>
+            </View>
+          </View>
+        ) : (
+          <Pressable
+            style={[
+              styles.checkNowBtn,
+              (running || !selected) && styles.checkNowDisabled,
+            ]}
+            onPress={onCheckAll}
+            disabled={running || !selected}
+          >
             <Text style={styles.checkNowText}>Check Now</Text>
-          )}
-        </Pressable>
-
-        {progress ? <Text style={styles.progress}>{progress}</Text> : null}
-
-        {usesCdscBridge ? (
-          <Text style={styles.progress}>
-            CDSC result checks run from this phone's in-app browser session.
-          </Text>
-        ) : null}
-
-        {partialWarn ? <Text style={styles.warnText}>{partialWarn}</Text> : null}
+          </Pressable>
+        )}
 
         {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
 
@@ -650,28 +709,44 @@ export function PublicIpoResultScreen() {
             : result
               ? result.message
               : null;
-          const initial = (
-            account.name.trim().charAt(0) ||
-            account.username.trim().charAt(0) ||
-            '?'
-          ).toUpperCase();
+          const showHourglass =
+            !isChecking && !result && !isAllotted && !isError && !isNotAllotted;
+          const showStatusLine = Boolean(statusMessage);
 
           return (
             <View style={styles.resultCard}>
-              <View style={styles.resultAvatar}>
+              <View style={styles.resultIconWrap}>
                 {isChecking ? (
-                  <ActivityIndicator size="small" color={colors.primary} />
-                ) : (
-                  <Text style={styles.resultAvatarLetter}>{initial}</Text>
-                )}
+                  <ActivityIndicator size="small" color="#9E9E9E" />
+                ) : isAllotted ? (
+                  <Ionicons name="checkmark-circle" size={rs(18)} color="#4CAF50" />
+                ) : isError ? (
+                  <Ionicons name="warning" size={rs(18)} color="#FB8C00" />
+                ) : isNotAllotted ? (
+                  <Ionicons name="close-circle" size={rs(18)} color="#E57373" />
+                ) : showHourglass ? (
+                  <PendingHourglass size={rs(18)} color="#5A5A5A" />
+                ) : null}
               </View>
               <View style={styles.resultBody}>
-                <Text style={styles.resultName}>
+                <Text style={styles.resultName} numberOfLines={1}>
                   {index}. {account.name.toUpperCase()}
                 </Text>
-                <Text style={styles.resultBoid}>{boidText}</Text>
-                {statusMessage ? (
-                  <Text style={[styles.resultMsg, { color: statusColor }]}>
+                <Text style={styles.resultBoid} numberOfLines={1}>
+                  {boidText}
+                </Text>
+                {showStatusLine && statusMessage ? (
+                  <Text
+                    style={[
+                      styles.resultMsg,
+                      {
+                        color: isChecking
+                          ? colors.textMuted
+                          : statusColor,
+                      },
+                    ]}
+                    numberOfLines={2}
+                  >
                     {statusMessage}
                   </Text>
                 ) : null}
@@ -720,12 +795,9 @@ export function PublicIpoResultScreen() {
                     setCompanyPickerOpen(false);
                   }}
                 >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.modalRowTitle}>{item.name}</Text>
-                    <Text style={styles.modalRowSub}>
-                      {item.providerLabel}
-                    </Text>
-                  </View>
+                  <Text style={styles.modalRowTitle} numberOfLines={2}>
+                    {item.name}
+                  </Text>
                   {selected?.key === item.key ? (
                     <Ionicons
                       name="checkmark"
@@ -814,7 +886,7 @@ export function PublicIpoResultScreen() {
       <CaptchaOcrBridge ref={ocrRef} />
       <IpoResultWebBridge
         ref={bridgeRef}
-        interactive={showCdscBridge}
+        interactive={false}
         onReadyChange={setBridgeReady}
         onPortalBlocked={(reason) => {
           setProgress(reason);
@@ -876,17 +948,24 @@ export function PublicIpoResultScreen() {
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
+  const pageBg = isDark ? c.bg : '#F2F4ED';
+  const cardBg = isDark ? c.surface : '#F9F8F4';
+  const fieldBorder = isDark ? c.border : '#B8B8B8';
+  const cardBorder = isDark ? c.borderMuted : '#E0E0E0';
+  const mutedText = isDark ? c.textMuted : '#757575';
+  const checkBtnBg = isDark ? c.surfaceAlt : '#F0EEEA';
+  const forestGreen = isDark ? c.primary : '#2D5A27';
+
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: c.bg },
+    root: { flex: 1, backgroundColor: pageBg },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: rs(16),
       paddingVertical: rs(12),
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
+      backgroundColor: pageBg,
     },
     title: {
       color: c.text,
@@ -898,35 +977,34 @@ function makeStyles(c: ThemeColors) {
     },
     controls: {
       paddingHorizontal: rs(16),
-      paddingTop: rs(16),
+      paddingTop: rs(6),
       paddingBottom: rs(4),
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
     },
     accountList: { flex: 1 },
     accountListContent: {
       paddingHorizontal: rs(16),
-      paddingTop: rs(12),
+      paddingTop: rs(8),
       paddingBottom: rs(40),
     },
     companyPicker: {
       flexDirection: 'row',
       alignItems: 'center',
       borderWidth: 1,
-      borderColor: c.border,
-      borderRadius: rs(14),
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(14),
-      backgroundColor: c.surface,
-      marginBottom: rs(10),
-      gap: rs(10),
+      borderColor: fieldBorder,
+      borderRadius: rs(18),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(9),
+      backgroundColor: cardBg,
+      marginBottom: rs(8),
+      gap: rs(8),
+      minHeight: rs(40),
     },
     companyPickerText: {
       flex: 1,
       color: c.text,
-      fontWeight: '600',
-      fontSize: rs(14),
-      lineHeight: rs(20),
+      fontWeight: '500',
+      fontSize: rs(13),
+      lineHeight: rs(18),
     },
     summaryBox: {
       borderWidth: 1,
@@ -977,25 +1055,94 @@ function makeStyles(c: ThemeColors) {
     statLabel: { fontSize: rs(10), fontWeight: '600' },
     checkNowBtn: {
       borderWidth: 1,
-      borderColor: c.border,
-      borderRadius: rs(24),
-      minHeight: rs(44),
+      borderColor: cardBorder,
+      borderRadius: rs(20),
+      minHeight: rs(40),
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: rs(10),
-      backgroundColor: c.surface,
+      marginBottom: rs(8),
+      backgroundColor: cardBg,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0 : 0.06,
+      shadowRadius: 3,
+      elevation: isDark ? 0 : 2,
     },
     checkNowDisabled: { opacity: 0.55 },
     checkNowText: {
-      color: c.primary,
+      color: forestGreen,
       fontWeight: '700',
+      fontSize: rs(13),
+    },
+    checkingBlock: {
+      marginBottom: rs(8),
+    },
+    checkingHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      marginBottom: rs(8),
+    },
+    checkingIconWrap: {
+      width: rs(28),
+      height: rs(28),
+      borderRadius: rs(14),
+      backgroundColor: '#4CAF50',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    checkingTitle: {
+      flex: 1,
+      color: c.text,
+      fontWeight: '600',
       fontSize: rs(14),
     },
-    progress: {
-      textAlign: 'center',
-      color: c.textSecondary,
-      marginBottom: rs(10),
+    progressLabel: {
+      color: mutedText,
       fontSize: rs(12),
+      marginBottom: rs(6),
+    },
+    progressTrack: {
+      height: rs(4),
+      borderRadius: rs(2),
+      backgroundColor: isDark ? c.surfaceAlt : '#E8E8E8',
+      marginBottom: rs(10),
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: rs(4),
+      borderRadius: rs(2),
+      backgroundColor: '#4CAF50',
+    },
+    infoBox: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: rs(8),
+      backgroundColor: isDark ? c.surfaceAlt : '#F0F0F0',
+      borderRadius: rs(8),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
+      marginBottom: rs(10),
+    },
+    infoBoxText: {
+      flex: 1,
+      color: mutedText,
+      fontSize: rs(12),
+      lineHeight: rs(17),
+    },
+    checkNowBtnDisabled: {
+      borderWidth: 1,
+      borderColor: cardBorder,
+      borderRadius: rs(20),
+      minHeight: rs(40),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? c.surfaceAlt : '#F0EEEA',
+    },
+    checkingNowText: {
+      color: mutedText,
+      fontWeight: '600',
+      fontSize: rs(13),
     },
     warnText: {
       color: '#FB8C00',
@@ -1011,60 +1158,64 @@ function makeStyles(c: ThemeColors) {
     },
     resultCard: {
       flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(12),
+      alignItems: 'flex-start',
+      gap: rs(8),
       borderWidth: 1,
-      borderColor: c.border,
-      borderRadius: rs(14),
-      padding: rs(12),
-      backgroundColor: c.surface,
-      marginBottom: rs(10),
+      borderColor: cardBorder,
+      borderRadius: rs(10),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(10),
+      minHeight: rs(66),
+      backgroundColor: cardBg,
+      marginBottom: rs(6),
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0 : 0.05,
+      shadowRadius: 2,
+      elevation: isDark ? 0 : 1,
     },
-    resultAvatar: {
-      width: rs(44),
-      height: rs(44),
-      borderRadius: rs(22),
+    resultIconWrap: {
+      width: rs(30),
+      height: rs(30),
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: c.primarySoft,
-      borderWidth: 1.5,
-      borderColor: c.primary,
+      alignSelf: 'center',
     },
-    resultAvatarLetter: {
-      color: c.primary,
-      fontSize: rs(18),
-      fontWeight: '800',
-    },
-    resultBody: { flex: 1 },
+    resultBody: { flex: 1, minWidth: 0, paddingTop: rs(1) },
     resultName: {
       color: c.text,
       fontWeight: '800',
-      fontSize: rs(13),
-      letterSpacing: 0.3,
+      fontSize: rs(14),
+      lineHeight: rs(18),
+      letterSpacing: 0.15,
     },
     resultBoid: {
-      color: c.textMuted,
+      color: isDark ? c.textSecondary : '#4A4A4A',
       fontSize: rs(11),
-      marginTop: rs(3),
+      lineHeight: rs(15),
+      marginTop: rs(2),
+      fontWeight: '500',
       fontVariant: ['tabular-nums'],
     },
     resultMsg: {
       fontSize: rs(11),
-      marginTop: rs(4),
       lineHeight: rs(15),
+      marginTop: rs(3),
+      fontWeight: '600',
     },
     resultCheckBtn: {
       borderWidth: 1,
-      borderColor: c.border,
-      borderRadius: rs(16),
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(8),
-      backgroundColor: c.bg,
+      borderColor: cardBorder,
+      borderRadius: rs(6),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(6),
+      backgroundColor: checkBtnBg,
+      alignSelf: 'center',
     },
     resultCheckText: {
       color: c.text,
-      fontWeight: '700',
-      fontSize: rs(12),
+      fontWeight: '600',
+      fontSize: rs(11),
     },
     resultModalBackdrop: {
       flex: 1,
@@ -1187,7 +1338,12 @@ function makeStyles(c: ThemeColors) {
       borderBottomColor: c.borderMuted,
       gap: rs(10),
     },
-    modalRowTitle: { color: c.text, fontWeight: '600', fontSize: rs(14) },
+    modalRowTitle: {
+      flex: 1,
+      color: c.text,
+      fontWeight: '600',
+      fontSize: rs(14),
+    },
     modalRowSub: { color: c.textMuted, fontSize: rs(12), marginTop: rs(2) },
     modalDone: {
       marginTop: rs(8),

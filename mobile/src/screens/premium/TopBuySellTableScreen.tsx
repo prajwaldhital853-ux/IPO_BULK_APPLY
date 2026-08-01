@@ -24,7 +24,7 @@ import {
   streamTopSideBoard,
   type TopSideTradeRow,
 } from '../../services/nepse/brokerAnalytics';
-import { fmtMcap } from '../../services/nepse/screener';
+import { fmtMcap, fmtNum } from '../../services/nepse/screener';
 import { invalidateMarketCaches } from '../../services/nepse/invalidateMarketCaches';
 import { nepalTodayIso } from '../../services/nepse/holidays';
 import { rs } from '../../utils/responsive';
@@ -42,6 +42,9 @@ const PERIODS: Array<{ id: Period; label: string; short: string }> = [
   { id: '7d', label: '1 Week', short: '1W' },
   { id: '1m', label: '1 Month', short: '1M' },
 ];
+
+const HEADER_TEAL = '#1A5F5A';
+const ROW_H = rs(42);
 
 type Props = {
   side: 'buy' | 'sell';
@@ -80,8 +83,6 @@ function TopBuySellTableScreen({ side }: Props) {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [priorityFetching, setPriorityFetching] = useState(false);
   const priorityGen = useRef(0);
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
 
   const refresh = useCallback(
     async (force = false) => {
@@ -175,6 +176,7 @@ function TopBuySellTableScreen({ side }: Props) {
   }, [symbolQ, partyQ, side]);
 
   const periodMeta = PERIODS.find((p) => p.id === period) ?? PERIODS[0];
+  const hasFilters = symbolQ.trim().length > 0 || partyQ.trim().length > 0;
 
   const filtered = useMemo(() => {
     const sq = symbolQ.trim().toUpperCase();
@@ -208,38 +210,50 @@ function TopBuySellTableScreen({ side }: Props) {
     }
   };
 
+  const clearFilters = () => {
+    setSymbolQ('');
+    setPartyQ('');
+  };
+
+  const SortIcon = ({ active }: { active: boolean }) => (
+    <Ionicons
+      name={
+        active
+          ? sortDir === 'desc'
+            ? 'caret-down'
+            : 'caret-up'
+          : 'swap-vertical'
+      }
+      size={rs(11)}
+      color={active ? '#FFF' : 'rgba(255,255,255,0.55)'}
+    />
+  );
+
   const body =
     loading && rows.length === 0 ? (
       <View style={styles.center}>
-        <ActivityIndicator color={colors.primary} />
+        <ActivityIndicator color={HEADER_TEAL} />
         <Text style={styles.loadingHint}>Loading {title.toLowerCase()}…</Text>
       </View>
     ) : (
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              void refresh(true);
-            }}
-            tintColor={colors.primary}
-          />
-        }
-        contentContainerStyle={styles.list}
-        ListHeaderComponent={
-          <View style={{ paddingHorizontal: rs(14) }}>
-            <Text style={styles.sessionDate}>
-              {sessionDate ?? nepalTodayIso()}
-            </Text>
-            <PriorSessionBanner reason={priorReason} />
+      <View style={styles.body}>
+        {/* Fixed filters — do not scroll with rows */}
+        <View style={styles.filters}>
+          <Text style={styles.sessionDate}>
+            {sessionDate ?? nepalTodayIso()}
+          </Text>
+          <PriorSessionBanner reason={priorReason} />
+
+          <View style={styles.filterTopRow}>
             <Pressable
               style={styles.periodBtn}
               onPress={() => setPeriodOpen(true)}
             >
-              <Ionicons name="time-outline" size={rs(16)} color={colors.text} />
+              <Ionicons
+                name="time-outline"
+                size={rs(15)}
+                color={colors.textMuted}
+              />
               <Text style={styles.periodText}>{periodMeta.short}</Text>
               <Ionicons
                 name="chevron-down"
@@ -247,105 +261,128 @@ function TopBuySellTableScreen({ side }: Props) {
                 color={colors.textMuted}
               />
             </Pressable>
-
-            <View style={styles.searchRow}>
-              <View style={styles.searchBox}>
-                <Ionicons
-                  name="search"
-                  size={rs(14)}
-                  color={colors.textMuted}
-                />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Symbol"
-                  placeholderTextColor={colors.textMuted}
-                  value={symbolQ}
-                  onChangeText={setSymbolQ}
-                  autoCorrect={false}
-                  autoCapitalize="characters"
-                />
-              </View>
-              <View style={styles.searchBox}>
-                <Ionicons
-                  name="search"
-                  size={rs(14)}
-                  color={colors.textMuted}
-                />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder={partyPlaceholder}
-                  placeholderTextColor={colors.textMuted}
-                  value={partyQ}
-                  onChangeText={setPartyQ}
-                  autoCorrect={false}
-                  keyboardType="number-pad"
-                />
-              </View>
-            </View>
-
-            {priorityFetching || loadingMore ? (
-              <View style={styles.loadingMoreRow}>
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.loadingHint}>
-                  {priorityFetching ? 'Searching…' : 'Loading floorsheet…'}
-                </Text>
-              </View>
+            {hasFilters ? (
+              <Pressable style={styles.clearBtn} onPress={clearFilters}>
+                <Ionicons name="close" size={rs(14)} color="#E5484D" />
+                <Text style={styles.clearText}>Clear</Text>
+              </Pressable>
             ) : null}
+          </View>
 
-            <View style={styles.tableHead}>
-              <Text style={[styles.headCell, styles.colSym]}>SYM</Text>
-              <Text style={[styles.headCell, styles.colBroker]}>Broker</Text>
-              <Pressable
-                style={[styles.headCell, styles.colQty, styles.headPress]}
-                onPress={() => toggleSort('qty')}
-              >
-                <Text style={styles.headCellText}>Qty</Text>
-                <Ionicons
-                  name="swap-vertical"
-                  size={rs(12)}
-                  color="#FFF"
-                />
-              </Pressable>
-              <Pressable
-                style={[styles.headCell, styles.colAmt, styles.headPress]}
-                onPress={() => toggleSort('amount')}
-              >
-                <Text style={styles.headCellText}>Amount</Text>
-                <Ionicons
-                  name="swap-vertical"
-                  size={rs(12)}
-                  color="#FFF"
-                />
-              </Pressable>
+          <View style={styles.searchRow}>
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={rs(14)} color={colors.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Symbol"
+                placeholderTextColor={colors.textMuted}
+                value={symbolQ}
+                onChangeText={setSymbolQ}
+                autoCorrect={false}
+                autoCapitalize="characters"
+              />
+            </View>
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={rs(14)} color={colors.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder={partyPlaceholder}
+                placeholderTextColor={colors.textMuted}
+                value={partyQ}
+                onChangeText={setPartyQ}
+                autoCorrect={false}
+                keyboardType="number-pad"
+              />
             </View>
           </View>
-        }
-        ListEmptyComponent={
-          <Text style={styles.empty}>
-            No {side === 'buy' ? 'buyer' : 'seller'} rows yet. Pull to refresh
-            after market open.
-          </Text>
-        }
-        renderItem={({ item }) => (
+
+          {priorityFetching || loadingMore ? (
+            <View style={styles.loadingMoreRow}>
+              <ActivityIndicator size="small" color={HEADER_TEAL} />
+              <Text style={styles.loadingHint}>
+                {priorityFetching ? 'Searching…' : 'Loading floorsheet…'}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* Sticky column header — stays above the scrolling list */}
+        <View style={styles.tableHead}>
+          <Text style={[styles.headCell, styles.colSym]}>SYM</Text>
+          <Text style={[styles.headCell, styles.colBroker]}>Broker</Text>
           <Pressable
-            style={styles.row}
-            onPress={() =>
-              navigation.navigate('StockDetail', { symbol: item.symbol })
-            }
+            style={[styles.headPress, styles.colQty]}
+            onPress={() => toggleSort('qty')}
           >
-            <Text style={[styles.cell, styles.colSym, styles.symText]}>
-              {item.symbol}
-            </Text>
-            <Text style={[styles.cell, styles.colBroker]}>
-              {item.brokerCode}
-            </Text>
-            <Text style={[styles.cell, styles.colQty]}>{fmtMcap(item.qty)}</Text>
-            <Text style={[styles.cell, styles.colAmt]}>
-              {fmtMcap(item.amount)}
-            </Text>
+            <Text style={styles.headCell}>Qty</Text>
+            <SortIcon active={sortKey === 'qty'} />
           </Pressable>
-        )}
-      />
+          <Pressable
+            style={[styles.headPress, styles.colAmt]}
+            onPress={() => toggleSort('amount')}
+          >
+            <Text style={styles.headCell}>Amount</Text>
+            <SortIcon active={sortKey === 'amount'} />
+          </Pressable>
+          <Text style={[styles.headCell, styles.colRate]}>Rate</Text>
+        </View>
+
+        <FlatList
+          data={filtered}
+          style={styles.list}
+          keyExtractor={(item) => item.id}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                void refresh(true);
+              }}
+              tintColor={HEADER_TEAL}
+            />
+          }
+          contentContainerStyle={styles.listContent}
+          initialNumToRender={24}
+          maxToRenderPerBatch={30}
+          windowSize={8}
+          ListEmptyComponent={
+            <Text style={styles.empty}>
+              No {side === 'buy' ? 'buyer' : 'seller'} rows yet. Pull to refresh
+              after market open.
+            </Text>
+          }
+          renderItem={({ item, index }) => (
+            <Pressable
+              style={[styles.row, index % 2 === 1 && styles.rowAlt]}
+              onPress={() =>
+                navigation.navigate('StockDetail', { symbol: item.symbol })
+              }
+            >
+              <Text
+                style={[styles.cell, styles.colSym, styles.symText]}
+                numberOfLines={1}
+              >
+                {item.symbol}
+              </Text>
+              <Text
+                style={[styles.cell, styles.colBroker]}
+                numberOfLines={1}
+              >
+                {item.brokerCode}
+              </Text>
+              <Text style={[styles.cell, styles.colQty]} numberOfLines={1}>
+                {fmtMcap(item.qty)}
+              </Text>
+              <Text style={[styles.cell, styles.colAmt]} numberOfLines={1}>
+                {fmtMcap(item.amount)}
+              </Text>
+              <Text style={[styles.cell, styles.colRate]} numberOfLines={1}>
+                {fmtNum(item.avgRate)}
+              </Text>
+            </Pressable>
+          )}
+        />
+      </View>
     );
 
   return (
@@ -355,7 +392,13 @@ function TopBuySellTableScreen({ side }: Props) {
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>{title}</Text>
-        <View style={{ width: rs(22) }} />
+        <Pressable hitSlop={12} onPress={() => void refresh(true)}>
+          <Ionicons
+            name="refresh"
+            size={rs(20)}
+            color={loading || loadingMore ? colors.textMuted : colors.text}
+          />
+        </Pressable>
       </View>
 
       <PremiumGate
@@ -410,7 +453,6 @@ function TopBuySellTableScreen({ side }: Props) {
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const headBg = isDark ? '#1A1C1A' : '#1C2529';
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
     header: {
@@ -422,13 +464,17 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       backgroundColor: c.bg,
     },
     title: { color: c.text, fontWeight: '800', fontSize: rs(17) },
-    list: { paddingBottom: rs(28) },
+    body: { flex: 1 },
+    filters: {
+      paddingHorizontal: rs(14),
+      paddingBottom: rs(8),
+      backgroundColor: c.bg,
+    },
     sessionDate: {
       color: c.textMuted,
       fontSize: rs(12),
       fontWeight: '600',
-      marginBottom: rs(8),
-      paddingHorizontal: 0,
+      marginBottom: rs(6),
     },
     center: {
       flex: 1,
@@ -441,28 +487,42 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      paddingHorizontal: rs(14),
-      marginBottom: rs(8),
+      marginTop: rs(4),
     },
-    periodBtn: {
+    filterTopRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      marginHorizontal: 0,
-      marginBottom: rs(10),
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(11),
+      marginBottom: rs(8),
+    },
+    periodBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
       borderRadius: rs(10),
       borderWidth: 1,
       borderColor: c.border,
       backgroundColor: c.surface,
     },
     periodText: { flex: 1, color: c.text, fontWeight: '700', fontSize: rs(14) },
+    clearBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(4),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(10),
+      borderRadius: rs(10),
+      borderWidth: 1,
+      borderColor: '#E5484D',
+      backgroundColor: c.surface,
+    },
+    clearText: { color: '#E5484D', fontWeight: '700', fontSize: rs(12) },
     searchRow: {
       flexDirection: 'row',
       gap: rs(8),
-      marginHorizontal: 0,
-      marginBottom: rs(10),
     },
     searchBox: {
       flex: 1,
@@ -484,8 +544,8 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     tableHead: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: headBg,
-      paddingVertical: rs(10),
+      height: ROW_H,
+      backgroundColor: HEADER_TEAL,
       paddingHorizontal: rs(12),
     },
     headCell: {
@@ -493,28 +553,32 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontWeight: '800',
       fontSize: rs(12),
     },
-    headCellText: { color: '#FFF', fontWeight: '800', fontSize: rs(12) },
     headPress: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'flex-end',
       gap: rs(2),
+      height: ROW_H,
     },
+    list: { flex: 1, backgroundColor: c.bg },
+    listContent: { paddingBottom: rs(28) },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: rs(11),
+      height: ROW_H,
       paddingHorizontal: rs(12),
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.borderMuted,
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
     },
-    cell: { color: c.text, fontSize: rs(13) },
+    rowAlt: { backgroundColor: isDark ? c.bg : '#FAFAF8' },
+    cell: { color: c.text, fontSize: rs(12.5), fontWeight: '600' },
     symText: { fontWeight: '700' },
-    colSym: { flex: 1.1 },
-    colBroker: { flex: 0.9, textAlign: 'center' },
+    colSym: { flex: 1.15 },
+    colBroker: { flex: 0.85, textAlign: 'center' },
     colQty: { flex: 1.15, textAlign: 'right' },
-    colAmt: { flex: 1.2, textAlign: 'right' },
+    colAmt: { flex: 1.15, textAlign: 'right' },
+    colRate: { flex: 1.0, textAlign: 'right' },
     empty: {
       color: c.textMuted,
       textAlign: 'center',

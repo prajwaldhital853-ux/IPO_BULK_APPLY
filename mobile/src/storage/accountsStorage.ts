@@ -55,19 +55,35 @@ async function deleteSecrets(id: string): Promise<void> {
   }
 }
 
+function dedupeAccounts(list: AccountMeta[]): AccountMeta[] {
+  const seen = new Set<string>();
+  const out: AccountMeta[] = [];
+  for (const a of list) {
+    if (!a?.id || seen.has(a.id)) continue;
+    seen.add(a.id);
+    out.push(a);
+  }
+  return out;
+}
+
 export async function loadAccountMeta(): Promise<AccountMeta[]> {
   await migrateLegacyIfNeeded();
   try {
     const raw = await AsyncStorage.getItem(metaKey());
     if (!raw) return [];
-    return JSON.parse(raw) as AccountMeta[];
+    const list = JSON.parse(raw) as AccountMeta[];
+    const deduped = dedupeAccounts(Array.isArray(list) ? list : []);
+    if (deduped.length !== list.length) {
+      await AsyncStorage.setItem(metaKey(), JSON.stringify(deduped));
+    }
+    return deduped;
   } catch {
     return [];
   }
 }
 
 export async function saveAccountMeta(list: AccountMeta[]): Promise<void> {
-  await AsyncStorage.setItem(metaKey(), JSON.stringify(list));
+  await AsyncStorage.setItem(metaKey(), JSON.stringify(dedupeAccounts(list)));
 }
 
 export async function reorderAccountMeta(

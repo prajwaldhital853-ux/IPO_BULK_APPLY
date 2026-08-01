@@ -22,6 +22,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import { KeyboardSheetModal } from '../components/KeyboardSheetModal';
+import { SwipeTabGesture } from '../components/SwipeTabGesture';
 import type { RootStackParamList } from '../navigation/types';
 import {
   fmtNpr,
@@ -52,6 +53,8 @@ const PILL_BG = 'rgba(120,130,120,0.18)';
 type Styles = ReturnType<typeof makeStyles>;
 type MainTab = 'summary' | 'holdings' | 'distribution';
 type HoldSort = 'qty' | 'ltp' | 'today';
+
+const MAIN_TABS: MainTab[] = ['summary', 'holdings', 'distribution'];
 
 export function PortfolioDetailScreen() {
   const navigation =
@@ -258,6 +261,15 @@ export function PortfolioDetailScreen() {
         ))}
       </View>
 
+      <SwipeTabGesture
+        index={Math.max(0, MAIN_TABS.indexOf(tab))}
+        count={MAIN_TABS.length}
+        enabled={!settingsOpen && !editOpen && !addOpen && !searchOpen}
+        onIndexChange={(i) => {
+          const next = MAIN_TABS[i];
+          if (next) setTab(next);
+        }}
+      >
       {tab === 'summary' ? (
         <ScrollView
           contentContainerStyle={[
@@ -588,6 +600,7 @@ export function PortfolioDetailScreen() {
           ) : null}
         </ScrollView>
       ) : null}
+      </SwipeTabGesture>
 
       <Pressable
         style={[styles.fab, { bottom: insets.bottom + rs(16) }]}

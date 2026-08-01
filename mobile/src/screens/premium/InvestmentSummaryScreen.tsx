@@ -16,6 +16,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PremiumGate } from '../../components/PremiumGate';
+import { SwipeTabGesture } from '../../components/SwipeTabGesture';
 import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
 import {
@@ -318,6 +319,8 @@ export function InvestmentSummaryScreen() {
     setTab(id);
   };
 
+  const tabIndex = Math.max(0, TABS.findIndex((t) => t.id === tab));
+
   const activeSector =
     data?.sectors.find((s) => s.sector === selectedSector) ?? data?.sectors[0];
 
@@ -346,6 +349,14 @@ export function InvestmentSummaryScreen() {
       </Pressable>
     </View>
   ) : (
+    <SwipeTabGesture
+      index={tabIndex}
+      count={TABS.length}
+      onIndexChange={(i) => {
+        const next = TABS[i];
+        if (next) switchTab(next.id);
+      }}
+    >
     <ScrollView
       refreshControl={
         <RefreshControl
@@ -474,7 +485,7 @@ export function InvestmentSummaryScreen() {
         ))}
       </View>
 
-      {/* Tabs */}
+      {/* Tabs — swipe content left/right to change */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -933,6 +944,7 @@ export function InvestmentSummaryScreen() {
         </View>
       ) : null}
     </ScrollView>
+    </SwipeTabGesture>
   );
 
   return (

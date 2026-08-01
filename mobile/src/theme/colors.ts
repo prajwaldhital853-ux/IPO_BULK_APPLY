@@ -106,14 +106,13 @@ export const darkColors: ThemeColors = {
 };
 
 /**
- * Light mode — pure white page, crisp dark borders, saturated greens.
- * Buttons/accents use clear dark greens (not pastel / washed-out).
+ * Light mode — drawer palette: page #F5F6F2, surfaces #F0F3EE (drawer rows).
  */
 export const lightColors: ThemeColors = {
-  bg: '#FFFFFF',
-  bgElevated: '#FFFFFF',
-  surface: '#FFFFFF',
-  surfaceAlt: '#F3F4F2',
+  bg: '#F5F6F2',
+  bgElevated: '#F0F3EE',
+  surface: '#F0F3EE',
+  surfaceAlt: '#FAFCF9',
   border: '#3D4F3A',
   borderMuted: '#6B7A64',
 
@@ -149,10 +148,10 @@ export const lightColors: ThemeColors = {
   tabActive: '#1B5E20',
   tabActiveBg: '#E8F5E9',
 
-  inputBg: '#FFFFFF',
+  inputBg: '#F0F3EE',
   overlay: 'rgba(0,0,0,0.4)',
 
-  searchBg: '#FFFFFF',
+  searchBg: '#F0F3EE',
   pillFree: '#0288D1',
   pillMero: '#00897B',
   pillPremiumStart: '#1976D2',

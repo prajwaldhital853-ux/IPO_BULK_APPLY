@@ -11,16 +11,32 @@ import {
   type MiniScreenerRow,
 } from './screener';
 import { formatRs } from './premiumAnalytics';
-import { loadMerolaganiFloorsheetProgressive, loadMerolaganiFloorsheetForSymbol, MERO_FLOOR_FAST_PAGES, sessionDateFromRows } from './merolaganiFloorsheet';
+import {
+  loadMerolaganiFloorsheetProgressive,
+  loadMerolaganiFloorsheetForSymbol,
+  MERO_FLOOR_FAST_PAGES,
+  probeMerolaganiFloorSession,
+  sessionDateFromRows,
+} from './merolaganiFloorsheet';
 import { loadTmsBrokers } from './resources';
 import { sessionStatus } from './calendar';
 import { isTradingDay, nepalTodayIso } from './holidays';
+import {
+  clearBrokerFlowDiskCache,
+  loadBrokerFlowDiskCache,
+  saveBrokerFlowDiskCache,
+  type BrokerFlowDiskEntry,
+  type BrokerFlowDiskStore,
+  type BrokerFlowKind,
+} from '../../storage/brokerFlowCache';
 
 const DATA_BASE = 'https://sharehubnepal.com/data/api/v1';
 const LIVE_V2 = 'https://sharehubnepal.com/live/api/v2/nepselive';
 const BROKER_CDN = 'https://cdn.arthakendra.com/';
 
 const CACHE_MS = 120_000;
+/** Acc/Dis day cache — floorsheet usually rolls once per session. */
+const BROKER_FLOW_DAY_MS = 36 * 60 * 60_000;
 /** Fewer / larger pages = much faster first paint. */
 const FLOOR_PAGE_SIZE = 200;
 const FLOOR_MAX_PAGES = 10;
@@ -28,14 +44,6 @@ const FLOOR_MAX_PAGES = 10;
 const MERO_ACC_DIS_PAGES = MERO_FLOOR_FAST_PAGES;
 /** Aggressive Holders needs a deep floorsheet so names like SAIL are not missed. */
 const MERO_AGGRESSIVE_PAGES = 30;
-
-export function invalidateBrokerAnalyticsCache(): void {
-  brokerCache = null;
-  brokerCacheAt = 0;
-  floorsheetCache = null;
-  floorsheetCacheAt = 0;
-  floorsheetMeta = { trades: 0, date: null };
-}
 
 export type BrokerInfo = { code: string; name: string; iconUrl: string | null };
 
@@ -82,6 +90,103 @@ export type PremiumIntelSnapshot = {
   summary: IntelMetric[];
   rows: PremiumIntelRow[];
 };
+
+type IntelCacheEntry = {
+  at: number;
+  sessionDate: string;
+  maxContractId: number;
+  snap: PremiumIntelSnapshot;
+};
+
+const intelSnapCache = new Map<BrokerFlowKind, IntelCacheEntry>();
+let brokerFlowPrefetch: Promise<void> | null = null;
+let diskHydrateP: Promise<void> | null = null;
+let diskHydrated = false;
+
+/** Day-cache key — floorsheet session rolls ~once/day when Merolagani updates. */
+function floorFingerprint(sessionDate: string): string {
+  return sessionDate.trim();
+}
+
+function maxContractIdFromRows(rows: FloorsheetRow[]): number {
+  let max = 0;
+  for (const r of rows) {
+    if (r.contractId > max) max = r.contractId;
+  }
+  return max;
+}
+
+async function hydrateIntelCacheFromDisk(): Promise<void> {
+  if (diskHydrated) return;
+  if (diskHydrateP) return diskHydrateP;
+  diskHydrateP = (async () => {
+    try {
+      const store = await loadBrokerFlowDiskCache();
+      for (const kind of ['top-holders', 'top-releases'] as BrokerFlowKind[]) {
+        const e = store[kind];
+        if (!e?.snap || !e.sessionDate) continue;
+        if (Date.now() - e.at > BROKER_FLOW_DAY_MS) continue;
+        if (intelSnapCache.has(kind)) continue;
+        intelSnapCache.set(kind, {
+          at: e.at,
+          sessionDate: e.sessionDate,
+          maxContractId: e.maxContractId ?? 0,
+          snap: e.snap as unknown as PremiumIntelSnapshot,
+        });
+      }
+    } catch {
+      // ignore
+    } finally {
+      diskHydrated = true;
+    }
+  })();
+  return diskHydrateP;
+}
+
+function persistIntelCacheToDisk(): void {
+  const store: BrokerFlowDiskStore = {};
+  for (const kind of ['top-holders', 'top-releases'] as BrokerFlowKind[]) {
+    const e = intelSnapCache.get(kind);
+    if (!e) continue;
+    store[kind] = {
+      sessionDate: e.sessionDate,
+      maxContractId: e.maxContractId,
+      tradesScanned: e.snap.tradesScanned,
+      at: e.at,
+      snap: e.snap as unknown as Record<string, unknown>,
+    } satisfies BrokerFlowDiskEntry;
+  }
+  void saveBrokerFlowDiskCache(store);
+}
+
+function rememberIntelSnap(
+  kind: BrokerFlowKind,
+  snap: PremiumIntelSnapshot,
+  sessionDate: string | null,
+  maxContractId: number,
+): void {
+  if (!sessionDate || !snap.rows.length) return;
+  intelSnapCache.set(kind, {
+    at: Date.now(),
+    sessionDate,
+    maxContractId,
+    snap,
+  });
+  persistIntelCacheToDisk();
+}
+
+export function invalidateBrokerAnalyticsCache(): void {
+  brokerCache = null;
+  brokerCacheAt = 0;
+  floorsheetCache = null;
+  floorsheetCacheAt = 0;
+  floorsheetMeta = { trades: 0, date: null };
+  intelSnapCache.clear();
+  brokerFlowPrefetch = null;
+  diskHydrated = false;
+  diskHydrateP = null;
+  void clearBrokerFlowDiskCache();
+}
 
 export type FiftyTwoWeekRow = {
   rank: number;
@@ -171,6 +276,23 @@ function expectTodaySession(liveDate: string): boolean {
   // latest published sheet (often still labeled prior day until they roll over).
   if (sessionStatus() !== 'open') return false;
   return liveDate >= today;
+}
+
+function isDayCacheFresh(
+  entry: IntelCacheEntry,
+  liveDate: string | null,
+): boolean {
+  if (!entry.sessionDate || !entry.snap.rows.length) return false;
+  if (Date.now() - entry.at > BROKER_FLOW_DAY_MS) return false;
+  // New trading session published while market expects today → stale.
+  if (
+    liveDate &&
+    expectTodaySession(liveDate) &&
+    entry.sessionDate < liveDate
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function isFloorsheetCacheFresh(_liveDate: string): boolean {
@@ -1037,9 +1159,25 @@ function buildNetIntelSnapshot(
   };
 }
 
+/** Load persisted Acc/Dis day-cache into memory (safe to call often). */
+export function ensureBrokerFlowIntelHydrated(): Promise<void> {
+  return hydrateIntelCacheFromDisk();
+}
+
+/** Instant read of a warm Acc/Dis board (day/session cache). */
+export function peekBrokerFlowIntel(
+  kind: 'top-holders' | 'top-releases',
+): PremiumIntelSnapshot | null {
+  const warm = intelSnapCache.get(kind);
+  if (!warm || !isDayCacheFresh(warm, null)) return null;
+  return warm.snap;
+}
+
 /**
  * Progressive broker accumulation / distribution.
- * Starts floorsheet immediately (does not wait on screener first).
+ * Uses a day/session cache keyed to the floorsheet session date. When Merolagani
+ * publishes a new sheet, cache clears and fresh data is loaded. Otherwise the
+ * cached board is shown instantly.
  */
 export async function streamPremiumIntel(
   kind: 'top-holders' | 'top-releases',
@@ -1051,18 +1189,82 @@ export async function streamPremiumIntel(
 ): Promise<PremiumIntelSnapshot> {
   const mode = kind === 'top-holders' ? 'holders' : 'releases';
   const emptyBoards: BoardSets = { demand: new Set(), supply: new Set() };
-  const liveDate = await resolveLiveMarketDate();
 
-  // Load logos + names first so Acc/Dis rows never paint without company icons.
-  const [screener, brokers] = await Promise.all([
-    screenerMap(),
-    loadBrokers(),
+  await hydrateIntelCacheFromDisk();
+
+  // Instant paint from day cache (memory or disk).
+  let cached = intelSnapCache.get(kind);
+  if (cached && isDayCacheFresh(cached, null)) {
+    onUpdate(cached.snap, { partial: true, page: 0 });
+  } else {
+    cached = undefined;
+  }
+
+  // Lightweight probe — detect floorsheet API update without full download.
+  const [liveDate, probe] = await Promise.all([
+    resolveLiveMarketDate().catch(() => null),
+    probeMerolaganiFloorSession().catch(() => null),
   ]);
 
+  let forceFloor = false;
+
+  if (cached && isDayCacheFresh(cached, liveDate)) {
+    const serveCached = () => {
+      const served = {
+        ...cached!.snap,
+        priorSessionReason: priorSessionReason(
+          cached!.sessionDate,
+          liveDate ?? nepalTodayIso(),
+        ),
+      };
+      onUpdate(served, { partial: false, page: 0 });
+      return served;
+    };
+
+    if (!probe?.sessionDate) {
+      // Probe failed (offline) — keep day cache.
+      return serveCached();
+    }
+
+    const cachedFp = floorFingerprint(cached.sessionDate);
+    const liveFp = floorFingerprint(probe.sessionDate);
+    if (cachedFp && liveFp && cachedFp === liveFp) {
+      // Same floorsheet session — serve day-cache as final.
+      return serveCached();
+    }
+
+    // Floorsheet API published a new session — drop stale Acc/Dis boards.
+    intelSnapCache.delete(kind);
+    cached = undefined;
+    forceFloor = true;
+    // Also drop in-memory floorsheet so we don't rebuild from old trades.
+    floorsheetCache = null;
+    floorsheetCacheAt = 0;
+    floorsheetMeta = { trades: 0, date: null };
+  } else if (cached && !isDayCacheFresh(cached, liveDate)) {
+    intelSnapCache.delete(kind);
+    cached = undefined;
+    forceFloor = true;
+    floorsheetCache = null;
+    floorsheetCacheAt = 0;
+    floorsheetMeta = { trades: 0, date: null };
+  }
+
+  let screener = new Map<string, MiniScreenerRow>();
+  let brokers: BrokerInfo[] = [];
   let latest: PremiumIntelSnapshot | null = null;
   let lastCount = 0;
+  let floorsheetDone = false;
+  let gateOpen = false;
+  const buffer: Array<{
+    rows: FloorsheetRow[];
+    meta: { page: number; done: boolean };
+  }> = [];
 
-  const emit = (rows: FloorsheetRow[], meta: { page: number; done: boolean }) => {
+  const emit = (
+    rows: FloorsheetRow[],
+    meta: { page: number; done: boolean },
+  ) => {
     const snap = buildNetIntelSnapshot(
       mode,
       limit,
@@ -1078,12 +1280,58 @@ export async function streamPremiumIntel(
     latest = {
       ...snap,
       sessionDate,
-      priorSessionReason: priorSessionReason(sessionDate, liveDate),
+      priorSessionReason: priorSessionReason(
+        sessionDate,
+        liveDate ?? nepalTodayIso(),
+      ),
     };
-    onUpdate(latest, { partial: !meta.done, page: meta.page });
+    onUpdate(latest, {
+      partial: !meta.done || !floorsheetDone,
+      page: meta.page,
+    });
   };
 
-  await loadSessionFloorsheetProgressive(emit);
+  const emitOrBuffer = (
+    rows: FloorsheetRow[],
+    meta: { page: number; done: boolean },
+  ) => {
+    if (meta.done) floorsheetDone = true;
+    if (!gateOpen) {
+      buffer.push({ rows, meta });
+      return;
+    }
+    emit(rows, meta);
+  };
+
+  const flushBuffer = () => {
+    gateOpen = true;
+    for (const item of buffer) emit(item.rows, item.meta);
+    buffer.length = 0;
+  };
+
+  // Floorsheet + screener in parallel. Hold first paint ≤400ms for logos.
+  const floorP = loadSessionFloorsheetProgressive(emitOrBuffer, forceFloor);
+
+  const screenerP = screenerMap()
+    .catch(() => new Map<string, MiniScreenerRow>())
+    .then((s) => {
+      screener = s;
+    });
+
+  const brokersP = loadBrokers()
+    .catch(() => [] as BrokerInfo[])
+    .then((b) => {
+      brokers = b;
+    });
+
+  await Promise.race([
+    screenerP,
+    new Promise<void>((r) => setTimeout(r, 400)),
+  ]);
+  flushBuffer();
+
+  await Promise.all([floorP, screenerP, brokersP]);
+  floorsheetDone = true;
 
   if (floorsheetCache?.length) {
     emit(floorsheetCache, { page: 99, done: true });
@@ -1091,11 +1339,51 @@ export async function streamPremiumIntel(
     latest = await loadNetIntel(mode, limit);
     latest = {
       ...latest,
-      priorSessionReason: priorSessionReason(latest.sessionDate, liveDate),
+      priorSessionReason: priorSessionReason(
+        latest.sessionDate,
+        liveDate ?? nepalTodayIso(),
+      ),
     };
     onUpdate(latest, { partial: false, page: 0 });
+  } else {
+    onUpdate(latest, { partial: false, page: 99 });
+  }
+
+  if (latest) {
+    const sessionDate =
+      latest.sessionDate ??
+      probe?.sessionDate ??
+      floorsheetMeta.date ??
+      null;
+    // Store page-1 probe id for diagnostics; invalidation uses sessionDate only.
+    const maxId =
+      probe?.maxContractId ??
+      maxContractIdFromRows(floorsheetCache ?? []);
+    rememberIntelSnap(kind, latest, sessionDate, maxId);
   }
   return latest!;
+}
+
+/**
+ * Warm screener (logos) + floorsheet + Acc/Dis boards when Services opens.
+ * Skips network when day-cache still matches the live floorsheet session.
+ */
+export function prefetchBrokerFlowIntel(): void {
+  if (brokerFlowPrefetch) return;
+  brokerFlowPrefetch = (async () => {
+    try {
+      await hydrateIntelCacheFromDisk();
+      await screenerMap().catch(() => null);
+      await streamPremiumIntel('top-holders', () => {}, 120);
+      await streamPremiumIntel('top-releases', () => {}, 120);
+    } catch {
+      // Prefetch is best-effort.
+    } finally {
+      setTimeout(() => {
+        brokerFlowPrefetch = null;
+      }, 30_000);
+    }
+  })();
 }
 
 /**

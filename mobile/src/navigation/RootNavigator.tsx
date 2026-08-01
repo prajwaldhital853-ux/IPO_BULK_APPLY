@@ -255,7 +255,7 @@ export function RootNavigator() {
           swipeEnabled: true,
           drawerStyle: {
             width: drawerWidth,
-            backgroundColor: isDark ? colors.bg : '#F5F6F2',
+            backgroundColor: colors.bg,
             borderTopRightRadius: rs(18),
             borderBottomRightRadius: rs(18),
             overflow: 'hidden',

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -7,20 +7,13 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
@@ -40,6 +33,7 @@ import { guardAddAccount } from '../utils/accountLimits';
 import {
   loadOpenIssuesForUi,
   runBulkApply,
+  sanitizeMeroshareMessage,
   type ApplyAccountResult,
   type BulkApplySummary,
   type OpenIssue,
@@ -49,6 +43,11 @@ import {
   loadApplyHistory,
   markAppliedMany,
 } from '../storage/applyHistory';
+import {
+  daysLeftForIssue,
+  enrichIssuesWithClosingDates,
+  parseIssueDate,
+} from '../utils/ipoIssues';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
@@ -87,6 +86,22 @@ function reasonLabel(r: ApplyAccountResult): string {
   return 'Not applied';
 }
 
+function applyDisplayMessage(r: ApplyAccountResult): string {
+  return sanitizeMeroshareMessage(r.message);
+}
+
+/** @deprecated use daysLeftForIssue — kept for hot-reload compatibility */
+function daysLeftLabel(closeDate?: string): string | null {
+  if (!closeDate) return null;
+  return daysLeftForIssue({ issueCloseDate: closeDate } as OpenIssue);
+}
+
+function csvEscape(v: string): string {
+  const s = String(v ?? '');
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
 export function ApplyScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -96,22 +111,7 @@ export function ApplyScreen() {
   const { isPremium, maxAccounts } = useSubscription();
   const { colors } = useTheme();
   const sensitive = useSensitiveAction();
-  const { height: winH } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-
-  const sheetCollapsed = Math.round(rs(56));
-  const sheetMid = Math.round(winH * 0.48);
-  const sheetMax = Math.round(winH * 0.82);
-  const sheetH = useSharedValue(sheetMid);
-  const sheetStart = useSharedValue(sheetMid);
-  const [sheetPeek, setSheetPeek] = useState(false);
-
-  const setPeekFromHeight = useCallback(
-    (h: number) => {
-      setSheetPeek(h <= sheetCollapsed + 12);
-    },
-    [sheetCollapsed],
-  );
 
   const goAddCapital = useCallback(() => {
     if (
@@ -136,14 +136,14 @@ export function ApplyScreen() {
   const [selected, setSelected] = useState<OpenIssue | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState('');
   const [summary, setSummary] = useState<BulkApplySummary | null>(null);
   const [applyResults, setApplyResults] = useState<ApplyAccountResult[]>([]);
-  const [applyFilter, setApplyFilter] = useState<ApplyFilter>('all');
   const [applyProgress, setApplyProgress] = useState<{
     done: number;
     total: number;
   } | null>(null);
+  const [resultModalOpen, setResultModalOpen] = useState(false);
+  const resultModalBatchKeyRef = useRef<string | null>(null);
   /** Bulk: which accounts are checked to include */
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [historyTick, setHistoryTick] = useState(0);
@@ -170,7 +170,9 @@ export function ApplyScreen() {
   const refreshIssues = useCallback(async () => {
     setLoadingIssues(true);
     try {
-      const list = await loadOpenIssuesForUi(accounts);
+      const list = await enrichIssuesWithClosingDates(
+        await loadOpenIssuesForUi(accounts),
+      );
       setIssues(list);
       setSelected((prev) => {
         if (!list.length) return null;
@@ -323,10 +325,9 @@ export function ApplyScreen() {
           const execute = () => {
             void (async () => {
               setRunning(true);
-              setProgress('Starting…');
+              resultModalBatchKeyRef.current = null;
               setSummary(null);
               setApplyResults([]);
-              setApplyFilter('all');
               setApplyProgress({ done: 0, total: checkedEligible.length });
               try {
                 const result = await runBulkApply({
@@ -335,8 +336,7 @@ export function ApplyScreen() {
                   kitta,
                   dryRun: false,
                   simulateLogin: false,
-                  onProgress: (msg, index, total) => {
-                    setProgress(msg);
+                  onProgress: (_msg, index, total) => {
                     setApplyProgress({ done: index, total });
                   },
                   onAccountResult: (row, index, total) => {
@@ -353,7 +353,6 @@ export function ApplyScreen() {
                 );
               } finally {
                 setRunning(false);
-                setProgress('');
                 setApplyProgress(null);
               }
             })();
@@ -398,8 +397,8 @@ export function ApplyScreen() {
               const execute = () => {
                 void (async () => {
                   setRunning(true);
+                  resultModalBatchKeyRef.current = null;
                   setApplyResults([]);
-                  setApplyFilter('all');
                   setApplyProgress({ done: 0, total: 1 });
                   try {
                     const result = await runBulkApply({
@@ -466,83 +465,393 @@ export function ApplyScreen() {
     return counts;
   }, [applyResults]);
 
-  const filteredApplyResults = useMemo(() => {
-    if (applyFilter === 'all') return applyResults;
-    return applyResults.filter((r) => classifyApplyResult(r) === applyFilter);
-  }, [applyResults, applyFilter]);
-
-  const showApplyReport = running || applyResults.length > 0;
+  const failedApplyCount = applyResults.length - applyCounts.applied;
+  const showBulkUpdates = running || applyResults.length > 0;
+  const daysLeft = daysLeftForIssue(selected);
 
   useEffect(() => {
-    if (!showApplyReport) return;
-    sheetH.value = withSpring(sheetMid, { damping: 22, stiffness: 200 });
-    setSheetPeek(false);
-    // Only when the report pane first appears — not on every mid-size change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional one-shot open
-  }, [showApplyReport]);
-
-  useEffect(() => {
-    if (!running) return;
-    sheetH.value = withSpring(sheetMid, { damping: 22, stiffness: 200 });
-    setSheetPeek(false);
-    // Expand when a new apply run starts.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running]);
-
-  const expandSheet = useCallback(() => {
-    sheetH.value = withSpring(sheetMid, { damping: 22, stiffness: 200 });
-    setSheetPeek(false);
-  }, [sheetH, sheetMid]);
-
-  const collapseSheet = useCallback(() => {
-    sheetH.value = withSpring(sheetCollapsed, { damping: 22, stiffness: 200 });
-    setSheetPeek(true);
-  }, [sheetCollapsed, sheetH]);
-
-  const sheetAnimStyle = useAnimatedStyle(() => ({
-    height: sheetH.value,
-  }));
-
-  const sheetPan = useMemo(
-    () =>
-      Gesture.Pan()
-        .activeOffsetY([-6, 6])
-        .onBegin(() => {
-          sheetStart.value = sheetH.value;
-        })
-        .onUpdate((e) => {
-          const next = sheetStart.value - e.translationY;
-          sheetH.value = Math.min(
-            sheetMax,
-            Math.max(sheetCollapsed, next),
-          );
-        })
-        .onEnd((e) => {
-          const h = sheetH.value;
-          const vy = e.velocityY;
-          let target = sheetMid;
-          if (vy > 900) {
-            target = sheetCollapsed;
-          } else if (vy < -900) {
-            target = sheetMax;
-          } else {
-            const pts = [sheetCollapsed, sheetMid, sheetMax];
-            target = pts.reduce((best, p) =>
-              Math.abs(p - h) < Math.abs(best - h) ? p : best,
-            );
-          }
-          sheetH.value = withSpring(target, { damping: 22, stiffness: 200 });
-          runOnJS(setPeekFromHeight)(target);
-        }),
-    [
-      setPeekFromHeight,
-      sheetCollapsed,
-      sheetH,
-      sheetMax,
-      sheetMid,
-      sheetStart,
-    ],
+    if (!selected) return;
+    let cancelled = false;
+    void enrichIssuesWithClosingDates([selected]).then((enriched) => {
+      if (cancelled) return;
+      const row = enriched[0];
+      const close = row?.issueCloseDate;
+      if (!close || !parseIssueDate(close)) return;
+      if (close === selected.issueCloseDate) return;
+      setIssues((prev) =>
+        prev.map((i) =>
+          i.companyShareId === selected.companyShareId
+            ? { ...i, issueCloseDate: close }
+            : i,
+        ),
+      );
+      setSelected((prev) =>
+        prev?.companyShareId === selected.companyShareId
+          ? { ...prev, issueCloseDate: close }
+          : prev,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.companyShareId]);
+  const modalTotal = applyResults.length;
+  const modalSuccess = applyCounts.applied;
+  const modalIssues = failedApplyCount;
+  const modalPct =
+    modalTotal > 0 ? Math.round((modalSuccess / modalTotal) * 100) : 0;
+  const modalNeedsAttention = modalIssues > 0;
+  const modalIssueRows = useMemo(
+    () => applyResults.filter((r) => !r.ok),
+    [applyResults],
   );
+
+  const refreshControl = (
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={() => void refreshAll()}
+      tintColor={colors.primary}
+    />
+  );
+
+  const clearUpdates = useCallback(() => {
+    setApplyResults([]);
+    setSummary(null);
+    setApplyProgress(null);
+  }, []);
+
+  const renderSingleAccountRows = () =>
+    accounts.map((acc, idx) => {
+      const applied = alreadyApplied(acc.id);
+      return (
+        <View key={acc.id} style={styles.accountRow}>
+          <View style={styles.indexBadge}>
+            <Text style={styles.indexText}>{idx + 1}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.accName}>{acc.name}</Text>
+            <Text style={styles.accBank}>
+              {applied
+                ? 'Already applied for this IPO'
+                : acc.bankName || acc.dpName}
+            </Text>
+          </View>
+          <Pressable
+            style={[styles.applyBtn, applied && styles.applyBtnDisabled]}
+            onPress={() => runSingle(acc.id)}
+            disabled={running || applied}
+          >
+            <Text
+              style={[
+                styles.applyBtnText,
+                applied && { color: colors.textMuted },
+              ]}
+            >
+              {applied ? 'Done' : 'Apply'}
+            </Text>
+          </Pressable>
+        </View>
+      );
+    });
+
+  const renderUpdateCard = (r: ApplyAccountResult, index: number) => {
+    const ok = r.ok;
+    const cardStyle = ok ? styles.updateCardOk : styles.updateCardFail;
+    const acc = accounts.find((a) => a.id === r.accountId);
+    const rowTitle = `IPO@${acc?.username ?? r.username}`;
+    return (
+      <View key={r.accountId} style={cardStyle}>
+        <Ionicons
+          name={ok ? 'checkmark-circle' : 'alert-circle'}
+          size={rs(22)}
+          color={ok ? colors.accentGreen : colors.danger}
+        />
+        <View style={styles.updateBody}>
+          <Text style={styles.updateName}>
+            {index + 1}. {rowTitle}
+          </Text>
+          <Text
+            style={[
+              styles.updateMsg,
+              ok ? styles.updateMsgOk : styles.updateMsgFail,
+            ]}
+            numberOfLines={3}
+          >
+            {ok ? reasonLabel(r) : applyDisplayMessage(r)}
+          </Text>
+        </View>
+        {!ok && !running ? (
+          <Pressable
+            style={styles.updateApplyBtn}
+            onPress={() => runSingle(r.accountId)}
+          >
+            <Text style={styles.updateApplyText}>Apply</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderBulkUpdatesHeader = () => {
+    const total = applyResults.length || applyProgress?.total || 0;
+    return (
+      <View style={styles.updatesSection}>
+        <View style={styles.updatesHead}>
+          <Text style={styles.updatesTitleLine} numberOfLines={2}>
+            <Text style={styles.updatesTitleLabel}>Bulk Apply Updates </Text>
+            <Text style={styles.updatesParen}>(</Text>
+            <Text style={styles.updatesCountOk}>{applyCounts.applied}</Text>
+            <Text style={styles.updatesParen}>/</Text>
+            <Text style={styles.updatesCountTotal}>{total}</Text>
+            <Text style={styles.updatesParen}>)</Text>
+            {failedApplyCount > 0 ? (
+              <Text style={styles.updatesCountFailed}>
+                {' '}
+                · {failedApplyCount} failed
+              </Text>
+            ) : null}
+          </Text>
+          <Pressable onPress={clearUpdates} hitSlop={8}>
+            <Text style={styles.updatesClear}>clear</Text>
+          </Pressable>
+        </View>
+        <View style={styles.updatesDivider} />
+      </View>
+    );
+  };
+
+  const renderBulkUpdatesWaiting = () =>
+    running && applyResults.length === 0 ? (
+      <View style={styles.updatesWaiting}>
+        <ActivityIndicator size="small" color={colors.primary} />
+      </View>
+    ) : null;
+
+  const renderBulkUpdateCards = () =>
+    applyResults.map((r, index) => renderUpdateCard(r, index));
+
+  const renderBulkAutoApply = () =>
+    mode === 'Bulk' ? (
+      <Pressable
+        style={[styles.autoApply, running && styles.autoApplyDisabled]}
+        onPress={confirmBulkApply}
+        disabled={running}
+      >
+        {running ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <Text style={styles.autoApplyText}>Auto Apply</Text>
+        )}
+      </Pressable>
+    ) : null;
+
+  const renderFormTopSection = () => (
+    <>
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryName}>{displayName}</Text>
+        <View style={styles.summaryValueRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.summaryLabel}>Total current value</Text>
+            <Text style={styles.summaryValue}>{currentValueText}</Text>
+          </View>
+          <View style={styles.summarySide}>
+            <View style={styles.plPill}>
+              <Text style={styles.plPillText}>{plText}</Text>
+              <Pressable onPress={() => setHideValues((v) => !v)} hitSlop={8}>
+                <Ionicons
+                  name={hideValues ? 'eye-off-outline' : 'eye-outline'}
+                  size={rs(14)}
+                  color={colors.text}
+                />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+        <Pressable
+          style={styles.summaryBtn}
+          onPress={() => navigation.navigate('InvestmentSummary')}
+        >
+          <Text style={styles.summaryBtnText}>Current Investment Summary</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.modeBar}>
+        <Pressable
+          onPress={() => {
+            if (mode === 'Bulk') setAccountsModalOpen(true);
+            else goAddCapital();
+          }}
+          hitSlop={8}
+          style={styles.modeSideBtn}
+        >
+          <MaterialCommunityIcons
+            name={mode === 'Bulk' ? 'tray-arrow-up' : 'account-plus-outline'}
+            size={rs(18)}
+            color={colors.textSecondary}
+          />
+        </Pressable>
+        <View style={styles.modeToggle}>
+          {(['Bulk', 'Single'] as const).map((m) => (
+            <Pressable
+              key={m}
+              onPress={() => setMode(m)}
+              style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
+            >
+              <Text
+                style={[
+                  styles.modeText,
+                  mode === m && styles.modeTextActive,
+                ]}
+              >
+                {m}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Pressable
+          onPress={() =>
+            Alert.alert(
+              'Bulk apply',
+              'Pick an open IPO, set kitta quantity, choose accounts, then tap Auto Apply. Each account can apply once per IPO.',
+            )
+          }
+          hitSlop={8}
+          style={styles.modeSideBtn}
+        >
+          <Ionicons
+            name="information-circle-outline"
+            size={rs(18)}
+            color={colors.textSecondary}
+          />
+        </Pressable>
+      </View>
+    </>
+  );
+
+  const renderCategoryDropdown = () =>
+    mode === 'Bulk' ? (
+      <Pressable
+        style={styles.dropdown}
+        onPress={() => setAccountsModalOpen(true)}
+      >
+        <Text style={styles.dropdownText} numberOfLines={1}>
+          {checkedEligible.length === accounts.length ||
+          checkedEligible.length === eligibleCount
+            ? 'Select Category (All Accounts)'
+            : checkedEligible.length === 1
+              ? `${checkedEligible[0].name.toUpperCase()} - ${checkedEligible[0].username}`
+              : `Select Category (${checkedEligible.length} accounts)`}
+        </Text>
+        <Ionicons
+          name="chevron-down"
+          size={rs(18)}
+          color={colors.textMuted}
+        />
+      </Pressable>
+    ) : null;
+
+  const renderDaysLeftBadge = () =>
+    daysLeft ? (
+      <View style={styles.daysBadge}>
+        <Ionicons name="time-outline" size={rs(12)} color="#C45C00" />
+        <Text style={styles.daysBadgeText}>{daysLeft}</Text>
+      </View>
+    ) : null;
+
+  const renderIpoFieldSection = () => (
+    <View style={styles.fieldBlock}>
+      <View style={styles.labelRowBetween}>
+        <View style={styles.labelRowLeftInline}>
+          <MaterialCommunityIcons
+            name="bank-outline"
+            size={rs(16)}
+            color={colors.text}
+          />
+          <Text style={styles.fieldLabel}>Current Opening IPO/FPO/Right</Text>
+        </View>
+        {renderDaysLeftBadge()}
+      </View>
+      <Pressable
+        style={styles.dropdown}
+        onPress={() => setPickerOpen(true)}
+        disabled={loadingIssues}
+      >
+        <Text
+          style={[
+            styles.dropdownValueText,
+            !hasRealOpening && styles.dropdownPlaceholder,
+          ]}
+          numberOfLines={1}
+        >
+          {openingLabel}
+        </Text>
+        {loadingIssues ? (
+          <ActivityIndicator size="small" color={colors.primary} />
+        ) : (
+          <Ionicons
+            name="chevron-down"
+            size={rs(18)}
+            color={colors.textMuted}
+          />
+        )}
+      </Pressable>
+    </View>
+  );
+
+  const renderQuantityField = () => (
+    <View style={styles.fieldBlock}>
+      <View style={styles.labelRowLeftInline}>
+        <Text style={styles.hash}>#</Text>
+        <Text style={styles.fieldLabel}>Quantity</Text>
+      </View>
+      <View style={styles.dropdown}>
+        <TextInput
+          value={qty}
+          onChangeText={setQty}
+          keyboardType="number-pad"
+          style={styles.qtyInput}
+          placeholder="10"
+          placeholderTextColor={colors.textMuted}
+        />
+      </View>
+    </View>
+  );
+
+  useEffect(() => {
+    if (!running && summary && applyResults.length > 0) {
+      const batchKey = `${summary.companyShareId}-${summary.kitta}-${applyResults.length}`;
+      if (resultModalBatchKeyRef.current !== batchKey) {
+        resultModalBatchKeyRef.current = batchKey;
+        setResultModalOpen(true);
+      }
+    }
+  }, [running, summary, applyResults.length]);
+
+  const shareApplyExcel = useCallback(async () => {
+    const company = summary?.companyName ?? selected?.companyName ?? 'IPO';
+    const header = 'Index,Account,Username,Status,Message';
+    const lines = applyResults.map((r, i) =>
+      [
+        i + 1,
+        csvEscape(r.accountName),
+        csvEscape(r.username),
+        csvEscape(reasonLabel(r)),
+        csvEscape(applyDisplayMessage(r)),
+      ].join(','),
+    );
+    const csv = `\uFEFF${header}\n${lines.join('\n')}`;
+    try {
+      await Share.share({
+        title: `${company}_apply_results.csv`,
+        message: csv,
+      });
+    } catch (e) {
+      Alert.alert(
+        'Share failed',
+        e instanceof Error ? e.message : 'Could not share file',
+      );
+    }
+  }, [applyResults, selected?.companyName, summary?.companyName]);
 
   const headerActions = (
     <View style={styles.headerActions}>
@@ -607,345 +916,52 @@ export function ApplyScreen() {
           </Pressable>
         </View>
       ) : (
-        <View style={styles.bodySplit}>
         <ScrollView
-          style={showApplyReport ? styles.formScrollWithSheet : undefined}
-          contentContainerStyle={styles.content}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => void refreshAll()}
-              tintColor={colors.primary}
-            />
-          }
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={refreshControl}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator
         >
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryName}>{displayName}</Text>
-            <View style={styles.summaryValueRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.summaryLabel}>Total current value</Text>
-                <Text style={styles.summaryValue}>{currentValueText}</Text>
-              </View>
-              <View style={styles.summarySide}>
-                <View style={styles.plPill}>
-                  <Text style={styles.plPillText}>{plText}</Text>
-                  <Pressable
-                    onPress={() => setHideValues((v) => !v)}
-                    hitSlop={8}
-                  >
-                    <Ionicons
-                      name={hideValues ? 'eye-off-outline' : 'eye-outline'}
-                      size={rs(14)}
-                      color={colors.text}
-                    />
-                  </Pressable>
-                </View>
-              </View>
-            </View>
-            <Pressable
-              style={styles.summaryBtn}
-              onPress={() => navigation.navigate('InvestmentSummary')}
-            >
-              <Text style={styles.summaryBtnText}>Current Investment Summary</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.modeBar}>
-            <Pressable
-              onPress={() => {
-                if (mode === 'Bulk') setAccountsModalOpen(true);
-                else goAddCapital();
-              }}
-              hitSlop={8}
-              style={styles.modeSideBtn}
-            >
-              <MaterialCommunityIcons
-                name={mode === 'Bulk' ? 'tray-arrow-up' : 'account-plus-outline'}
-                size={rs(22)}
-                color={colors.textSecondary}
-              />
-            </Pressable>
-            <View style={styles.modeToggle}>
-              {(['Bulk', 'Single'] as const).map((m) => (
-                <Pressable
-                  key={m}
-                  onPress={() => setMode(m)}
-                  style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
-                >
-                  <Text
-                    style={[
-                      styles.modeText,
-                      mode === m && styles.modeTextActive,
-                    ]}
-                  >
-                    {m}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <Pressable
-              onPress={() =>
-                Alert.alert(
-                  'Bulk apply',
-                  'Pick an open IPO, set kitta quantity, choose accounts, then tap Auto Apply. Each account can apply once per IPO.',
-                )
-              }
-              hitSlop={8}
-              style={styles.modeSideBtn}
-            >
-              <Ionicons
-                name="information-circle-outline"
-                size={rs(22)}
-                color={colors.textSecondary}
-              />
-            </Pressable>
-          </View>
-
+          {renderFormTopSection()}
+          {renderCategoryDropdown()}
+          {renderIpoFieldSection()}
+          {renderQuantityField()}
+          {mode === 'Bulk' ? renderBulkAutoApply() : null}
           {mode === 'Bulk' ? (
-            <Pressable
-              style={styles.dropdown}
-              onPress={() => setAccountsModalOpen(true)}
-            >
-              <Text style={styles.dropdownText} numberOfLines={1}>
-                {checkedEligible.length === accounts.length ||
-                checkedEligible.length === eligibleCount
-                  ? 'Select Category (All Accounts)'
-                  : checkedEligible.length === 1
-                    ? `${checkedEligible[0].name.toUpperCase()} - ${checkedEligible[0].username}`
-                    : `Select Category (${checkedEligible.length} accounts)`}
-              </Text>
-              <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
-            </Pressable>
-          ) : null}
-
-          <View style={styles.fieldBlock}>
-            <View style={styles.labelRow}>
-              <MaterialCommunityIcons
-                name="bank-outline"
-                size={rs(16)}
-                color={colors.textSecondary}
-              />
-              <Text style={styles.label}>Current Opening IPO/FPO/Right</Text>
-            </View>
-            <Pressable
-              style={styles.dropdown}
-              onPress={() => setPickerOpen(true)}
-              disabled={loadingIssues}
-            >
-              <Text
-                style={[
-                  styles.dropdownText,
-                  hasRealOpening ? { color: colors.text } : null,
-                ]}
-                numberOfLines={1}
-              >
-                {openingLabel}
-              </Text>
-              {loadingIssues ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Ionicons name="chevron-down" size={rs(18)} color={colors.textMuted} />
-              )}
-            </Pressable>
-          </View>
-
-          <View style={styles.fieldBlock}>
-            <View style={styles.labelRow}>
-              <Text style={styles.hash}>#</Text>
-              <Text style={styles.label}>Quantity</Text>
-            </View>
-            <View style={styles.dropdown}>
-              <TextInput
-                value={qty}
-                onChangeText={setQty}
-                keyboardType="number-pad"
-                style={styles.qtyInput}
-                placeholder="10"
-                placeholderTextColor={colors.textMuted}
-              />
-            </View>
-          </View>
-
-          {mode === 'Bulk' ? (
-            <Pressable
-              style={[styles.autoApply, running && styles.autoApplyDisabled]}
-              onPress={confirmBulkApply}
-              disabled={running}
-            >
-              {running ? (
-                <ActivityIndicator color="#1B1B1B" />
-              ) : (
-                <Text style={styles.autoApplyText}>Auto Apply</Text>
-              )}
-            </Pressable>
-          ) : (
-            accounts.map((acc, idx) => {
-              const applied = alreadyApplied(acc.id);
-              return (
-                <View key={acc.id} style={styles.accountRow}>
-                  <View style={styles.indexBadge}>
-                    <Text style={styles.indexText}>{idx + 1}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.accName}>{acc.name}</Text>
-                    <Text style={styles.accBank}>
-                      {applied
-                        ? 'Already applied for this IPO'
-                        : acc.bankName || acc.dpName}
-                    </Text>
-                  </View>
-                  <Pressable
-                    style={[
-                      styles.applyBtn,
-                      applied && styles.applyBtnDisabled,
-                    ]}
-                    onPress={() => runSingle(acc.id)}
-                    disabled={running || applied}
-                  >
-                    <Text
-                      style={[
-                        styles.applyBtnText,
-                        applied && { color: colors.textMuted },
-                      ]}
-                    >
-                      {applied ? 'Done' : 'Apply'}
-                    </Text>
-                  </Pressable>
-                </View>
-              );
-            })
-          )}
-
-          {running && progress ? (
-            <Text style={styles.progress}>{progress}</Text>
-          ) : null}
-        </ScrollView>
-
-        {showApplyReport ? (
-          <Animated.View style={[styles.resultsPane, sheetAnimStyle]}>
-            <GestureDetector gesture={sheetPan}>
-              <Pressable
-                style={styles.sheetHandleArea}
-                onPress={() => (sheetPeek ? expandSheet() : collapseSheet())}
-              >
-                <View style={styles.sheetGrabber} />
-                <View style={styles.sheetHandleRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.resultTitle}>Apply results</Text>
-                    <Text style={styles.resultSub} numberOfLines={sheetPeek ? 1 : 2}>
-                      {summary?.companyName ?? selected?.companyName ?? 'IPO'} ·{' '}
-                      {summary?.kitta ?? kitta} kitta ·{' '}
-                      {applyCounts.applied}/
-                      {applyResults.length || applyProgress?.total || 0} applied
-                      {running && applyProgress
-                        ? ` · ${applyProgress.done}/${applyProgress.total}`
-                        : ''}
-                    </Text>
-                  </View>
-                  <Ionicons
-                    name={sheetPeek ? 'chevron-up' : 'chevron-down'}
-                    size={rs(22)}
-                    color={colors.textMuted}
-                  />
-                </View>
-              </Pressable>
-            </GestureDetector>
-            {!sheetPeek ? (
+            showBulkUpdates ? (
               <>
-                <View style={styles.resultsHead}>
-                  <View style={styles.chipRow}>
-                    {(
-                      [
-                        { key: 'all', label: 'All', count: applyCounts.all },
-                        {
-                          key: 'applied',
-                          label: 'Applied',
-                          count: applyCounts.applied,
-                        },
-                        {
-                          key: 'auth',
-                          label: 'Login fail',
-                          count: applyCounts.auth,
-                        },
-                        {
-                          key: 'balance',
-                          label: 'Balance',
-                          count: applyCounts.balance,
-                        },
-                        {
-                          key: 'missing',
-                          label: 'Missing',
-                          count: applyCounts.missing,
-                        },
-                        {
-                          key: 'other',
-                          label: 'Other',
-                          count: applyCounts.other,
-                        },
-                      ] as const
-                    ).map((chip) => {
-                      const active = applyFilter === chip.key;
-                      return (
-                        <Pressable
-                          key={chip.key}
-                          onPress={() => setApplyFilter(chip.key)}
-                          style={[styles.chip, active && styles.chipActive]}
-                        >
-                          <Text
-                            style={[
-                              styles.chipText,
-                              active && styles.chipTextActive,
-                            ]}
-                          >
-                            {chip.label} ({chip.count})
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
+                {renderBulkUpdatesHeader()}
+                {renderBulkUpdatesWaiting()}
+                {applyResults.length > 5 ? (
+                  <View style={styles.resultsBox}>
+                    <ScrollView
+                      nestedScrollEnabled
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator
+                    >
+                      {renderBulkUpdateCards()}
+                    </ScrollView>
                   </View>
-                </View>
-                <FlatList
-                  style={styles.resultsList}
-                  data={filteredApplyResults}
-                  keyExtractor={(item) => item.accountId}
-                  contentContainerStyle={styles.resultsListBody}
-                  ListEmptyComponent={
-                    <Text style={styles.emptyFilter}>
-                      {running
-                        ? 'Waiting for the next account…'
-                        : 'No accounts in this filter.'}
-                    </Text>
-                  }
-                  renderItem={({ item: r, index }) => {
-                    const ok = r.ok;
-                    const tint = ok ? colors.accentGreen : colors.danger;
-                    return (
-                      <View
-                        style={[styles.resultRowCard, { borderColor: tint }]}
-                      >
-                        <Ionicons
-                          name={ok ? 'checkmark-circle' : 'close-circle'}
-                          size={rs(20)}
-                          color={tint}
-                        />
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.accName, { color: tint }]}>
-                            {index + 1}. {r.accountName}
-                          </Text>
-                          <Text style={[styles.resultReason, { color: tint }]}>
-                            {reasonLabel(r)}
-                          </Text>
-                          <Text style={styles.resultMsg}>{r.message}</Text>
-                        </View>
-                      </View>
-                    );
-                  }}
-                />
+                ) : (
+                  renderBulkUpdateCards()
+                )}
               </>
-            ) : null}
-          </Animated.View>
-        ) : null}
-        </View>
+            ) : null
+          ) : accounts.length > 5 ? (
+            <View style={styles.resultsBox}>
+              <ScrollView
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+              >
+                {renderSingleAccountRows()}
+              </ScrollView>
+            </View>
+          ) : (
+            renderSingleAccountRows()
+          )}
+        </ScrollView>
       )}
 
       <Modal visible={accountsModalOpen} animationType="slide" transparent>
@@ -1057,6 +1073,131 @@ export function ApplyScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={resultModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setResultModalOpen(false)}
+      >
+        <View style={styles.resultModalOverlay}>
+          <Pressable
+            style={styles.resultModalBackdrop}
+            onPress={() => setResultModalOpen(false)}
+          />
+          <View style={styles.resultModalSheet}>
+            <View style={styles.resultModalTop}>
+              <View style={styles.resultModalHead}>
+                <View style={styles.resultModalRing}>
+                  <Text style={styles.resultModalPct}>{modalPct}%</Text>
+                  <Text style={styles.resultModalFrac}>
+                    {modalSuccess}/{modalTotal}
+                  </Text>
+                </View>
+                <View style={styles.resultModalHeadText}>
+                  <Text
+                    style={[
+                      styles.resultModalTitle,
+                      modalNeedsAttention
+                        ? styles.resultModalTitleWarn
+                        : styles.resultModalTitleOk,
+                    ]}
+                  >
+                    {modalNeedsAttention
+                      ? 'Apply Needs Attention'
+                      : 'Apply Complete'}
+                  </Text>
+                  <Text style={styles.resultModalSub} numberOfLines={2}>
+                    {summary?.companyName ?? selected?.companyName ?? 'IPO'} ·{' '}
+                    {summary?.kitta ?? kitta} kitta
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.statRow}>
+                <View style={[styles.statCard, styles.statTotal]}>
+                  <Ionicons name="people-outline" size={rs(18)} color="#42A5F5" />
+                  <Text style={[styles.statNum, { color: '#42A5F5' }]}>
+                    {modalTotal}
+                  </Text>
+                  <Text style={[styles.statLabel, { color: '#42A5F5' }]}>
+                    Total
+                  </Text>
+                </View>
+                <View style={[styles.statCard, styles.statSuccess]}>
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={rs(18)}
+                    color={colors.accentGreen}
+                  />
+                  <Text style={[styles.statNum, { color: colors.accentGreen }]}>
+                    {modalSuccess}
+                  </Text>
+                  <Text
+                    style={[styles.statLabel, { color: colors.accentGreen }]}
+                  >
+                    Success
+                  </Text>
+                </View>
+                <View style={[styles.statCard, styles.statIssues]}>
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={rs(18)}
+                    color={colors.danger}
+                  />
+                  <Text style={[styles.statNum, { color: colors.danger }]}>
+                    {modalIssues}
+                  </Text>
+                  <Text style={[styles.statLabel, { color: colors.danger }]}>
+                    Issues
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {modalNeedsAttention ? (
+              <ScrollView
+                style={styles.attentionScroll}
+                contentContainerStyle={styles.attentionScrollContent}
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+                keyboardShouldPersistTaps="handled"
+              >
+                <Text style={styles.attentionLabel}>NEEDS ATTENTION</Text>
+                {modalIssueRows.map((r) => (
+                  <View key={r.accountId} style={styles.attentionRow}>
+                    <Ionicons
+                      name="alert-circle"
+                      size={rs(18)}
+                      color={colors.danger}
+                    />
+                    <Text style={styles.attentionText}>
+                      {r.accountName || r.username}: {applyDisplayMessage(r)}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : null}
+
+            <View style={styles.resultModalActions}>
+              <Pressable
+                style={styles.resultModalCloseBtn}
+                onPress={() => setResultModalOpen(false)}
+              >
+                <Text style={styles.resultModalCloseText}>Close</Text>
+              </Pressable>
+              <Pressable
+                style={styles.resultModalShareBtn}
+                onPress={() => void shareApplyExcel()}
+              >
+                <Ionicons name="share-outline" size={rs(18)} color="#FFFFFF" />
+                <Text style={styles.resultModalShareText}>Share Excel</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <SensitiveActionModals action={sensitive} />
     </View>
     </ProtectedPersonalScreen>
@@ -1064,8 +1205,19 @@ export function ApplyScreen() {
 }
 
 function makeStyles(c: ThemeColors) {
+  const cardBg = '#F9F8F4';
+  const fieldBorder = '#B8B8B8';
+
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
+    scroll: { flex: 1 },
+    scrollContent: {
+      padding: rs(16),
+      paddingBottom: rs(32),
+    },
+    resultsBox: {
+      height: rs(400),
+    },
     emptyWrap: {
       flex: 1,
       alignItems: 'center',
@@ -1148,87 +1300,89 @@ function makeStyles(c: ThemeColors) {
     },
     summaryCard: {
       borderWidth: 1,
-      borderColor: c.border,
-      borderRadius: rs(14),
-      paddingHorizontal: rs(14),
-      paddingTop: rs(12),
-      paddingBottom: rs(12),
-      backgroundColor: c.surface,
-      marginBottom: rs(12),
+      borderColor: c.borderMuted,
+      borderRadius: rs(11),
+      paddingHorizontal: rs(12),
+      paddingTop: rs(10),
+      paddingBottom: rs(10),
+      backgroundColor: cardBg,
+      marginBottom: rs(10),
     },
     summaryName: {
       color: c.text,
       fontWeight: '800',
-      fontSize: rs(13),
-      letterSpacing: 0.4,
-      marginBottom: rs(8),
+      fontSize: rs(12),
+      letterSpacing: 0.3,
+      marginBottom: rs(5),
     },
     summaryValueRow: {
       flexDirection: 'row',
       alignItems: 'flex-end',
-      gap: rs(8),
-      marginBottom: rs(10),
+      gap: rs(6),
+      marginBottom: rs(7),
     },
     summaryLabel: {
       color: c.textSecondary,
-      fontSize: rs(11),
-      marginBottom: rs(2),
+      fontSize: rs(10),
+      marginBottom: rs(1),
     },
     summaryValue: {
       color: c.text,
       fontWeight: '800',
-      fontSize: rs(22),
-      letterSpacing: -0.3,
+      fontSize: rs(19),
+      letterSpacing: -0.2,
     },
     summarySide: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(8),
-      paddingBottom: rs(2),
+      gap: rs(6),
+      paddingBottom: rs(1),
     },
     plPill: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(5),
+      gap: rs(4),
       backgroundColor: c.surfaceAlt,
-      borderRadius: rs(14),
-      paddingHorizontal: rs(8),
-      paddingVertical: rs(4),
+      borderRadius: rs(12),
+      paddingHorizontal: rs(7),
+      paddingVertical: rs(3),
     },
     plPillText: {
       color: c.text,
       fontWeight: '600',
-      fontSize: rs(11),
+      fontSize: rs(10),
     },
     eyeBtn: {
-      padding: rs(4),
+      padding: rs(3),
     },
     summaryBtn: {
+      alignSelf: 'center',
       borderWidth: 1,
-      borderColor: c.primary,
-      borderRadius: rs(20),
-      paddingVertical: rs(9),
+      borderColor: c.border,
+      borderRadius: rs(12),
+      paddingVertical: rs(6),
       paddingHorizontal: rs(14),
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: c.bg,
+      backgroundColor: cardBg,
+      maxWidth: '82%',
     },
     summaryBtnText: {
       color: c.primary,
       fontWeight: '700',
-      fontSize: rs(12),
+      fontSize: rs(11),
       textAlign: 'center',
       includeFontPadding: false,
     },
     modeBar: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: rs(18),
-      gap: rs(10),
+      justifyContent: 'center',
+      marginBottom: rs(12),
+      gap: rs(8),
     },
     modeSideBtn: {
-      width: rs(32),
+      width: rs(28),
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1236,83 +1390,241 @@ function makeStyles(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: rs(18),
+      marginBottom: rs(12),
     },
     modeToggle: {
-      flex: 1,
+      flexGrow: 0,
+      flexShrink: 1,
+      width: rs(180),
       flexDirection: 'row',
       backgroundColor: c.primarySoft,
-      borderRadius: rs(22),
-      padding: rs(4),
+      borderRadius: rs(16),
+      padding: rs(3),
     },
     modeBtn: {
       flex: 1,
-      paddingVertical: rs(9),
-      borderRadius: rs(18),
+      paddingVertical: rs(6),
+      borderRadius: rs(13),
       alignItems: 'center',
     },
     modeBtnActive: { backgroundColor: c.primary },
-    modeText: { color: c.primary, fontWeight: '700', fontSize: rs(14) },
-    modeTextActive: { color: '#1B1B1B' },
-    fieldBlock: { marginBottom: rs(16) },
+    modeText: { color: c.primary, fontWeight: '700', fontSize: rs(12) },
+    modeTextActive: { color: '#FFFFFF' },
+    fieldBlock: { marginBottom: rs(12) },
     labelRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(6),
-      marginBottom: rs(8),
+      gap: rs(5),
+      marginBottom: rs(6),
+      flexWrap: 'wrap',
     },
-    label: { color: c.textSecondary, fontSize: rs(13) },
-    hash: { color: c.textSecondary, fontWeight: '700' },
-    dropdown: {
-      minHeight: rs(50),
-      borderRadius: rs(14),
-      borderWidth: 1,
-      borderColor: c.border,
-      paddingHorizontal: rs(14),
+    labelRowBetween: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: c.surface,
-      marginBottom: rs(12),
+      marginBottom: rs(6),
+      gap: rs(6),
+    },
+    labelRowLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(5),
+      flexShrink: 1,
+      marginBottom: rs(6),
+    },
+    labelRowLeftInline: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(5),
+      flexShrink: 1,
+    },
+    label: { color: c.textSecondary, fontSize: rs(12) },
+    fieldLabel: {
+      color: '#1B1B1B',
+      fontSize: rs(12),
+      fontWeight: '600',
+    },
+    hash: { color: '#1B1B1B', fontWeight: '700', fontSize: rs(12) },
+    dropdown: {
+      minHeight: rs(36),
+      borderRadius: rs(14),
+      borderWidth: 1,
+      borderColor: fieldBorder,
+      paddingHorizontal: rs(10),
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: cardBg,
+      marginBottom: rs(8),
     },
     dropdownText: {
       flex: 1,
       color: c.textMuted,
-      fontSize: rs(14),
-      marginRight: rs(8),
+      fontSize: rs(12),
+      marginRight: rs(6),
+    },
+    dropdownValueText: {
+      flex: 1,
+      color: '#1B1B1B',
+      fontSize: rs(12),
+      fontWeight: '700',
+      marginRight: rs(6),
+    },
+    dropdownPlaceholder: {
+      color: c.textMuted,
+      fontWeight: '500',
     },
     hint: {
       color: c.textMuted,
-      fontSize: rs(11),
-      marginBottom: rs(8),
-      lineHeight: rs(15),
+      fontSize: rs(10),
+      marginBottom: rs(6),
+      lineHeight: rs(14),
     },
     qtyInput: {
       flex: 1,
-      color: c.text,
-      fontSize: rs(15),
-      paddingVertical: rs(10),
+      color: '#1B1B1B',
+      fontSize: rs(14),
+      fontWeight: '700',
+      paddingVertical: rs(7),
     },
     selectActions: {
       flexDirection: 'row',
-      gap: rs(14),
-      marginBottom: rs(8),
+      gap: rs(12),
+      marginBottom: rs(6),
     },
-    linkAction: { color: c.primary, fontWeight: '700', fontSize: rs(13) },
+    linkAction: { color: c.primary, fontWeight: '700', fontSize: rs(12) },
     autoApply: {
-      marginTop: rs(4),
-      backgroundColor: c.primary,
-      borderRadius: rs(28),
-      paddingVertical: rs(16),
+      alignSelf: 'center',
+      marginTop: rs(2),
+      backgroundColor: c.promoBanner,
+      borderRadius: rs(18),
+      paddingVertical: rs(10),
+      paddingHorizontal: rs(28),
       alignItems: 'center',
-      minHeight: rs(52),
+      minHeight: rs(40),
+      minWidth: rs(160),
       justifyContent: 'center',
     },
     autoApplyDisabled: { opacity: 0.7 },
     autoApplyText: {
-      color: '#1B1B1B',
+      color: '#FFFFFF',
       fontWeight: '800',
-      fontSize: rs(16),
+      fontSize: rs(13),
+    },
+    daysBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(3),
+      backgroundColor: '#FFF8F0',
+      borderWidth: 1,
+      borderColor: '#E8C9A8',
+      borderRadius: rs(12),
+      paddingHorizontal: rs(8),
+      paddingVertical: rs(3),
+      flexShrink: 0,
+    },
+    daysBadgeText: {
+      color: '#C45C00',
+      fontSize: rs(10),
+      fontWeight: '600',
+    },
+    updatesSection: {
+      marginTop: rs(16),
+    },
+    updatesHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: rs(8),
+    },
+    updatesTitleLine: {
+      flex: 1,
+      fontSize: rs(13),
+      lineHeight: rs(18),
+    },
+    updatesTitleLabel: {
+      color: '#1B1B1B',
+      fontWeight: '700',
+    },
+    updatesParen: {
+      color: '#1B1B1B',
+      fontWeight: '700',
+    },
+    updatesCountOk: {
+      color: '#2E7D32',
+      fontWeight: '700',
+    },
+    updatesCountTotal: {
+      color: '#42A5F5',
+      fontWeight: '700',
+    },
+    updatesCountFailed: {
+      color: '#E57373',
+      fontWeight: '600',
+    },
+    updatesClear: {
+      color: c.primary,
+      fontWeight: '700',
+      fontSize: rs(13),
+    },
+    updatesDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: c.border,
+      marginBottom: rs(10),
+    },
+    updatesWaiting: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(6),
+      paddingVertical: rs(8),
+    },
+    updateCardFail: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: rs(10),
+      borderWidth: 1,
+      borderColor: '#F0C4B8',
+      borderRadius: rs(10),
+      padding: rs(12),
+      marginBottom: rs(8),
+      backgroundColor: cardBg,
+    },
+    updateCardOk: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: rs(10),
+      borderWidth: 1,
+      borderColor: 'rgba(76,175,80,0.35)',
+      borderRadius: rs(10),
+      padding: rs(12),
+      marginBottom: rs(8),
+      backgroundColor: cardBg,
+    },
+    updateBody: { flex: 1, minWidth: 0 },
+    updateName: {
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(13),
+    },
+    updateMsg: {
+      fontSize: rs(12),
+      marginTop: rs(4),
+      lineHeight: rs(16),
+    },
+    updateMsgFail: { color: c.danger },
+    updateMsgOk: { color: c.textSecondary },
+    updateApplyBtn: {
+      borderWidth: 1,
+      borderColor: '#FB8C00',
+      borderRadius: rs(8),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(6),
+      backgroundColor: '#FFF8F0',
+    },
+    updateApplyText: {
+      color: '#E65100',
+      fontWeight: '700',
+      fontSize: rs(12),
     },
     accountRow: {
       marginTop: rs(10),
@@ -1345,97 +1657,150 @@ function makeStyles(c: ThemeColors) {
     },
     applyBtnDisabled: { backgroundColor: c.surfaceAlt },
     applyBtnText: { color: c.primary, fontWeight: '700' },
-    progress: {
-      marginTop: rs(16),
-      textAlign: 'center',
-      color: c.textSecondary,
-      fontSize: rs(13),
+    statRow: {
+      flexDirection: 'row',
+      gap: rs(8),
+      marginBottom: rs(14),
     },
-    bodySplit: { flex: 1 },
-    formScrollWithSheet: { flex: 1, minHeight: 0 },
-    resultsPane: {
-      overflow: 'hidden',
-      borderTopWidth: 1,
-      borderTopColor: c.border,
+    statCard: {
+      flex: 1,
+      borderRadius: rs(10),
+      borderWidth: 1,
+      paddingVertical: rs(10),
+      alignItems: 'center',
+      gap: rs(4),
+      backgroundColor: cardBg,
+    },
+    statTotal: { borderColor: 'rgba(66,165,245,0.4)' },
+    statSuccess: { borderColor: 'rgba(76,175,80,0.4)' },
+    statIssues: { borderColor: 'rgba(229,57,53,0.35)' },
+    statNum: { fontWeight: '800', fontSize: rs(18) },
+    statLabel: { fontSize: rs(11), fontWeight: '600' },
+    resultModalOverlay: {
+      flex: 1,
+      backgroundColor: c.overlay,
+      justifyContent: 'flex-end',
+    },
+    resultModalBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+    },
+    resultModalSheet: {
       backgroundColor: c.surface,
-      paddingHorizontal: rs(14),
-      elevation: 8,
-      shadowColor: '#000',
-      shadowOpacity: 0.12,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: -2 },
+      borderTopLeftRadius: rs(20),
+      borderTopRightRadius: rs(20),
+      paddingHorizontal: rs(20),
+      paddingTop: rs(20),
+      paddingBottom: rs(28),
+      maxHeight: '88%',
     },
-    sheetHandleArea: {
-      paddingTop: rs(8),
-      paddingBottom: rs(6),
+    resultModalTop: {
+      marginBottom: rs(12),
     },
-    sheetGrabber: {
-      alignSelf: 'center',
-      width: rs(40),
-      height: rs(4),
-      borderRadius: rs(2),
-      backgroundColor: c.border,
-      marginBottom: rs(8),
-    },
-    sheetHandleRow: {
+    resultModalHead: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(8),
+      gap: rs(14),
+      marginBottom: rs(16),
     },
-    resultsHead: { marginBottom: rs(8) },
-    resultsList: { flex: 1, minHeight: 0 },
-    resultsListBody: { paddingBottom: rs(24) },
-    chipRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: rs(8),
-      marginTop: rs(4),
-    },
-    chip: {
-      borderWidth: 1.5,
+    resultModalRing: {
+      width: rs(64),
+      height: rs(64),
+      borderRadius: rs(32),
+      borderWidth: 3,
       borderColor: c.border,
-      borderRadius: rs(16),
-      paddingHorizontal: rs(10),
-      paddingVertical: rs(6),
-      backgroundColor: c.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    chipActive: {
-      borderColor: c.primary,
-      backgroundColor: c.primarySoft,
+    resultModalPct: {
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(14),
     },
-    chipText: {
+    resultModalFrac: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      fontWeight: '600',
+    },
+    resultModalHeadText: { flex: 1, minWidth: 0 },
+    resultModalTitle: {
+      fontWeight: '800',
+      fontSize: rs(16),
+    },
+    resultModalTitleWarn: { color: c.danger },
+    resultModalTitleOk: { color: c.accentGreen },
+    resultModalSub: {
+      color: c.textSecondary,
+      fontSize: rs(12),
+      marginTop: rs(4),
+      lineHeight: rs(17),
+    },
+    attentionScroll: {
+      flexGrow: 0,
+      flexShrink: 1,
+      maxHeight: rs(320),
+      marginBottom: rs(16),
+    },
+    attentionScrollContent: {
+      paddingBottom: rs(4),
+    },
+    attentionBlock: {
+      marginBottom: rs(16),
+    },
+    attentionLabel: {
       color: c.textMuted,
       fontSize: rs(11),
       fontWeight: '700',
+      letterSpacing: 0.6,
+      marginBottom: rs(8),
     },
-    chipTextActive: { color: c.primary },
-    resultTitle: { color: c.text, fontWeight: '800', fontSize: rs(15) },
-    resultSub: {
-      color: c.textSecondary,
-      fontSize: rs(12),
-      marginTop: rs(4),
-    },
-    resultRowCard: {
+    attentionRow: {
       flexDirection: 'row',
-      gap: rs(10),
       alignItems: 'flex-start',
-      borderWidth: 1.5,
-      borderRadius: rs(12),
+      gap: rs(8),
+      backgroundColor: '#FFEBEE',
+      borderRadius: rs(10),
       padding: rs(12),
       marginBottom: rs(8),
-      backgroundColor: c.surface,
     },
-    resultReason: {
+    attentionText: {
+      flex: 1,
+      color: c.text,
       fontSize: rs(12),
-      fontWeight: '700',
-      marginTop: rs(2),
+      lineHeight: rs(17),
     },
-    resultMsg: { color: c.textSecondary, fontSize: rs(12), marginTop: rs(2) },
-    emptyFilter: {
-      textAlign: 'center',
-      color: c.textMuted,
-      paddingVertical: rs(20),
-      fontSize: rs(13),
+    resultModalActions: {
+      flexDirection: 'row',
+      gap: rs(10),
+    },
+    resultModalCloseBtn: {
+      flex: 1,
+      borderRadius: rs(24),
+      paddingVertical: rs(14),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: cardBg,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    resultModalCloseText: {
+      color: c.primary,
+      fontWeight: '800',
+      fontSize: rs(14),
+    },
+    resultModalShareBtn: {
+      flex: 1.4,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(8),
+      borderRadius: rs(24),
+      paddingVertical: rs(14),
+      backgroundColor: c.danger,
+    },
+    resultModalShareText: {
+      color: '#FFFFFF',
+      fontWeight: '800',
+      fontSize: rs(14),
     },
     modalOverlay: {
       flex: 1,

@@ -36,6 +36,14 @@ export type PremiumScreenerRow = {
   insight: string;
   iconUrl: string | null;
   tags: string[];
+  /** Session / swing high (Price Droppers table). */
+  swingHigh?: number | null;
+  /** Session / swing low (Price Droppers table). */
+  swingLow?: number | null;
+  high52?: number | null;
+  low52?: number | null;
+  /** Drop from swing high % — used by Price Droppers ranking/display. */
+  dropFromHighPct?: number | null;
 };
 
 export type PremiumScreenerSnapshot = {
@@ -64,7 +72,7 @@ const COPY: Record<
   'price-droppers': {
     title: 'Price Droppers',
     subtitle:
-      'Stocks under the most pressure today — watch for capitulation, support, or bounce setups.',
+      'Biggest drops from swing high — with LTP, swing range, % change, and 52-week levels.',
   },
   'value-pick': {
     title: 'Value Pick',
@@ -211,17 +219,36 @@ function loadRisingStocks(rows: MiniScreenerRow[], limit: number): PremiumScreen
 
 function loadPriceDroppers(rows: MiniScreenerRow[], limit: number): PremiumScreenerRow[] {
   const picked = rows
-    .filter((r) => r.symbol && (r.changePercent ?? 0) < 0 && (r.volume ?? 0) > 0)
+    .filter((r) => {
+      if (!r.symbol || !(r.ltp && r.ltp > 0)) return false;
+      const swingHigh = r.high ?? r.fiftyTwoWeekHigh;
+      if (swingHigh == null || swingHigh <= 0) return false;
+      // Meaningful drop from the session/swing high.
+      const dropPct = ((r.ltp - swingHigh) / swingHigh) * 100;
+      return dropPct < -1;
+    })
     .map((r) => {
-      const ch = r.changePercent ?? 0;
+      const swingHigh = r.high ?? r.fiftyTwoWeekHigh!;
+      const swingLow = r.low ?? r.fiftyTwoWeekLow;
+      const dropPct = ((r.ltp! - swingHigh) / swingHigh) * 100;
       const vol = r.volume ?? 0;
-      const score = Math.abs(ch) * Math.log10(vol + 10);
-      return baseRow(
-        r,
-        score,
-        `${ch.toFixed(2)}% · Vol ${fmtNum(vol, 0)}`,
-        ['Decliner'],
-      );
+      const dayCh = r.changePercent ?? 0;
+      const score = Math.abs(dropPct) * Math.log10(vol + 10);
+      return {
+        ...baseRow(
+          r,
+          score,
+          `${dropPct.toFixed(1)}% from swing high · Day ${dayCh.toFixed(2)}%`,
+          ['Dropper'],
+        ),
+        swingHigh,
+        swingLow,
+        high52: r.fiftyTwoWeekHigh,
+        low52: r.fiftyTwoWeekLow,
+        dropFromHighPct: dropPct,
+        // Table "% Change" shows drop from swing high (matches SS).
+        changePct: dropPct,
+      };
     });
   return rankRows(picked, limit);
 }

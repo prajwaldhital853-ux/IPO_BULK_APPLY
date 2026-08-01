@@ -12,9 +12,11 @@ export function usePollingRefresh(
   refresh: (silent?: boolean) => void | Promise<void>,
   intervalMs = MARKET_POLL_MS,
   enabled = true,
+  opts: { invalidate?: boolean } = {},
 ): void {
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
+  const invalidate = opts.invalidate !== false;
 
   useFocusEffect(
     useCallback(() => {
@@ -22,7 +24,9 @@ export function usePollingRefresh(
       let active = true;
       const tick = () => {
         if (!active) return;
-        invalidateMarketCaches();
+        // Clearing caches on every tick forces a cold 4–5s reload — opt out when
+        // the screen already streams/updates from warm data.
+        if (invalidate) invalidateMarketCaches();
         void refreshRef.current(true);
       };
       // Refresh soon after open, then every interval.
@@ -33,6 +37,6 @@ export function usePollingRefresh(
         clearTimeout(soon);
         clearInterval(id);
       };
-    }, [intervalMs, enabled]),
+    }, [intervalMs, enabled, invalidate]),
   );
 }

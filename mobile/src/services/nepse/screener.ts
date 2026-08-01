@@ -604,15 +604,41 @@ export type FloorsheetPage = {
   rows: FloorsheetRow[];
   hasNext: boolean;
   totalItems: number | null;
+  totalPages: number | null;
+  pageIndex: number | null;
 };
 
+function brokerMemberId(row: Record<string, unknown>, side: 'buyer' | 'seller'): string {
+  const id =
+    side === 'buyer'
+      ? row.buyerMemberId ?? row.buyerBrokerId ?? row.buyerBrokerCode
+      : row.sellerMemberId ?? row.sellerBrokerId ?? row.sellerBrokerCode;
+  const fromId = str(id);
+  if (fromId && /\d/.test(fromId)) {
+    const m = fromId.match(/\d+/);
+    return m ? m[0] : fromId;
+  }
+  // Fallback: extract digits from a name field if API omitted member id.
+  const name =
+    side === 'buyer'
+      ? row.buyerBrokerName ?? row.buyerBroker
+      : row.sellerBrokerName ?? row.sellerBroker;
+  const m = str(name).match(/\d+/);
+  return m ? m[0] : '';
+}
+
 function parseFloorsheet(row: Record<string, unknown>): FloorsheetRow {
+  const buyerName = str(row.buyerBrokerName);
+  const sellerName = str(row.sellerBrokerName);
   return {
     contractId: Number(row.contractId ?? row.id ?? 0),
     symbol: str(row.symbol).toUpperCase(),
     name: str(row.name ?? row.securityName),
-    buyerBroker: str(row.buyerBrokerName ?? row.buyerMemberId),
-    sellerBroker: str(row.sellerBrokerName ?? row.sellerMemberId),
+    // BB / SB columns must show broker numbers, not firm names.
+    buyerBroker: brokerMemberId(row, 'buyer'),
+    sellerBroker: brokerMemberId(row, 'seller'),
+    buyerBrokerName: buyerName || null,
+    sellerBrokerName: sellerName || null,
     rate: num(row.contractRate ?? row.rate),
     quantity: num(row.contractQuantity ?? row.quantity),
     amount: num(row.contractAmount ?? row.amount),
@@ -643,12 +669,18 @@ export async function loadFloorsheet(
     `${LIVE_V2_ROOT}/floorsheet?${q.toString()}`,
   );
   const content = raw?.data?.content ?? [];
+  const totalItems = raw?.data?.totalItems ?? null;
+  const totalPages =
+    raw?.data?.totalPages ??
+    (totalItems != null ? Math.max(1, Math.ceil(totalItems / size)) : null);
   return {
     rows: content
       .map(parseFloorsheet)
       .filter((r) => r.symbol),
     hasNext: raw?.data?.hasNext ?? false,
-    totalItems: raw?.data?.totalItems ?? null,
+    totalItems,
+    totalPages,
+    pageIndex: raw?.data?.pageIndex ?? page,
   };
 }
 
@@ -998,58 +1030,102 @@ export type FinancialReportRow = {
   securityName: string;
   fiscalYear: string | null;
   quarter: string | null;
+  symbol?: string;
+  iconUrl?: string | null;
+  eps?: number | null;
+  netProfit?: number | null;
 };
 
-function parseReportMeta(title: string): {
-  fiscalYear: string | null;
-  quarter: string | null;
-} {
-  const fy =
-    title.match(/FY\s*([0-9]{4}\/?[0-9]{2,4})/i)?.[1] ??
-    title.match(/\b(20\d{2}\/20\d{2})\b/)?.[1] ??
-    title.match(/\b(20\d{2}\/\d{2})\b/)?.[1] ??
-    null;
-  const qRaw =
-    title.match(/(\d)(?:st|nd|rd|th)\s*Quarter/i)?.[1] ??
-    title.match(/\bQ([1-4])\b/i)?.[1] ??
-    null;
-  const quarter =
-    qRaw == null
-      ? null
-      : qRaw === '1'
-        ? '1st Quarter'
-        : qRaw === '2'
-          ? '2nd Quarter'
-          : qRaw === '3'
-            ? '3rd Quarter'
-            : '4th Quarter';
-  return { fiscalYear: fy, quarter };
+export function formatFiscalQuarter(
+  fiscalYear: string | null | undefined,
+  quarter: string | null | undefined,
+): { fiscalYear: string | null; quarterLabel: string | null; title: string } {
+  const fy = fiscalYear?.trim() || null;
+  const qRaw = (quarter ?? '').trim().toLowerCase().replace(/^q/, '');
+  const quarterLabel =
+    qRaw === '1'
+      ? '1st Quarter'
+      : qRaw === '2'
+        ? '2nd Quarter'
+        : qRaw === '3'
+          ? '3rd Quarter'
+          : qRaw === '4'
+            ? '4th Quarter'
+            : quarter?.trim()
+              ? quarter.trim().toUpperCase()
+              : null;
+  const title = [quarterLabel, fy ? `FY ${fy}` : null, 'Financial Report']
+    .filter(Boolean)
+    .join(' · ');
+  return { fiscalYear: fy, quarterLabel, title };
 }
 
-/** Financial reports are published as NEPSE announcement PDFs for each symbol. */
+function fundValue(
+  values: Array<Record<string, unknown>>,
+  key: string,
+): number | null {
+  const hit = values.find((v) => str(v.key) === key);
+  return hit ? num(hit.value) : null;
+}
+
+function sortFiscalQuarterDesc(
+  a: { fiscalYear: string | null; quarter: string | null },
+  b: { fiscalYear: string | null; quarter: string | null },
+): number {
+  const fyCmp = (b.fiscalYear ?? '').localeCompare(a.fiscalYear ?? '');
+  if (fyCmp !== 0) return fyCmp;
+  const qn = (q: string | null) => {
+    const m = (q ?? '').toLowerCase().match(/([1-4])/);
+    return m ? Number(m[1]) : 0;
+  };
+  return qn(b.quarter) - qn(a.quarter);
+}
+
+/** Quarterly financial reports from ShareHub fundamental values (not announcement PDFs). */
 export async function loadFinancialReports(
   symbol: string,
-  page = 1,
-  size = 40,
+  _page = 1,
+  size = 80,
 ): Promise<FinancialReportRow[]> {
-  const rows = await loadAnnouncements(page, size, symbol);
-  return rows
-    .filter((r) =>
-      /report|quarter|annual|financial|statement|audited/i.test(r.title),
-    )
-    .map((r) => {
-      const meta = parseReportMeta(r.title);
-      return {
-        id: r.id,
-        title: r.title,
-        date: r.date,
-        attachmentUrl: r.attachmentUrl,
-        details: r.details,
-        securityName: r.securityName,
-        fiscalYear: meta.fiscalYear,
-        quarter: meta.quarter,
-      };
+  const raw = await absFetch<Envelope<Array<Record<string, unknown>>>>(
+    `${DATA_BASE}/fundamental/values/${encodeURIComponent(symbol.toUpperCase())}`,
+  );
+  const list = raw?.data ?? [];
+  const rows: FinancialReportRow[] = [];
+  for (const row of list) {
+    const values = Array.isArray(row.values)
+      ? (row.values as Array<Record<string, unknown>>)
+      : [];
+    if (!values.length) continue;
+    const fy = str(row.fiscalYear) || null;
+    const q = str(row.quarter) || null;
+    const meta = formatFiscalQuarter(fy, q);
+    const eps = fundValue(values, 'eps') ?? fundValue(values, 'eps_a');
+    const netProfit = fundValue(values, 'net_profit');
+    const detailsParts = [
+      eps != null ? `EPS ${eps.toFixed(2)}` : null,
+      netProfit != null ? `Net Profit ${fmtAmtShort(netProfit)}` : null,
+      fundValue(values, 'roe') != null
+        ? `ROE ${fundValue(values, 'roe')!.toFixed(2)}%`
+        : null,
+    ].filter(Boolean);
+    rows.push({
+      id: Number(row.id ?? 0) || rows.length + 1,
+      title: meta.title,
+      date: fy ? `FY ${fy}` : '',
+      attachmentUrl: null,
+      details: detailsParts.join(' · '),
+      securityName: str(row.securityName ?? row.name) || symbol.toUpperCase(),
+      fiscalYear: meta.fiscalYear,
+      quarter: meta.quarterLabel,
+      symbol: str(row.symbol).toUpperCase() || symbol.toUpperCase(),
+      iconUrl: iconUri(str(row.iconUrl)),
+      eps,
+      netProfit,
     });
+  }
+  rows.sort(sortFiscalQuarterDesc);
+  return rows.slice(0, size);
 }
 
 export function fmtAmtShort(n: number | null): string {

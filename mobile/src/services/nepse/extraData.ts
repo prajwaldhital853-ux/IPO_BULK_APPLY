@@ -96,10 +96,46 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-export async function loadGlobalIndices(): Promise<{
+const EXTRA_CACHE_MS = 12 * 60_000;
+type CacheBox<T> = { at: number; data: T };
+let globalIndicesCache: CacheBox<{
+  regions: GlobalIndicesRegion[];
+  asOf: string;
+}> | null = null;
+let goldSilverCache: CacheBox<{ rows: GoldSilverRow[]; asOf: string }> | null =
+  null;
+let forexCache: CacheBox<{
+  rows: ForexRow[];
+  date: string;
+  asOf: string;
+}> | null = null;
+let fuelCache: CacheBox<{
+  regions: FuelRegionPrice[];
+  effectiveDate: string | null;
+  asOf: string;
+  source: 'noc' | 'fallback';
+}> | null = null;
+let indicatorsCache: CacheBox<{
+  rows: MarketIndicatorRow[];
+  asOf: string;
+}> | null = null;
+
+function fresh<T>(box: CacheBox<T> | null): T | null {
+  if (!box) return null;
+  if (Date.now() - box.at > EXTRA_CACHE_MS) return null;
+  return box.data;
+}
+
+export async function loadGlobalIndices(
+  force = false,
+): Promise<{
   regions: GlobalIndicesRegion[];
   asOf: string;
 }> {
+  if (!force) {
+    const hit = fresh(globalIndicesCache);
+    if (hit) return hit;
+  }
   const raw = await fetchJson<ApiWrap<unknown[]>>(`${ECONOMY_BASE}/global-indices`);
   const regions: GlobalIndicesRegion[] = [];
   for (const item of raw?.data ?? []) {
@@ -132,13 +168,21 @@ export async function loadGlobalIndices(): Promise<{
     .map((i) => i.lastUpdate)
     .sort()
     .pop();
-  return { regions, asOf: latest ?? new Date().toISOString() };
+  const data = { regions, asOf: latest ?? new Date().toISOString() };
+  globalIndicesCache = { at: Date.now(), data };
+  return data;
 }
 
-export async function loadGoldSilver(): Promise<{
+export async function loadGoldSilver(
+  force = false,
+): Promise<{
   rows: GoldSilverRow[];
   asOf: string;
 }> {
+  if (!force) {
+    const hit = fresh(goldSilverCache);
+    if (hit) return hit;
+  }
   const raw = await fetchJson<
     ApiWrap<
       Array<{
@@ -179,14 +223,22 @@ export async function loadGoldSilver(): Promise<{
 
   const asOf =
     deduped.map((r) => r.lastUpdated).sort().pop() ?? new Date().toISOString();
-  return { rows: deduped, asOf };
+  const data = { rows: deduped, asOf };
+  goldSilverCache = { at: Date.now(), data };
+  return data;
 }
 
-export async function loadForexRates(): Promise<{
+export async function loadForexRates(
+  force = false,
+): Promise<{
   rows: ForexRow[];
   date: string;
   asOf: string;
 }> {
+  if (!force) {
+    const hit = fresh(forexCache);
+    if (hit) return hit;
+  }
   const to = new Date();
   const from = new Date();
   from.setDate(from.getDate() - 21);
@@ -274,16 +326,24 @@ export async function loadForexRates(): Promise<{
   });
 
   rows.sort((a, b) => a.iso3.localeCompare(b.iso3));
-  return { rows, date, asOf: new Date().toISOString() };
+  const data = { rows, date, asOf: new Date().toISOString() };
+  forexCache = { at: Date.now(), data };
+  return data;
 }
 
 
-export async function loadFuelPrices(): Promise<{
+export async function loadFuelPrices(
+  force = false,
+): Promise<{
   regions: FuelRegionPrice[];
   effectiveDate: string | null;
   asOf: string;
   source: 'noc' | 'fallback';
 }> {
+  if (!force) {
+    const hit = fresh(fuelCache);
+    if (hit) return hit;
+  }
   try {
     const res = await fetch(NOC_RETAIL, {
       headers: { Accept: 'text/html' },
@@ -310,14 +370,16 @@ export async function loadFuelPrices(): Promise<{
     if (regions.length === 0) {
       throw new Error('parse failed');
     }
-    return {
+    const data = {
       regions,
       effectiveDate,
       asOf: new Date().toISOString(),
-      source: 'noc',
+      source: 'noc' as const,
     };
+    fuelCache = { at: Date.now(), data };
+    return data;
   } catch {
-    return {
+    const data = {
       regions: [
         {
           region: 'Kathmandu, Pokhara, Dipayal',
@@ -343,8 +405,10 @@ export async function loadFuelPrices(): Promise<{
       ],
       effectiveDate: null,
       asOf: new Date().toISOString(),
-      source: 'fallback',
+      source: 'fallback' as const,
     };
+    fuelCache = { at: Date.now(), data };
+    return data;
   }
 }
 
@@ -356,10 +420,16 @@ function fmtCompact(n: number | null | undefined): string {
   return String(Math.round(n));
 }
 
-export async function loadMarketIndicators(): Promise<{
+export async function loadMarketIndicators(
+  force = false,
+): Promise<{
   rows: MarketIndicatorRow[];
   asOf: string;
 }> {
+  if (!force) {
+    const hit = fresh(indicatorsCache);
+    if (hit) return hit;
+  }
   const snap = await fetchSharehubSnapshot();
   const rows: MarketIndicatorRow[] = [];
   if (!snap) {
@@ -430,7 +500,12 @@ export async function loadMarketIndicators(): Promise<{
     });
   }
 
-  return { rows, asOf: snap.asOf ?? new Date().toISOString() };
+  const data = {
+    rows,
+    asOf: snap.asOf ?? new Date().toISOString(),
+  };
+  indicatorsCache = { at: Date.now(), data };
+  return data;
 }
 
 export const EXTRA_TOOL_COPY: Record<

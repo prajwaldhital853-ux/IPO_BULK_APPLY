@@ -146,6 +146,32 @@ export function parseCaptchaReload(text: string): PublicCaptcha {
   return captcha;
 }
 
+function pickQuantity(...candidates: unknown[]): number | undefined {
+  for (const raw of candidates) {
+    if (raw == null || raw === '') continue;
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return undefined;
+}
+
+/** CDSC often puts qty only in the message: "Alloted quantity : 10" */
+function quantityFromMessage(message: string): number | undefined {
+  const patterns = [
+    /allot(?:ed|ted)?\s*quantity\s*[:=\-–]?\s*(\d+)/i,
+    /quantity\s*[:=\-–]?\s*(\d+)/i,
+    /(\d+)\s*kitta/i,
+  ];
+  for (const re of patterns) {
+    const m = message.match(re);
+    if (m?.[1]) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  return undefined;
+}
+
 export function parseCheckPayload(text: string): PublicResultCheck {
   if (isBlocked(text)) {
     return {
@@ -155,20 +181,33 @@ export function parseCheckPayload(text: string): PublicResultCheck {
     };
   }
   const data = parseJsonBody<Record<string, unknown>>(text, 'iporesult check');
-  const success = Boolean(data.success ?? data.ok);
+  const body =
+    data.body && typeof data.body === 'object'
+      ? (data.body as Record<string, unknown>)
+      : null;
+  const success = Boolean(data.success ?? data.ok ?? body?.success);
   const message = String(
-    data.message ?? data.msg ?? data.error ?? (success ? 'OK' : 'No result'),
+    data.message ??
+      data.msg ??
+      data.error ??
+      body?.message ??
+      body?.msg ??
+      (success ? 'OK' : 'No result'),
   );
-  const qtyRaw =
-    data.quantity ??
-    data.allotedQuantity ??
-    data.allottedQuantity ??
-    data.kitta ??
-    data.appliedKitta;
-  const quantity =
-    qtyRaw != null && !Number.isNaN(Number(qtyRaw))
-      ? Number(qtyRaw)
-      : undefined;
+  const quantity = pickQuantity(
+    data.quantity,
+    data.allotedQuantity,
+    data.allottedQuantity,
+    data.kitta,
+    data.appliedKitta,
+    data.shareQuantity,
+    body?.quantity,
+    body?.allotedQuantity,
+    body?.allottedQuantity,
+    body?.kitta,
+    body?.shareQuantity,
+    quantityFromMessage(message),
+  );
 
   const lower = message.toLowerCase();
   if (/captcha|security\s*code|invalid\s*code/.test(lower)) {
@@ -186,11 +225,12 @@ export function parseCheckPayload(text: string): PublicResultCheck {
     (/congrat|allot|alloted|allotted/.test(lower) ||
       (quantity != null && quantity > 0));
   const notAllotted = /not\s*allot|sorry/.test(lower);
+  const isAllotted = allotted && !notAllotted;
 
   return {
     ok: true,
-    allotted: allotted && !notAllotted,
-    quantity: allotted && !notAllotted ? quantity : undefined,
+    allotted: isAllotted,
+    quantity: isAllotted ? quantity : undefined,
     message,
     raw: data,
   };

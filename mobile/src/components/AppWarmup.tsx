@@ -1,16 +1,16 @@
 import { useEffect } from 'react';
 import { InteractionManager } from 'react-native';
-import { loadMiniScreener } from '../services/nepse/screener';
+import { prefetchServicesData } from '../services/nepse/prefetchServices';
 
-/** Prefetch large NEPSE lists after first paint so later screens open faster. */
+/** Prefetch Services / market data after first paint so screens open faster. */
 export function AppWarmup() {
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const handle = InteractionManager.runAfterInteractions(() => {
       timer = setTimeout(() => {
-        if (!cancelled) void loadMiniScreener();
-      }, 800);
+        if (!cancelled) prefetchServicesData();
+      }, 600);
     });
     return () => {
       cancelled = true;

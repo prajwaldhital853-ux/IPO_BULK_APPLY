@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -6,9 +6,10 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
@@ -18,9 +19,11 @@ import type { RootStackParamList } from '../navigation/types';
 import type { PremiumScreenerKind } from '../services/nepse/premiumScreeners';
 import type { PremiumToolKind } from '../services/nepse/premiumServices';
 import type { ExtraToolKind } from '../services/nepse/extraData';
+import { prefetchBrokerFlowIntel } from '../services/nepse/brokerAnalytics';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
-import { rs, screenWidth } from '../utils/responsive';
+import { rs } from '../utils/responsive';
+import Svg, { Defs, LinearGradient as SvgGradient, Rect, Stop } from 'react-native-svg';
 
 type Badge = 'NEW' | 'UPDATED';
 type ServiceItem = {
@@ -44,12 +47,69 @@ type Section = {
   items: ServiceItem[];
 };
 
-const H_PAD = rs(14);
-const GAP = rs(14);
-const COLS = 4;
-const TILE_W = Math.floor((screenWidth - H_PAD * 2 - GAP * (COLS - 1)) / COLS);
-/** Compact tiles — slightly shorter so more rows fit on screen. */
-const TILE_H = Math.max(Math.floor(TILE_W * 0.92), rs(84));
+const GRID_COLS = 4;
+/** Shared grid spacing — same for Free, MeroShare, Premium, Extra. */
+const H_PAD = rs(12);
+const GAP = rs(10);
+
+type ServiceGridLayout = {
+  hPad: number;
+  gap: number;
+  cols: number;
+  tileW: number;
+  tileH: number;
+};
+
+/** Free Services SS grid — shared by every section (MeroShare, Premium, Extra). */
+function computeServiceGridLayout(screenW: number): ServiceGridLayout {
+  const cols = GRID_COLS;
+  const tileW = Math.floor((screenW - H_PAD * 2 - GAP * (cols - 1)) / cols);
+  const tileH = tileW;
+  return { hPad: H_PAD, gap: GAP, cols, tileW, tileH };
+}
+
+/** Reference SS palette (IPO Bulk Apply Free Services). */
+const SS = {
+  cream: '#FDFBF2',
+  card: '#FFFFFF',
+  cardBorder: '#E8E8E8',
+  featuredBorder: '#F2A154',
+  headLine: '#9A9A9A',
+  headLineHeight: 2,
+  pillFreeBg: '#82C3FB',
+  pillFreeText: '#2D2D2D',
+  pillMeroBg: '#6BC4BE',
+  pillPremiumStart: '#C8ED72',
+  pillPremiumMid: '#7AE8B8',
+  pillPremiumEnd: '#42CFF5',
+  pillExtraBg: '#43A047',
+  pillLabelInk: '#111111',
+  iconInk: '#1A1A1A',
+  labelInk: '#000000',
+} as const;
+
+/** SS icon wells — soft pastels on white cards. */
+function ssPastel(hex: string): string {
+  const map: Record<string, string> = {
+    '#42A5F5': '#C5DCF5',
+    '#66BB6A': '#C8E6C9',
+    '#EF5350': '#FFCDD2',
+    '#FFA726': '#FFE0B2',
+    '#FFCA28': '#FFF9C4',
+    '#90A4AE': '#ECEFF1',
+    '#AB47BC': '#E1BEE7',
+    '#29B6F6': '#B3E5FC',
+    '#26A69A': '#B2DFDB',
+    '#7E57C2': '#D1C4E9',
+    '#FDD835': '#FFF9C4',
+    '#F48FB1': '#F8BBD0',
+    '#EC407A': '#F8BBD0',
+    '#FF7043': '#FFCCBC',
+    '#5C6BC0': '#C5CAE9',
+    '#81C784': '#C8E6C9',
+  };
+  return map[hex] ?? '#ECEFF1';
+}
 
 /** Icon well — brighter wells in dark so white glyphs stay crisp (SS2 look). */
 function pastel(hex: string, isDark: boolean) {
@@ -135,20 +195,20 @@ function buildSections(): Section[] {
         { id: 'nepse-data', label: 'NEPSE Data', iconSet: 'feather', iconName: 'bar-chart-2', accent: '#42A5F5', route: 'NepseData' },
         { id: 'nepse-cal', label: 'NEPSE Calendar', iconSet: 'ion', iconName: 'calendar-outline', accent: '#66BB6A', route: 'NepseCalendar' },
         { id: 'share-portfolio', label: 'Share Portfolio', badge: 'NEW', iconSet: 'mci', iconName: 'chart-pie', accent: '#EF5350', route: 'Portfolio' },
-        { id: 'user-portfolio', label: 'My Portfolio', iconSet: 'ion', iconName: 'person-circle-outline', accent: '#FFCA28', route: 'UserPortfolio' },
+        { id: 'bank-tracker', label: 'Bank Tracker', badge: 'NEW', iconSet: 'mci', iconName: 'wallet-outline', accent: '#26A69A', route: 'BankTracker' },
         { id: 'price-alert', label: 'Price Alert', badge: 'NEW', iconSet: 'ion', iconName: 'notifications-outline', accent: '#FFA726', route: 'PriceAlert' },
-        { id: 'commercial', label: 'Commercial Leaders', iconSet: 'mci', iconName: 'office-building', accent: '#66BB6A', route: 'StockList', stockKind: 'commercial-leaders' },
+        { id: 'commercial', label: 'Commercial Leaders', iconSet: 'mci', iconName: 'office-building', accent: '#90A4AE', route: 'StockList', stockKind: 'commercial-leaders' },
         { id: 'large-caps', label: 'Large Caps', iconSet: 'mci', iconName: 'finance', accent: '#42A5F5', route: 'StockList', stockKind: 'large-caps' },
-        { id: 'trending', label: 'Trending Stocks', iconSet: 'feather', iconName: 'trending-up', accent: '#42A5F5', route: 'StockList', stockKind: 'trending' },
+        { id: 'trending', label: 'Trending Stocks', iconSet: 'feather', iconName: 'trending-up', accent: '#66BB6A', route: 'StockList', stockKind: 'trending' },
         { id: 'high-div', label: 'High Dividend', iconSet: 'mci', iconName: 'cash-multiple', accent: '#42A5F5', route: 'StockList', stockKind: 'high-dividend' },
-        { id: 'high-demand', label: 'High Demand', iconSet: 'mci', iconName: 'arrow-up-bold-circle-outline', accent: '#EF5350', route: 'HighDemand' },
         { id: 'bulk-txn', label: 'Bulk Transactions', iconSet: 'mci', iconName: 'swap-horizontal', accent: '#FFA726', route: 'BulkTransactions' },
         { id: 'nepse-history', label: 'Nepse History', iconSet: 'mci', iconName: 'history', accent: '#90A4AE', route: 'NepseHistory' },
         { id: 'proposed-div', label: 'Proposed Dividend', iconSet: 'mci', iconName: 'cash', accent: '#66BB6A', route: 'ProposedDividend' },
         { id: 'charts', label: 'Charts', iconSet: 'mci', iconName: 'chart-areaspline', accent: '#AB47BC', route: 'Charts' },
-        { id: 'announcements', label: 'Announcements', iconSet: 'ion', iconName: 'megaphone-outline', accent: '#FFA726', route: 'Announcements' },
+        { id: 'announcements', label: 'Announcements', iconSet: 'ion', iconName: 'megaphone-outline', accent: '#FFCA28', route: 'Announcements' },
         { id: 'watchlist', label: 'Watchlist', badge: 'NEW', iconSet: 'ion', iconName: 'eye-outline', accent: '#29B6F6', route: 'Watchlist' },
-        { id: 'bank-tracker', label: 'Bank Tracker', badge: 'NEW', iconSet: 'mci', iconName: 'wallet-outline', accent: '#26A69A', route: 'BankTracker' },
+        { id: 'user-portfolio', label: 'My Portfolio', iconSet: 'ion', iconName: 'person-circle-outline', accent: '#FFCA28', route: 'UserPortfolio' },
+        { id: 'high-demand', label: 'High Demand', iconSet: 'mci', iconName: 'arrow-up-bold-circle-outline', accent: '#EF5350', route: 'HighDemand' },
       ],
     },
     {
@@ -229,9 +289,8 @@ function ServiceIcon({
   item: ServiceItem;
   isDark: boolean;
 }) {
-  const size = rs(27);
-  // Dark: pure white glyphs on colored wells (clear like SS2).
-  const color = isDark ? '#FFFFFF' : darkIcon(item.accent);
+  const size = isDark ? rs(26) : rs(24);
+  const color = isDark ? '#FFFFFF' : SS.iconInk;
   if (item.iconSet === 'mci') {
     return (
       <MaterialCommunityIcons
@@ -273,18 +332,26 @@ function ServiceTile({
   colors,
   isDark,
   styles,
+  gridLayout,
 }: {
   item: ServiceItem;
   onPress: () => void;
   colors: ThemeColors;
   isDark: boolean;
   styles: ReturnType<typeof makeStyles>;
+  gridLayout: ServiceGridLayout;
 }) {
   const featured = FEATURED_IDS.has(item.id);
   return (
     <Pressable
       style={({ pressed }) => [
         styles.tile,
+        {
+          width: gridLayout.tileW,
+          height: gridLayout.tileH,
+          minWidth: gridLayout.tileW,
+          minHeight: gridLayout.tileH,
+        },
         !isDark && styles.tileLight,
         featured && styles.tileFeatured,
         pressed && styles.tilePressed,
@@ -299,20 +366,82 @@ function ServiceTile({
       <View
         style={[
           styles.tileIcon,
-          { backgroundColor: pastel(item.accent, isDark) },
+          {
+            backgroundColor: isDark
+              ? pastel(item.accent, true)
+              : ssPastel(item.accent),
+          },
         ]}
       >
         <ServiceIcon item={item} isDark={isDark} />
       </View>
       <Text
-        style={[styles.tileLabel, { color: isDark ? colors.text : '#1A1A1A' }]}
+        style={[
+          styles.tileLabel,
+          { color: isDark ? colors.text : SS.labelInk },
+        ]}
         numberOfLines={2}
-        adjustsFontSizeToFit
-        minimumFontScale={0.85}
       >
         {item.label}
       </Text>
     </Pressable>
+  );
+}
+
+function PremiumSectionPill({
+  title,
+  styles,
+  textColor,
+}: {
+  title: string;
+  styles: ReturnType<typeof makeStyles>;
+  textColor: string;
+}) {
+  const [pillSize, setPillSize] = useState({ w: 0, h: 0 });
+  const radius = rs(10);
+
+  return (
+    <View
+      style={[styles.pill, styles.pillPremium]}
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        if (width !== pillSize.w || height !== pillSize.h) {
+          setPillSize({ w: width, h: height });
+        }
+      }}
+    >
+      {pillSize.w > 0 && pillSize.h > 0 ? (
+        <Svg
+          width={pillSize.w}
+          height={pillSize.h}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        >
+          <Defs>
+            <SvgGradient id="premiumPillGrad" x1="0" y1="0" x2="1" y2="0">
+              <Stop offset="0" stopColor={SS.pillPremiumStart} />
+              <Stop offset="0.5" stopColor={SS.pillPremiumMid} />
+              <Stop offset="1" stopColor={SS.pillPremiumEnd} />
+            </SvgGradient>
+          </Defs>
+          <Rect
+            x="0"
+            y="0"
+            width={pillSize.w}
+            height={pillSize.h}
+            rx={radius}
+            ry={radius}
+            fill="url(#premiumPillGrad)"
+          />
+        </Svg>
+      ) : null}
+      <Text
+        style={[styles.pillText, styles.pillTextPremium, { color: textColor }]}
+        numberOfLines={1}
+      >
+        {title}
+      </Text>
+    </View>
   );
 }
 
@@ -327,32 +456,52 @@ function SectionPill({
   styles: ReturnType<typeof makeStyles>;
   isDark: boolean;
 }) {
-  const textColor = '#FFFFFF';
-
-  const bg = isDark
-    ? section.variant === 'free'
-      ? colors.pillFree
-      : section.variant === 'mero'
-        ? colors.pillMero
-        : section.variant === 'premium'
-          ? colors.pillPremiumEnd
-          : '#66BB6A'
+  const textColor = isDark
+    ? '#FFFFFF'
     : section.variant === 'free'
-      ? '#0277BD'
+      ? SS.pillFreeText
+      : SS.pillLabelInk;
+
+  if (isDark) {
+    const bg =
+      section.variant === 'free'
+        ? colors.pillFree
+        : section.variant === 'mero'
+          ? colors.pillMero
+          : section.variant === 'premium'
+            ? colors.pillPremiumEnd
+            : '#66BB6A';
+    return (
+      <View style={[styles.pill, { backgroundColor: bg }]}>
+        <Text
+          style={[styles.pillText, { color: textColor }]}
+          numberOfLines={1}
+        >
+          {section.title}
+        </Text>
+      </View>
+    );
+  }
+
+  if (section.variant === 'premium') {
+    return (
+      <PremiumSectionPill
+        title={section.title}
+        styles={styles}
+        textColor={textColor}
+      />
+    );
+  }
+
+  const bg =
+    section.variant === 'free'
+      ? SS.pillFreeBg
       : section.variant === 'mero'
-        ? '#00897B'
-        : section.variant === 'premium'
-          ? '#0288D1'
-          : '#2E7D32';
+        ? SS.pillMeroBg
+        : SS.pillExtraBg;
 
   return (
-    <View
-      style={[
-        styles.pill,
-        { backgroundColor: bg },
-        !isDark && styles.pillLight,
-      ]}
-    >
+    <View style={[styles.pill, styles.pillLight, { backgroundColor: bg }]}>
       <Text
         style={[styles.pillText, { color: textColor }]}
         numberOfLines={1}
@@ -369,26 +518,32 @@ function SectionBlock({
   colors,
   isDark,
   styles,
+  gridLayout,
 }: {
   section: Section;
   onOpen: (item: ServiceItem) => void;
   colors: ThemeColors;
   isDark: boolean;
   styles: ReturnType<typeof makeStyles>;
+  gridLayout: ServiceGridLayout;
 }) {
-  const rows = chunkRows(section.items, COLS);
+  const rows = chunkRows(section.items, gridLayout.cols);
 
   return (
     <View style={styles.section}>
       <View style={styles.sectionHead}>
-        <View style={[styles.headLine, { backgroundColor: colors.border }]} />
+        <View
+          style={[
+            styles.sectionHeadLine,
+            { backgroundColor: styles.headLineColor },
+          ]}
+        />
         <SectionPill
           section={section}
           colors={colors}
           styles={styles}
           isDark={isDark}
         />
-        <View style={[styles.headLine, { backgroundColor: colors.border }]} />
       </View>
 
       {rows.map((row, rowIndex) => (
@@ -401,11 +556,23 @@ function SectionBlock({
               colors={colors}
               isDark={isDark}
               styles={styles}
+              gridLayout={gridLayout}
             />
           ))}
-          {row.length < COLS
-            ? Array.from({ length: COLS - row.length }).map((_, i) => (
-                <View key={`pad-${i}`} style={styles.tileGhost} />
+          {row.length < gridLayout.cols
+            ? Array.from({ length: gridLayout.cols - row.length }).map((_, i) => (
+                <View
+                  key={`pad-${i}`}
+                  style={[
+                    styles.tileGhost,
+                    {
+                      width: gridLayout.tileW,
+                      height: gridLayout.tileH,
+                      minWidth: gridLayout.tileW,
+                      minHeight: gridLayout.tileH,
+                    },
+                  ]}
+                />
               ))
             : null}
         </View>
@@ -417,11 +584,26 @@ function SectionBlock({
 export function ServicesScreen() {
   const openDrawer = useOpenDrawer();
   const { colors, isDark } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { width: windowWidth } = useWindowDimensions();
+  const gridLayout = useMemo(
+    () => computeServiceGridLayout(windowWidth),
+    [windowWidth],
+  );
+  const styles = useMemo(
+    () => makeStyles(colors, isDark, gridLayout),
+    [colors, isDark, gridLayout],
+  );
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [query, setQuery] = useState('');
   const sections = useMemo(() => buildSections(), []);
+
+  // Warm Acc/Dis day-cache as soon as Services is open so those screens paint fast.
+  useFocusEffect(
+    useCallback(() => {
+      prefetchBrokerFlowIntel();
+    }, []),
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -552,10 +734,12 @@ export function ServicesScreen() {
       return;
     }
     if (item.route === 'Accumulation') {
+      prefetchBrokerFlowIntel();
       navigation.navigate('Accumulation');
       return;
     }
     if (item.route === 'Distribution') {
+      prefetchBrokerFlowIntel();
       navigation.navigate('Distribution');
       return;
     }
@@ -621,7 +805,7 @@ export function ServicesScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+    <View style={[styles.root, { backgroundColor: isDark ? colors.bg : SS.cream }]}>
       <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
       <AdminPromoBanner page="services" />
 
@@ -630,8 +814,8 @@ export function ServicesScreen() {
           style={[
             styles.searchInner,
             {
-              backgroundColor: isDark ? colors.searchBg : '#FFFFFF',
-              borderColor: isDark ? colors.border : '#C5D0B5',
+              backgroundColor: isDark ? colors.searchBg : SS.cream,
+              borderColor: isDark ? colors.border : SS.cardBorder,
             },
           ]}
         >
@@ -664,6 +848,7 @@ export function ServicesScreen() {
             colors={colors}
             isDark={isDark}
             styles={styles}
+            gridLayout={gridLayout}
           />
         ))}
 
@@ -677,11 +862,14 @@ export function ServicesScreen() {
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean, layout: ServiceGridLayout) {
+  const headLineColor = isDark ? c.border : SS.headLine;
+
   return StyleSheet.create({
+    headLineColor,
     root: { flex: 1 },
     searchWrap: {
-      paddingHorizontal: H_PAD,
+      paddingHorizontal: layout.hPad,
       paddingTop: rs(10),
       paddingBottom: rs(6),
     },
@@ -706,7 +894,7 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(8),
     },
     scroll: {
-      paddingHorizontal: H_PAD,
+      paddingHorizontal: layout.hPad,
       paddingBottom: rs(28),
       paddingTop: rs(10),
     },
@@ -714,73 +902,90 @@ function makeStyles(c: ThemeColors) {
       marginBottom: rs(16),
     },
     sectionHead: {
-      flexDirection: 'row',
+      position: 'relative',
       alignItems: 'center',
-      gap: rs(8),
+      justifyContent: 'center',
       marginBottom: rs(14),
       marginTop: rs(4),
+      minHeight: rs(34),
     },
-    headLine: {
-      flex: 1,
-      height: StyleSheet.hairlineWidth,
+    sectionHeadLine: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: '50%',
+      height: rs(SS.headLineHeight),
+      marginTop: -rs(SS.headLineHeight) / 2,
     },
     pill: {
       flexShrink: 0,
-      paddingHorizontal: rs(16),
-      paddingVertical: rs(9),
+      paddingHorizontal: rs(18),
+      paddingVertical: rs(7),
       borderRadius: rs(10),
       alignItems: 'center',
       justifyContent: 'center',
       minHeight: rs(34),
+      zIndex: 1,
     },
     pillLight: {
-      borderWidth: 1,
-      borderColor: 'rgba(0,0,0,0.12)',
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.12,
+      shadowOpacity: 0.08,
       shadowRadius: 2,
-      elevation: 2,
+      elevation: 1,
+    },
+    pillPremium: {
+      overflow: 'hidden',
+      paddingHorizontal: rs(22),
+      paddingVertical: rs(8),
+      minHeight: rs(36),
+    },
+    pillTextPremium: {
+      fontSize: rs(14),
+      fontWeight: '800',
     },
     pillText: {
       fontWeight: '800',
-      fontSize: rs(12),
-      letterSpacing: 0.2,
+      fontSize: rs(13),
+      letterSpacing: 0,
       textAlign: 'center',
       includeFontPadding: false,
     },
     row: {
       flexDirection: 'row',
       justifyContent: 'flex-start',
-      gap: GAP,
-      marginBottom: GAP,
+      gap: layout.gap,
+      marginBottom: layout.gap,
     },
     tile: {
-      width: TILE_W,
-      height: TILE_H,
-      backgroundColor: c.surface,
-      borderRadius: rs(14),
+      flexShrink: 0,
+      width: layout.tileW,
+      height: layout.tileH,
+      minWidth: layout.tileW,
+      minHeight: layout.tileH,
+      backgroundColor: isDark ? c.surface : SS.cream,
+      borderRadius: rs(12),
       borderWidth: 1,
-      borderColor: c.border,
-      paddingTop: rs(8),
-      paddingBottom: rs(6),
-      paddingHorizontal: rs(6),
+      borderColor: isDark ? c.border : SS.cardBorder,
+      paddingTop: rs(10),
+      paddingBottom: rs(8),
+      paddingHorizontal: rs(4),
       alignItems: 'center',
       justifyContent: 'flex-start',
       overflow: 'visible',
     },
     tileLight: {
-      backgroundColor: '#FFFFFF',
-      borderColor: '#9AAB8A',
-      borderWidth: 1.5,
-      shadowColor: '#1B1B1B',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.12,
-      shadowRadius: 4,
-      elevation: 4,
+      backgroundColor: SS.cream,
+      borderColor: SS.cardBorder,
+      borderWidth: 1,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.04,
+      shadowRadius: 2,
+      elevation: 1,
     },
     tileFeatured: {
-      borderColor: '#FF9900',
+      borderColor: SS.featuredBorder,
       borderWidth: 1.5,
     },
     tilePressed: {
@@ -788,8 +993,11 @@ function makeStyles(c: ThemeColors) {
       transform: [{ scale: 0.97 }],
     },
     tileGhost: {
-      width: TILE_W,
-      height: TILE_H,
+      flexShrink: 0,
+      width: layout.tileW,
+      height: layout.tileH,
+      minWidth: layout.tileW,
+      minHeight: layout.tileH,
       opacity: 0,
     },
     badgeAbs: {
@@ -799,21 +1007,21 @@ function makeStyles(c: ThemeColors) {
       zIndex: 2,
     },
     tileIcon: {
-      width: rs(38),
-      height: rs(38),
-      borderRadius: rs(10),
+      width: rs(44),
+      height: rs(44),
+      borderRadius: rs(11),
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: rs(5),
-      marginTop: rs(1),
+      marginBottom: rs(6),
+      marginTop: rs(2),
     },
     tileLabel: {
       width: '100%',
-      fontSize: rs(10.5),
+      fontSize: rs(12),
       fontWeight: '700',
       textAlign: 'center',
-      lineHeight: rs(12),
-      paddingHorizontal: rs(2),
+      lineHeight: rs(14),
+      paddingHorizontal: rs(1),
       letterSpacing: 0,
       includeFontPadding: false,
     },

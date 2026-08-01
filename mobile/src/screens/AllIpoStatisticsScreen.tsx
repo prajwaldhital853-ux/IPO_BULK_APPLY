@@ -16,6 +16,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
+import { SwipeTabGesture } from '../components/SwipeTabGesture';
 import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
@@ -398,6 +399,18 @@ export function AllIpoStatisticsScreen() {
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
+        <SwipeTabGesture
+          index={Math.max(
+            0,
+            FILTERS.findIndex((f) => f.id === filter),
+          )}
+          count={FILTERS.length}
+          enabled={!pickerOpen}
+          onIndexChange={(i) => {
+            const next = FILTERS[i];
+            if (next) setFilter(next.id);
+          }}
+        >
         <FlatList
           data={visible}
           keyExtractor={(item) =>
@@ -584,6 +597,7 @@ export function AllIpoStatisticsScreen() {
             );
           }}
         />
+        </SwipeTabGesture>
 
         {rows.length > 0 ? (
           <Pressable
@@ -671,7 +685,7 @@ function StatPill({
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: isDark ? c.bg : '#F5F6F8' },
+    root: { flex: 1, backgroundColor: c.bg },
     topBar: {
       flexDirection: 'row',
       alignItems: 'center',

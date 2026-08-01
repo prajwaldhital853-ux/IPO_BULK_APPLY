@@ -16,6 +16,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MarketChartSection } from '../components/nepse/MarketChartSection';
+import { SwipeTabGesture } from '../components/SwipeTabGesture';
 import { useTheme } from '../context/ThemeContext';
 import {
   loadNepseMarketSnapshot,
@@ -581,6 +582,10 @@ export function NepseDataScreen() {
 
   const renderMovers = () => {
     if (!data) return null;
+    const moverIndex = Math.max(
+      0,
+      MOVER_TABS.findIndex((t) => t.id === moverTab),
+    );
     return (
       <View style={styles.listWrap}>
         <View style={styles.pillPad}>
@@ -612,36 +617,47 @@ export function NepseDataScreen() {
             );
           })}
         </ScrollView>
-        <TableHeader
-          cols={moverCols}
-          layout={
-            moverTab === 'turnovers'
-              ? ['sn', 'sym', 'num', 'wide', 'narrow']
-              : moverTab === 'transactions'
-                ? ['sn', 'sym', 'num', 'num', 'narrow']
-                : ['sn', 'sym', 'num', 'narrow', 'narrow']
-          }
-          styles={styles}
-        />
-        <FlatList
-          data={moverRows}
-          keyExtractor={(item, i) => `${item.symbol}-${i}`}
-          renderItem={renderMoverRow}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => {
-                setRefreshing(true);
-                void refresh(true);
-              }}
-              tintColor={colors.primary}
-            />
-          }
-          ListEmptyComponent={
-            <Text style={styles.emptyList}>No movers to show</Text>
-          }
-          contentContainerStyle={moverRows.length ? undefined : styles.emptyContainer}
-        />
+        <SwipeTabGesture
+          index={moverIndex}
+          count={MOVER_TABS.length}
+          onIndexChange={(i) => {
+            const next = MOVER_TABS[i];
+            if (next) setMoverTab(next.id);
+          }}
+        >
+          <TableHeader
+            cols={moverCols}
+            layout={
+              moverTab === 'turnovers'
+                ? ['sn', 'sym', 'num', 'wide', 'narrow']
+                : moverTab === 'transactions'
+                  ? ['sn', 'sym', 'num', 'num', 'narrow']
+                  : ['sn', 'sym', 'num', 'narrow', 'narrow']
+            }
+            styles={styles}
+          />
+          <FlatList
+            data={moverRows}
+            keyExtractor={(item, i) => `${item.symbol}-${i}`}
+            renderItem={renderMoverRow}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  void refresh(true);
+                }}
+                tintColor={colors.primary}
+              />
+            }
+            ListEmptyComponent={
+              <Text style={styles.emptyList}>No movers to show</Text>
+            }
+            contentContainerStyle={
+              moverRows.length ? undefined : styles.emptyContainer
+            }
+          />
+        </SwipeTabGesture>
       </View>
     );
   };
@@ -710,29 +726,39 @@ export function NepseDataScreen() {
         })}
       </ScrollView>
 
-      {loading && !data ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
-          <Text style={styles.muted}>Loading NEPSE Live…</Text>
-        </View>
-      ) : null}
+      <SwipeTabGesture
+        index={Math.max(0, MAIN_TABS.findIndex((t) => t.id === tab))}
+        count={MAIN_TABS.length}
+        enabled={tab !== 'movers'}
+        onIndexChange={(i) => {
+          const next = MAIN_TABS[i];
+          if (next) setTab(next.id);
+        }}
+      >
+        {loading && !data ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={styles.muted}>Loading NEPSE Live…</Text>
+          </View>
+        ) : null}
 
-      {!loading || data ? (
-        <>
-          {tab === 'summary' ? renderSummary() : null}
-          {tab === 'live' ? renderSecurityList(filteredSecurities) : null}
-          {tab === 'today'
-            ? renderSecurityList(
-                [...filteredSecurities].sort((a, b) =>
-                  a.symbol.localeCompare(b.symbol),
-                ),
-              )
-            : null}
-          {tab === 'movers' ? renderMovers() : null}
-        </>
-      ) : null}
+        {!loading || data ? (
+          <>
+            {tab === 'summary' ? renderSummary() : null}
+            {tab === 'live' ? renderSecurityList(filteredSecurities) : null}
+            {tab === 'today'
+              ? renderSecurityList(
+                  [...filteredSecurities].sort((a, b) =>
+                    a.symbol.localeCompare(b.symbol),
+                  ),
+                )
+              : null}
+            {tab === 'movers' ? renderMovers() : null}
+          </>
+        ) : null}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+      </SwipeTabGesture>
     </View>
   );
 }

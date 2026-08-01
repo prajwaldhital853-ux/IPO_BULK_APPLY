@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
   Image,
   Modal,
@@ -20,7 +21,9 @@ import { PremiumGate } from '../../components/PremiumGate';
 import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
 import {
+  ensureBrokerFlowIntelHydrated,
   invalidateBrokerAnalyticsCache,
+  peekBrokerFlowIntel,
   searchBrokerNetRows,
   streamPremiumIntel,
   type PremiumIntelRow,
@@ -45,6 +48,22 @@ const PERIODS: Array<{ id: Period; label: string }> = [
 ];
 
 const HEADER_TEAL = '#1A5F5A';
+const SYM_COL_W = rs(96);
+const ROW_H = rs(44);
+const LOGO_SZ = rs(20);
+const HCOL_QTY = rs(80);
+const HCOL_PCT = rs(64);
+const HCOL_AMT = rs(78);
+const HCOL_BUY = rs(72);
+const HCOL_AVG = rs(60);
+const HCOL_BROKER = rs(64);
+const HCOL_LTP = rs(64);
+const HCOL_CHG = rs(62);
+const HCOL_SELL = rs(64);
+/** ~char width at 11pt + padding — used to fit full broker names. */
+const BROKER_NAME_CHAR_W = rs(8);
+const BROKER_NAME_PAD = rs(24);
+const BROKER_NAME_MIN_W = rs(180);
 
 function brokerNumber(code: string | null | undefined): string {
   if (!code) return '—';
@@ -52,19 +71,10 @@ function brokerNumber(code: string | null | undefined): string {
   return m ? m[0] : code;
 }
 
-/** Real directory name only — never invent brokers. */
-function shortBrokerName(name: string | null | undefined): string | null {
-  if (!name?.trim()) return null;
-  const cleaned = name
-    .trim()
-    .replace(
-      /\s*(Pvt\.?|Private|Ltd\.?|Limited|Company|Co\.?)\.?$/gi,
-      '',
-    )
-    .replace(/\s+Securities.*$/i, '')
-    .trim();
-  const first = cleaned.split(/\s+/)[0] ?? cleaned;
-  return first.slice(0, 10) || null;
+/** Full directory name — never invent brokers. */
+function fullBrokerName(name: string | null | undefined): string {
+  const t = name?.trim();
+  return t ? t : '—';
 }
 
 function fmtAmt(n: number | null | undefined): string {
@@ -80,6 +90,21 @@ function fmtQty(n: number | null | undefined): string {
   const abs = Math.abs(n);
   if (abs >= 1_00_000) return `${(n / 1_00_000).toFixed(2)} Lakh`;
   return Math.round(n).toLocaleString('en-NP');
+}
+
+function fmtRate(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return n.toLocaleString('en-NP', { maximumFractionDigits: 2 });
+}
+
+function fmtChg(pct: number | null | undefined): string {
+  if (pct == null || !Number.isFinite(pct)) return '—';
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+}
+
+function metricValue(item: PremiumIntelRow, label: string): string {
+  const hit = item.metrics.find((m) => m.label === label);
+  return hit?.value ?? '—';
 }
 
 function todayYmd(): string {
@@ -125,19 +150,33 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
 
   const isAcc = mode === 'accumulation';
   const title = isAcc ? 'Broker Accumulation' : 'Broker Distribution';
-  const amtLabel = isAcc ? 'Acc Amt' : 'Dis Amt';
+  const amtLabel = isAcc ? 'Buy Amt' : 'Sell Amt';
+  const buyQtyLabel = isAcc ? 'Buy Qty' : 'Sell Qty';
   const qtyLabel = isAcc ? 'Acc Qty' : 'Dis Qty';
   const pctLabel = isAcc ? 'Acc %' : 'Dis %';
   const sortAccent = isAcc ? '#2E9E5B' : '#E5484D';
+  const warmSnap = peekBrokerFlowIntel(
+    isAcc ? 'top-holders' : 'top-releases',
+  );
 
-  const [rows, setRows] = useState<PremiumIntelRow[]>([]);
+  const [rows, setRows] = useState<PremiumIntelRow[]>(
+    () => warmSnap?.rows ?? [],
+  );
   const [searchHits, setSearchHits] = useState<PremiumIntelRow[]>([]);
   const [searchingBroker, setSearchingBroker] = useState(false);
-  const [displayCount, setDisplayCount] = useState(0);
-  const [sessionDate, setSessionDate] = useState<string | null>(null);
-  const [priorReason, setPriorReason] = useState<string | null>(null);
-  const [brokerBreakdown, setBrokerBreakdown] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [displayCount, setDisplayCount] = useState(
+    () => warmSnap?.rows.length ?? 0,
+  );
+  const [sessionDate, setSessionDate] = useState<string | null>(
+    () => warmSnap?.sessionDate ?? null,
+  );
+  const [priorReason, setPriorReason] = useState<string | null>(
+    () => warmSnap?.priorSessionReason ?? null,
+  );
+  const [brokerBreakdown, setBrokerBreakdown] = useState(
+    () => warmSnap?.brokerBreakdown ?? false,
+  );
+  const [loading, setLoading] = useState(() => !(warmSnap?.rows.length));
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [period, setPeriod] = useState<Period>('1d');
@@ -148,7 +187,28 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   const genRef = useRef(0);
   const busyRef = useRef(false);
   const revealDoneRef = useRef(false);
-  const hasRowsRef = useRef(false);
+  const hasRowsRef = useRef((warmSnap?.rows.length ?? 0) > 0);
+  const hScrollX = useRef(new Animated.Value(0)).current;
+
+  const rowKey = useCallback(
+    (item: PremiumIntelRow) =>
+      `${item.symbol}-${item.brokerCode ?? 'x'}-${item.rank}`,
+    [],
+  );
+
+  const onHorizScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { x: hScrollX } } }], {
+        useNativeDriver: true,
+      }),
+    [hScrollX],
+  );
+
+  /** Keeps SYM visually pinned while the wide table scrolls horizontally. */
+  const stickySymStyle = useMemo(
+    () => ({ transform: [{ translateX: hScrollX }] }),
+    [hScrollX],
+  );
 
   const refresh = useCallback(
     async (opts: { silent?: boolean; force?: boolean } = {}) => {
@@ -169,7 +229,7 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
       if (!silent) {
         // Keep existing rows visible — only full spinner if we have nothing yet.
         if (!hasRowsRef.current) setLoading(true);
-        setLoadingMore(true);
+        else setLoadingMore(true);
       }
 
       try {
@@ -199,13 +259,18 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
             setPriorReason(snap.priorSessionReason ?? null);
             setBrokerBreakdown(snap.brokerBreakdown);
             setLoading(false);
-            setLoadingMore(meta.partial);
-            // Show all ranked rows immediately (no one-by-one drip).
+            // Show ranked rows as they arrive; stop "loading more" when stream finishes.
             setDisplayCount(snap.rows.length);
-            if (!meta.partial) revealDoneRef.current = true;
+            setLoadingMore(meta.partial && snap.rows.length > 0);
+            if (!meta.partial) {
+              setLoadingMore(false);
+              revealDoneRef.current = true;
+            }
           },
           120,
         );
+      } catch {
+        // Fall through to finally — never leave the spinner stuck.
       } finally {
         if (gen === genRef.current) {
           setLoading(false);
@@ -217,15 +282,37 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
     [isAcc],
   );
 
-  // Open: use warm cache when available; pull-to-refresh / header refresh forces live.
+  // Open: hydrate day-cache, paint instantly, then validate against floorsheet API.
   useFocusEffect(
     useCallback(() => {
-      void refresh({ silent: false, force: false });
-    }, [refresh]),
+      let cancelled = false;
+      void (async () => {
+        await ensureBrokerFlowIntelHydrated();
+        if (cancelled) return;
+        const warm = peekBrokerFlowIntel(
+          isAcc ? 'top-holders' : 'top-releases',
+        );
+        if (warm?.rows.length) {
+          setRows(warm.rows);
+          setDisplayCount(warm.rows.length);
+          setSessionDate(warm.sessionDate);
+          setPriorReason(warm.priorSessionReason ?? null);
+          setBrokerBreakdown(warm.brokerBreakdown);
+          setLoading(false);
+          hasRowsRef.current = true;
+        }
+        void refresh({ silent: false, force: false });
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [refresh, isAcc]),
   );
 
-  // Background poll every 60s while focused (silent, no list reset).
-  usePollingRefresh((silent) => refresh({ silent: !!silent }), 60_000);
+  // Soft poll — do not wipe warm floorsheet/logo caches (that caused 4–5s reloads).
+  usePollingRefresh(() => refresh({ silent: true }), 60_000, true, {
+    invalidate: false,
+  });
 
   // Broker-number search only works when floorsheet includes member IDs.
   useEffect(() => {
@@ -327,6 +414,127 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
       <Ionicons name="swap-vertical" size={rs(10)} color="rgba(255,255,255,0.55)" />
     );
 
+  // Size Broker Name column to the longest name so nothing is clipped.
+  const brokerNameColW = useMemo(() => {
+    let maxLen = 'Broker Name'.length;
+    for (const r of rows) {
+      const n = fullBrokerName(r.brokerName);
+      if (n.length > maxLen) maxLen = n.length;
+    }
+    for (const r of searchHits) {
+      const n = fullBrokerName(r.brokerName);
+      if (n.length > maxLen) maxLen = n.length;
+    }
+    return Math.max(
+      BROKER_NAME_MIN_W,
+      Math.ceil(maxLen * BROKER_NAME_CHAR_W) + BROKER_NAME_PAD,
+    );
+  }, [rows, searchHits]);
+
+  const scrollColsWidth =
+    HCOL_QTY +
+    HCOL_PCT +
+    HCOL_AMT +
+    HCOL_BUY +
+    HCOL_AVG +
+    HCOL_BROKER +
+    HCOL_LTP +
+    HCOL_CHG +
+    HCOL_SELL +
+    brokerNameColW;
+  const tableWidth = SYM_COL_W + scrollColsWidth;
+  const brokerNameColStyle = useMemo(
+    () => ({ width: brokerNameColW }),
+    [brokerNameColW],
+  );
+
+  const renderDataCols = (item: PremiumIntelRow) => (
+    <>
+      <Text style={[styles.td, styles.hColQty, styles.hColQtyVal]} numberOfLines={1}>
+        {fmtQty(item.quantity)}
+      </Text>
+      <Text style={[styles.td, styles.hColPct]} numberOfLines={1}>
+        {item.sharePct != null
+          ? `${Number.isInteger(item.sharePct) ? item.sharePct : item.sharePct.toFixed(2)}%`
+          : '—'}
+      </Text>
+      <Text style={[styles.td, styles.hColAmt]} numberOfLines={1}>
+        {fmtAmt(item.amount)}
+      </Text>
+      <Text style={[styles.td, styles.hColBuy]} numberOfLines={1}>
+        {metricValue(item, isAcc ? 'Buy' : 'Sell')}
+      </Text>
+      <Text style={[styles.td, styles.hColAvg]} numberOfLines={1}>
+        {fmtRate(item.avgRate)}
+      </Text>
+      <Text style={[styles.td, styles.hColBroker, styles.brokerText]} numberOfLines={1}>
+        {brokerNumber(item.brokerCode)}
+      </Text>
+      <Text style={[styles.td, styles.hColLtp]} numberOfLines={1}>
+        {fmtRate(item.ltp)}
+      </Text>
+      <Text
+        style={[
+          styles.td,
+          styles.hColChg,
+          (item.changePct ?? 0) >= 0 ? styles.chgUp : styles.chgDown,
+        ]}
+        numberOfLines={1}
+      >
+        {fmtChg(item.changePct)}
+      </Text>
+      <Text style={[styles.td, styles.hColSell]} numberOfLines={1}>
+        {metricValue(item, isAcc ? 'Sell' : 'Buy')}
+      </Text>
+      <Text
+        style={[styles.td, styles.hColBrokerName, brokerNameColStyle]}
+        ellipsizeMode="clip"
+      >
+        {fullBrokerName(item.brokerName)}
+      </Text>
+    </>
+  );
+
+  const tableHeader = (
+    <View style={[styles.tableHeadRow, { width: tableWidth }]}>
+      <Animated.View
+        style={[styles.symHeadFixed, styles.stickySym, stickySymStyle]}
+      >
+        <Text style={styles.th}>SYM</Text>
+      </Animated.View>
+      <Pressable
+        style={[styles.thPress, styles.hColQty]}
+        onPress={() => toggleSort('qty')}
+      >
+        <Text style={styles.th}>{qtyLabel}</Text>
+        <SortCaret active={sortKey === 'qty'} />
+      </Pressable>
+      <Pressable
+        style={[styles.thPress, styles.hColPct]}
+        onPress={() => toggleSort('pct')}
+      >
+        <Text style={styles.th}>{pctLabel}</Text>
+        <SortCaret active={sortKey === 'pct'} />
+      </Pressable>
+      <Pressable
+        style={[styles.thPress, styles.hColAmt]}
+        onPress={() => toggleSort('amount')}
+      >
+        <Text style={styles.th}>{amtLabel}</Text>
+        <SortCaret active={sortKey === 'amount'} />
+      </Pressable>
+      <Text style={[styles.th, styles.hColBuy]}>{buyQtyLabel}</Text>
+      <Text style={[styles.th, styles.hColAvg]}>Avg</Text>
+      <Text style={[styles.th, styles.hColBroker]}>Broker</Text>
+      <Text style={[styles.th, styles.hColLtp]}>LTP</Text>
+      <Text style={[styles.th, styles.hColChg]}>Chg %</Text>
+      <Text style={[styles.th, styles.hColSell]}>Sell</Text>
+      <Text style={[styles.th, styles.hColBrokerName, brokerNameColStyle]}>
+        Broker Name
+      </Text>
+    </View>
+  );
+
   const body = (
     <View style={styles.body}>
       <Text style={styles.dateText}>{sessionDate ?? todayYmd()}</Text>
@@ -352,115 +560,85 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
         </View>
       </View>
 
-      <View style={styles.tableHead}>
-        <Text style={[styles.th, styles.colSym]}>SYM</Text>
-        <Text style={[styles.th, styles.colBroker]}>Broker</Text>
-        <Pressable
-          style={[styles.thPress, styles.colAmt]}
-          onPress={() => toggleSort('amount')}
-        >
-          <Text style={styles.th}>{amtLabel}</Text>
-          <SortCaret active={sortKey === 'amount'} />
-        </Pressable>
-        <Pressable
-          style={[styles.thPress, styles.colQty]}
-          onPress={() => toggleSort('qty')}
-        >
-          <Text style={styles.th}>{qtyLabel}</Text>
-          <SortCaret active={sortKey === 'qty'} />
-        </Pressable>
-        <Pressable
-          style={[styles.thPress, styles.colPct]}
-          onPress={() => toggleSort('pct')}
-        >
-          <Text style={styles.th}>{pctLabel}</Text>
-          <SortCaret active={sortKey === 'pct'} />
-        </Pressable>
-      </View>
+      <View style={styles.tableWrap}>
+        {loading && rows.length === 0 ? (
+          <ActivityIndicator style={{ marginTop: rs(40) }} color={HEADER_TEAL} />
+        ) : (
+          <Animated.ScrollView
+            horizontal
+            bounces={false}
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator
+            scrollEventThrottle={16}
+            onScroll={onHorizScroll}
+            style={styles.hTableScroll}
+            contentContainerStyle={styles.hTableContent}
+          >
+            <View style={[styles.tableInner, { width: tableWidth }]}>
+              {tableHeader}
+              <FlatList
+                data={visible}
+                style={styles.dataList}
+                contentContainerStyle={styles.listContent}
+                nestedScrollEnabled
+                initialNumToRender={30}
+                maxToRenderPerBatch={40}
+                windowSize={8}
+                removeClippedSubviews={false}
+                keyExtractor={rowKey}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={() => {
+                      setRefreshing(true);
+                      void refresh({ silent: false, force: true }).finally(() =>
+                        setRefreshing(false),
+                      );
+                    }}
+                    tintColor={HEADER_TEAL}
+                  />
+                }
+                ListEmptyComponent={
+                  <Text style={styles.empty}>No broker rows for this session.</Text>
+                }
+                ListFooterComponent={<View style={styles.footerPad} />}
+                renderItem={({ item, index }) => (
+                  <Pressable
+                    style={[
+                      styles.fullRow,
+                      { width: tableWidth },
+                      index % 2 === 1 && styles.rowAlt,
+                    ]}
+                    onPress={() =>
+                      navigation.navigate('StockDetail', { symbol: item.symbol })
+                    }
+                  >
+                    <Animated.View
+                      style={[
+                        styles.symCell,
+                        index % 2 === 1 && styles.rowAlt,
+                        styles.stickySym,
+                        stickySymStyle,
+                      ]}
+                    >
+                      <SymLogo
+                        symbol={item.symbol}
+                        iconUrl={item.iconUrl}
+                        styles={styles}
+                      />
+                      <Text style={styles.symText} numberOfLines={1}>
+                        {item.symbol}
+                      </Text>
+                    </Animated.View>
+                    {renderDataCols(item)}
+                  </Pressable>
+                )}
+              />
+            </View>
+          </Animated.ScrollView>
+        )}
 
-      {loading && rows.length === 0 ? (
-        <ActivityIndicator style={{ marginTop: rs(40) }} color={HEADER_TEAL} />
-      ) : (
-        <FlatList
-          data={visible}
-          initialNumToRender={30}
-          maxToRenderPerBatch={40}
-          windowSize={8}
-          removeClippedSubviews
-          keyExtractor={(item) =>
-            `${item.symbol}-${item.brokerCode ?? 'x'}-${item.rank}`
-          }
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => {
-                setRefreshing(true);
-                void refresh({ silent: true, force: true }).finally(() =>
-                  setRefreshing(false),
-                );
-              }}
-              tintColor={HEADER_TEAL}
-            />
-          }
-          ListEmptyComponent={
-            <Text style={styles.empty}>No broker rows for this session.</Text>
-          }
-          ListFooterComponent={
-            searchingBroker || loadingMore ? (
-              <View style={styles.footerLoad}>
-                <ActivityIndicator size="small" color={HEADER_TEAL} />
-                <Text style={styles.footerText}>
-                  {searchingBroker
-                    ? `Loading broker ${query.trim()}…`
-                    : 'Updating rankings…'}
-                </Text>
-              </View>
-            ) : null
-          }
-          renderItem={({ item, index }) => (
-            <Pressable
-              style={[styles.tr, index % 2 === 1 && styles.trAlt]}
-              onPress={() =>
-                navigation.navigate('StockDetail', { symbol: item.symbol })
-              }
-            >
-              <View style={[styles.colSym, styles.symCell]}>
-                <SymLogo
-                  symbol={item.symbol}
-                  iconUrl={item.iconUrl}
-                  styles={styles}
-                />
-                <Text style={styles.symText} numberOfLines={1}>
-                  {item.symbol}
-                </Text>
-              </View>
-              <View style={[styles.colBroker, styles.brokerCell]}>
-                <Text style={[styles.td, styles.brokerText]} numberOfLines={1}>
-                  {brokerNumber(item.brokerCode)}
-                </Text>
-                {shortBrokerName(item.brokerName) ? (
-                  <Text style={styles.brokerName} numberOfLines={1}>
-                    {shortBrokerName(item.brokerName)}
-                  </Text>
-                ) : null}
-              </View>
-              <Text style={[styles.td, styles.colAmt]} numberOfLines={1}>
-                {fmtAmt(item.amount)}
-              </Text>
-              <Text style={[styles.td, styles.colQty]} numberOfLines={1}>
-                {fmtQty(item.quantity)}
-              </Text>
-              <Text style={[styles.td, styles.colPct]} numberOfLines={1}>
-                {item.sharePct != null
-                  ? Number.isInteger(item.sharePct)
-                    ? String(item.sharePct)
-                    : item.sharePct.toFixed(1)
-                  : '—'}
-              </Text>
-            </Pressable>
-          )}
-        />
-      )}
+      </View>
 
       <Modal
         visible={periodOpen}
@@ -581,12 +759,45 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontSize: rs(12),
       paddingVertical: 0,
     },
-    tableHead: {
+    tableWrap: { flex: 1, minHeight: 0, overflow: 'hidden' },
+    hTableScroll: { flex: 1 },
+    hTableContent: { flexGrow: 1 },
+    tableInner: { flex: 1 },
+    dataList: { flex: 1 },
+    listContent: { paddingBottom: rs(8) },
+    tableHeadRow: {
       flexDirection: 'row',
       alignItems: 'center',
+      height: ROW_H,
       backgroundColor: HEADER_TEAL,
-      paddingHorizontal: rs(8),
-      paddingVertical: rs(10),
+    },
+    stickySym: {
+      zIndex: 4,
+      elevation: 4,
+    },
+    symHeadFixed: {
+      width: SYM_COL_W,
+      height: ROW_H,
+      justifyContent: 'center',
+      paddingLeft: rs(8),
+      paddingRight: rs(4),
+      backgroundColor: HEADER_TEAL,
+    },
+    fullRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: ROW_H,
+      backgroundColor: c.surface,
+    },
+    symCell: {
+      width: SYM_COL_W,
+      height: ROW_H,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(4),
+      paddingLeft: rs(8),
+      paddingRight: rs(4),
+      backgroundColor: c.surface,
     },
     th: {
       color: '#FFFFFF',
@@ -598,71 +809,76 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(3),
+      height: ROW_H,
     },
-    colSym: { width: '24%', paddingRight: rs(4) },
-    colBroker: { width: '16%' },
-    colAmt: { width: '22%' },
-    colQty: { width: '22%' },
-    colPct: { width: '16%' },
-    tr: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: rs(8),
-      paddingVertical: rs(11),
-      backgroundColor: c.surface,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.borderMuted,
+    hColQty: { width: HCOL_QTY, justifyContent: 'center' },
+    hColQtyVal: { paddingLeft: rs(12) },
+    hColPct: { width: HCOL_PCT, justifyContent: 'center' },
+    hColAmt: { width: HCOL_AMT, justifyContent: 'center' },
+    hColBuy: { width: HCOL_BUY, justifyContent: 'center' },
+    hColAvg: { width: HCOL_AVG, justifyContent: 'center' },
+    hColBroker: {
+      width: HCOL_BROKER,
+      justifyContent: 'center',
+      textAlign: 'center',
+      paddingRight: rs(10),
     },
-    trAlt: { backgroundColor: c.bg },
+    hColLtp: {
+      width: HCOL_LTP,
+      justifyContent: 'center',
+      paddingLeft: rs(6),
+    },
+    hColChg: { width: HCOL_CHG, justifyContent: 'center' },
+    hColSell: { width: HCOL_SELL, justifyContent: 'center' },
+    hColBrokerName: {
+      justifyContent: 'center',
+      paddingLeft: rs(6),
+      paddingRight: rs(14),
+      color: c.textMuted,
+      fontWeight: '600',
+      fontSize: rs(11),
+      flexShrink: 0,
+    },
+    rowAlt: { backgroundColor: isDark ? c.bg : '#FAFAF8' },
     td: { color: c.text, fontSize: rs(11.5), fontWeight: '600' },
-    symCell: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
-    brokerCell: { justifyContent: 'center', paddingRight: rs(2) },
     logo: {
-      width: rs(26),
-      height: rs(26),
-      borderRadius: rs(6),
+      width: LOGO_SZ,
+      height: LOGO_SZ,
+      borderRadius: LOGO_SZ / 2,
       backgroundColor: '#DCE8E6',
       alignItems: 'center',
       justifyContent: 'center',
+      flexShrink: 0,
     },
     logoImg: {
-      width: rs(26),
-      height: rs(26),
-      borderRadius: rs(6),
+      width: LOGO_SZ,
+      height: LOGO_SZ,
+      borderRadius: LOGO_SZ / 2,
       backgroundColor: '#DCE8E6',
+      flexShrink: 0,
     },
     logoText: {
       color: HEADER_TEAL,
       fontWeight: '900',
-      fontSize: rs(10),
+      fontSize: rs(9),
     },
     symText: {
       flex: 1,
+      minWidth: 0,
       color: c.text,
       fontWeight: '700',
-      fontSize: rs(11.5),
+      fontSize: rs(11),
     },
-    brokerText: { fontWeight: '800', fontSize: rs(11) },
-    brokerName: {
-      color: c.textMuted,
-      fontSize: rs(8),
-      fontWeight: '600',
-      marginTop: rs(1),
-    },
+    brokerText: { fontWeight: '800', fontSize: rs(11), textAlign: 'center' },
+    chgUp: { color: '#2E9E5B' },
+    chgDown: { color: '#E5484D' },
     empty: {
       textAlign: 'center',
       color: c.textMuted,
       marginTop: rs(40),
       fontSize: rs(13),
     },
-    footerLoad: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: rs(8),
-      paddingVertical: rs(14),
-    },
-    footerText: { color: c.textMuted, fontSize: rs(12), fontWeight: '600' },
+    footerPad: { height: rs(24) },
     modalBackdrop: {
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.4)',

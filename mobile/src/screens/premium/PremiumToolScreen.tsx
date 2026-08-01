@@ -36,6 +36,8 @@ import { fmtMcap, fmtNum, type FloorsheetRow } from '../../services/nepse/screen
 import { rs } from '../../utils/responsive';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
+import { SwipeTabGesture } from '../../components/SwipeTabGesture';
+import { FloorSheetScreen } from './FloorSheetScreen';
 
 const TOOL_COPY: Record<PremiumToolKind, { title: string; subtitle: string }> = {
   'stock-filter': {
@@ -46,7 +48,7 @@ const TOOL_COPY: Record<PremiumToolKind, { title: string; subtitle: string }> = 
   'financial-reports': {
     title: 'Financial Reports',
     subtitle:
-      'Latest quarterly & annual report announcements across NEPSE — open PDFs instantly.',
+      'Quarterly financial reports across NEPSE companies — EPS, profit and ROE at a glance.',
   },
   'floor-sheet': {
     title: 'Floor Sheet',
@@ -195,69 +197,87 @@ function StockFilterBody({
   usePollingRefresh(refresh);
 
   const activePreset = STOCK_FILTER_PRESETS.find((p) => p.id === preset);
+  const presetIndex = Math.max(
+    0,
+    STOCK_FILTER_PRESETS.findIndex((p) => p.id === preset),
+  );
 
   return (
-    <View style={styles.body}>
-      {loading && rows.length === 0 ? (
-        <ActivityIndicator style={{ marginTop: rs(24) }} color={colors.primary} />
-      ) : (
-        <FlatList
-          style={styles.body}
-          data={rows}
-          keyExtractor={(item) => item.symbol}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => {
-                setRefreshing(true);
-                void refresh(true).finally(() => setRefreshing(false));
-              }}
-            />
-          }
-          ListHeaderComponent={
-            <View>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.chipsInline}
-              >
-                {STOCK_FILTER_PRESETS.map((p) => (
-                  <Pressable
-                    key={p.id}
-                    style={[styles.chip, preset === p.id && styles.chipActive]}
-                    onPress={() => setPreset(p.id)}
-                  >
-                    <Text
-                      style={[styles.chipText, preset === p.id && styles.chipTextActive]}
-                    >
-                      {p.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-              {activePreset ? (
-                <Text style={styles.presetTitle}>{activePreset.label}</Text>
-              ) : null}
-              <LiveHeader
-                subtitle={activePreset?.hint ?? ''}
-                summary={summary}
-                asOf={asOf}
-                styles={styles}
+    <SwipeTabGesture
+      index={presetIndex}
+      count={STOCK_FILTER_PRESETS.length}
+      onIndexChange={(i) => {
+        const next = STOCK_FILTER_PRESETS[i];
+        if (next) setPreset(next.id);
+      }}
+    >
+      <View style={styles.body}>
+        {loading && rows.length === 0 ? (
+          <ActivityIndicator style={{ marginTop: rs(24) }} color={colors.primary} />
+        ) : (
+          <FlatList
+            style={styles.body}
+            data={rows}
+            keyExtractor={(item) => item.symbol}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  void refresh(true).finally(() => setRefreshing(false));
+                }}
               />
-            </View>
-          }
-          renderItem={({ item }) => (
-            <ScreenerCard
-              item={item}
-              colors={colors}
-              styles={styles}
-              onPress={() => navigation.navigate('StockDetail', { symbol: item.symbol })}
-            />
-          )}
-          contentContainerStyle={styles.list}
-        />
-      )}
-    </View>
+            }
+            ListHeaderComponent={
+              <View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.chipsInline}
+                >
+                  {STOCK_FILTER_PRESETS.map((p) => (
+                    <Pressable
+                      key={p.id}
+                      style={[styles.chip, preset === p.id && styles.chipActive]}
+                      onPress={() => setPreset(p.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.chipText,
+                          preset === p.id && styles.chipTextActive,
+                        ]}
+                      >
+                        {p.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                {activePreset ? (
+                  <Text style={styles.presetTitle}>{activePreset.label}</Text>
+                ) : null}
+                <LiveHeader
+                  subtitle={activePreset?.hint ?? ''}
+                  summary={summary}
+                  asOf={asOf}
+                  styles={styles}
+                />
+              </View>
+            }
+            renderItem={({ item }) => (
+              <ScreenerCard
+                item={item}
+                colors={colors}
+                styles={styles}
+                onPress={() =>
+                  navigation.navigate('StockDetail', { symbol: item.symbol })
+                }
+              />
+            )}
+            contentContainerStyle={styles.list}
+          />
+        )}
+      </View>
+    </SwipeTabGesture>
   );
 }
 
@@ -276,9 +296,9 @@ function FinancialReportsBody({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const refresh = useCallback(async (silent = false) => {
+  const refresh = useCallback(async (silent = false, force = false) => {
     if (!silent) setLoading(true);
-    const snap = await loadFinancialReportsFeed();
+    const snap = await loadFinancialReportsFeed(400, { force });
     setRows(snap.rows);
     setSummary(snap.summary);
     setAsOf(snap.asOf);
@@ -298,13 +318,15 @@ function FinancialReportsBody({
   return (
     <FlatList
       data={rows}
-      keyExtractor={(item) => String(item.id)}
+      keyExtractor={(item, index) =>
+        `${item.symbol}-${item.id}-${item.title}-${index}`
+      }
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={() => {
             setRefreshing(true);
-            void refresh(true).finally(() => setRefreshing(false));
+            void refresh(true, true).finally(() => setRefreshing(false));
           }}
         />
       }
@@ -347,6 +369,11 @@ function FinancialReportsBody({
           <Text style={styles.reportTitle} numberOfLines={2}>
             {item.title}
           </Text>
+          {item.details ? (
+            <Text style={styles.reportMeta} numberOfLines={2}>
+              {item.details}
+            </Text>
+          ) : null}
           {item.attachmentUrl ? (
             <Pressable
               style={styles.pdfBtn}
@@ -355,6 +382,8 @@ function FinancialReportsBody({
               <Ionicons name="document-text" size={rs(14)} color={colors.primary} />
               <Text style={styles.pdfText}>Open PDF report</Text>
             </Pressable>
+          ) : item.symbol ? (
+            <Text style={styles.pdfText}>Tap to open company → Financial Report</Text>
           ) : null}
         </Pressable>
       )}
@@ -634,6 +663,16 @@ function MarketDepthBody({
 export function PremiumToolScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'PremiumTool'>>();
   const kind = route.params.kind;
+
+  // Dedicated Floor Sheet UI — filters/footer fixed, only rows scroll.
+  if (kind === 'floor-sheet') {
+    return <FloorSheetScreen />;
+  }
+
+  return <PremiumToolBody kind={kind} />;
+}
+
+function PremiumToolBody({ kind }: { kind: PremiumToolKind }) {
   const copy = TOOL_COPY[kind];
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -646,8 +685,6 @@ export function PremiumToolScreen() {
       <StockFilterBody colors={colors} styles={styles} navigation={navigation} />
     ) : kind === 'financial-reports' ? (
       <FinancialReportsBody colors={colors} styles={styles} navigation={navigation} />
-    ) : kind === 'floor-sheet' ? (
-      <FloorSheetBody colors={colors} styles={styles} navigation={navigation} />
     ) : (
       <MarketDepthBody colors={colors} styles={styles} navigation={navigation} />
     );
@@ -786,6 +823,12 @@ function makeStyles(c: ThemeColors) {
     },
     reportTop: { flexDirection: 'row', alignItems: 'center', gap: rs(10) },
     reportDate: { color: c.textMuted, fontSize: rs(10), fontWeight: '600' },
+    reportMeta: {
+      color: c.textSecondary,
+      fontSize: rs(12),
+      marginTop: rs(4),
+      fontWeight: '600',
+    },
     reportTitle: {
       color: c.text,
       fontSize: rs(13),

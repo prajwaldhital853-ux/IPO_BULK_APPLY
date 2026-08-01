@@ -32,7 +32,9 @@ import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 
-const ACCENT = '#1B5E20';
+const ACCENT = '#2D5A27';
+const HEADER_BG = '#E8F0E6';
+const BODY_BG = '#F6F8F2';
 const GREEN = '#2E7D32';
 const RED = '#C62828';
 const REJECT = '#E66A5C';
@@ -293,7 +295,13 @@ export function CurrentIpoStatusScreen() {
             },
             // Show each account as soon as it finishes (same as IPO Bulk Status).
             onAccountResult: (row, index, total) => {
-              setResults((prev) => [...prev, row]);
+              setResults((prev) => {
+                const i = prev.findIndex((r) => r.accountId === row.accountId);
+                if (i < 0) return [...prev, row];
+                const next = prev.slice();
+                next[i] = row;
+                return next;
+              });
               setProgress({ done: index + 1, total });
             },
           });
@@ -330,7 +338,7 @@ export function CurrentIpoStatusScreen() {
           <Ionicons
             name="information-circle-outline"
             size={rs(22)}
-            color={colors.text}
+            color={isDark ? colors.text : ACCENT}
           />
         </Pressable>
       </View>
@@ -340,19 +348,26 @@ export function CurrentIpoStatusScreen() {
           style={styles.dropdown}
           onPress={() => setCheckPickerOpen(true)}
         >
-          <Text style={styles.dropdownText} numberOfLines={1}>
+          <Text
+            style={[
+              styles.dropdownText,
+              checkAccounts.length === accounts.length &&
+                styles.dropdownPlaceholder,
+            ]}
+            numberOfLines={1}
+          >
             {checkLabel}
           </Text>
           <Ionicons
-            name="chevron-down"
-            size={rs(18)}
-            color={isDark ? colors.textMuted : '#8A938A'}
+            name="caret-down"
+            size={rs(14)}
+            color={isDark ? colors.textMuted : '#6B726B'}
           />
         </Pressable>
 
         <View style={styles.labelRow}>
           <MaterialCommunityIcons
-            name="bank-outline"
+            name="bank"
             size={rs(16)}
             color={isDark ? colors.textSecondary : '#1B2E1B'}
           />
@@ -364,16 +379,23 @@ export function CurrentIpoStatusScreen() {
           onPress={() => setPickerOpen(true)}
           disabled={loading}
         >
-          <Text style={styles.dropdownText} numberOfLines={1}>
+          <Text
+            style={[
+              styles.dropdownText,
+              styles.dropdownValue,
+              (!selected || loading) && styles.dropdownPlaceholder,
+            ]}
+            numberOfLines={1}
+          >
             {openingLabel}
           </Text>
           {loading ? (
-            <ActivityIndicator size="small" color={GREEN} />
+            <ActivityIndicator size="small" color={ACCENT} />
           ) : (
             <Ionicons
-              name="chevron-down"
-              size={rs(18)}
-              color={isDark ? colors.textMuted : '#8A938A'}
+              name="caret-down"
+              size={rs(14)}
+              color={isDark ? colors.textMuted : '#6B726B'}
             />
           )}
         </Pressable>
@@ -384,7 +406,7 @@ export function CurrentIpoStatusScreen() {
           disabled={running || !selected}
         >
           {running ? (
-            <ActivityIndicator color={GREEN} />
+            <ActivityIndicator color={ACCENT} />
           ) : (
             <Text style={styles.actionText}>Check Bulk Status</Text>
           )}
@@ -451,7 +473,7 @@ export function CurrentIpoStatusScreen() {
             <FlatList
               style={styles.resultsList}
               data={visibleResults}
-              keyExtractor={(row) => row.accountId}
+              keyExtractor={(row, index) => `${row.accountId}-${index}`}
               contentContainerStyle={styles.resultsListBody}
               refreshControl={refreshControl}
               ListEmptyComponent={
@@ -583,7 +605,7 @@ export function CurrentIpoStatusScreen() {
             </Pressable>
             <FlatList
               data={accounts}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item, index) => `${item.id}-${index}`}
               renderItem={({ item }) => {
                 const on = checkAccounts.some((a) => a.id === item.id);
                 return (
@@ -656,22 +678,20 @@ export function CurrentIpoStatusScreen() {
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const fieldBg = isDark ? c.surface : '#F4F6F4';
-  const fieldBorder = isDark ? c.border : '#E2E6E2';
-  const fieldText = isDark ? c.textMuted : '#6C766C';
+  const fieldBg = isDark ? c.surface : BODY_BG;
+  const fieldBorder = isDark ? c.border : '#8E968E';
+  const fieldText = isDark ? c.text : '#1B2E1B';
   const cardBg = isDark ? c.bgElevated : '#FFFFFF';
 
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: c.bg },
+    root: { flex: 1, backgroundColor: isDark ? c.bg : BODY_BG },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: rs(14),
       paddingVertical: rs(12),
-      backgroundColor: isDark ? c.bgElevated : '#FFFFFF',
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: isDark ? c.border : '#E2E6E2',
+      backgroundColor: isDark ? c.bgElevated : HEADER_BG,
     },
     title: {
       color: c.text,
@@ -682,8 +702,8 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     body: { padding: rs(16), paddingBottom: rs(40) },
     controls: {
-      paddingHorizontal: rs(16),
-      paddingTop: rs(14),
+      paddingHorizontal: rs(18),
+      paddingTop: rs(18),
       paddingBottom: rs(4),
     },
     resultsList: { flex: 1, minHeight: 0 },
@@ -693,11 +713,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       borderWidth: 1,
       borderColor: fieldBorder,
-      borderRadius: rs(8),
-      paddingHorizontal: rs(12),
+      borderRadius: rs(22),
+      paddingHorizontal: rs(16),
       paddingVertical: rs(12),
+      minHeight: rs(46),
       backgroundColor: fieldBg,
-      marginBottom: rs(12),
+      marginBottom: rs(14),
       gap: rs(8),
     },
     dropdownText: {
@@ -705,6 +726,14 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       color: fieldText,
       fontSize: rs(13),
       fontWeight: '500',
+    },
+    dropdownPlaceholder: {
+      color: isDark ? c.textMuted : '#8A938A',
+      fontWeight: '500',
+    },
+    dropdownValue: {
+      color: isDark ? c.text : '#1B2E1B',
+      fontWeight: '600',
     },
     labelRow: {
       flexDirection: 'row',
@@ -719,22 +748,29 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     actionBtn: {
       alignSelf: 'center',
-      borderRadius: rs(22),
+      borderWidth: 1,
+      borderColor: isDark ? ACCENT : '#C5D0C5',
+      borderRadius: rs(24),
       paddingHorizontal: rs(28),
-      paddingVertical: rs(13),
-      marginTop: rs(16),
+      paddingVertical: rs(12),
+      marginTop: rs(10),
       marginBottom: rs(14),
       minWidth: rs(180),
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: ACCENT,
+      backgroundColor: isDark ? c.surface : BODY_BG,
+      shadowColor: '#000',
+      shadowOpacity: isDark ? 0 : 0.06,
+      shadowRadius: 3,
+      shadowOffset: { width: 0, height: 1 },
+      elevation: isDark ? 0 : 1,
     },
     actionBtnLoading: {
-      backgroundColor: isDark ? c.surface : '#EDF0ED',
+      backgroundColor: isDark ? c.surface : BODY_BG,
       minWidth: rs(92),
       paddingHorizontal: rs(24),
     },
-    actionText: { color: '#FFFFFF', fontWeight: '800', fontSize: rs(14) },
+    actionText: { color: ACCENT, fontWeight: '700', fontSize: rs(14) },
     resultsPane: { flex: 1, paddingHorizontal: rs(14) },
     updatesBox: {
       flex: 1,

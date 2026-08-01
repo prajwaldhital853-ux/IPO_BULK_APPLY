@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -10,6 +10,9 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -43,6 +46,12 @@ import {
   type StockChartRange,
 } from '../services/nepse/screener';
 import {
+  formatRelativeNewsTime,
+  loadSymbolNewsProgressive,
+  NEWS_SOURCES,
+  type ShareNewsItem,
+} from '../services/nepse/shareNews';
+import {
   addToWatchlist,
   isWatched,
   removeFromWatchlist,
@@ -57,7 +66,8 @@ type TabId =
   | 'floorsheet'
   | 'financial'
   | 'dividends'
-  | 'announcements';
+  | 'announcements'
+  | 'news-overview';
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'info', label: 'Stock Information' },
@@ -66,6 +76,7 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'financial', label: 'Financial Report' },
   { id: 'dividends', label: 'Dividends/Rights' },
   { id: 'announcements', label: 'Announcements' },
+  { id: 'news-overview', label: 'News Overview' },
 ];
 
 const CHART_RANGES: StockChartRange[] = ['1D', '1W', '1M', '6M', '1Y'];
@@ -119,10 +130,23 @@ export function StockDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'StockDetail'>>();
   const symbol = route.params.symbol.toUpperCase();
   const insets = useSafeAreaInsets();
+  const { width: pageWidth } = useWindowDimensions();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const chartBg = isDark ? colors.surface : '#F7FAF3';
 
-  const [tab, setTab] = useState<TabId>('info');
+  const [tabIndex, setTabIndex] = useState(0);
+  const pagerRef = useRef<ScrollView>(null);
+  const tabsScrollRef = useRef<ScrollView>(null);
+  const tabLayoutsRef = useRef<Record<number, { x: number; width: number }>>({});
+  const tabIndexRef = useRef(0);
+  tabIndexRef.current = tabIndex;
+  const newsGenRef = useRef(0);
+  const newsInFlightRef = useRef(false);
+  const stockNameRef = useRef<string | undefined>();
+  const newsCacheRef = useRef<{ symbol: string; rows: ShareNewsItem[] } | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(false);
   const [stock, setStock] = useState<MiniScreenerRow | null>(null);
@@ -144,6 +168,16 @@ export function StockDetailScreen() {
   const [fundamentals, setFundamentals] = useState<Fundamentals | null>(null);
   const [dividends, setDividends] = useState<DividendRow[]>([]);
   const [announcements, setAnnouncements] = useState<AnnouncementRow[]>([]);
+  const [newsRows, setNewsRows] = useState<ShareNewsItem[]>([]);
+  const [tabLoading, setTabLoading] = useState(false);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsLoadingMore, setNewsLoadingMore] = useState(false);
+
+  const tab = TABS[tabIndex].id;
+
+  useEffect(() => {
+    stockNameRef.current = stock?.name;
+  }, [stock?.name]);
 
   const loadCore = useCallback(
     async (silent = false) => {
@@ -173,59 +207,212 @@ export function StockDetailScreen() {
 
   useEffect(() => {
     void loadCore();
-  }, [loadCore]);
+    newsCacheRef.current = null;
+    newsInFlightRef.current = false;
+    setNewsRows([]);
+    setNewsLoading(false);
+    setNewsLoadingMore(false);
+  }, [loadCore, symbol]);
 
   useEffect(() => {
     void loadChart(chartRange);
   }, [loadChart, chartRange]);
 
+  const loadNewsTab = useCallback(async () => {
+    const cached = newsCacheRef.current;
+    if (cached?.symbol === symbol && cached.rows.length > 0) {
+      setNewsRows(cached.rows);
+      setNewsLoading(false);
+      setNewsLoadingMore(false);
+      return;
+    }
+    if (newsInFlightRef.current) return;
+    newsInFlightRef.current = true;
+
+    const gen = ++newsGenRef.current;
+    setNewsLoading(true);
+    setNewsLoadingMore(false);
+    setNewsRows([]);
+
+    try {
+      await loadSymbolNewsProgressive(
+        symbol,
+        stockNameRef.current,
+        (items, meta) => {
+          if (gen !== newsGenRef.current) return;
+          setNewsRows(items);
+          newsCacheRef.current = { symbol, rows: items };
+          if (meta.phase === 'first') {
+            setNewsLoading(false);
+            if (!meta.done) setNewsLoadingMore(true);
+          }
+          if (meta.done) setNewsLoadingMore(false);
+        },
+      );
+    } catch {
+      if (gen === newsGenRef.current) {
+        setNewsRows([]);
+        setNewsLoading(false);
+        setNewsLoadingMore(false);
+      }
+    } finally {
+      if (gen === newsGenRef.current) newsInFlightRef.current = false;
+    }
+  }, [symbol]);
+
+  // Prefetch news in the background shortly after opening the screen, so it's
+  // ready (or well underway) by the time the user actually taps the tab —
+  // instead of only starting the two network round-trips on tap.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void loadNewsTab();
+    }, 400);
+    return () => clearTimeout(t);
+  }, [loadNewsTab]);
+
   const loadTab = useCallback(async () => {
-    switch (tab) {
-      case 'history':
-        setHistory(await loadPriceHistory(symbol, 1, 80));
-        break;
-      case 'floorsheet': {
-        const res = await loadFloorsheet(1, FS_PAGE_SIZE, {
-          symbol,
-          buyerMemberId: fsBuyer || undefined,
-          sellerMemberId: fsSeller || undefined,
-          businessDate: fsDate || undefined,
-        });
-        setFloorsheet(res.rows);
-        setFsPage(1);
-        setFsHasNext(res.hasNext);
-        setFsTotalItems(res.totalItems);
-        break;
+    if (tab === 'info' || tab === 'news-overview') return;
+    setTabLoading(true);
+    try {
+      switch (tab) {
+        case 'history':
+          setHistory(await loadPriceHistory(symbol, 1, 80));
+          break;
+        case 'floorsheet': {
+          const res = await loadFloorsheet(1, FS_PAGE_SIZE, {
+            symbol,
+            buyerMemberId: fsBuyer || undefined,
+            sellerMemberId: fsSeller || undefined,
+            businessDate: fsDate || undefined,
+          });
+          setFloorsheet(res.rows);
+          setFsPage(1);
+          setFsHasNext(res.hasNext);
+          setFsTotalItems(res.totalItems);
+          break;
+        }
+        case 'financial': {
+          const [reps, fund] = await Promise.all([
+            loadFinancialReports(symbol),
+            loadFundamentals(symbol),
+          ]);
+          setReports(reps);
+          setFundamentals(fund);
+          break;
+        }
+        case 'dividends':
+          setDividends(await loadProposedDividends(1, 50, symbol));
+          break;
+        case 'announcements':
+          setAnnouncements(await loadAnnouncements(1, 50, symbol));
+          break;
+        default:
+          break;
       }
-      case 'financial': {
-        const [reps, fund] = await Promise.all([
-          loadFinancialReports(symbol),
-          loadFundamentals(symbol),
-        ]);
-        setReports(reps);
-        setFundamentals(fund);
-        break;
-      }
-      case 'dividends':
-        setDividends(await loadProposedDividends(1, 50, symbol));
-        break;
-      case 'announcements':
-        setAnnouncements(await loadAnnouncements(1, 50, symbol));
-        break;
-      default:
-        break;
+    } finally {
+      setTabLoading(false);
     }
   }, [tab, symbol, fsBuyer, fsSeller, fsDate]);
 
   useEffect(() => {
+    if (tab === 'news-overview') {
+      void loadNewsTab();
+      return;
+    }
     if (tab !== 'info') void loadTab();
-  }, [loadTab, tab]);
+  }, [loadTab, loadNewsTab, tab]);
+
+  const scrollTabBarToIndex = useCallback((index: number, animated = false) => {
+    const layout = tabLayoutsRef.current[index];
+    if (!layout || !tabsScrollRef.current) return;
+    tabsScrollRef.current.scrollTo({
+      x: Math.max(0, layout.x - rs(12)),
+      animated,
+    });
+  }, []);
+
+  const primeNewsLoading = useCallback(() => {
+    const cached = newsCacheRef.current;
+    if (cached?.symbol === symbol && cached.rows.length > 0) {
+      setNewsRows(cached.rows);
+      setNewsLoading(false);
+      setNewsLoadingMore(false);
+      return;
+    }
+    // A background prefetch may already be streaming results in — don't
+    // reset its progress back to a blank spinner.
+    if (newsInFlightRef.current) return;
+    setNewsRows([]);
+    setNewsLoading(true);
+    setNewsLoadingMore(false);
+  }, [symbol]);
+
+  const setActiveTabIndex = useCallback(
+    (index: number, scrollTabBar = true) => {
+      if (index < 0 || index >= TABS.length) return;
+      if (index === tabIndexRef.current) return;
+      tabIndexRef.current = index;
+      setTabIndex(index);
+      if (TABS[index]?.id === 'news-overview') primeNewsLoading();
+      if (scrollTabBar) scrollTabBarToIndex(index, false);
+    },
+    [scrollTabBarToIndex, primeNewsLoading],
+  );
+
+  const onTabPress = (index: number) => {
+    if (index < 0 || index >= TABS.length) return;
+    const nextTab = TABS[index]?.id;
+    tabIndexRef.current = index;
+    setTabIndex(index);
+    if (nextTab === 'news-overview') {
+      primeNewsLoading();
+    } else if (nextTab !== 'info') {
+      setTabLoading(true);
+    }
+    scrollTabBarToIndex(index, false);
+    pagerRef.current?.scrollTo({ x: index * pageWidth, animated: false });
+  };
+
+  const pagerIndexFromOffset = (offsetX: number) => {
+    if (pageWidth <= 0) return 0;
+    const progress = offsetX / pageWidth;
+    return Math.min(
+      TABS.length - 1,
+      Math.max(0, Math.floor(progress + 0.2)),
+    );
+  };
+
+  const onPagerScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const index = pagerIndexFromOffset(offsetX);
+    setActiveTabIndex(index);
+  };
+
+  const onPagerMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const index = pagerIndexFromOffset(event.nativeEvent.contentOffset.x);
+    setActiveTabIndex(index);
+  };
+
+  const openNews = async (item: ShareNewsItem) => {
+    const url = (item.url || '').trim();
+    const fallback =
+      NEWS_SOURCES.find((s) => s.id === item.sourceId)?.homeUrl ?? '';
+    const target = url || fallback;
+    if (!target) return;
+    try {
+      await Linking.openURL(target);
+    } catch {
+      if (fallback && fallback !== target) {
+        void Linking.openURL(fallback);
+      }
+    }
+  };
 
   const pollRefresh = useCallback(
     async (silent?: boolean) => {
       await loadCore(Boolean(silent));
       await loadChart(chartRange, true);
-      if (tab !== 'info') await loadTab();
+      if (tab !== 'info' && tab !== 'news-overview') await loadTab();
     },
     [loadCore, loadChart, chartRange, loadTab, tab],
   );
@@ -398,6 +585,7 @@ export function StockDetailScreen() {
                 height={rs(290)}
                 showAxes
                 interactive
+                backgroundColor={chartBg}
                 onInteractionChange={setChartScrubbing}
               />
             )}
@@ -530,7 +718,15 @@ export function StockDetailScreen() {
             </View>
           );
         }}
-        ListEmptyComponent={<Text style={styles.empty}>No price history.</Text>}
+        ListEmptyComponent={
+          tabLoading ? (
+            <View style={styles.tabLoading}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : (
+            <Text style={styles.empty}>No price history.</Text>
+          )
+        }
       />
     </View>
   );
@@ -623,7 +819,13 @@ export function StockDetailScreen() {
         contentContainerStyle={styles.fsDataBody}
         nestedScrollEnabled
         ListEmptyComponent={
-          <Text style={styles.empty}>No floor sheet data.</Text>
+          tabLoading ? (
+            <View style={styles.tabLoading}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : (
+            <Text style={styles.empty}>No floor sheet data.</Text>
+          )
         }
         renderItem={({ item, index }) => (
           <View style={styles.fsRow}>
@@ -766,7 +968,13 @@ export function StockDetailScreen() {
         </View>
       )}
       ListEmptyComponent={
-        <Text style={styles.empty}>No financial reports found.</Text>
+        tabLoading ? (
+          <View style={styles.tabLoading}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : (
+          <Text style={styles.empty}>No financial reports found.</Text>
+        )
       }
     />
   );
@@ -800,7 +1008,15 @@ export function StockDetailScreen() {
           <Text style={styles.fiscal}>Fiscal Year : {item.fiscalYear}</Text>
         </View>
       )}
-      ListEmptyComponent={<Text style={styles.empty}>No dividends.</Text>}
+      ListEmptyComponent={
+        tabLoading ? (
+          <View style={styles.tabLoading}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : (
+          <Text style={styles.empty}>No dividends.</Text>
+        )
+      }
     />
   );
 
@@ -837,8 +1053,159 @@ export function StockDetailScreen() {
           </View>
         </View>
       )}
-      ListEmptyComponent={<Text style={styles.empty}>No announcements.</Text>}
+      ListEmptyComponent={
+        tabLoading ? (
+          <View style={styles.tabLoading}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : (
+          <Text style={styles.empty}>No announcements.</Text>
+        )
+      }
     />
+  );
+
+  const renderNewsOverview = () => {
+    if (newsLoading && newsRows.length === 0) {
+      return (
+        <View style={styles.newsLoadingWrap}>
+          <ActivityIndicator color={colors.primary} size="large" />
+          <Text style={styles.newsLoadingText}>Loading news…</Text>
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={newsRows}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.tabBody}
+        renderItem={({ item }) => (
+          <Pressable style={styles.newsCard} onPress={() => void openNews(item)}>
+            {item.imageUrl ? (
+              <Image
+                source={{ uri: item.imageUrl }}
+                style={styles.newsThumb}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={[styles.newsThumb, styles.newsThumbFallback]}>
+                <Ionicons
+                  name="image-outline"
+                  size={rs(20)}
+                  color={colors.textMuted}
+                />
+              </View>
+            )}
+            <View style={styles.newsBody}>
+              <Text style={styles.newsTitle} numberOfLines={3}>
+                {item.title}
+              </Text>
+              <View style={styles.newsMeta}>
+                <View style={styles.newsTag}>
+                  <Ionicons name="pricetag" size={rs(11)} color={colors.primary} />
+                  <Text style={styles.newsTagText}>Stock Market Analysis</Text>
+                </View>
+                <View style={styles.newsTimeRow}>
+                  <Ionicons
+                    name="time-outline"
+                    size={rs(11)}
+                    color={colors.textMuted}
+                  />
+                  <Text style={styles.newsTime}>
+                    {formatRelativeNewsTime(item.publishedAt)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </Pressable>
+        )}
+        ItemSeparatorComponent={() => <View style={styles.newsSep} />}
+        ListEmptyComponent={
+          newsLoading ? (
+            <View style={styles.tabLoading}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : (
+            <Text style={styles.empty}>No news found for {symbol}.</Text>
+          )
+        }
+        ListFooterComponent={
+          newsLoadingMore ? (
+            <View style={styles.newsMore}>
+              <ActivityIndicator color={colors.primary} size="small" />
+            </View>
+          ) : null
+        }
+      />
+    );
+  };
+
+  // Tab pages are memoized so switching tabs (which only changes tabIndex)
+  // doesn't force every page — charts, tables, lists — to re-render on the
+  // JS thread. That recompute was the source of the multi-second lag when
+  // tapping a tab or swiping the pager.
+  const infoPage = useMemo(
+    () => renderInfo(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      stock,
+      chartPoints,
+      chartLoading,
+      chartRange,
+      chartScrubbing,
+      up,
+      accent,
+      av,
+      symbol,
+      colors,
+      isDark,
+      styles,
+    ],
+  );
+  const historyPage = useMemo(
+    () => renderHistory(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [history, tabLoading, symbol, colors, styles],
+  );
+  const floorsheetPage = useMemo(
+    () => renderFloorsheet(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      floorsheet,
+      fsPage,
+      fsHasNext,
+      fsTotalItems,
+      fsBuyer,
+      fsSeller,
+      fsDate,
+      fsPageCount,
+      fsSummary,
+      tabLoading,
+      symbol,
+      colors,
+      styles,
+    ],
+  );
+  const financialPage = useMemo(
+    () => renderFinancial(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [reports, stock?.name, tabLoading, symbol, colors, styles],
+  );
+  const dividendsPage = useMemo(
+    () => renderDividends(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dividends, tabLoading, symbol, colors, styles],
+  );
+  const announcementsPage = useMemo(
+    () => renderAnnouncements(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [announcements, tabLoading, symbol, colors, styles],
+  );
+  const newsPage = useMemo(
+    () => renderNewsOverview(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [newsRows, newsLoading, newsLoadingMore, symbol, colors, styles],
   );
 
   return (
@@ -858,18 +1225,30 @@ export function StockDetailScreen() {
       </View>
 
       <ScrollView
+        ref={tabsScrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.tabsScroll}
         contentContainerStyle={styles.tabs}
       >
-        {TABS.map((t) => (
+        {TABS.map((t, index) => (
           <Pressable
             key={t.id}
-            style={[styles.tabBtn, tab === t.id && styles.tabBtnActive]}
-            onPress={() => setTab(t.id)}
+            onLayout={(e) => {
+              tabLayoutsRef.current[index] = {
+                x: e.nativeEvent.layout.x,
+                width: e.nativeEvent.layout.width,
+              };
+            }}
+            style={[styles.tabBtn, tabIndex === index && styles.tabBtnActive]}
+            onPress={() => onTabPress(index)}
           >
-            <Text style={[styles.tabText, tab === t.id && styles.tabTextActive]}>
+            <Text
+              style={[
+                styles.tabText,
+                tabIndex === index && styles.tabTextActive,
+              ]}
+            >
               {t.label}
             </Text>
           </Pressable>
@@ -881,14 +1260,27 @@ export function StockDetailScreen() {
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : (
-        <View style={{ flex: 1 }}>
-          {tab === 'info' && renderInfo()}
-          {tab === 'history' && renderHistory()}
-          {tab === 'floorsheet' && renderFloorsheet()}
-          {tab === 'financial' && renderFinancial()}
-          {tab === 'dividends' && renderDividends()}
-          {tab === 'announcements' && renderAnnouncements()}
-        </View>
+        <ScrollView
+          ref={pagerRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          scrollEventThrottle={16}
+          directionalLockEnabled
+          decelerationRate="fast"
+          disableIntervalMomentum
+          onScroll={onPagerScroll}
+          onMomentumScrollEnd={onPagerMomentumEnd}
+          style={styles.pager}
+        >
+          <View style={{ width: pageWidth, flex: 1 }}>{infoPage}</View>
+          <View style={{ width: pageWidth, flex: 1 }}>{historyPage}</View>
+          <View style={{ width: pageWidth, flex: 1 }}>{floorsheetPage}</View>
+          <View style={{ width: pageWidth, flex: 1 }}>{financialPage}</View>
+          <View style={{ width: pageWidth, flex: 1 }}>{dividendsPage}</View>
+          <View style={{ width: pageWidth, flex: 1 }}>{announcementsPage}</View>
+          <View style={{ width: pageWidth, flex: 1 }}>{newsPage}</View>
+        </ScrollView>
       )}
     </View>
   );
@@ -948,7 +1340,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     tabText: { color: c.textSecondary, fontSize: rs(12), fontWeight: '600' },
     tabTextActive: { color: c.text, fontWeight: '800' },
     tabBody: { padding: rs(14), paddingBottom: rs(36), gap: rs(12) },
+    pager: { flex: 1 },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    tabLoading: { padding: rs(30), alignItems: 'center' },
     empty: { color: c.textMuted, textAlign: 'center', padding: rs(30) },
 
     card: {
@@ -1059,13 +1453,14 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderWidth: 1,
       borderColor: c.borderMuted,
       overflow: 'hidden',
-      backgroundColor: isDark ? c.bg : '#FFFFFF',
+      backgroundColor: cardBg,
       minHeight: rs(290),
     },
     chartLoading: {
       height: rs(290),
       alignItems: 'center',
       justifyContent: 'center',
+      backgroundColor: cardBg,
     },
 
     advancedBtn: {
@@ -1493,5 +1888,71 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     annDateRow: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
     annDate: { color: c.textMuted, fontSize: rs(11), fontWeight: '600' },
+    newsCard: {
+      flexDirection: 'row',
+      gap: rs(12),
+      backgroundColor: isDark ? c.surface : '#FFFFFF',
+      borderRadius: rs(14),
+      padding: rs(12),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+    },
+    newsThumb: {
+      width: rs(72),
+      height: rs(72),
+      borderRadius: rs(10),
+      backgroundColor: chipBg,
+    },
+    newsThumbFallback: {
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    newsBody: { flex: 1, gap: rs(8) },
+    newsTitle: {
+      color: c.text,
+      fontSize: rs(13),
+      fontWeight: '700',
+      lineHeight: rs(18),
+    },
+    newsMeta: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: rs(8),
+    },
+    newsTag: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(4),
+      backgroundColor: chipBg,
+      paddingHorizontal: rs(8),
+      paddingVertical: rs(4),
+      borderRadius: rs(12),
+    },
+    newsTagText: {
+      color: c.primary,
+      fontSize: rs(10),
+      fontWeight: '600',
+    },
+    newsTimeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(4),
+    },
+    newsTime: { color: c.textMuted, fontSize: rs(10), fontWeight: '500' },
+    newsSep: { height: rs(10) },
+    newsMore: { paddingVertical: rs(16), alignItems: 'center' },
+    newsLoadingWrap: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: rs(48),
+      gap: rs(12),
+    },
+    newsLoadingText: {
+      color: c.textMuted,
+      fontSize: rs(13),
+      fontWeight: '600',
+    },
   });
 }

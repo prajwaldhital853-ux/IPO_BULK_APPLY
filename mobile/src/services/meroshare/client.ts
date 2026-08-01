@@ -1509,6 +1509,20 @@ function normalizePortfolioRow(
 
 function normalizeIssue(row: Record<string, unknown>): OpenIssue {
   const companyShareId = Number(row.companyShareId ?? row.id ?? 0);
+  const readDate = (keys: string[]): string | undefined => {
+    for (const key of keys) {
+      const v = row[key];
+      if (v == null || v === '') continue;
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        const ms = v > 1e12 ? v : v * 1000;
+        const d = new Date(ms);
+        if (!Number.isNaN(d.getTime())) return d.toISOString();
+      }
+      const s = String(v).trim();
+      if (s) return s;
+    }
+    return undefined;
+  };
   return {
     id: companyShareId,
     companyShareId,
@@ -1516,8 +1530,28 @@ function normalizeIssue(row: Record<string, unknown>): OpenIssue {
     scrip: String(row.scrip ?? row.companyCode ?? ''),
     shareTypeName: String(row.shareTypeName ?? row.shareType ?? 'IPO'),
     shareGroupName: row.shareGroupName ? String(row.shareGroupName) : undefined,
-    issueOpenDate: row.issueOpenDate ? String(row.issueOpenDate) : undefined,
-    issueCloseDate: row.issueCloseDate ? String(row.issueCloseDate) : undefined,
+    issueOpenDate: readDate([
+      'issueOpenDate',
+      'openingDate',
+      'openDate',
+      'applicationOpenDate',
+      'issueStartDate',
+      'startDate',
+    ]),
+    issueCloseDate: readDate([
+      'issueCloseDate',
+      'closingDate',
+      'closeDate',
+      'applicationCloseDate',
+      'issueEndDate',
+      'endDate',
+      'applicationClosingDate',
+      'extendedClosingDate',
+      'issueCloseDateNep',
+      'closeDateNep',
+      'applicationCloseDateNep',
+      'closingDateNep',
+    ]),
     maxUnit: row.maxUnit != null ? Number(row.maxUnit) : undefined,
     // Do not invent 10: debentures/FPOs can require 25, 50, 80, etc.
     minUnit: row.minUnit != null ? Number(row.minUnit) : undefined,

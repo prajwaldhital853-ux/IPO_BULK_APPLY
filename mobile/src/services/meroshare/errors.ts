@@ -29,6 +29,17 @@ export function isTransientMeroshareError(error: unknown): boolean {
   return false;
 }
 
+/** Strip HTTP status noise from user-facing MeroShare error text. */
+export function sanitizeMeroshareMessage(message: string): string {
+  let m = String(message ?? '').trim();
+  if (!m) return m;
+  m = m.replace(/\s*\(HTTP\s+\d{3}(?:\s*·\s*[^)]+)?\)/gi, '');
+  m = m.replace(/\s*\(HTTP\s+\d{3}\)/gi, '');
+  m = m.replace(/\s*HTTP\s+\d{3}(?:\s+from\s+\S+)?\s*$/gi, '');
+  m = m.replace(/^HTTP\s+\d{3}(?:\s+from\s+\S+)?[:\s-]*/i, '');
+  return m.trim().replace(/\s{2,}/g, ' ');
+}
+
 export async function withMeroshareRetries<T>(
   run: () => Promise<T>,
   opts: { attempts?: number; label?: string } = {},

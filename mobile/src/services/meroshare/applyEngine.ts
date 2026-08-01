@@ -7,6 +7,7 @@ import {
   isTransientMeroshareError,
   isTransientMeroshareMessage,
   MeroshareError,
+  sanitizeMeroshareMessage,
 } from './errors';
 import type {
   ApplyAccountResult,
@@ -31,10 +32,10 @@ function formatApplyError(msg: string): string {
       m,
     )
   ) {
-    return `Wrong transaction PIN — ${msg}`;
+    return `Wrong transaction PIN — ${sanitizeMeroshareMessage(msg)}`;
   }
   if (/crn/i.test(m)) {
-    return `Wrong CRN — ${msg}`;
+    return `Wrong CRN — ${sanitizeMeroshareMessage(msg)}`;
   }
   if (isTransientMeroshareMessage(msg)) {
     return 'MeroShare is busy right now. Retry this account in a moment.';
@@ -42,7 +43,7 @@ function formatApplyError(msg: string): string {
   if (/insufficient|not enough|low balance|block[_\s-]?fail/i.test(msg)) {
     return 'Rejected — you have insufficient amount in your bank account';
   }
-  return msg;
+  return sanitizeMeroshareMessage(msg);
 }
 
 export type BulkApplyOptions = {
@@ -147,7 +148,7 @@ export async function runBulkApply(
           username: account.username,
           ok: applyRes.ok,
           dryRun: applyRes.dryRun,
-          message: applyRes.message,
+          message: sanitizeMeroshareMessage(applyRes.message),
           companyName: opts.issue.companyName,
           kitta: opts.kitta,
         },
@@ -204,7 +205,7 @@ export async function runBulkApply(
               username: account.username,
               ok: applyRes.ok,
               dryRun: applyRes.dryRun,
-              message: applyRes.message,
+              message: sanitizeMeroshareMessage(applyRes.message),
               companyName: opts.issue.companyName,
               kitta: opts.kitta,
             },

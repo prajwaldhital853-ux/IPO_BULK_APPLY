@@ -113,7 +113,7 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
     (insets.bottom > 0 ? insets.bottom : Platform.OS === 'android' ? rs(48) : 0) +
     (Platform.OS === 'android' ? rs(4) : 0);
 
-  const barBg = isDark ? '#252724' : '#FFFFFF';
+  const barBg = isDark ? '#252724' : colors.bgElevated;
 
   return (
     <View

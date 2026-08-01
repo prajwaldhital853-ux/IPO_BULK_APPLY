@@ -13,6 +13,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SwipeTabGesture } from '../../components/SwipeTabGesture';
 import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
 import { rs } from '../../utils/responsive';
@@ -288,6 +289,15 @@ export function CalculatorScreen() {
     outputRange: ['0deg', '360deg'],
   });
 
+  const switchTab = (id: TabId) => {
+    setTab(id);
+    setShowResult(false);
+    setCalculating(false);
+    spinLoop.current?.stop();
+  };
+
+  const tabIndex = Math.max(0, TABS.findIndex((t) => t.id === tab));
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -309,12 +319,7 @@ export function CalculatorScreen() {
           return (
             <Pressable
               key={t.id}
-              onPress={() => {
-                setTab(t.id);
-                setShowResult(false);
-                setCalculating(false);
-                spinLoop.current?.stop();
-              }}
+              onPress={() => switchTab(t.id)}
               style={styles.tabBtn}
             >
               <Text style={[styles.tabText, active && styles.tabTextActive]}>
@@ -326,6 +331,14 @@ export function CalculatorScreen() {
         })}
       </ScrollView>
 
+      <SwipeTabGesture
+        index={tabIndex}
+        count={TABS.length}
+        onIndexChange={(i) => {
+          const next = TABS[i];
+          if (next) switchTab(next.id);
+        }}
+      >
       <ScrollView
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
@@ -608,6 +621,7 @@ export function CalculatorScreen() {
           </Animated.View>
         ) : null}
       </ScrollView>
+      </SwipeTabGesture>
     </View>
   );
 }

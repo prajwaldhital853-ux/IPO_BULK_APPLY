@@ -102,6 +102,43 @@ function parseAsOf(html: string): string | null {
   return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
+/**
+ * Lightweight floorsheet probe (page 1 only) — used to detect when Merolagani
+ * published a new session so Acc/Dis day-cache can invalidate.
+ */
+export async function probeMerolaganiFloorSession(): Promise<{
+  sessionDate: string | null;
+  /** Max contract id on page 1 — bumps when the sheet is republished/updated. */
+  maxContractId: number;
+  sampleRows: number;
+} | null> {
+  try {
+    const res = await fetch(MERO_FLOOR, {
+      headers: {
+        Accept: 'text/html',
+        'User-Agent':
+          'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+        'Cache-Control': 'no-cache',
+      },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const asOf = parseAsOf(html);
+    const rows = parseMerolaganiRows(html);
+    let maxContractId = 0;
+    for (const r of rows) {
+      if (r.contractId > maxContractId) maxContractId = r.contractId;
+    }
+    return {
+      sessionDate: sessionDateFromRows(rows, asOf),
+      maxContractId,
+      sampleRows: rows.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Contract IDs are YYYYMMDD… — more reliable than the "As of" label when it lags. */
 export function dateFromContractId(contractId: number): string | null {
   const s = String(contractId);

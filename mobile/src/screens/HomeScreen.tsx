@@ -21,6 +21,7 @@ import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { AppHeader } from '../components/AppHeader';
 import { HomeMarketPanel } from '../components/home/HomeMarketPanel';
 import { HOME_CARD_GAP, HOME_H_PAD } from '../components/home/homeLayout';
+import { SwipeTabGesture } from '../components/SwipeTabGesture';
 import { isMockAccountId } from '../data/mockAccounts';
 import { useAccounts } from '../context/AccountsContext';
 import { useAppBranding } from '../context/AppBrandingContext';
@@ -36,13 +37,14 @@ import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 import type { AccountMeta } from '../types/account';
 
-/** Classic home account row — index, name + tick, username, drag handle. */
+/** Home account row — green rail, avatar, status badge, menu + chevron. */
 function AccountCard({
   item,
   index,
   isActive,
   searching,
   onOpen,
+  onMenu,
   onDrag,
   styles,
   colors,
@@ -52,52 +54,83 @@ function AccountCard({
   isActive: boolean;
   searching: boolean;
   onOpen: () => void;
-  onDrag: () => void;
+  onMenu: () => void;
+  onDrag?: () => void;
   styles: ReturnType<typeof makeStyles>;
   colors: ThemeColors;
 }) {
   const verified = item.verified !== false;
+  const indexLabel = String(index + 1).padStart(2, '0');
+  const canDrag = !searching && Boolean(onDrag);
 
   return (
     <ScaleDecorator>
       <Pressable
         style={[styles.card, isActive && styles.cardActive]}
         onPress={onOpen}
+        onLongPress={canDrag ? onDrag : undefined}
+        delayLongPress={160}
         disabled={isActive}
       >
-        <View style={styles.indexBadge}>
-          <Text style={styles.indexText}>{index + 1}</Text>
-        </View>
-        <View style={styles.cardBody}>
-          <View style={styles.nameRow}>
-            <Text style={styles.name} numberOfLines={1}>
-              {item.name.toUpperCase()}
-            </Text>
-            {verified ? (
-              <Ionicons
-                name="checkmark-circle"
-                size={rs(16)}
-                color={colors.accentGreen}
-              />
-            ) : null}
+        <View style={styles.cardLeft}>
+          <View style={styles.leftRail}>
+            <Text style={styles.railIndex}>{indexLabel}</Text>
           </View>
+          <View style={styles.avatarRing}>
+            <Ionicons name="person" size={rs(18)} color={colors.textMuted} />
+          </View>
+        </View>
+
+        <View style={styles.cardBody}>
+          <Text style={styles.name} numberOfLines={1}>
+            {item.name.toUpperCase()}
+          </Text>
           <Text style={styles.username} numberOfLines={1}>
             Username : {item.username}
           </Text>
+          <View style={styles.statusBadge}>
+            <View
+              style={[
+                styles.statusDot,
+                !verified && styles.statusDotInactive,
+              ]}
+            />
+            <Text
+              style={[
+                styles.statusText,
+                !verified && styles.statusTextInactive,
+              ]}
+            >
+              {verified ? 'Active' : 'Inactive'}
+            </Text>
+          </View>
         </View>
-        <Pressable
-          onLongPress={searching ? undefined : onDrag}
-          delayLongPress={120}
-          hitSlop={10}
-          style={styles.menuBtn}
-          disabled={searching}
-        >
-          <Ionicons
-            name="menu"
-            size={rs(22)}
-            color={searching ? colors.textDim : colors.text}
-          />
-        </Pressable>
+
+        <View style={styles.cardActions} pointerEvents="box-none">
+          <Pressable
+            onPress={onMenu}
+            hitSlop={8}
+            style={styles.menuBtn}
+            disabled={searching}
+          >
+            <Ionicons
+              name="ellipsis-vertical"
+              size={rs(16)}
+              color={searching ? colors.textDim : colors.textMuted}
+            />
+          </Pressable>
+          <Pressable
+            onPress={onOpen}
+            style={styles.chevronBtn}
+            hitSlop={6}
+          >
+            <Ionicons
+              name="chevron-forward"
+              size={rs(14)}
+              color={colors.primary}
+            />
+          </Pressable>
+        </View>
       </Pressable>
     </ScaleDecorator>
   );
@@ -118,8 +151,8 @@ export function HomeScreen() {
   } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
   const { refresh: refreshBranding } = useAppBranding();
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const goAddCapital = useCallback(() => {
     if (
@@ -292,6 +325,47 @@ export function HomeScreen() {
     })();
   }, [loadSecrets]);
 
+  const openMeroshare = useCallback(
+    (item: AccountMeta) => {
+      navigation.navigate('MeroshareWeb', {
+        accountId: item.id,
+        destination: 'dashboard',
+      });
+    },
+    [navigation],
+  );
+
+  const showAccountMenu = useCallback(
+    (item: AccountMeta, index: number, drag?: () => void) => {
+      const reorder = searching
+        ? []
+        : [
+            {
+              text: 'Move / reorder',
+              onPress: () => drag?.(),
+            },
+          ];
+
+      Alert.alert(item.name, 'Choose an action', [
+        { text: 'View details', onPress: () => openSheet(item, index) },
+        { text: 'Open MeroShare', onPress: () => openMeroshare(item) },
+        {
+          text: 'Edit account',
+          onPress: () =>
+            navigation.navigate('EditAccount', { accountId: item.id }),
+        },
+        ...reorder,
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => confirmDelete(item),
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    },
+    [confirmDelete, navigation, openMeroshare, openSheet, searching],
+  );
+
   const onDragEnd = useCallback(
     ({ data }: { data: AccountMeta[] }) => {
       if (searching) return;
@@ -310,13 +384,14 @@ export function HomeScreen() {
           isActive={isActive}
           searching={searching}
           onOpen={() => openSheet(item, index)}
+          onMenu={() => showAccountMenu(item, index, drag)}
           onDrag={drag}
           styles={styles}
           colors={colors}
         />
       );
     },
-    [colors, openSheet, searching, styles],
+    [colors, openSheet, searching, showAccountMenu, styles],
   );
 
   return (
@@ -347,6 +422,11 @@ export function HomeScreen() {
         </Pressable>
       </View>
 
+      <SwipeTabGesture
+        index={tab === 'Accounts' ? 0 : 1}
+        count={2}
+        onIndexChange={(i) => setTab(i === 0 ? 'Accounts' : 'Market')}
+      >
       {tab === 'Market' ? (
         <HomeMarketPanel active={tab === 'Market'} />
       ) : (
@@ -422,7 +502,7 @@ export function HomeScreen() {
                 onPress={() =>
                   Alert.alert(
                     'Accounts',
-                    'Tap a card to open details. Long-press the menu handle on the right to drag and reorder. Use + to add a MeroShare account.',
+                    'Tap a card or › to open details. Tap ⋮ for more actions (edit, MeroShare, reorder). Use + to add a MeroShare account.',
                   )
                 }
                 hitSlop={6}
@@ -441,7 +521,14 @@ export function HomeScreen() {
             data={filteredAccounts}
             keyExtractor={(item) => item.id}
             onDragEnd={onDragEnd}
-            activationDistance={searching ? 9999 : 10}
+            activationDistance={searching ? 9999 : 6}
+            autoscrollThreshold={80}
+            autoscrollSpeed={120}
+            animationConfig={{
+              damping: 22,
+              stiffness: 200,
+              mass: 0.35,
+            }}
             style={styles.listFlex}
             containerStyle={styles.listFlex}
             showsVerticalScrollIndicator
@@ -497,11 +584,16 @@ export function HomeScreen() {
           />
         </>
       )}
+      </SwipeTabGesture>
     </GestureHandlerRootView>
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
+  const cardBg = isDark ? c.surface : '#FFFFFF';
+  const avatarBg = isDark ? c.surfaceAlt : '#FFFFFF';
+  const railGreen = c.promoBanner;
+
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
     tabs: {
@@ -597,46 +689,132 @@ function makeStyles(c: ThemeColors) {
     card: {
       flexDirection: 'row',
       alignItems: 'center',
-      borderWidth: 1,
-      borderColor: c.border,
-      borderRadius: rs(12),
-      padding: rs(12),
+      position: 'relative',
+      borderRadius: rs(10),
       marginBottom: HOME_CARD_GAP,
-      backgroundColor: c.surface,
-      gap: rs(12),
+      backgroundColor: cardBg,
+      minHeight: rs(64),
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? c.borderMuted : '#E8ECE6',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: rs(1) },
+      shadowOpacity: isDark ? 0.22 : 0.06,
+      shadowRadius: rs(4),
+      elevation: 2,
     },
     cardActive: {
-      opacity: 0.92,
+      opacity: 0.94,
       borderColor: c.primary,
     },
-    indexBadge: {
-      width: rs(28),
-      height: rs(28),
-      borderRadius: rs(8),
-      backgroundColor: c.surfaceAlt,
+    cardLeft: {
+      width: rs(46),
+      height: rs(64),
+      position: 'relative',
+      flexShrink: 0,
+    },
+    leftRail: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: rs(34),
+      backgroundColor: railGreen,
+      borderTopLeftRadius: rs(10),
+      borderBottomLeftRadius: rs(10),
+      paddingTop: rs(8),
+      paddingLeft: rs(8),
+    },
+    railIndex: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+      fontSize: rs(11),
+      letterSpacing: 0.2,
+    },
+    avatarRing: {
+      position: 'absolute',
+      left: rs(20),
+      top: rs(14),
+      width: rs(36),
+      height: rs(36),
+      borderRadius: rs(18),
+      backgroundColor: avatarBg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: avatarBg,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: rs(1) },
+      shadowOpacity: 0.1,
+      shadowRadius: rs(3),
+      elevation: 3,
+      zIndex: 2,
+    },
+    cardBody: {
+      flex: 1,
+      minWidth: 0,
+      paddingLeft: rs(10),
+      paddingVertical: rs(8),
+      paddingRight: rs(40),
+    },
+    name: {
+      color: c.text,
+      fontWeight: '800',
+      fontSize: rs(13),
+      letterSpacing: 0.15,
+    },
+    username: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      marginTop: rs(1),
+    },
+    statusBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: rs(4),
+      marginTop: rs(4),
+      paddingHorizontal: rs(8),
+      paddingVertical: rs(2),
+      borderRadius: rs(10),
+      backgroundColor: c.primarySoft,
+    },
+    statusDot: {
+      width: rs(6),
+      height: rs(6),
+      borderRadius: rs(3),
+      backgroundColor: c.primary,
+    },
+    statusDotInactive: {
+      backgroundColor: c.textMuted,
+    },
+    statusText: {
+      color: c.primary,
+      fontSize: rs(10),
+      fontWeight: '700',
+    },
+    statusTextInactive: {
+      color: c.textMuted,
+    },
+    cardActions: {
+      position: 'absolute',
+      right: rs(8),
+      top: rs(6),
+      bottom: rs(6),
+      width: rs(32),
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      zIndex: 2,
+    },
+    menuBtn: {
+      padding: rs(2),
       alignItems: 'center',
       justifyContent: 'center',
     },
-    indexText: { color: c.text, fontWeight: '700', fontSize: rs(13) },
-    cardBody: { flex: 1, minWidth: 0 },
-    nameRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(6),
-    },
-    name: {
-      flexShrink: 1,
-      color: c.text,
-      fontWeight: '700',
-      fontSize: rs(14),
-    },
-    username: {
-      color: c.textSecondary,
-      fontSize: rs(12),
-      marginTop: rs(2),
-    },
-    menuBtn: {
-      padding: rs(4),
+    chevronBtn: {
+      width: rs(24),
+      height: rs(24),
+      borderRadius: rs(6),
+      backgroundColor: c.primarySoft,
       alignItems: 'center',
       justifyContent: 'center',
     },

@@ -27,6 +27,7 @@ import { fmtMcap, fmtNum } from '../../services/nepse/screener';
 import { rs } from '../../utils/responsive';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
+import { PriceDroppersScreen } from './PriceDroppersScreen';
 
 function fmtAsOf(iso: string): string {
   const d = new Date(iso);
@@ -61,6 +62,16 @@ function accentForKind(kind: PremiumScreenerKind, colors: ThemeColors): string {
 export function PremiumScreenerScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'PremiumScreener'>>();
   const kind = route.params.kind;
+
+  // Dedicated wide table UI (sticky SYM + H/V scroll) like Acc/Dis.
+  if (kind === 'price-droppers') {
+    return <PriceDroppersScreen />;
+  }
+
+  return <PremiumScreenerBody kind={kind} />;
+}
+
+function PremiumScreenerBody({ kind }: { kind: PremiumScreenerKind }) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();

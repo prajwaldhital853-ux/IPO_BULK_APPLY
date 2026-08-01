@@ -34,7 +34,9 @@ import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 
-const ACCENT = '#1B5E20';
+const ACCENT = '#2D5A27';
+const HEADER_BG = '#E8F0E6';
+const BODY_BG = '#F6F8F2';
 /** Pure status colors — high contrast on light (and dark) backgrounds */
 const GREEN = '#2E7D32';
 const RED = '#C62828';
@@ -345,7 +347,13 @@ export function IpoBulkStatusScreen() {
             // Render each account as soon as it resolves so the user sees
             // 1, 2, 3… appear instead of staring at a blank screen.
             onAccountResult: (row, index, total) => {
-              setResults((prev) => [...prev, row]);
+              setResults((prev) => {
+                const i = prev.findIndex((r) => r.accountId === row.accountId);
+                if (i < 0) return [...prev, row];
+                const next = prev.slice();
+                next[i] = row;
+                return next;
+              });
               setProgress({ done: index + 1, total });
             },
           });
@@ -434,7 +442,7 @@ export function IpoBulkStatusScreen() {
           <Ionicons
             name="information-circle-outline"
             size={rs(22)}
-            color={colors.text}
+            color={isDark ? colors.text : ACCENT}
           />
         </Pressable>
       </View>
@@ -444,19 +452,25 @@ export function IpoBulkStatusScreen() {
           style={styles.dropdown}
           onPress={() => setCheckPickerOpen(true)}
         >
-          <Text style={styles.dropdownText} numberOfLines={1}>
+          <Text
+            style={[
+              styles.dropdownText,
+              checkAccounts.length === accounts.length && styles.dropdownPlaceholder,
+            ]}
+            numberOfLines={1}
+          >
             {checkLabel}
           </Text>
           <Ionicons
-            name="chevron-down"
-            size={rs(18)}
-            color={isDark ? colors.textMuted : '#1B5E20'}
+            name="caret-down"
+            size={rs(14)}
+            color={isDark ? colors.textMuted : '#6B726B'}
           />
         </Pressable>
 
         <View style={styles.labelRow}>
           <MaterialCommunityIcons
-            name="bank-outline"
+            name="bank"
             size={rs(16)}
             color={isDark ? colors.text : '#1B2E1B'}
           />
@@ -468,30 +482,27 @@ export function IpoBulkStatusScreen() {
           onPress={() => setCompanyPickerOpen(true)}
           disabled={loadingList || companies.length === 0}
         >
-          {selected ? (
-            <View style={styles.companyRow}>
-              <View style={styles.ipoBadge}>
-                <Text style={styles.ipoBadgeText}>
-                  {badgeType(selected.shareTypeName)}
-                </Text>
-              </View>
-              <Text style={styles.companyText} numberOfLines={1}>
-                {selected.companyName}
-                {selected.scrip ? ` (${selected.scrip})` : ''}
-              </Text>
-            </View>
-          ) : (
-            <Text style={styles.dropdownText}>
-              {loadingList ? 'Loading…' : 'No listed IPO/FPO'}
-            </Text>
-          )}
+          <Text
+            style={[
+              styles.dropdownText,
+              styles.dropdownValue,
+              !selected && styles.dropdownPlaceholder,
+            ]}
+            numberOfLines={1}
+          >
+            {selected
+              ? `${selected.companyName}${selected.scrip ? ` (${selected.scrip})` : ''}`
+              : loadingList
+                ? 'Loading…'
+                : 'No listed IPO/FPO'}
+          </Text>
           {loadingList ? (
-            <ActivityIndicator size="small" color={isDark ? ACCENT : '#1B5E20'} />
+            <ActivityIndicator size="small" color={ACCENT} />
           ) : (
             <Ionicons
-              name="chevron-down"
-              size={rs(18)}
-              color={isDark ? colors.textMuted : '#1B5E20'}
+              name="caret-down"
+              size={rs(14)}
+              color={isDark ? colors.textMuted : '#6B726B'}
             />
           )}
         </Pressable>
@@ -502,7 +513,7 @@ export function IpoBulkStatusScreen() {
           disabled={running || !selected}
         >
           {running ? (
-            <ActivityIndicator color={isDark ? ACCENT : '#FFFFFF'} />
+            <ActivityIndicator color={ACCENT} />
           ) : (
             <Text style={styles.actionText}>IPO Bulk Status</Text>
           )}
@@ -578,7 +589,7 @@ export function IpoBulkStatusScreen() {
             <FlatList
               style={styles.resultsList}
               data={visibleResults}
-              keyExtractor={(row) => row.accountId}
+              keyExtractor={(row, index) => `${row.accountId}-${index}`}
               contentContainerStyle={styles.resultsListBody}
               refreshControl={refreshControl}
               ListEmptyComponent={
@@ -650,7 +661,7 @@ export function IpoBulkStatusScreen() {
             </Pressable>
             <FlatList
               data={accounts}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item, index) => `${item.id}-${index}`}
               renderItem={({ item }) => {
                 const on = checkAccounts.some((a) => a.id === item.id);
                 return (
@@ -738,26 +749,21 @@ export function IpoBulkStatusScreen() {
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const fieldBg = isDark ? c.surface : '#FFFFFF';
-  const fieldBorder = isDark ? c.border : '#1B5E20';
-  const fieldText = isDark ? c.textMuted : '#121212';
-  const btnBg = isDark ? 'transparent' : '#1B5E20';
-  const btnBorder = isDark ? ACCENT : '#0D3B12';
-  const btnText = isDark ? ACCENT : '#FFFFFF';
+  const fieldBg = isDark ? c.surface : BODY_BG;
+  const fieldBorder = isDark ? c.border : '#8E968E';
+  const fieldText = isDark ? c.text : '#1B2E1B';
   const cardBg = isDark ? c.surface : '#FFFFFF';
-  const boxBorder = isDark ? c.border : '#1B5E20';
+  const boxBorder = isDark ? c.border : '#C5CBC5';
 
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: c.bg },
+    root: { flex: 1, backgroundColor: isDark ? c.bg : BODY_BG },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: rs(14),
       paddingVertical: rs(12),
-      backgroundColor: isDark ? c.bgElevated : '#FFFFFF',
-      borderBottomWidth: isDark ? StyleSheet.hairlineWidth : 1.5,
-      borderBottomColor: isDark ? c.border : '#1B5E20',
+      backgroundColor: isDark ? c.bgElevated : HEADER_BG,
     },
     title: {
       color: c.text,
@@ -767,8 +773,8 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       textAlign: 'center',
     },
     controls: {
-      paddingHorizontal: rs(16),
-      paddingTop: rs(14),
+      paddingHorizontal: rs(18),
+      paddingTop: rs(18),
       paddingBottom: rs(4),
     },
     resultsPane: {
@@ -782,11 +788,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     dropdown: {
       flexDirection: 'row',
       alignItems: 'center',
-      borderWidth: isDark ? 1 : 1.5,
+      borderWidth: 1,
       borderColor: fieldBorder,
-      borderRadius: rs(14),
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(14),
+      borderRadius: rs(22),
+      paddingHorizontal: rs(16),
+      paddingVertical: rs(12),
+      minHeight: rs(46),
       backgroundColor: fieldBg,
       marginBottom: rs(14),
       gap: rs(8),
@@ -794,14 +801,22 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     dropdownText: {
       flex: 1,
       color: fieldText,
-      fontSize: rs(14),
-      fontWeight: isDark ? '400' : '600',
+      fontSize: rs(13),
+      fontWeight: '500',
+    },
+    dropdownPlaceholder: {
+      color: isDark ? c.textMuted : '#8A938A',
+      fontWeight: '500',
+    },
+    dropdownValue: {
+      color: isDark ? c.text : '#1B2E1B',
+      fontWeight: '600',
     },
     labelRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(6),
-      marginBottom: rs(8),
+      marginBottom: rs(10),
     },
     label: {
       color: isDark ? c.text : '#1B2E1B',
@@ -815,7 +830,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       gap: rs(8),
     },
     ipoBadge: {
-      backgroundColor: isDark ? GREEN : '#1B5E20',
+      backgroundColor: isDark ? GREEN : ACCENT,
       borderRadius: rs(4),
       paddingHorizontal: rs(6),
       paddingVertical: rs(2),
@@ -825,22 +840,31 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       flex: 1,
       color: isDark ? c.text : '#1B2E1B',
       fontSize: rs(13),
-      fontWeight: '700',
+      fontWeight: '600',
     },
     actionBtn: {
       alignSelf: 'center',
-      borderWidth: isDark ? 1 : 0,
-      borderColor: btnBorder,
+      borderWidth: 1,
+      borderColor: isDark ? ACCENT : '#C5D0C5',
       borderRadius: rs(24),
       paddingHorizontal: rs(28),
-      paddingVertical: rs(13),
-      marginTop: rs(4),
+      paddingVertical: rs(12),
+      marginTop: rs(10),
       marginBottom: rs(10),
-      minWidth: rs(160),
+      minWidth: rs(168),
       alignItems: 'center',
-      backgroundColor: btnBg,
+      backgroundColor: isDark ? c.surface : BODY_BG,
+      shadowColor: '#000',
+      shadowOpacity: isDark ? 0 : 0.06,
+      shadowRadius: 3,
+      shadowOffset: { width: 0, height: 1 },
+      elevation: isDark ? 0 : 1,
     },
-    actionText: { color: btnText, fontWeight: '800', fontSize: rs(14) },
+    actionText: {
+      color: ACCENT,
+      fontWeight: '700',
+      fontSize: rs(14),
+    },
     progressWrap: {
       flexDirection: 'row',
       alignItems: 'center',

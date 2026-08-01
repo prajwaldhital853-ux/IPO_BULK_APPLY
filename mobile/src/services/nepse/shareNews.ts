@@ -82,6 +82,9 @@ const UA =
 /** First paint size — rest loads in background. */
 export const NEWS_FIRST_PAGE = 8;
 
+/** Stock detail news tab — show 1–2 cards immediately. */
+export const SYMBOL_NEWS_FIRST = 2;
+
 function decodeXml(s: string): string {
   return s
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -382,6 +385,66 @@ function scrapeArthaKendraHome(html: string): ShareNewsItem[] {
   return out;
 }
 
+/**
+ * ShareSansar's company page has a "News" tab backed by a DataTable that is
+ * populated via a CSRF-protected AJAX POST (`/company-news`). This is the
+ * only reliable source of *actual* per-company news with correct dates —
+ * the static company-page HTML only contains a generic, undated nav-menu
+ * widget (same 5-6 links on every company/home page) which caused bogus
+ * "9 years ago" results when scraped as if it were news.
+ */
+async function fetchShareSansarCompanyMeta(
+  symbolLower: string,
+): Promise<{ token: string; companyId: string } | null> {
+  const html = await fetchText(
+    `https://www.sharesansar.com/company/${symbolLower}`,
+  );
+  if (!html) return null;
+  const tokenTag = html.match(/<meta[^>]*name=["']_token["'][^>]*>/i)?.[0] ?? '';
+  const token = tokenTag.match(/content=["']([^"']+)["']/i)?.[1];
+  const companyId = html.match(
+    /id=["']companyid["'][^>]*>\s*(\d+)\s*</i,
+  )?.[1];
+  if (!token || !companyId) return null;
+  return { token, companyId };
+}
+
+async function fetchShareSansarCompanyNewsRows(
+  symbolLower: string,
+  meta: { token: string; companyId: string },
+  length = 30,
+): Promise<Array<{ title: string; url: string; date: string }>> {
+  try {
+    const res = await fetch('https://www.sharesansar.com/company-news', {
+      method: 'POST',
+      headers: {
+        'User-Agent': UA,
+        Accept: 'application/json, text/javascript, */*; q=0.01',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-CSRF-Token': meta.token,
+        'X-Requested-With': 'XMLHttpRequest',
+        Referer: `https://www.sharesansar.com/company/${symbolLower}`,
+      },
+      body: `company=${encodeURIComponent(meta.companyId)}&draw=1&start=0&length=${length}`,
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { data?: Array<Record<string, unknown>> };
+    const rows = json?.data ?? [];
+    return rows
+      .map((r) => {
+        const titleHtml = String(r.title ?? '');
+        const href = titleHtml.match(/href=['"]([^'"]+)['"]/i)?.[1];
+        const text = decodeXml(titleHtml.replace(/<[^>]+>/g, '')).trim();
+        const date = String(r.published_date ?? '');
+        if (!href || !text) return null;
+        return { title: text, url: href, date };
+      })
+      .filter((r): r is { title: string; url: string; date: string } => r != null);
+  } catch {
+    return [];
+  }
+}
+
 async function scrapeShareSansarLinks(): Promise<string[]> {
   const listingUrls = [
     'https://www.sharesansar.com/',
@@ -440,7 +503,7 @@ async function enrichImages(items: ShareNewsItem[]): Promise<ShareNewsItem[]> {
     .map((it, index) => ({ it, index }))
     .filter(({ it }) => !it.imageUrl);
 
-  await mapPool(need, 5, async ({ it, index }) => {
+  await mapPool(need, 8, async ({ it, index }) => {
     const candidates = [googleLinkById.get(it.id), it.url].filter(
       (u): u is string => typeof u === 'string' && /^https?:\/\//i.test(u),
     );
@@ -582,6 +645,71 @@ export async function loadShareNewsProgressive(
   return enrichedFirst;
 }
 
+function slugFromNewsUrl(url: string): string {
+  return url.split('/').filter(Boolean).pop() ?? url;
+}
+
+/**
+ * Symbol-filtered news for Stock Detail — reads ShareSansar's real per-company
+ * "News" tab data (correct dates, real headlines), paints 1–2 items instantly,
+ * then enriches with images (og:image) in the background.
+ */
+export async function loadSymbolNewsProgressive(
+  symbol: string,
+  _companyName: string | undefined,
+  onUpdate: (
+    items: ShareNewsItem[],
+    meta: { done: boolean; phase: 'first' | 'more' },
+  ) => void,
+): Promise<ShareNewsItem[]> {
+  const symLower = symbol.trim().toLowerCase();
+  googleLinkById.clear();
+
+  const meta = await fetchShareSansarCompanyMeta(symLower);
+  const rows = meta
+    ? await fetchShareSansarCompanyNewsRows(symLower, meta, 30)
+    : [];
+
+  if (!rows.length) {
+    onUpdate([], { done: true, phase: 'first' });
+    return [];
+  }
+
+  let items: ShareNewsItem[] = rows.map((r) => ({
+    id: `sharesansar-${slugFromNewsUrl(r.url)}`,
+    title: r.title,
+    url: r.url,
+    publishedAt: r.date
+      ? new Date(`${r.date}T12:00:00`).toISOString()
+      : new Date().toISOString(),
+    imageUrl: null,
+    sourceId: 'sharesansar',
+  }));
+
+  const first = items.slice(0, SYMBOL_NEWS_FIRST);
+  onUpdate(first, {
+    done: items.length <= SYMBOL_NEWS_FIRST,
+    phase: 'first',
+  });
+
+  const enrichedFirst = await enrichImages([...first]);
+  items = mergeUnique(enrichedFirst, items.slice(SYMBOL_NEWS_FIRST));
+  onUpdate(items, {
+    done: items.length <= SYMBOL_NEWS_FIRST,
+    phase: 'more',
+  });
+
+  if (items.length > SYMBOL_NEWS_FIRST) {
+    const rest = items.slice(SYMBOL_NEWS_FIRST);
+    const enrichedRest = await enrichImages([...rest]);
+    const merged = mergeUnique(enrichedFirst, enrichedRest);
+    onUpdate(merged, { done: true, phase: 'more' });
+    return merged;
+  }
+
+  return enrichedFirst;
+}
+
 /** Full load (non-progressive) — used by callers that don’t stream. */
 export async function loadShareNews(
   sourceId: NewsSourceId,
@@ -591,6 +719,32 @@ export async function loadShareNews(
     if (meta.done || meta.phase === 'first') final = items;
   });
   return final;
+}
+
+/** Relative time for stock detail news cards — "2 months ago". */
+export function formatRelativeNewsTime(raw: string): string {
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (diffSec < 45) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) {
+    return diffMin === 1 ? 'a minute ago' : `${diffMin} minutes ago`;
+  }
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) {
+    return diffHr === 1 ? 'an hour ago' : `${diffHr} hours ago`;
+  }
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 30) {
+    return diffDay === 1 ? 'a day ago' : `${diffDay} days ago`;
+  }
+  const diffMonth = Math.floor(diffDay / 30);
+  if (diffMonth < 12) {
+    return diffMonth === 1 ? 'a month ago' : `${diffMonth} months ago`;
+  }
+  const diffYear = Math.floor(diffDay / 365);
+  return diffYear === 1 ? 'about a year ago' : `${diffYear} years ago`;
 }
 
 /** Screenshot style: Mon, Jul 20, 2026 05:05 PM */

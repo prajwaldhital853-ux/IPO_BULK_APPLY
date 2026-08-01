@@ -24,6 +24,7 @@ import {
   type NewsSourceId,
   type ShareNewsItem,
 } from '../services/nepse/shareNews';
+import { SwipeTabGesture } from '../components/SwipeTabGesture';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -95,6 +96,10 @@ export function FinancialNewsScreen() {
 
   const featured = rows[0] ?? null;
   const rest = rows.slice(1);
+  const sourceIndex = Math.max(
+    0,
+    NEWS_SOURCES.findIndex((s) => s.id === sourceId),
+  );
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -129,6 +134,14 @@ export function FinancialNewsScreen() {
         })}
       </ScrollView>
 
+      <SwipeTabGesture
+        index={sourceIndex}
+        count={NEWS_SOURCES.length}
+        onIndexChange={(i) => {
+          const next = NEWS_SOURCES[i];
+          if (next) setSourceId(next.id);
+        }}
+      >
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={ACCENT} />
@@ -224,6 +237,7 @@ export function FinancialNewsScreen() {
           }
         />
       )}
+      </SwipeTabGesture>
     </View>
   );
 }

@@ -21,6 +21,7 @@ import {
   saveBulkPortfolioSnapshot,
   type BulkHoldingSnap,
 } from '../storage/bulkPortfolioStorage';
+import { SwipeTabGesture } from '../components/SwipeTabGesture';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -82,6 +83,8 @@ function changeTint(n: number): { bg: string; fg: string } {
 }
 
 type ChangeFilter = 'all' | 'gained' | 'loss' | 'unch';
+
+const FILTER_ORDER: ChangeFilter[] = ['all', 'gained', 'loss', 'unch'];
 
 export function BulkPortfolioScreen() {
   const navigation =
@@ -406,6 +409,14 @@ export function BulkPortfolioScreen() {
         </View>
       </View>
 
+      <SwipeTabGesture
+        index={Math.max(0, FILTER_ORDER.indexOf(filter))}
+        count={FILTER_ORDER.length}
+        onIndexChange={(i) => {
+          const next = FILTER_ORDER[i];
+          if (next) setFilter(next);
+        }}
+      >
       <FlatList
         style={styles.accountList}
         data={filtered}
@@ -507,6 +518,7 @@ export function BulkPortfolioScreen() {
           );
         }}
       />
+      </SwipeTabGesture>
     </View>
   );
 }

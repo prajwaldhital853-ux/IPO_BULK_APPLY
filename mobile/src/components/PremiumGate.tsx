@@ -9,6 +9,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAppBranding } from '../context/AppBrandingContext';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
+import { PREMIUM_ACCESS_BYPASS } from '../config/premiumAccess';
 import { rs } from '../utils/responsive';
 
 export function PremiumGate({
@@ -25,6 +26,8 @@ export function PremiumGate({
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
+
+  if (PREMIUM_ACCESS_BYPASS) return <>{children}</>;
 
   if (loading) {
     return (
