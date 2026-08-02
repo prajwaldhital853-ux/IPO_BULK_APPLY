@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
   FlatList,
   Image,
   InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -187,26 +187,11 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   const busyRef = useRef(false);
   const revealDoneRef = useRef(false);
   const hasRowsRef = useRef(false);
-  const hScrollX = useRef(new Animated.Value(0)).current;
 
   const rowKey = useCallback(
     (item: PremiumIntelRow) =>
       `${item.symbol}-${item.brokerCode ?? 'x'}-${item.rank}`,
     [],
-  );
-
-  const onHorizScroll = useMemo(
-    () =>
-      Animated.event([{ nativeEvent: { contentOffset: { x: hScrollX } } }], {
-        useNativeDriver: true,
-      }),
-    [hScrollX],
-  );
-
-  /** Keeps SYM visually pinned while the wide table scrolls horizontally. */
-  const stickySymStyle = useMemo(
-    () => ({ transform: [{ translateX: hScrollX }] }),
-    [hScrollX],
   );
 
   const refresh = useCallback(
@@ -517,11 +502,9 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
 
   const tableHeader = (
     <View style={[styles.tableHeadRow, { width: tableWidth }]}>
-      <Animated.View
-        style={[styles.symHeadFixed, styles.stickySym, stickySymStyle]}
-      >
+      <View style={styles.symHeadFixed}>
         <Text style={styles.th}>SYM</Text>
-      </Animated.View>
+      </View>
       <Pressable
         style={[styles.thPress, styles.hColQty]}
         onPress={() => toggleSort('qty')}
@@ -584,13 +567,11 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
         {!tableReady || (loading && rows.length === 0) ? (
           <ActivityIndicator style={{ marginTop: rs(40) }} color={HEADER_TEAL} />
         ) : (
-          <Animated.ScrollView
+          <ScrollView
             horizontal
             bounces={false}
             nestedScrollEnabled
             showsHorizontalScrollIndicator
-            scrollEventThrottle={16}
-            onScroll={onHorizScroll}
             style={styles.hTableScroll}
             contentContainerStyle={styles.hTableContent}
           >
@@ -601,10 +582,10 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
                 style={styles.dataList}
                 contentContainerStyle={styles.listContent}
                 nestedScrollEnabled
-                initialNumToRender={12}
-                maxToRenderPerBatch={10}
-                windowSize={5}
-                updateCellsBatchingPeriod={50}
+                initialNumToRender={8}
+                maxToRenderPerBatch={6}
+                windowSize={4}
+                updateCellsBatchingPeriod={60}
                 removeClippedSubviews
                 keyExtractor={rowKey}
                 refreshControl={
@@ -634,12 +615,10 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
                       navigation.navigate('StockDetail', { symbol: item.symbol })
                     }
                   >
-                    <Animated.View
+                    <View
                       style={[
                         styles.symCell,
                         index % 2 === 1 && styles.rowAlt,
-                        styles.stickySym,
-                        stickySymStyle,
                       ]}
                     >
                       <SymLogo
@@ -650,13 +629,13 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
                       <Text style={styles.symText} numberOfLines={1}>
                         {item.symbol}
                       </Text>
-                    </Animated.View>
+                    </View>
                     {renderDataCols(item)}
                   </Pressable>
                 )}
               />
             </View>
-          </Animated.ScrollView>
+          </ScrollView>
         )}
 
       </View>
@@ -791,10 +770,6 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       height: ROW_H,
       backgroundColor: HEADER_TEAL,
-    },
-    stickySym: {
-      zIndex: 4,
-      elevation: 4,
     },
     symHeadFixed: {
       width: SYM_COL_W,

@@ -11,9 +11,6 @@ import {
   Text,
   TextInput,
   View,
-  useWindowDimensions,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -23,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { AreaChart } from '../components/nepse/AreaChart';
+import { SwipeTabGesture } from '../components/SwipeTabGesture';
 import {
   fmtAmtShort,
   fmtMcap,
@@ -133,13 +131,11 @@ export function StockDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'StockDetail'>>();
   const symbol = route.params.symbol.toUpperCase();
   const insets = useSafeAreaInsets();
-  const { width: pageWidth } = useWindowDimensions();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const chartBg = isDark ? colors.surface : '#F7FAF3';
 
   const [tabIndex, setTabIndex] = useState(0);
-  const pagerRef = useRef<ScrollView>(null);
   const tabsScrollRef = useRef<ScrollView>(null);
   const tabLayoutsRef = useRef<Record<number, { x: number; width: number }>>({});
   const tabIndexRef = useRef(0);
@@ -377,18 +373,6 @@ export function StockDetailScreen() {
     setNewsLoadingMore(false);
   }, [symbol]);
 
-  const setActiveTabIndex = useCallback(
-    (index: number, scrollTabBar = true) => {
-      if (index < 0 || index >= TABS.length) return;
-      if (index === tabIndexRef.current) return;
-      tabIndexRef.current = index;
-      setTabIndex(index);
-      if (TABS[index]?.id === 'news-overview') primeNewsLoading();
-      if (scrollTabBar) scrollTabBarToIndex(index, false);
-    },
-    [scrollTabBarToIndex, primeNewsLoading],
-  );
-
   const onTabPress = (index: number) => {
     if (index < 0 || index >= TABS.length) return;
     const nextTab = TABS[index]?.id;
@@ -400,27 +384,6 @@ export function StockDetailScreen() {
       setTabLoading(true);
     }
     scrollTabBarToIndex(index, false);
-    pagerRef.current?.scrollTo({ x: index * pageWidth, animated: false });
-  };
-
-  const pagerIndexFromOffset = (offsetX: number) => {
-    if (pageWidth <= 0) return 0;
-    const progress = offsetX / pageWidth;
-    return Math.min(
-      TABS.length - 1,
-      Math.max(0, Math.floor(progress + 0.2)),
-    );
-  };
-
-  const onPagerScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    const index = pagerIndexFromOffset(offsetX);
-    setActiveTabIndex(index);
-  };
-
-  const onPagerMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const index = pagerIndexFromOffset(event.nativeEvent.contentOffset.x);
-    setActiveTabIndex(index);
   };
 
   const openNews = async (item: ShareNewsItem) => {
@@ -1175,68 +1138,59 @@ export function StockDetailScreen() {
   // doesn't force every page — charts, tables, lists — to re-render on the
   // JS thread. That recompute was the source of the multi-second lag when
   // tapping a tab or swiping the pager.
-  const infoPage = useMemo(
-    () => renderInfo(),
+  // Mount only the active page — never build all 7 tab trees at once.
+  const activePage = useMemo(() => {
+    switch (tabIndex) {
+      case 0:
+        return renderInfo();
+      case 1:
+        return renderHistory();
+      case 2:
+        return renderFloorsheet();
+      case 3:
+        return renderFinancial();
+      case 4:
+        return renderDividends();
+      case 5:
+        return renderAnnouncements();
+      case 6:
+        return renderNewsOverview();
+      default:
+        return null;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      stock,
-      chartPoints,
-      chartLoading,
-      chartRange,
-      chartScrubbing,
-      up,
-      accent,
-      av,
-      symbol,
-      colors,
-      isDark,
-      styles,
-    ],
-  );
-  const historyPage = useMemo(
-    () => renderHistory(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [history, tabLoading, symbol, colors, styles],
-  );
-  const floorsheetPage = useMemo(
-    () => renderFloorsheet(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      floorsheet,
-      fsPage,
-      fsHasNext,
-      fsTotalItems,
-      fsBuyer,
-      fsSeller,
-      fsDate,
-      fsPageCount,
-      fsSummary,
-      tabLoading,
-      symbol,
-      colors,
-      styles,
-    ],
-  );
-  const financialPage = useMemo(
-    () => renderFinancial(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [reports, stock?.name, tabLoading, symbol, colors, styles],
-  );
-  const dividendsPage = useMemo(
-    () => renderDividends(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dividends, tabLoading, symbol, colors, styles],
-  );
-  const announcementsPage = useMemo(
-    () => renderAnnouncements(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [announcements, tabLoading, symbol, colors, styles],
-  );
-  const newsPage = useMemo(
-    () => renderNewsOverview(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [newsRows, newsLoading, newsLoadingMore, symbol, colors, styles],
-  );
+  }, [
+    tabIndex,
+    stock,
+    chartPoints,
+    chartLoading,
+    chartRange,
+    chartScrubbing,
+    up,
+    accent,
+    av,
+    history,
+    floorsheet,
+    fsPage,
+    fsHasNext,
+    fsTotalItems,
+    fsBuyer,
+    fsSeller,
+    fsDate,
+    fsPageCount,
+    fsSummary,
+    reports,
+    dividends,
+    announcements,
+    newsRows,
+    newsLoading,
+    newsLoadingMore,
+    tabLoading,
+    symbol,
+    colors,
+    isDark,
+    styles,
+  ]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -1290,27 +1244,13 @@ export function StockDetailScreen() {
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : (
-        <ScrollView
-          ref={pagerRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          scrollEventThrottle={16}
-          directionalLockEnabled
-          decelerationRate="fast"
-          disableIntervalMomentum
-          onScroll={onPagerScroll}
-          onMomentumScrollEnd={onPagerMomentumEnd}
-          style={styles.pager}
+        <SwipeTabGesture
+          index={tabIndex}
+          count={TABS.length}
+          onIndexChange={onTabPress}
         >
-          <View style={{ width: pageWidth, flex: 1 }}>{infoPage}</View>
-          <View style={{ width: pageWidth, flex: 1 }}>{historyPage}</View>
-          <View style={{ width: pageWidth, flex: 1 }}>{floorsheetPage}</View>
-          <View style={{ width: pageWidth, flex: 1 }}>{financialPage}</View>
-          <View style={{ width: pageWidth, flex: 1 }}>{dividendsPage}</View>
-          <View style={{ width: pageWidth, flex: 1 }}>{announcementsPage}</View>
-          <View style={{ width: pageWidth, flex: 1 }}>{newsPage}</View>
-        </ScrollView>
+          <View style={styles.pager}>{activePage}</View>
+        </SwipeTabGesture>
       )}
     </View>
   );

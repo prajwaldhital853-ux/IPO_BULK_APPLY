@@ -80,6 +80,14 @@ class Settings(BaseSettings):
     payment_account_number: str = '0123456789'
     payment_whatsapp: str = '9779709133067'
 
+    # Shared Broker Acc/Dis cache (Postgres). Refreshed from Merolagani floorsheet.
+    # 0 disables the background loop (cron-only via POST /app/push/jobs/broker-flow-refresh).
+    broker_flow_refresh_seconds: int = 300  # 5 minutes
+    # Merolagani pages to scrape per refresh (≈500 trades/page).
+    broker_flow_pages: int = 4
+    # Max ranked rows stored per board.
+    broker_flow_row_limit: int = 120
+
     # Cron / push jobs (Render Cron Jobs). Prefer dedicated secret; falls back to api_key.
     cron_secret: str = ''
 

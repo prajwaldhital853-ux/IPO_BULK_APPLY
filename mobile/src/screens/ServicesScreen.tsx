@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
+  FlatList,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -727,16 +727,18 @@ export function ServicesScreen() {
         </View>
       </View>
 
-      <ScrollView
+      <FlatList
+        data={filtered}
+        keyExtractor={(sec) => sec.id}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        scrollEventThrottle={16}
+        initialNumToRender={1}
+        maxToRenderPerBatch={1}
+        windowSize={3}
         removeClippedSubviews
-      >
-        {filtered.map((sec) => (
+        renderItem={({ item: sec }) => (
           <SectionBlock
-            key={sec.id}
             section={sec}
             onOpen={openItem}
             colors={colors}
@@ -744,14 +746,13 @@ export function ServicesScreen() {
             styles={styles}
             gridLayout={gridLayout}
           />
-        ))}
-
-        {filtered.length === 0 ? (
+        )}
+        ListEmptyComponent={
           <Text style={[styles.empty, { color: colors.textSecondary }]}>
             No services match “{query}”
           </Text>
-        ) : null}
-      </ScrollView>
+        }
+      />
     </View>
   );
 }

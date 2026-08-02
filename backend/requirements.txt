@@ -14,6 +14,7 @@ google-auth==2.37.0
 requests==2.32.3
 sqlalchemy[asyncio]==2.0.36
 aiosqlite==0.20.0
+asyncpg==0.30.0
 redis==5.2.1
 
 # Training only (not needed at runtime; install with: pip install -r requirements-train.txt)

@@ -186,6 +186,11 @@ export function HomeScreen() {
   const { refreshing, onRefresh } = usePullToRefresh(refreshAccountsTab);
 
   const [tab, setTab] = useState<'Accounts' | 'Market'>('Accounts');
+  // Mount Market only after first visit — keep Accounts-only sessions light.
+  const [marketVisited, setMarketVisited] = useState(false);
+  useEffect(() => {
+    if (tab === 'Market') setMarketVisited(true);
+  }, [tab]);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<AccountMeta | null>(
@@ -434,13 +439,15 @@ export function HomeScreen() {
         count={2}
         onIndexChange={(i) => setTab(i === 0 ? 'Accounts' : 'Market')}
       >
-      {/* Keep both panels mounted — remounting Market on every tab switch felt laggy. */}
-      <View
-        style={[styles.tabPane, tab !== 'Market' && styles.tabPaneHidden]}
-        pointerEvents={tab === 'Market' ? 'auto' : 'none'}
-      >
-        <HomeMarketPanel active={tab === 'Market'} />
-      </View>
+      {/* Lazy-mount Market (chart) — after first open, hide instead of remount. */}
+      {marketVisited ? (
+        <View
+          style={[styles.tabPane, tab !== 'Market' && styles.tabPaneHidden]}
+          pointerEvents={tab === 'Market' ? 'auto' : 'none'}
+        >
+          <HomeMarketPanel active={tab === 'Market'} />
+        </View>
+      ) : null}
       <View
         style={[styles.tabPane, tab !== 'Accounts' && styles.tabPaneHidden]}
         pointerEvents={tab === 'Accounts' ? 'auto' : 'none'}

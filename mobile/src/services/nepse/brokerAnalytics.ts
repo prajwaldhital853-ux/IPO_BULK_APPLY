@@ -1175,9 +1175,8 @@ export function peekBrokerFlowIntel(
 
 /**
  * Progressive broker accumulation / distribution.
- * Uses a day/session cache keyed to the floorsheet session date. When Merolagani
- * publishes a new sheet, cache clears and fresh data is loaded. Otherwise the
- * cached board is shown instantly.
+ * Prefers shared Postgres cache on api.nepseghar.com (all users), then
+ * device day-cache, then Merolagani scrape as fallback.
  */
 export async function streamPremiumIntel(
   kind: 'top-holders' | 'top-releases',
@@ -1198,6 +1197,21 @@ export async function streamPremiumIntel(
     onUpdate(cached.snap, { partial: true, page: 0 });
   } else {
     cached = undefined;
+  }
+
+  // Shared server cache — one Merolagani scrape on the API, all phones read it.
+  try {
+    const { fetchBrokerFlowFromServer } = await import('./brokerFlowApi');
+    const serverSnap = await fetchBrokerFlowFromServer(kind);
+    if (serverSnap?.rows?.length) {
+      const sessionDate = serverSnap.sessionDate ?? null;
+      const maxId = Number(serverSnap.maxContractId ?? 0) || 0;
+      rememberIntelSnap(kind, serverSnap, sessionDate, maxId);
+      onUpdate(serverSnap, { partial: false, page: 0 });
+      return serverSnap;
+    }
+  } catch {
+    // fall through to Merolagani
   }
 
   // Lightweight probe — detect floorsheet API update without full download.
@@ -1374,8 +1388,26 @@ export function prefetchBrokerFlowIntel(): void {
   brokerFlowPrefetch = (async () => {
     try {
       await hydrateIntelCacheFromDisk();
+      // Warm Acc/Dis from shared Postgres cache (all users).
+      try {
+        const { fetchBrokerFlowFromServer } = await import('./brokerFlowApi');
+        await Promise.all(
+          (['top-holders', 'top-releases'] as const).map(async (kind) => {
+            const snap = await fetchBrokerFlowFromServer(kind);
+            if (snap?.rows?.length) {
+              rememberIntelSnap(
+                kind,
+                snap,
+                snap.sessionDate ?? null,
+                Number(snap.maxContractId ?? 0) || 0,
+              );
+            }
+          }),
+        );
+      } catch {
+        // ignore — Merolagani fallback still available on open
+      }
       await screenerMap().catch(() => null);
-      await loadSessionFloorsheet(false).catch(() => null);
     } catch {
       // Prefetch is best-effort.
     } finally {

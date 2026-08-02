@@ -102,17 +102,16 @@ function MainTabs() {
   return (
     <Tab.Navigator
       tabBar={(props) => <AppTabBar {...props} />}
-      // Keep inactive tabs attached so switches never pay re-attach/unfreeze cost.
-      detachInactiveScreens={false}
+      // Detach + freeze inactive tabs so Apply/Services/Check don't keep
+      // burning JS while Home (or another tab) is in front.
+      detachInactiveScreens={true}
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
-        // Instant content swap — fade/shift animates heavy Home/Apply trees
-        // and feels delayed. Smoothness comes from the tab-bar spring.
         animation: 'none',
-        // Pre-mount all main tabs so first visits don't hitch.
-        lazy: false,
-        freezeOnBlur: false,
+        // Mount each tab on first visit only — never keep all five warm.
+        lazy: true,
+        freezeOnBlur: true,
       }}
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Home' }} />

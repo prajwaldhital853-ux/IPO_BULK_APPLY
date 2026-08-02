@@ -42,6 +42,7 @@ solver = Solver(session, model)
 _check_semaphore: asyncio.Semaphore | None = None
 _company_refresh_task: asyncio.Task | None = None
 _company_refresh_lock: asyncio.Lock | None = None
+_broker_flow_refresh_task: asyncio.Task | None = None
 
 
 def _refresh_lock() -> asyncio.Lock:
@@ -121,9 +122,37 @@ async def _company_refresh_loop() -> None:
         await asyncio.sleep(interval)
 
 
+async def _broker_flow_refresh_loop() -> None:
+    """Keep Acc/Dis Postgres cache warm for all users."""
+    settings = get_settings()
+    interval = max(0, int(settings.broker_flow_refresh_seconds))
+    if interval <= 0:
+        log.info("Broker flow background refresh disabled")
+        return
+
+    await asyncio.sleep(20)
+    while True:
+        try:
+            from .broker_flow import refresh_broker_flow_cache
+
+            async def _run(db):
+                return await refresh_broker_flow_cache(db, force=False)
+
+            meta = await run_with_session(_run)
+            if meta and not meta.get("skipped"):
+                log.info(
+                    "Background broker-flow sync: session=%s trades=%s",
+                    meta.get("sessionDate"),
+                    meta.get("tradesScanned"),
+                )
+        except Exception as e:  # noqa: BLE001
+            log.warning("Background broker-flow sync failed: %s", e)
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _check_semaphore, _company_refresh_task
+    global _check_semaphore, _company_refresh_task, _broker_flow_refresh_task
     settings = get_settings()
     configure(settings.database_url)
     await init_db()
@@ -147,14 +176,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         log.warning("Initial CDSC company sync deferred: %s", e)
 
+    # Seed Acc/Dis Postgres cache once at startup (non-blocking failure).
+    try:
+        from .broker_flow import refresh_broker_flow_cache
+
+        async def _seed_flow(db):
+            return await refresh_broker_flow_cache(db, force=True)
+
+        await run_with_session(_seed_flow)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Initial broker-flow sync deferred: %s", e)
+
     _company_refresh_task = asyncio.create_task(_company_refresh_loop())
+    _broker_flow_refresh_task = asyncio.create_task(_broker_flow_refresh_loop())
     yield
-    if _company_refresh_task is not None:
-        _company_refresh_task.cancel()
-        try:
-            await _company_refresh_task
-        except asyncio.CancelledError:
-            pass
+    for task in (_company_refresh_task, _broker_flow_refresh_task):
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
     await session.close()
 
 

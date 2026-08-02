@@ -18,7 +18,8 @@
         "EXPO_PUBLIC_CDSC_BACKEND_URL": "https://api.nepseghar.com",
         "EXPO_PUBLIC_CDSC_BACKEND_KEY": "nepse-ghar-prod-api-key-CHANGE-THIS-32chars",
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "395699990420-bemq1vajtbdqv27aplhpdj1gskreveog.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "395699990420-sdcpsm5ucjbn89um1hqd33v3mqssithb.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "395699990420-sdcpsm5ucjbn89um1hqd33v3mqssithb.apps.googleusercontent.com",
+        "EXPO_PUBLIC_PREMIUM_BYPASS": "false"
       }
     },
     "preview": {

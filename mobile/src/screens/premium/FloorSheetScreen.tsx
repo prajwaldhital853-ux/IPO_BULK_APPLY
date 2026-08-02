@@ -294,9 +294,9 @@ export function FloorSheetScreen() {
         style={styles.list}
         keyExtractor={(item, i) => `${item.contractId}-${i}`}
         keyboardShouldPersistTaps="handled"
-        initialNumToRender={24}
-        maxToRenderPerBatch={30}
-        windowSize={8}
+        initialNumToRender={8}
+        maxToRenderPerBatch={6}
+        windowSize={4}
         ListEmptyComponent={
           <Text style={styles.empty}>No trades for this filter.</Text>
         }

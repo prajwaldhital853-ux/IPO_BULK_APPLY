@@ -1,12 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   FlatList,
   Image,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -97,20 +97,6 @@ export function PriceDroppersScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
-  const hScrollX = useRef(new Animated.Value(0)).current;
-
-  const onHorizScroll = useMemo(
-    () =>
-      Animated.event([{ nativeEvent: { contentOffset: { x: hScrollX } } }], {
-        useNativeDriver: true,
-      }),
-    [hScrollX],
-  );
-
-  const stickySymStyle = useMemo(
-    () => ({ transform: [{ translateX: hScrollX }] }),
-    [hScrollX],
-  );
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -197,11 +183,9 @@ export function PriceDroppersScreen() {
 
   const tableHeader = (
     <View style={[styles.tableHeadRow, { width: tableWidth }]}>
-      <Animated.View
-        style={[styles.symHeadFixed, styles.stickySym, stickySymStyle]}
-      >
+      <View style={styles.symHeadFixed}>
         <Text style={styles.th}>SYM</Text>
-      </Animated.View>
+      </View>
       <Text style={[styles.th, styles.hColLtp]}>LTP</Text>
       <Text style={[styles.th, styles.hColSwingH]}>Swing High</Text>
       <Text style={[styles.th, styles.hColSwingL]}>Swing Low</Text>
@@ -244,13 +228,11 @@ export function PriceDroppersScreen() {
         </View>
 
         <View style={styles.tableWrap}>
-          <Animated.ScrollView
+          <ScrollView
             horizontal
             bounces={false}
             nestedScrollEnabled
             showsHorizontalScrollIndicator
-            scrollEventThrottle={16}
-            onScroll={onHorizScroll}
             style={styles.hTableScroll}
             contentContainerStyle={styles.hTableContent}
           >
@@ -262,10 +244,10 @@ export function PriceDroppersScreen() {
                 contentContainerStyle={styles.listContent}
                 nestedScrollEnabled
                 keyboardShouldPersistTaps="handled"
-                initialNumToRender={24}
-                maxToRenderPerBatch={30}
-                windowSize={8}
-                removeClippedSubviews={false}
+                initialNumToRender={8}
+                maxToRenderPerBatch={6}
+                windowSize={4}
+                removeClippedSubviews
                 keyExtractor={(item) => item.symbol}
                 refreshControl={
                   <RefreshControl
@@ -298,12 +280,10 @@ export function PriceDroppersScreen() {
                       })
                     }
                   >
-                    <Animated.View
+                    <View
                       style={[
                         styles.symCell,
                         index % 2 === 1 && styles.rowAlt,
-                        styles.stickySym,
-                        stickySymStyle,
                       ]}
                     >
                       <SymLogo
@@ -317,13 +297,13 @@ export function PriceDroppersScreen() {
                         </Text>
                         <Text style={styles.rankText}>#{item.rank}</Text>
                       </View>
-                    </Animated.View>
+                    </View>
                     {renderDataCols(item)}
                   </Pressable>
                 )}
               />
             </View>
-          </Animated.ScrollView>
+          </ScrollView>
         </View>
       </View>
     );
@@ -408,10 +388,6 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       height: ROW_H,
       backgroundColor: HEADER_TEAL,
-    },
-    stickySym: {
-      zIndex: 4,
-      elevation: 4,
     },
     symHeadFixed: {
       width: SYM_COL_W,

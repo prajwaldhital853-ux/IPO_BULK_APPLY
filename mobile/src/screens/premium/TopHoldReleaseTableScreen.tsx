@@ -328,9 +328,9 @@ function TopHoldReleaseTableScreen({ mode }: Props) {
           style={styles.dataList}
           data={filtered}
           keyExtractor={(item) => item.id}
-          initialNumToRender={16}
-          maxToRenderPerBatch={12}
-          windowSize={7}
+          initialNumToRender={8}
+          maxToRenderPerBatch={6}
+          windowSize={4}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

@@ -148,3 +148,15 @@ async def job_premium_expiry_reminders(
     result = await run_premium_expiry_reminder_job(db)
     await db.commit()
     return result
+
+
+@router.post('/jobs/broker-flow-refresh')
+async def job_broker_flow_refresh(
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_cron),
+    force: bool = False,
+) -> dict:
+    """Cron: scrape Merolagani and upsert Acc/Dis boards into Postgres."""
+    from ..broker_flow import refresh_broker_flow_cache
+
+    return await refresh_broker_flow_cache(db, force=force)

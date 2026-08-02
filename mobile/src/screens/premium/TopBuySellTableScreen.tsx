@@ -369,9 +369,9 @@ function TopBuySellTableScreen({ side }: Props) {
             />
           }
           contentContainerStyle={styles.listContent}
-          initialNumToRender={24}
-          maxToRenderPerBatch={30}
-          windowSize={8}
+        initialNumToRender={8}
+        maxToRenderPerBatch={6}
+        windowSize={4}
           ListEmptyComponent={
             <Text style={styles.empty}>
               No {side === 'buy' ? 'buyer' : 'seller'} rows yet. Pull to refresh

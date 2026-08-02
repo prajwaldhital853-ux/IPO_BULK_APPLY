@@ -4,6 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth.deps import CurrentUser, get_optional_user
+from .broker_flow import (
+    KINDS,
+    ensure_warm_snapshot,
+    get_snapshot,
+    snapshot_to_response,
+)
 from .db.session import get_db
 from .feedback import create_feedback
 from .public_settings import settings_to_public
@@ -238,3 +244,57 @@ async def submit_feedback(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f'Could not save feedback: {e}') from e
     return FeedbackSubmitOut(id=row.id, ok=True)
+
+
+def _normalize_broker_flow_kind(kind: str) -> str:
+    key = kind.strip().lower()
+    if key in ('top-holders', 'holders', 'acc'):
+        return 'accumulation'
+    if key in ('top-releases', 'releases', 'dist'):
+        return 'distribution'
+    return key
+
+
+@router.get('/premium/broker-flow/{kind}')
+async def premium_broker_flow(
+    kind: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Shared Acc/Dis board for all users (Postgres cache).
+    Cold cache: first request scrapes Merolagani once (locked), then serves JSON.
+    Warm cache: ~instant for every later user.
+    """
+    key = _normalize_broker_flow_kind(kind)
+    if key not in KINDS:
+        raise HTTPException(
+            status_code=400,
+            detail='kind must be accumulation or distribution',
+        )
+    row = await ensure_warm_snapshot(db, key)
+    if not row or not row.payload_json:
+        raise HTTPException(
+            status_code=503,
+            detail='Broker flow cache unavailable — Merolagani scrape failed',
+        )
+    return snapshot_to_response(row)
+
+
+@router.get('/premium/broker-flow')
+async def premium_broker_flow_both(
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return both Acc + Dist boards (warms cache on first hit if empty)."""
+    out: dict = {'ok': True, 'boards': {}}
+    # Warm once via accumulation — refresh writes both boards.
+    await ensure_warm_snapshot(db, 'accumulation')
+    for key in KINDS:
+        row = await get_snapshot(db, key)
+        if row and row.payload_json:
+            out['boards'][key] = snapshot_to_response(row)
+    if not out['boards']:
+        raise HTTPException(
+            status_code=503,
+            detail='Broker flow cache unavailable — Merolagani scrape failed',
+        )
+    return out

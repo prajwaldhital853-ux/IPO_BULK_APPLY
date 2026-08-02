@@ -197,6 +197,7 @@ async def init_db() -> None:
 def _apply_postgres_patches(sync_conn) -> None:
     insp = inspect(sync_conn)
     tables = set(insp.get_table_names())
+    # create_all should add broker_flow_snapshots; no column patches needed yet.
     if 'users' in tables:
         cols = {c['name'] for c in insp.get_columns('users')}
         if 'max_accounts' not in cols:
@@ -354,13 +355,14 @@ def _apply_postgres_patches(sync_conn) -> None:
         )
 
 
-async def run_with_session(coro) -> None:
+async def run_with_session(coro):
     """Run a coroutine with a one-off DB session (startup tasks)."""
     if _session_factory is None:
         raise RuntimeError('Database not configured')
     async with _session_factory() as session:
-        await coro(session)
+        result = await coro(session)
         await session.commit()
+        return result
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

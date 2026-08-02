@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -322,6 +332,31 @@ class PushDevice(Base):
     platform: Mapped[str] = mapped_column(String(16), default='android')
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class BrokerFlowSnapshot(Base):
+    """Shared Acc/Dis board cache for all users (Postgres)."""
+
+    __tablename__ = 'broker_flow_snapshots'
+
+    # 'accumulation' | 'distribution'
+    kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    session_date: Mapped[str] = mapped_column(String(10), default='')
+    trades_scanned: Mapped[int] = mapped_column(Integer, default=0)
+    # Merolagani contract ids are 12+ digit — need bigint.
+    max_contract_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    # Full PremiumIntelSnapshot JSON for the mobile client.
+    payload_json: Mapped[str] = mapped_column(Text, default='{}')
+    source: Mapped[str] = mapped_column(String(32), default='merolagani')
+    fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
     )
