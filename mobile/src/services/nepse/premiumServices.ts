@@ -424,7 +424,7 @@ export function peekFinancialReportsFeed(limit = 400): {
   };
 }
 
-/** Kick disk hydrate + background refresh so Financial Reports opens warm. */
+/** Kick disk hydrate + server/background refresh so Financial Reports opens warm. */
 export function prefetchFinancialReportsFeed(): void {
   void (async () => {
     try {
@@ -433,6 +433,25 @@ export function prefetchFinancialReportsFeed(): void {
         !financialReportsFeedCache ||
         Date.now() - financialReportsFeedCache.at >= FEED_CACHE_TTL_MS
       ) {
+        try {
+          const { fetchFinancialReportsFromServer } = await import(
+            './brokerFlowApi'
+          );
+          const server = await fetchFinancialReportsFromServer();
+          if (server?.rows?.length) {
+            const payload = {
+              asOf: server.asOf,
+              summary: server.summary ?? [],
+              rows: server.rows,
+            };
+            const cache: FeedCache = { at: Date.now(), payload };
+            financialReportsFeedCache = cache;
+            void persistFeedToDisk(cache);
+            return;
+          }
+        } catch {
+          // fall through
+        }
         await loadFinancialReportsFeed(400);
       }
     } catch {
@@ -464,6 +483,29 @@ export async function loadFinancialReportsFeed(
       ...financialReportsFeedCache.payload,
       rows: financialReportsFeedCache.payload.rows.slice(0, limit),
     };
+  }
+
+  // Shared Postgres cache (all users) before phone fan-out.
+  if (!opts?.force) {
+    try {
+      const { fetchFinancialReportsFromServer } = await import(
+        './brokerFlowApi'
+      );
+      const server = await fetchFinancialReportsFromServer();
+      if (server?.rows?.length) {
+        const payload = {
+          asOf: server.asOf,
+          summary: server.summary ?? [],
+          rows: server.rows,
+        };
+        const cache: FeedCache = { at: Date.now(), payload };
+        financialReportsFeedCache = cache;
+        void persistFeedToDisk(cache);
+        return { ...payload, rows: payload.rows.slice(0, limit) };
+      }
+    } catch {
+      // fall through to on-device fan-out
+    }
   }
 
   const payload = await refreshFinancialReportsInBackground(symbolLimit);

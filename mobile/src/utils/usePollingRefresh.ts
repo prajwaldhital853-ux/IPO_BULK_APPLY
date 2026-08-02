@@ -32,12 +32,11 @@ export function usePollingRefresh(
         if (invalidate) invalidateMarketCaches();
         void refreshRef.current(true);
       };
-      // Refresh soon after open, then every interval.
-      const soon = setTimeout(tick, 2000);
+      // Skip the old 2s "soon" tick — it fought first scroll/press after open.
+      // First interval fires after a full period of quiet focus.
       const id = setInterval(tick, intervalMs);
       return () => {
         active = false;
-        clearTimeout(soon);
         clearInterval(id);
       };
     }, [intervalMs, enabled, invalidate]),

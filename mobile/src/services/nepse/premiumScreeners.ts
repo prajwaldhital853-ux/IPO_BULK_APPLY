@@ -489,6 +489,25 @@ export async function loadPremiumScreener(
   kind: PremiumScreenerKind,
   limit = 50,
 ): Promise<PremiumScreenerSnapshot> {
+  // Unlock Period — shared Postgres cache before IPO + screener fan-out.
+  if (kind === 'unlock-period') {
+    try {
+      const { fetchUnlockPeriodFromServer } = await import('./brokerFlowApi');
+      const server = await fetchUnlockPeriodFromServer();
+      if (server?.rows?.length) {
+        const snap: PremiumScreenerSnapshot = {
+          ...server,
+          kind: 'unlock-period',
+          rows: server.rows.slice(0, limit),
+        };
+        screenerSnapCache.set(kind, { at: Date.now(), snap });
+        return snap;
+      }
+    } catch {
+      // fall through to on-device path
+    }
+  }
+
   const rows = await loadMiniScreener();
   const copy = COPY[kind];
   const asOf = new Date().toISOString();
@@ -577,16 +596,26 @@ export function prefetchPremiumScreeners(): void {
   screenerPrefetch = (async () => {
     try {
       await loadMiniScreener().catch(() => null);
-      // Sync kinds first (fast), then unlock-period (needs IPO offerings).
-      const syncKinds = ALL_SCREENER_KINDS.filter((k) => k !== 'unlock-period');
-      await Promise.allSettled(syncKinds.map((k) => loadPremiumScreener(k)));
-      await loadPremiumScreener('unlock-period').catch(() => null);
+      // Warm popular kinds one-by-one so we don't spike the JS thread.
+      // Full list still available on open via loadPremiumScreener / server cache.
+      const hotFirst: PremiumScreenerKind[] = [
+        'rising-stocks',
+        'price-droppers',
+        'unlock-period',
+        'value-pick',
+        'small-caps',
+      ];
+      const rest = ALL_SCREENER_KINDS.filter((k) => !hotFirst.includes(k));
+      for (const kind of [...hotFirst, ...rest]) {
+        await loadPremiumScreener(kind).catch(() => null);
+        await new Promise<void>((r) => setTimeout(r, 180));
+      }
     } catch {
       // best-effort
     } finally {
       setTimeout(() => {
         screenerPrefetch = null;
-      }, 15_000);
+      }, 30_000);
     }
   })();
 }

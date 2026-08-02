@@ -1,8 +1,9 @@
 """
-Shared Broker Accumulation / Distribution cache (Postgres).
+Shared Merolagani premium-board cache (Postgres).
 
-Scrapes Merolagani floorsheet once on the server, builds net buy/sell boards,
-and stores JSON snapshots so every mobile client can read the same warm cache.
+Scrapes Merolagani floorsheet once on the server, builds Acc/Dis plus Phase 1
+boards (top buy/sell, net holders/releases, aggressive, broker top), and stores
+JSON snapshots so every mobile client can read the same warm cache.
 """
 
 from __future__ import annotations
@@ -43,12 +44,73 @@ UA = (
 
 KIND_ACC = 'accumulation'
 KIND_DIST = 'distribution'
+KIND_TOP_BUYERS = 'top-buyers'
+KIND_TOP_SELLERS = 'top-sellers'
+KIND_NET_HOLDERS = 'net-holders'
+KIND_NET_RELEASES = 'net-releases'
+KIND_AGGRESSIVE = 'aggressive-holders'
+KIND_BROKER_TOP = 'broker-top-buy-sell'
+KIND_FINANCIAL = 'financial-reports'
+KIND_52_HIGH = 'fifty-two-week-high'
+KIND_52_LOW = 'fifty-two-week-low'
+KIND_UNLOCK = 'unlock-period'
+KIND_FAVORITES = 'broker-favorites'
+
+# Acc/Dis only (legacy helper for /premium/broker-flow both).
 KINDS = (KIND_ACC, KIND_DIST)
 
-# Mobile maps these to top-holders / top-releases.
+LIGHT_KINDS = (KIND_52_HIGH, KIND_52_LOW, KIND_UNLOCK, KIND_FAVORITES)
+
+# All Merolagani-derived boards written by refresh_broker_flow_cache.
+MERO_KINDS = (
+    KIND_ACC,
+    KIND_DIST,
+    KIND_TOP_BUYERS,
+    KIND_TOP_SELLERS,
+    KIND_NET_HOLDERS,
+    KIND_NET_RELEASES,
+    KIND_AGGRESSIVE,
+    KIND_BROKER_TOP,
+)
+
+# Mobile Acc/Dis maps these to top-holders / top-releases.
 KIND_TO_MOBILE = {
     KIND_ACC: 'top-holders',
     KIND_DIST: 'top-releases',
+}
+
+# Aliases accepted by GET /premium/broker-flow/{kind}
+KIND_ALIASES: dict[str, str] = {
+    'top-holders': KIND_ACC,
+    'holders': KIND_ACC,
+    'acc': KIND_ACC,
+    'accumulation': KIND_ACC,
+    'top-releases': KIND_DIST,
+    'releases': KIND_DIST,
+    'dist': KIND_DIST,
+    'distribution': KIND_DIST,
+    'top-buyers': KIND_TOP_BUYERS,
+    'buyers': KIND_TOP_BUYERS,
+    'top-sellers': KIND_TOP_SELLERS,
+    'sellers': KIND_TOP_SELLERS,
+    'net-holders': KIND_NET_HOLDERS,
+    'table-holders': KIND_NET_HOLDERS,
+    'net-releases': KIND_NET_RELEASES,
+    'table-releases': KIND_NET_RELEASES,
+    'aggressive-holders': KIND_AGGRESSIVE,
+    'aggressive': KIND_AGGRESSIVE,
+    'broker-top-buy-sell': KIND_BROKER_TOP,
+    'broker-top': KIND_BROKER_TOP,
+    'fifty-two-week-high': KIND_52_HIGH,
+    '52w-high': KIND_52_HIGH,
+    '52-week-high': KIND_52_HIGH,
+    'fifty-two-week-low': KIND_52_LOW,
+    '52w-low': KIND_52_LOW,
+    '52-week-low': KIND_52_LOW,
+    'unlock-period': KIND_UNLOCK,
+    'unlock': KIND_UNLOCK,
+    'broker-favorites': KIND_FAVORITES,
+    'favorites': KIND_FAVORITES,
 }
 
 
@@ -360,7 +422,7 @@ async def _http_post_page(client: httpx.AsyncClient, html: str, page: int) -> st
 
 
 async def scrape_floorsheet(pages: int) -> tuple[list[FloorRow], str | None, int]:
-    pages = max(1, min(pages, 12))
+    pages = max(1, min(pages, 40))
     timeout = httpx.Timeout(25.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         html = await _http_get(client)
@@ -382,11 +444,26 @@ async def get_snapshot(
     db: AsyncSession,
     kind: str,
 ) -> BrokerFlowSnapshot | None:
-    if kind not in KINDS:
-        return None
     return await db.scalar(
         select(BrokerFlowSnapshot).where(BrokerFlowSnapshot.kind == kind)
     )
+
+
+async def _mero_kinds_complete(db: AsyncSession) -> bool:
+    for kind in MERO_KINDS:
+        row = await get_snapshot(db, kind)
+        if not row or not (row.payload_json or '').strip() or row.payload_json == '{}':
+            return False
+    return True
+
+
+def normalize_board_kind(kind: str) -> str | None:
+    key = (kind or '').strip().lower()
+    if key in KIND_ALIASES:
+        return KIND_ALIASES[key]
+    if key in MERO_KINDS or key == KIND_FINANCIAL or key in LIGHT_KINDS:
+        return key
+    return None
 
 
 async def upsert_snapshot(
@@ -421,15 +498,20 @@ async def refresh_broker_flow_cache(
     force: bool = False,
 ) -> dict[str, Any]:
     """
-    Scrape Merolagani and immediately write Acc + Dist boards to Postgres.
+    Scrape Merolagani once and write Acc/Dis + Phase 1 boards to Postgres.
     Called by background loop and cron. Skips if latest max_contract_id unchanged
-    unless force=True.
+    and all Merolagani kinds are already present (unless force=True).
     """
-    settings = get_settings()
-    pages = int(settings.broker_flow_pages)
-    limit = int(settings.broker_flow_row_limit)
+    from .broker_boards import build_all_mero_boards
 
-    # Peek current fingerprint to skip unchanged sheets.
+    settings = get_settings()
+    pages = max(
+        int(settings.broker_flow_pages),
+        int(settings.broker_flow_aggressive_pages),
+    )
+    limit = int(settings.broker_flow_row_limit)
+    aggressive_limit = int(settings.broker_flow_aggressive_limit)
+
     existing = await get_snapshot(db, KIND_ACC)
     try:
         rows, session_date, max_id = await scrape_floorsheet(pages)
@@ -448,8 +530,10 @@ async def refresh_broker_flow_cache(
             'keptCache': bool(existing and existing.payload_json),
         }
 
+    complete = await _mero_kinds_complete(db)
     if (
         not force
+        and complete
         and existing
         and existing.max_contract_id == max_id
         and existing.session_date == (session_date or '')
@@ -465,6 +549,14 @@ async def refresh_broker_flow_cache(
         }
 
     boards = build_net_boards(rows, limit=limit, session_date=session_date)
+    boards.update(
+        build_all_mero_boards(
+            rows,
+            session_date=session_date,
+            limit=limit,
+            aggressive_limit=aggressive_limit,
+        )
+    )
     for kind, payload in boards.items():
         await upsert_snapshot(
             db,
@@ -477,12 +569,11 @@ async def refresh_broker_flow_cache(
         )
     await db.commit()
     log.info(
-        'Broker flow cache updated: session=%s trades=%s maxId=%s acc=%s dist=%s',
+        'Broker flow cache updated: session=%s trades=%s maxId=%s kinds=%s',
         session_date,
         len(rows),
         max_id,
-        len(boards[KIND_ACC]['rows']),
-        len(boards[KIND_DIST]['rows']),
+        list(boards.keys()),
     )
     return {
         'ok': True,
@@ -490,8 +581,9 @@ async def refresh_broker_flow_cache(
         'sessionDate': session_date,
         'maxContractId': max_id,
         'tradesScanned': len(rows),
-        'accumulationRows': len(boards[KIND_ACC]['rows']),
-        'distributionRows': len(boards[KIND_DIST]['rows']),
+        'accumulationRows': len(boards[KIND_ACC].get('rows') or []),
+        'distributionRows': len(boards[KIND_DIST].get('rows') or []),
+        'kinds': list(boards.keys()),
         'source': 'merolagani',
     }
 
@@ -520,19 +612,37 @@ async def ensure_warm_snapshot(
     kind: str,
 ) -> BrokerFlowSnapshot | None:
     """
-    Return cached board. If empty, one caller scrapes Merolagani and fills
-    Postgres so every later user hits a warm cache (~1s).
+    Return cached board. If empty, one caller scrapes Merolagani (or financial
+    fan-out) and fills Postgres so every later user hits a warm cache.
     """
-    row = await get_snapshot(db, kind)
-    if row and row.payload_json:
+    resolved = normalize_board_kind(kind) or kind
+    row = await get_snapshot(db, resolved)
+    if row and row.payload_json and row.payload_json != '{}':
         return row
 
+    # Financial reports use a separate lock/refresh path (ShareHub fan-out).
+    if resolved == KIND_FINANCIAL:
+        from .financial_reports_cache import refresh_financial_reports_cache
+
+        meta = await refresh_financial_reports_cache(db, force=True)
+        if not meta.get('ok'):
+            return await get_snapshot(db, resolved)
+        return await get_snapshot(db, resolved)
+
+    # 52W / Unlock / Broker Favorites — ShareHub light boards.
+    if resolved in LIGHT_KINDS:
+        from .light_boards_cache import refresh_light_boards_cache
+
+        meta = await refresh_light_boards_cache(db, force=True)
+        if not meta.get('ok'):
+            return await get_snapshot(db, resolved)
+        return await get_snapshot(db, resolved)
+
     async with _lock():
-        # Another request may have filled the cache while we waited.
-        row = await get_snapshot(db, kind)
-        if row and row.payload_json:
+        row = await get_snapshot(db, resolved)
+        if row and row.payload_json and row.payload_json != '{}':
             return row
         meta = await refresh_broker_flow_cache(db, force=True)
         if not meta.get('ok'):
-            return await get_snapshot(db, kind)
-        return await get_snapshot(db, kind)
+            return await get_snapshot(db, resolved)
+        return await get_snapshot(db, resolved)

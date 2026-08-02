@@ -477,6 +477,11 @@ export function AggressiveHoldersScreen() {
     <FlatList
       data={filtered}
       keyExtractor={(item) => item.symbol}
+      initialNumToRender={6}
+      maxToRenderPerBatch={4}
+      windowSize={5}
+      removeClippedSubviews
+      updateCellsBatchingPeriod={40}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}

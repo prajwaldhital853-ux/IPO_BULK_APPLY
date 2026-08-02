@@ -43,6 +43,8 @@ _check_semaphore: asyncio.Semaphore | None = None
 _company_refresh_task: asyncio.Task | None = None
 _company_refresh_lock: asyncio.Lock | None = None
 _broker_flow_refresh_task: asyncio.Task | None = None
+_financial_reports_refresh_task: asyncio.Task | None = None
+_light_boards_refresh_task: asyncio.Task | None = None
 
 
 def _refresh_lock() -> asyncio.Lock:
@@ -123,7 +125,7 @@ async def _company_refresh_loop() -> None:
 
 
 async def _broker_flow_refresh_loop() -> None:
-    """Keep Acc/Dis Postgres cache warm for all users."""
+    """Keep Merolagani premium boards warm in Postgres for all users."""
     settings = get_settings()
     interval = max(0, int(settings.broker_flow_refresh_seconds))
     if interval <= 0:
@@ -150,9 +152,64 @@ async def _broker_flow_refresh_loop() -> None:
         await asyncio.sleep(interval)
 
 
+async def _financial_reports_refresh_loop() -> None:
+    """Keep financial reports Postgres cache warm for all users."""
+    settings = get_settings()
+    interval = max(0, int(settings.financial_reports_refresh_seconds))
+    if interval <= 0:
+        log.info("Financial reports background refresh disabled")
+        return
+
+    await asyncio.sleep(45)
+    while True:
+        try:
+            from .financial_reports_cache import refresh_financial_reports_cache
+
+            async def _run(db):
+                return await refresh_financial_reports_cache(db, force=False)
+
+            meta = await run_with_session(_run)
+            if meta and not meta.get("skipped"):
+                log.info(
+                    "Background financial-reports sync: rows=%s",
+                    meta.get("rows"),
+                )
+        except Exception as e:  # noqa: BLE001
+            log.warning("Background financial-reports sync failed: %s", e)
+        await asyncio.sleep(interval)
+
+
+async def _light_boards_refresh_loop() -> None:
+    """Keep 52W / Unlock / Broker Favorites Postgres cache warm."""
+    settings = get_settings()
+    interval = max(0, int(settings.light_boards_refresh_seconds))
+    if interval <= 0:
+        log.info("Light boards background refresh disabled")
+        return
+
+    await asyncio.sleep(35)
+    while True:
+        try:
+            from .light_boards_cache import refresh_light_boards_cache
+
+            async def _run(db):
+                return await refresh_light_boards_cache(db, force=False)
+
+            meta = await run_with_session(_run)
+            if meta and not meta.get("skipped"):
+                log.info(
+                    "Background light-boards sync: %s",
+                    meta.get("counts"),
+                )
+        except Exception as e:  # noqa: BLE001
+            log.warning("Background light-boards sync failed: %s", e)
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _check_semaphore, _company_refresh_task, _broker_flow_refresh_task
+    global _financial_reports_refresh_task, _light_boards_refresh_task
     settings = get_settings()
     configure(settings.database_url)
     await init_db()
@@ -176,7 +233,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         log.warning("Initial CDSC company sync deferred: %s", e)
 
-    # Seed Acc/Dis Postgres cache once at startup (non-blocking failure).
+    # Seed Merolagani boards once at startup (non-blocking failure).
     try:
         from .broker_flow import refresh_broker_flow_cache
 
@@ -187,10 +244,46 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         log.warning("Initial broker-flow sync deferred: %s", e)
 
+    # Seed financial reports in background task — fan-out is slow; don't block boot.
+    async def _seed_fin_later() -> None:
+        await asyncio.sleep(30)
+        try:
+            from .financial_reports_cache import refresh_financial_reports_cache
+
+            async def _seed_fin(db):
+                return await refresh_financial_reports_cache(db, force=True)
+
+            await run_with_session(_seed_fin)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Initial financial-reports sync deferred: %s", e)
+
+    async def _seed_light_later() -> None:
+        await asyncio.sleep(15)
+        try:
+            from .light_boards_cache import refresh_light_boards_cache
+
+            async def _seed_light(db):
+                return await refresh_light_boards_cache(db, force=True)
+
+            await run_with_session(_seed_light)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Initial light-boards sync deferred: %s", e)
+
     _company_refresh_task = asyncio.create_task(_company_refresh_loop())
     _broker_flow_refresh_task = asyncio.create_task(_broker_flow_refresh_loop())
+    _financial_reports_refresh_task = asyncio.create_task(
+        _financial_reports_refresh_loop()
+    )
+    _light_boards_refresh_task = asyncio.create_task(_light_boards_refresh_loop())
+    asyncio.create_task(_seed_fin_later())
+    asyncio.create_task(_seed_light_later())
     yield
-    for task in (_company_refresh_task, _broker_flow_refresh_task):
+    for task in (
+        _company_refresh_task,
+        _broker_flow_refresh_task,
+        _financial_reports_refresh_task,
+        _light_boards_refresh_task,
+    ):
         if task is not None:
             task.cancel()
             try:

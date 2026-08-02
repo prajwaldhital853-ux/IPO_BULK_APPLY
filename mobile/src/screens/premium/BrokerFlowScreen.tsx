@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
   Image,
   InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -187,11 +187,27 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
   const busyRef = useRef(false);
   const revealDoneRef = useRef(false);
   const hasRowsRef = useRef(false);
+  const hScrollX = useRef(new Animated.Value(0)).current;
+  const [tableBodyH, setTableBodyH] = useState(0);
 
   const rowKey = useCallback(
     (item: PremiumIntelRow) =>
       `${item.symbol}-${item.brokerCode ?? 'x'}-${item.rank}`,
     [],
+  );
+
+  const onHorizScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { x: hScrollX } } }], {
+        useNativeDriver: true,
+      }),
+    [hScrollX],
+  );
+
+  /** Keeps SYM pinned while the wide table scrolls left/right. */
+  const stickySymStyle = useMemo(
+    () => ({ transform: [{ translateX: hScrollX }] }),
+    [hScrollX],
   );
 
   const refresh = useCallback(
@@ -502,9 +518,11 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
 
   const tableHeader = (
     <View style={[styles.tableHeadRow, { width: tableWidth }]}>
-      <View style={styles.symHeadFixed}>
+      <Animated.View
+        style={[styles.symHeadFixed, styles.stickySym, stickySymStyle]}
+      >
         <Text style={styles.th}>SYM</Text>
-      </View>
+      </Animated.View>
       <Pressable
         style={[styles.thPress, styles.hColQty]}
         onPress={() => toggleSort('qty')}
@@ -563,23 +581,44 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
         </View>
       </View>
 
-      <View style={styles.tableWrap}>
+      <View
+        style={styles.tableWrap}
+        onLayout={(e) => {
+          const h = e.nativeEvent.layout.height;
+          if (h > 0) setTableBodyH(h);
+        }}
+      >
         {!tableReady || (loading && rows.length === 0) ? (
           <ActivityIndicator style={{ marginTop: rs(40) }} color={HEADER_TEAL} />
         ) : (
-          <ScrollView
+          <Animated.ScrollView
             horizontal
             bounces={false}
             nestedScrollEnabled
             showsHorizontalScrollIndicator
+            scrollEventThrottle={16}
+            onScroll={onHorizScroll}
             style={styles.hTableScroll}
             contentContainerStyle={styles.hTableContent}
           >
-            <View style={[styles.tableInner, { width: tableWidth }]}>
+            <View
+              style={[
+                styles.tableInner,
+                {
+                  width: tableWidth,
+                  height: tableBodyH > 0 ? tableBodyH : undefined,
+                },
+              ]}
+            >
               {tableHeader}
               <FlatList
                 data={visible}
-                style={styles.dataList}
+                style={[
+                  styles.dataList,
+                  tableBodyH > ROW_H
+                    ? { height: tableBodyH - ROW_H }
+                    : { flex: 1 },
+                ]}
                 contentContainerStyle={styles.listContent}
                 nestedScrollEnabled
                 initialNumToRender={8}
@@ -615,10 +654,12 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
                       navigation.navigate('StockDetail', { symbol: item.symbol })
                     }
                   >
-                    <View
+                    <Animated.View
                       style={[
                         styles.symCell,
                         index % 2 === 1 && styles.rowAlt,
+                        styles.stickySym,
+                        stickySymStyle,
                       ]}
                     >
                       <SymLogo
@@ -629,15 +670,14 @@ export function BrokerFlowScreen({ mode }: { mode: Mode }) {
                       <Text style={styles.symText} numberOfLines={1}>
                         {item.symbol}
                       </Text>
-                    </View>
+                    </Animated.View>
                     {renderDataCols(item)}
                   </Pressable>
                 )}
               />
             </View>
-          </ScrollView>
+          </Animated.ScrollView>
         )}
-
       </View>
 
       <Modal
@@ -762,14 +802,18 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     tableWrap: { flex: 1, minHeight: 0, overflow: 'hidden' },
     hTableScroll: { flex: 1 },
     hTableContent: { flexGrow: 1 },
-    tableInner: { flex: 1 },
-    dataList: { flex: 1 },
+    tableInner: { flexGrow: 1 },
+    dataList: { flexGrow: 1 },
     listContent: { paddingBottom: rs(8) },
     tableHeadRow: {
       flexDirection: 'row',
       alignItems: 'center',
       height: ROW_H,
       backgroundColor: HEADER_TEAL,
+    },
+    stickySym: {
+      zIndex: 4,
+      elevation: 4,
     },
     symHeadFixed: {
       width: SYM_COL_W,

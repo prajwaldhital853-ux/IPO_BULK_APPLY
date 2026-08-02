@@ -16,6 +16,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { useTheme } from '../context/ThemeContext';
+import { pausePrefetch } from '../services/nepse/prefetchGate';
 import { rs } from '../utils/responsive';
 
 const ICONS: Record<
@@ -137,6 +138,8 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
               canPreventDefault: true,
             });
             if (!focused && !event.defaultPrevented) {
+              // Free JS for the tab switch — pause background warm-up briefly.
+              pausePrefetch(2500);
               // Instant index change — same feel as the reference video.
               navigation.jumpTo(route.name);
             }

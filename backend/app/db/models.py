@@ -343,11 +343,12 @@ class PushDevice(Base):
 
 
 class BrokerFlowSnapshot(Base):
-    """Shared Acc/Dis board cache for all users (Postgres)."""
+    """Shared premium board cache for all users (Postgres)."""
 
     __tablename__ = 'broker_flow_snapshots'
 
-    # 'accumulation' | 'distribution'
+    # accumulation | distribution | top-buyers | … | financial-reports |
+    # fifty-two-week-high | fifty-two-week-low | unlock-period | broker-favorites
     kind: Mapped[str] = mapped_column(String(32), primary_key=True)
     session_date: Mapped[str] = mapped_column(String(10), default='')
     trades_scanned: Mapped[int] = mapped_column(Integer, default=0)

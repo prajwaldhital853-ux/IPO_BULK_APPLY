@@ -20,6 +20,7 @@ import type { PremiumScreenerKind } from '../services/nepse/premiumScreeners';
 import type { PremiumToolKind } from '../services/nepse/premiumServices';
 import type { ExtraToolKind } from '../services/nepse/extraData';
 import { prefetchHotPremiumTools } from '../services/nepse/prefetchServices';
+import { pausePrefetch } from '../services/nepse/prefetchGate';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
@@ -618,7 +619,7 @@ export function ServicesScreen() {
       prefetchTimerRef.current = setTimeout(() => {
         prefetchTimerRef.current = null;
         void prefetchHotPremiumTools();
-      }, 1200);
+      }, 2800);
       return () => {
         if (prefetchTimerRef.current) {
           clearTimeout(prefetchTimerRef.current);
@@ -646,6 +647,7 @@ export function ServicesScreen() {
         clearTimeout(prefetchTimerRef.current);
         prefetchTimerRef.current = null;
       }
+      pausePrefetch(4000);
       // Navigate in this tick — never prefetch / hydrate before the push starts.
       const route = item.route;
       if (!route) return;
@@ -733,10 +735,11 @@ export function ServicesScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        initialNumToRender={1}
-        maxToRenderPerBatch={1}
-        windowSize={3}
+        initialNumToRender={2}
+        maxToRenderPerBatch={2}
+        windowSize={4}
         removeClippedSubviews
+        updateCellsBatchingPeriod={50}
         renderItem={({ item: sec }) => (
           <SectionBlock
             section={sec}

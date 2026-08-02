@@ -156,7 +156,31 @@ async def job_broker_flow_refresh(
     _: None = Depends(_require_cron),
     force: bool = False,
 ) -> dict:
-    """Cron: scrape Merolagani and upsert Acc/Dis boards into Postgres."""
+    """Cron: scrape Merolagani and upsert Phase 1 boards into Postgres."""
     from ..broker_flow import refresh_broker_flow_cache
 
     return await refresh_broker_flow_cache(db, force=force)
+
+
+@router.post('/jobs/financial-reports-refresh')
+async def job_financial_reports_refresh(
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_cron),
+    force: bool = False,
+) -> dict:
+    """Cron: fan-out ShareHub fundamentals into Postgres financial-reports snapshot."""
+    from ..financial_reports_cache import refresh_financial_reports_cache
+
+    return await refresh_financial_reports_cache(db, force=force)
+
+
+@router.post('/jobs/light-boards-refresh')
+async def job_light_boards_refresh(
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_cron),
+    force: bool = False,
+) -> dict:
+    """Cron: rebuild 52W / Unlock / Broker Favorites snapshots from ShareHub."""
+    from ..light_boards_cache import refresh_light_boards_cache
+
+    return await refresh_light_boards_cache(db, force=force)

@@ -80,13 +80,30 @@ class Settings(BaseSettings):
     payment_account_number: str = '0123456789'
     payment_whatsapp: str = '9779709133067'
 
-    # Shared Broker Acc/Dis cache (Postgres). Refreshed from Merolagani floorsheet.
+    # Shared Broker Acc/Dis + Phase 1 boards (Postgres). Merolagani floorsheet.
     # 0 disables the background loop (cron-only via POST /app/push/jobs/broker-flow-refresh).
     broker_flow_refresh_seconds: int = 300  # 5 minutes
-    # Merolagani pages to scrape per refresh (≈500 trades/page).
+    # Merolagani pages for Acc/Dis / top boards (≈500 trades/page).
     broker_flow_pages: int = 4
-    # Max ranked rows stored per board.
+    # Deeper scrape for Aggressive Holders (same refresh writes all boards).
+    broker_flow_aggressive_pages: int = 24
+    # Max ranked rows stored per Acc/Dis board.
     broker_flow_row_limit: int = 120
+    # Max stocks on aggressive-holders board.
+    broker_flow_aggressive_limit: int = 200
+
+    # Shared financial reports feed (Postgres). ShareHub fundamentals fan-out.
+    # 0 disables the background loop (cron-only via POST /app/push/jobs/financial-reports-refresh).
+    financial_reports_refresh_seconds: int = 900  # 15 minutes
+    financial_reports_symbol_limit: int = 160
+    financial_reports_concurrency: int = 12
+
+    # Light ShareHub boards: 52W high/low, Unlock, Broker Favorites.
+    # 0 disables the background loop (cron-only via POST /app/push/jobs/light-boards-refresh).
+    light_boards_refresh_seconds: int = 300  # 5 minutes
+    light_boards_52w_limit: int = 120
+    light_boards_unlock_limit: int = 50
+    light_boards_favorites_limit: int = 60
 
     # Cron / push jobs (Render Cron Jobs). Prefer dedicated secret; falls back to api_key.
     cron_secret: str = ''

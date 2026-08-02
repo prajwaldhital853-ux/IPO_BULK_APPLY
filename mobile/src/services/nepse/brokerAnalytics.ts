@@ -175,6 +175,132 @@ function rememberIntelSnap(
   persistIntelCacheToDisk();
 }
 
+/**
+ * Server Acc/Dis boards omit logos/LTP/Chg% (kept light). Fill from mini-screener
+ * so Expo Go and APK match the old on-device enriched look.
+ */
+async function enrichIntelSnapFromScreener(
+  snap: PremiumIntelSnapshot,
+): Promise<PremiumIntelSnapshot> {
+  const screener = await screenerMap().catch(
+    () => new Map<string, MiniScreenerRow>(),
+  );
+  if (!screener.size) return snap;
+  const rows = snap.rows.map((row) => {
+    const s = screener.get(row.symbol.toUpperCase());
+    if (!s) return row;
+    return {
+      ...row,
+      name: s.name || row.name,
+      iconUrl: iconUri(row.iconUrl ?? s.iconUrl) ?? null,
+      ltp: s.ltp ?? row.ltp,
+      changePct: s.changePercent ?? row.changePct,
+      turnover: s.turnover ?? row.turnover,
+      volume: s.volume ?? row.volume,
+      sector: s.sector ?? row.sector,
+      fiftyTwoWeekHigh: s.fiftyTwoWeekHigh ?? row.fiftyTwoWeekHigh,
+      fiftyTwoWeekLow: s.fiftyTwoWeekLow ?? row.fiftyTwoWeekLow,
+    };
+  });
+  return { ...snap, rows };
+}
+
+async function enrichNetSideFromScreener(board: NetSideBoard): Promise<NetSideBoard> {
+  const screener = await screenerMap().catch(
+    () => new Map<string, MiniScreenerRow>(),
+  );
+  if (!screener.size) return board;
+  return {
+    ...board,
+    rows: board.rows.map((r) => {
+      const s = screener.get(r.symbol.toUpperCase());
+      return {
+        ...r,
+        ltp: s?.ltp ?? r.ltp,
+      };
+    }),
+  };
+}
+
+async function enrichBrokerTopFromDirectory(
+  board: BrokerTopBuySellBoard,
+): Promise<BrokerTopBuySellBoard> {
+  const brokers = await loadBrokers().catch(() => [] as BrokerInfo[]);
+  if (!brokers.length) return board;
+  const dir = brokerDirectoryMap(brokers);
+  const names = nameDirectory(brokers);
+  return {
+    ...board,
+    brokers: board.brokers.map((b) => {
+      const code = normBrokerCode(b.code);
+      const info = dir.get(code);
+      const name =
+        info?.name ||
+        names.get(code) ||
+        (looksLikeBrokerFirm(b.name) ? b.name : null) ||
+        `Broker ${code}`;
+      return {
+        ...b,
+        code,
+        name,
+        iconUrl: info?.iconUrl ?? b.iconUrl ?? null,
+      };
+    }),
+  };
+}
+
+async function enrichAggressiveFromScreener(
+  board: AggressiveHolderBoard,
+): Promise<AggressiveHolderBoard> {
+  const [screener, brokers] = await Promise.all([
+    screenerMap().catch(() => new Map<string, MiniScreenerRow>()),
+    loadBrokers().catch(() => [] as BrokerInfo[]),
+  ]);
+  const brokerDir = brokerDirectoryMap(brokers);
+  const nameDir = nameDirectory(brokers);
+  return {
+    ...board,
+    stocks: board.stocks.map((st) => {
+      const s = screener.get(st.symbol.toUpperCase());
+      const listed = s?.listedShares ?? 0;
+      const vol = s?.volume ?? st.totalTradedQty;
+      const publicTradePct =
+        listed > 0
+          ? Math.round((vol / listed) * 10000) / 100
+          : st.publicTradePct;
+      const change =
+        s?.ltp != null && s?.previousClose != null
+          ? s.ltp - s.previousClose
+          : (s?.change ?? st.change);
+      const changePct = s?.changePercent ?? st.changePct;
+      return {
+        ...st,
+        name: s?.name || st.name,
+        iconUrl: iconUri(st.iconUrl ?? s?.iconUrl) ?? null,
+        ltp: s?.ltp ?? st.ltp,
+        change,
+        changePct,
+        publicTradePct,
+        totalTradedQty: vol,
+        topBrokers: st.topBrokers.map((b) => {
+          const code = normBrokerCode(b.code);
+          const info = brokerDir.get(code);
+          const floorName = nameDir.get(code) ?? b.name;
+          return {
+            ...b,
+            code,
+            name:
+              info?.name ||
+              (looksLikeBrokerFirm(floorName) ? floorName : null) ||
+              `Broker ${code}`,
+            iconUrl: info?.iconUrl ?? brokerIcon(code, brokerDir) ?? b.iconUrl,
+          };
+        }),
+      };
+    }),
+  };
+}
+
 export function invalidateBrokerAnalyticsCache(): void {
   brokerCache = null;
   brokerCacheAt = 0;
@@ -1195,20 +1321,36 @@ export async function streamPremiumIntel(
   let cached = intelSnapCache.get(kind);
   if (cached && isDayCacheFresh(cached, null)) {
     onUpdate(cached.snap, { partial: true, page: 0 });
+    // Older server snaps omitted logos/LTP — fill from screener while network runs.
+    const bare = cached.snap.rows.some((r) => r.ltp == null || !r.iconUrl);
+    if (bare) {
+      void enrichIntelSnapFromScreener(cached.snap).then((enriched) => {
+        rememberIntelSnap(
+          kind,
+          enriched,
+          cached!.sessionDate,
+          cached!.maxContractId,
+        );
+        onUpdate(enriched, { partial: true, page: 0 });
+      });
+    }
   } else {
     cached = undefined;
   }
 
   // Shared server cache — one Merolagani scrape on the API, all phones read it.
+  // Then enrich logos / LTP / Chg% from the local mini-screener (server omits them).
   try {
     const { fetchBrokerFlowFromServer } = await import('./brokerFlowApi');
     const serverSnap = await fetchBrokerFlowFromServer(kind);
     if (serverSnap?.rows?.length) {
-      const sessionDate = serverSnap.sessionDate ?? null;
+      onUpdate(serverSnap, { partial: true, page: 0 });
+      const enriched = await enrichIntelSnapFromScreener(serverSnap);
+      const sessionDate = enriched.sessionDate ?? null;
       const maxId = Number(serverSnap.maxContractId ?? 0) || 0;
-      rememberIntelSnap(kind, serverSnap, sessionDate, maxId);
-      onUpdate(serverSnap, { partial: false, page: 0 });
-      return serverSnap;
+      rememberIntelSnap(kind, enriched, sessionDate, maxId);
+      onUpdate(enriched, { partial: false, page: 0 });
+      return enriched;
     }
   } catch {
     // fall through to Merolagani
@@ -1379,31 +1521,41 @@ export async function streamPremiumIntel(
 }
 
 /**
- * Warm disk Acc/Dis cache, screener logos, and a light floorsheet session so
- * Top Buy/Sell / Aggressive / Broker Top can paint from memory on first open.
- * Full progressive deepen still happens on each screen after navigation.
+ * Warm disk Acc/Dis cache + Phase 1 boards from shared Postgres so tables
+ * paint on first open without Merolagani scrape.
  */
 export function prefetchBrokerFlowIntel(): void {
   if (brokerFlowPrefetch) return;
   brokerFlowPrefetch = (async () => {
     try {
+      const { waitIfPrefetchPaused } = await import('./prefetchGate');
+      await waitIfPrefetchPaused(10_000);
       await hydrateIntelCacheFromDisk();
-      // Warm Acc/Dis from shared Postgres cache (all users).
+      await waitIfPrefetchPaused(10_000);
       try {
-        const { fetchBrokerFlowFromServer } = await import('./brokerFlowApi');
-        await Promise.all(
-          (['top-holders', 'top-releases'] as const).map(async (kind) => {
-            const snap = await fetchBrokerFlowFromServer(kind);
-            if (snap?.rows?.length) {
-              rememberIntelSnap(
-                kind,
-                snap,
-                snap.sessionDate ?? null,
-                Number(snap.maxContractId ?? 0) || 0,
-              );
-            }
-          }),
-        );
+        const {
+          fetchBrokerFlowFromServer,
+          prefetchPhase1BoardsFromServer,
+        } = await import('./brokerFlowApi');
+        // Acc/Dis first (most opened), then light Phase-1 warm later.
+        for (const kind of ['top-holders', 'top-releases'] as const) {
+          await waitIfPrefetchPaused(10_000);
+          const snap = await fetchBrokerFlowFromServer(kind);
+          if (snap?.rows?.length) {
+            const enriched = await enrichIntelSnapFromScreener(snap);
+            rememberIntelSnap(
+              kind,
+              enriched,
+              enriched.sessionDate ?? null,
+              Number(snap.maxContractId ?? 0) || 0,
+            );
+          }
+        }
+        await waitIfPrefetchPaused(10_000);
+        // Deferred — don't fan out every board while user is navigating.
+        setTimeout(() => {
+          void prefetchPhase1BoardsFromServer();
+        }, 5000);
       } catch {
         // ignore — Merolagani fallback still available on open
       }
@@ -1413,7 +1565,7 @@ export function prefetchBrokerFlowIntel(): void {
     } finally {
       setTimeout(() => {
         brokerFlowPrefetch = null;
-      }, 30_000);
+      }, 45_000);
     }
   })();
 }
@@ -1471,6 +1623,22 @@ export function peekBrokerFavorites(): PremiumIntelSnapshot | null {
 }
 
 async function loadBrokerFavorites(limit: number): Promise<PremiumIntelSnapshot> {
+  // Shared Postgres cache (all users) before on-device scoring.
+  try {
+    const { fetchBrokerFavoritesFromServer } = await import('./brokerFlowApi');
+    const server = await fetchBrokerFavoritesFromServer();
+    if (server?.rows?.length) {
+      const snap: PremiumIntelSnapshot = {
+        ...server,
+        rows: server.rows.slice(0, limit),
+      };
+      brokerFavoritesCache = { at: Date.now(), snap };
+      return snap;
+    }
+  } catch {
+    // fall through
+  }
+
   const [screener, demand, mini] = await Promise.all([
     screenerMap(),
     loadHighDemand(),
@@ -1982,6 +2150,23 @@ export async function streamBrokerTopBuySellBoard(
     emit(floorsheetCache!, false, floorsheetMeta.date);
   }
 
+  // Shared Postgres cache (all users) — skip Merolagani when warm.
+  try {
+    const { fetchBrokerTopBuySellFromServer } = await import('./brokerFlowApi');
+    const server = await fetchBrokerTopBuySellFromServer();
+    if (server?.brokers?.length) {
+      const enriched = await enrichBrokerTopFromDirectory(server);
+      last = {
+        ...enriched,
+        priorSessionReason: priorSessionReason(enriched.sessionDate, liveDate),
+      };
+      onUpdate(last, { partial: false });
+      return last;
+    }
+  } catch {
+    // fall through to Merolagani
+  }
+
   const ingestDefault = (
     rows: FloorsheetRow[],
     meta: { done: boolean; asOf: string | null },
@@ -2142,6 +2327,23 @@ export async function streamTopSideBoard(
 
   if (isFloorsheetCacheFresh(liveDate)) {
     emit(floorsheetCache!, false, floorsheetMeta.date);
+  }
+
+  // Shared Postgres cache (all users) — skip Merolagani when warm.
+  try {
+    const { fetchTopSideBoardFromServer } = await import('./brokerFlowApi');
+    const server = await fetchTopSideBoardFromServer(side);
+    if (server?.rows?.length) {
+      last = {
+        ...server,
+        side,
+        priorSessionReason: priorSessionReason(server.sessionDate, liveDate),
+      };
+      onUpdate(last, { partial: false });
+      return last;
+    }
+  } catch {
+    // fall through to Merolagani
   }
 
   const ingest = (
@@ -2396,6 +2598,20 @@ export async function streamNetSideBoard(
     emit(floorsheetCache, false);
   }
 
+  // Shared Postgres cache (all users) — skip Merolagani when warm.
+  try {
+    const { fetchNetSideBoardFromServer } = await import('./brokerFlowApi');
+    const server = await fetchNetSideBoardFromServer(mode);
+    if (server?.rows?.length) {
+      onUpdate(server, { partial: true });
+      last = await enrichNetSideFromScreener(server);
+      onUpdate(last, { partial: false });
+      return last;
+    }
+  } catch {
+    // fall through to Merolagani
+  }
+
   try {
     await loadMerolaganiFloorsheetProgressive((rows, meta) => {
       if (hasBrokerData(rows) && rows.length > 0) {
@@ -2606,6 +2822,22 @@ export async function loadFiftyTwoWeekRows(
   asOf: string;
   sourceNote: string;
 }> {
+  // Shared Postgres cache (all users) before on-device ranking.
+  try {
+    const { fetchFiftyTwoWeekFromServer } = await import('./brokerFlowApi');
+    const server = await fetchFiftyTwoWeekFromServer(mode);
+    if (server?.rows?.length) {
+      return {
+        rows: server.rows.slice(0, limit),
+        summary: server.summary ?? [],
+        asOf: server.asOf,
+        sourceNote: server.sourceNote,
+      };
+    }
+  } catch {
+    // fall through
+  }
+
   const [asOf, mini] = await Promise.all([
     resolveLiveMarketDate(),
     loadMiniScreener(),
@@ -2985,6 +3217,33 @@ export async function streamAggressiveHolderStocks(
   // Paint warm floorsheet immediately, then deepen with progressive pages.
   if (isFloorsheetCacheFresh(liveDate)) {
     emit(floorsheetCache!, true, floorsheetMeta.date);
+  }
+
+  // Shared Postgres cache (all users) — skip deep Merolagani when warm.
+  try {
+    const { fetchAggressiveHoldersFromServer } = await import('./brokerFlowApi');
+    const server = await fetchAggressiveHoldersFromServer();
+    if (server?.stocks?.length) {
+      onUpdate(
+        {
+          ...server,
+          priorSessionReason: priorSessionReason(server.sessionDate, liveDate),
+        },
+        { partial: true },
+      );
+      const enriched = await enrichAggressiveFromScreener(server);
+      const stocks =
+        limit > 0 ? enriched.stocks.slice(0, limit) : enriched.stocks;
+      last = {
+        ...enriched,
+        stocks,
+        priorSessionReason: priorSessionReason(enriched.sessionDate, liveDate),
+      };
+      onUpdate(last, { partial: false });
+      return last;
+    }
+  } catch {
+    // fall through to Merolagani
   }
 
   // Deep floorsheet load — Acc/Dis thin cache (4 pages) often misses SAIL-like names.

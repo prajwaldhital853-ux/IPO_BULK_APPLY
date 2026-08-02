@@ -439,13 +439,11 @@ export function HomeScreen() {
         count={2}
         onIndexChange={(i) => setTab(i === 0 ? 'Accounts' : 'Market')}
       >
-      {/* Lazy-mount Market (chart) — after first open, hide instead of remount. */}
-      {marketVisited ? (
-        <View
-          style={[styles.tabPane, tab !== 'Market' && styles.tabPaneHidden]}
-          pointerEvents={tab === 'Market' ? 'auto' : 'none'}
-        >
-          <HomeMarketPanel active={tab === 'Market'} />
+      {/* Mount Market only while visible — keeps chart/SVG off the JS thread
+          when Accounts is active (instant scroll / tab switch). */}
+      {marketVisited && tab === 'Market' ? (
+        <View style={styles.tabPane} pointerEvents="auto">
+          <HomeMarketPanel active />
         </View>
       ) : null}
       <View
@@ -559,6 +557,10 @@ export function HomeScreen() {
             style={styles.listFlex}
             containerStyle={styles.listFlex}
             showsVerticalScrollIndicator
+            initialNumToRender={8}
+            maxToRenderPerBatch={6}
+            windowSize={5}
+            removeClippedSubviews
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}

@@ -188,11 +188,7 @@ export function HomeMarketPanel({ active }: Props) {
     }
   }, []);
 
-  // Prefetch while Accounts is visible so Market opens with data already warm.
-  useEffect(() => {
-    void refresh(true);
-  }, [refresh]);
-
+  // Load only when Market is visible — don't fight Accounts scroll.
   useEffect(() => {
     if (!active || !tabFocused) return;
     const peek = peekNepseMarketSnapshot();

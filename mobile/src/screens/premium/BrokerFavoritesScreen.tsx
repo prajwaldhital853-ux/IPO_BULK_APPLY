@@ -212,6 +212,11 @@ export function BrokerFavoritesScreen() {
         keyExtractor={(item) =>
           `${item.rank}-${item.symbol}-${item.brokerCode ?? 'x'}`
         }
+        initialNumToRender={8}
+        maxToRenderPerBatch={6}
+        windowSize={5}
+        removeClippedSubviews
+        updateCellsBatchingPeriod={40}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

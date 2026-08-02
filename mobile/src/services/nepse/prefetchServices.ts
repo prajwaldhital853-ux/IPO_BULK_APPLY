@@ -21,37 +21,49 @@ import {
   prefetchBrokerFlowIntel,
 } from './brokerAnalytics';
 import { loadMarketPulse } from './premiumAnalytics';
+import {
+  isPrefetchPaused,
+  waitIfPrefetchPaused,
+} from './prefetchGate';
 
 let started = false;
 let hotPremiumStarted = false;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+async function yieldToUi(): Promise<void> {
+  await waitIfPrefetchPaused(10_000);
+  // Extra beat so scroll/press handlers run before the next network/CPU chunk.
+  await sleep(40);
+}
+
 /**
  * Warm caches for Services screens after app open so tools open instantly.
- *
- * Kept deliberately light at first, then warms the premium boards users open
- * most (screeners, financial reports, floorsheet) so data paints on first tap.
+ * Yields whenever the user navigates so taps/transitions stay snappy.
  */
 export function prefetchServicesData(): void {
   if (started) return;
   started = true;
 
   void (async () => {
+    await yieldToUi();
     // Wave 1 — core market snapshot + screener (Home Market + Services)
     await Promise.allSettled([
       loadMiniScreener(),
       loadNepseMarketSnapshot({ allowCache: true }),
     ]);
-    // Keep refreshing market in the background so Home → Market is warm.
-    void loadNepseMarketSnapshot({ allowCache: true }).catch(() => null);
 
-    // Wave 2 — premium boards users open from Services (do not wait 20s)
-    await sleep(2500);
-    prefetchHotPremiumTools();
+    await sleep(4000);
+    await yieldToUi();
+    // Wave 2 — light Acc/Dis + favorites only (heavy Phase-1 fan-out later)
+    if (!isPrefetchPaused()) {
+      prefetchBrokerFlowIntel();
+      void loadPremiumIntel('broker-favorites').catch(() => null);
+    }
 
+    await sleep(8000);
+    await yieldToUi();
     // Wave 3 — extra info tools (cheap JSON endpoints)
-    await sleep(6000);
     await Promise.allSettled([
       loadGlobalIndices(),
       loadMarketIndicators(),
@@ -60,8 +72,9 @@ export function prefetchServicesData(): void {
       loadGoldSilver(),
     ]);
 
+    await sleep(10_000);
+    await yieldToUi();
     // Wave 4 — free lists + first floorsheet page
-    await sleep(8000);
     await Promise.allSettled([
       loadStockList('trending'),
       loadStockList('large-caps'),
@@ -74,25 +87,31 @@ export function prefetchServicesData(): void {
 }
 
 /**
- * Called when Services is focused — warm unlock/sector/rising + reports + floor.
- * Safe to call often; internal guards prevent duplicate fan-out.
+ * Called when Services is focused — warm a few hot boards after the tab settles.
+ * Never runs while a stack push is in progress (prefetch gate).
  */
 export function prefetchHotPremiumTools(): void {
-  if (hotPremiumStarted) {
-    // Still refresh screener boards if a previous run finished.
-    prefetchPremiumScreeners();
+  if (hotPremiumStarted) return;
+  if (isPrefetchPaused()) {
+    setTimeout(() => {
+      if (!isPrefetchPaused()) prefetchHotPremiumTools();
+    }, 2000);
     return;
   }
   hotPremiumStarted = true;
 
   void (async () => {
     try {
+      await yieldToUi();
       await loadMiniScreener().catch(() => null);
+      await yieldToUi();
+      // Staggered / light screener warm — not all 10 kinds at once.
       prefetchPremiumScreeners();
+      await yieldToUi();
       prefetchFinancialReportsFeed();
-      // Merolagani session floorsheet (shared by Top Buy/Sell / Aggressive / etc.)
+      await yieldToUi();
       prefetchBrokerFlowIntel();
-      // Light boards — Live Market Pulse + Broker Favorites open warm.
+      await yieldToUi();
       void loadNepseMarketSnapshot({ allowCache: true }).catch(() => null);
       void loadMarketPulse().catch(() => null);
       void loadPremiumIntel('broker-favorites').catch(() => null);
@@ -101,7 +120,7 @@ export function prefetchHotPremiumTools(): void {
     } finally {
       setTimeout(() => {
         hotPremiumStarted = false;
-      }, 20_000);
+      }, 45_000);
     }
   })();
 }

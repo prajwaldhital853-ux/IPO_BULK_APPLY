@@ -176,9 +176,11 @@ function FiftyTwoWeekScreen({ mode }: { mode: FiftyTwoWeekMode }) {
             />
           }
           contentContainerStyle={styles.listContent}
-          initialNumToRender={24}
-          maxToRenderPerBatch={30}
-          windowSize={8}
+          initialNumToRender={10}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          removeClippedSubviews
+          updateCellsBatchingPeriod={40}
           ListEmptyComponent={
             <Text style={styles.empty}>
               {query.trim()

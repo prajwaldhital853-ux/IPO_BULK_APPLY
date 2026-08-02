@@ -1,9 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
   NavigationContainer,
   DarkTheme,
   DefaultTheme,
 } from '@react-navigation/native';
+import { pausePrefetch } from '../services/nepse/prefetchGate';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createDrawerNavigator } from '@react-navigation/drawer';
@@ -131,8 +132,8 @@ function RootStack() {
   const { colors } = useTheme();
   return (
     <Stack.Navigator
-      // Keep Services/previous screen attached under the pushed page so back
-      // (arrow or Android system back) never waits on re-attach.
+      // Keep previous screen attached (instant back) but freeze its React tree
+      // so Services/Home don't keep burning JS under a pushed premium page.
       detachInactiveScreens={false}
       screenOptions={{
         headerShown: false,
@@ -142,7 +143,7 @@ function RootStack() {
         animationTypeForReplace: 'push',
         gestureEnabled: true,
         fullScreenGestureEnabled: true,
-        freezeOnBlur: false,
+        freezeOnBlur: true,
         contentStyle: { backgroundColor: colors.bg },
       }}
     >
@@ -238,8 +239,13 @@ export function RootNavigator() {
     [colors, isDark],
   );
 
+  // Free the JS thread for transitions / presses — pause background warm-up.
+  const onNavStateChange = useCallback(() => {
+    pausePrefetch(3500);
+  }, []);
+
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer theme={navTheme} onStateChange={onNavStateChange}>
       <Drawer.Navigator
         drawerContent={(props) => <DrawerContent {...props} />}
         screenOptions={{
