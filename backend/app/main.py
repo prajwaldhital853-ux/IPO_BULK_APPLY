@@ -233,18 +233,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         log.warning("Initial CDSC company sync deferred: %s", e)
 
-    # Seed Merolagani boards once at startup (non-blocking failure).
-    try:
-        from .broker_flow import refresh_broker_flow_cache
+    # Never block boot on Merolagani / ShareHub warm — nginx 502s while lifespan waits.
+    async def _seed_flow_later() -> None:
+        await asyncio.sleep(8)
+        try:
+            from .broker_flow import refresh_broker_flow_cache
 
-        async def _seed_flow(db):
-            return await refresh_broker_flow_cache(db, force=True)
+            async def _seed_flow(db):
+                return await refresh_broker_flow_cache(db, force=True)
 
-        await run_with_session(_seed_flow)
-    except Exception as e:  # noqa: BLE001
-        log.warning("Initial broker-flow sync deferred: %s", e)
+            await run_with_session(_seed_flow)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Initial broker-flow sync deferred: %s", e)
 
-    # Seed financial reports in background task — fan-out is slow; don't block boot.
     async def _seed_fin_later() -> None:
         await asyncio.sleep(30)
         try:
@@ -275,6 +276,7 @@ async def lifespan(app: FastAPI):
         _financial_reports_refresh_loop()
     )
     _light_boards_refresh_task = asyncio.create_task(_light_boards_refresh_loop())
+    asyncio.create_task(_seed_flow_later())
     asyncio.create_task(_seed_fin_later())
     asyncio.create_task(_seed_light_later())
     yield
