@@ -24,7 +24,8 @@ from .config import get_settings
 log = logging.getLogger('light-boards')
 
 DATA_BASE = 'https://sharehubnepal.com/data/api/v1'
-LIVE_V2 = 'https://sharehubnepal.com/live/api/v2'
+# Match mobile screener / brokerAnalytics live base.
+LIVE_V2 = 'https://sharehubnepal.com/live/api/v2/nepselive'
 ICON_CDN = 'https://sharehubnepal.com/'
 
 KIND_52_HIGH = 'fifty-two-week-high'
@@ -155,7 +156,7 @@ async def _fetch_mini_screener(client: httpx.AsyncClient) -> list[dict[str, Any]
 async def _fetch_demand_symbols(client: httpx.AsyncClient) -> set[str]:
     try:
         res = await client.get(
-            f'{LIVE_V2}/nepselive/home-page-data',
+            f'{LIVE_V2}/home-page-data',
             headers={'Accept': 'application/json', 'Cache-Control': 'no-cache'},
         )
         if res.status_code >= 400:
@@ -204,9 +205,10 @@ async def _fetch_closed_ipo_days(client: httpx.AsyncClient) -> dict[str, int]:
     """symbol → days since closing (Closed IPOs within 400 days)."""
     recent: dict[str, int] = {}
     today = datetime.now(timezone.utc).date()
-    page = 0
+    # ShareHub IPO pages are 1-based (page=0 → 400).
+    page = 1
     total_pages = 1
-    while page < total_pages and page < 8:
+    while page <= total_pages and page <= 8:
         try:
             res = await client.get(
                 f'{DATA_BASE}/public-offering',
