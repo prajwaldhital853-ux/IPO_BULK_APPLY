@@ -10,7 +10,7 @@ module.exports = {
     slug: 'hello35eg',
     owner: 'hellohello636gs-team',
     scheme: 'nepseghar',
-    version: '3.4.19',
+    version: '3.4.20',
     orientation: 'portrait',
     icon: './assets/nepse-ghar-logo.png',
     userInterfaceStyle: 'dark',
@@ -25,7 +25,7 @@ module.exports = {
     },
     android: {
       package: 'com.nepse.ghar',
-      versionCode: 64,
+      versionCode: 65,
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',
         foregroundImage: './assets/nepse-ghar-logo.png',

@@ -573,7 +573,8 @@ export function ApplyScreen() {
     const ok = r.ok;
     const cardStyle = ok ? styles.updateCardOk : styles.updateCardFail;
     const acc = accounts.find((a) => a.id === r.accountId);
-    const rowTitle = `IPO@${acc?.username ?? r.username}`;
+    const label = (acc?.name || r.accountName || r.username || '').trim();
+    const rowTitle = `IPO@${label.toUpperCase()}`;
     return (
       <View key={r.accountId} style={cardStyle}>
         <Ionicons
