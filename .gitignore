@@ -12,6 +12,7 @@ webpack.js
 !landing/index.html
 !landing/privacy.html
 !landing/terms.html
+!landing/delete-account.html
 find_candle.py
 scan_sharehub.py
 p.html
