@@ -8,6 +8,7 @@ node_modules/.cache/**
 # Built APKs / artifacts (were bloating the archive to ~470MB)
 *.apk
 *.aab
+NEPSE-GHAR-*.apk
 nepse-ghar-*.apk
 apk-build.log
 apk-url.txt
@@ -20,7 +21,15 @@ build-meta-*.txt
 bundle-*.js
 _tmp_stock.html
 
+# Local tooling / caches
+.expo-shared/
+coverage/
+*.log
+*.map
+
 # Parent monorepo noise if archive walks up
 ../backend/
 ../website/
+../landing/
 ../**/*.apk
+../**/*.aab

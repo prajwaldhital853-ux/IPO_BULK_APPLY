@@ -1020,3 +1020,69 @@ body.light .footer-bottom { color: #0a1628; }
   .footer-brand-text { font-size: 22px; }
   .footer-logo { width: 50px; height: 50px; }
 }
+
+/* ===== LEGAL PAGES (Privacy / Terms) ===== */
+.legal-page {
+  padding: 120px 0 64px;
+  min-height: 70vh;
+}
+.legal-wrap {
+  max-width: 760px;
+}
+.legal-eyebrow {
+  color: #7aa7e8;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.legal-page h1 {
+  font-size: clamp(2rem, 4vw, 2.6rem);
+  margin-bottom: 8px;
+  letter-spacing: -0.02em;
+}
+.legal-meta {
+  color: #8a97a8;
+  font-size: 14px;
+  margin-bottom: 28px;
+}
+.legal-intro {
+  font-size: 1.05rem;
+  color: #d5dde8;
+  margin-bottom: 36px;
+  line-height: 1.7;
+}
+.legal-section {
+  margin-bottom: 28px;
+}
+.legal-section h2 {
+  font-size: 1.15rem;
+  margin-bottom: 10px;
+}
+.legal-section p {
+  color: #c2ccd8;
+  line-height: 1.75;
+}
+.legal-section a {
+  color: #7ab0ff;
+  text-decoration: underline;
+}
+.legal-footer {
+  padding: 28px 0;
+}
+.legal-footer .footer-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+body.light .legal-meta,
+body.light .legal-intro,
+body.light .legal-section p {
+  color: #1a2a3f;
+}
+body.light .legal-eyebrow {
+  color: #2a7de1;
+}

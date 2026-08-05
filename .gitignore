@@ -10,6 +10,8 @@ chunk*.js
 webpack.js
 *.html
 !landing/index.html
+!landing/privacy.html
+!landing/terms.html
 find_candle.py
 scan_sharehub.py
 p.html

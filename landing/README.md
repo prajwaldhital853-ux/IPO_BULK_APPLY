@@ -30,10 +30,14 @@ When importing this repository into Vercel:
 
 `vercel.json` in this folder handles:
 
-- clean URLs
-- single-page fallback to `index.html`
+- clean URLs (`/privacy` → `privacy.html`, `/terms` → `terms.html`)
 - cache headers for CSS/JS
 - a few security-oriented response headers
+
+Public legal pages (required for Google Play):
+
+- https://www.nepseghar.com/privacy
+- https://www.nepseghar.com/terms
 
 ## DNS Setup
 
