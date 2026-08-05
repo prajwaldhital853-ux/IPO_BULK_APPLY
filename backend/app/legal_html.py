@@ -2,25 +2,45 @@
 
 from __future__ import annotations
 
-PRIVACY_HTML = """<!DOCTYPE html>
+_CONTACT_BLOCK = """
+  <p>
+    Email:
+    <a href="mailto:kalash.financialsolutions@gmail.com">kalash.financialsolutions@gmail.com</a><br />
+    Website:
+    <a href="https://www.nepseghar.com/" target="_blank" rel="noopener">https://www.nepseghar.com/</a><br />
+    WhatsApp / Call:
+    <a href="https://wa.me/9779709133067" target="_blank" rel="noopener">+977 9709133067</a>
+    ·
+    <a href="tel:+9779709133067">Call</a>
+  </p>
+  <p>
+    Account owner / developer email:
+    <a href="mailto:kalash.financialsolutions@gmail.com">kalash.financialsolutions@gmail.com</a><br />
+    Legal name: SUMIT SAPHI<br />
+    Address: Siraha, Laxmipur Patari, Ward No. 3, siraha - 56500, Nepal (NP)<br />
+    App: NEPSE GHAR · Package: com.nepse.ghar
+  </p>
+"""
+
+PRIVACY_HTML = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Privacy Policy · NEPSE GHAR</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; line-height: 1.65; color: #142033; }
-    h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
-    h2 { font-size: 1.15rem; margin-top: 1.6rem; }
-    .meta { color: #5b6b7c; font-size: 0.95rem; margin-bottom: 1.5rem; }
-    a { color: #1a5fbf; }
+    body {{ font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; line-height: 1.65; color: #142033; }}
+    h1 {{ font-size: 1.8rem; margin-bottom: 0.25rem; }}
+    h2 {{ font-size: 1.15rem; margin-top: 1.6rem; }}
+    .meta {{ color: #5b6b7c; font-size: 0.95rem; margin-bottom: 1.5rem; }}
+    a {{ color: #1a5fbf; }}
   </style>
 </head>
 <body>
   <h1>Privacy Policy</h1>
   <p class="meta">Last updated: 5 August 2026 · NEPSE GHAR (com.nepse.ghar)</p>
-  <p>This Privacy Policy explains how <strong>NEPSE GHAR</strong>, operated by
-  <strong>Sumit Saphi</strong> (Kalash Financial Solution), handles your information
+  <p>This Privacy Policy explains how <strong>NEPSE GHAR</strong>
+  (<a href="https://www.nepseghar.com/">www.nepseghar.com</a>) handles your information
   when you use the NEPSE GHAR mobile application and related services.</p>
 
   <h2>1. Information we handle</h2>
@@ -68,34 +88,32 @@ PRIVACY_HTML = """<!DOCTYPE html>
   at the top will change when we do. Continued use of the app after changes means
   you accept the updated policy.</p>
 
-  <h2>10. Contact</h2>
-  <p>Email:
-  <a href="mailto:kalash.financialsolutions@gmail.com">kalash.financialsolutions@gmail.com</a><br />
-  Or from the app: Profile → Connect With Us<br />
-  Operator: Sumit Saphi · Siraha, Laxmipur Patari, Ward No. 3, Nepal</p>
+  <h2>10. Contact &amp; developer details</h2>
+  <p>For privacy questions, contact us by email, WhatsApp, or call:</p>
+  {_CONTACT_BLOCK}
 </body>
 </html>
 """
 
-TERMS_HTML = """<!DOCTYPE html>
+TERMS_HTML = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Terms &amp; Conditions · NEPSE GHAR</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; line-height: 1.65; color: #142033; }
-    h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
-    h2 { font-size: 1.15rem; margin-top: 1.6rem; }
-    .meta { color: #5b6b7c; font-size: 0.95rem; margin-bottom: 1.5rem; }
-    a { color: #1a5fbf; }
+    body {{ font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; line-height: 1.65; color: #142033; }}
+    h1 {{ font-size: 1.8rem; margin-bottom: 0.25rem; }}
+    h2 {{ font-size: 1.15rem; margin-top: 1.6rem; }}
+    .meta {{ color: #5b6b7c; font-size: 0.95rem; margin-bottom: 1.5rem; }}
+    a {{ color: #1a5fbf; }}
   </style>
 </head>
 <body>
   <h1>Terms &amp; Conditions</h1>
   <p class="meta">Last updated: 5 August 2026 · NEPSE GHAR</p>
-  <p>Please read these terms carefully before using <strong>NEPSE GHAR</strong>,
-  operated by <strong>Sumit Saphi</strong> (Kalash Financial Solution).</p>
+  <p>Please read these terms carefully before using <strong>NEPSE GHAR</strong>
+  (<a href="https://www.nepseghar.com/">www.nepseghar.com</a>).</p>
 
   <h2>1. Acceptance of Terms</h2>
   <p>By downloading, installing or using NEPSE GHAR you agree to these Terms &amp;
@@ -135,8 +153,9 @@ TERMS_HTML = """<!DOCTYPE html>
   <p>We may update these terms and app features from time to time. Continued use
   after changes means you accept the updated terms.</p>
 
-  <h2>9. Contact</h2>
-  <p><a href="mailto:kalash.financialsolutions@gmail.com">kalash.financialsolutions@gmail.com</a></p>
+  <h2>9. Contact &amp; developer details</h2>
+  <p>Questions? Contact us by email, WhatsApp, or call:</p>
+  {_CONTACT_BLOCK}
 </body>
 </html>
 """
