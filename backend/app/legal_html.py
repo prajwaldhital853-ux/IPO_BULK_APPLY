@@ -13,13 +13,7 @@ _CONTACT_BLOCK = """
     ·
     <a href="tel:+9779709133067">Call</a>
   </p>
-  <p>
-    Account owner / developer email:
-    <a href="mailto:kalash.financialsolutions@gmail.com">kalash.financialsolutions@gmail.com</a><br />
-    Legal name: SUMIT SAPHI<br />
-    Address: Siraha, Laxmipur Patari, Ward No. 3, siraha - 56500, Nepal (NP)<br />
-    App: NEPSE GHAR · Package: com.nepse.ghar
-  </p>
+  <p>App: NEPSE GHAR</p>
 """
 
 PRIVACY_HTML = f"""<!DOCTYPE html>
