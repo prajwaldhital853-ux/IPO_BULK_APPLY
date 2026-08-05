@@ -27,17 +27,27 @@ function fmtClock(hour24: number, minute: number): string {
 function sampleWave(t: number): number {
   const pts: [number, number][] = [
     [0, 0],
-    [0.05, 0.18],
-    [0.1, -0.12],
-    [0.18, 0.55],
+    [0.03, 0.12],
+    [0.06, -0.08],
+    [0.1, 0.22],
+    [0.14, -0.05],
+    [0.18, 0.48],
+    [0.22, 0.72],
     [0.28, 1.0],
-    [0.36, 0.62],
-    [0.45, 0.78],
-    [0.55, 0.32],
-    [0.65, 0.22],
-    [0.75, -0.08],
-    [0.85, -0.18],
-    [0.93, -0.05],
+    [0.32, 0.78],
+    [0.36, 0.55],
+    [0.4, 0.68],
+    [0.45, 0.42],
+    [0.5, 0.58],
+    [0.55, 0.28],
+    [0.6, 0.38],
+    [0.65, 0.12],
+    [0.7, 0.22],
+    [0.75, -0.05],
+    [0.8, 0.08],
+    [0.85, -0.16],
+    [0.9, -0.04],
+    [0.95, 0.06],
     [1, 0],
   ];
   if (t <= 0) return pts[0]![1];
@@ -55,8 +65,9 @@ function sampleWave(t: number): number {
 }
 
 /**
- * NEPSE 1-day path shaped like Merolagani:
- * soft early peak, gentle afternoon decline, light micro wiggles.
+ * Dense NEPSE 1-day path: one point per minute (11:00–15:00 NPT),
+ * with visible minute-to-minute up/down detail, ending on the live quote.
+ * During session hours the series stops at the current Nepal clock time.
  */
 function syntheticIntraday(
   current: number | null,
@@ -65,31 +76,84 @@ function syntheticIntraday(
   if (current == null || change == null) return [];
   const end = current;
   const start = end - change;
-  const startMin = 11 * 60 + 2; // ~11:02 like SS
-  const endMin = 14 * 60 + 57; // ~2:57 PM like SS
-  const step = 3;
-  const total = Math.max(1, Math.round((endMin - startMin) / step));
+  const sessionStart = 11 * 60; // 11:00
+  const sessionEnd = 15 * 60; // 15:00
+
+  // Cap at "now" in Asia/Kathmandu so the day chart grows minute-by-minute.
+  let until = sessionEnd;
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kathmandu',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      hourCycle: 'h23',
+    }).formatToParts(new Date());
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 15);
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+    const nowMin = hour * 60 + minute;
+    if (nowMin > sessionStart && nowMin < sessionEnd) {
+      until = nowMin;
+    } else if (nowMin <= sessionStart) {
+      until = sessionStart + 1;
+    }
+  } catch {
+    // Keep full session if timezone formatting fails.
+  }
+
+  const step = 1; // every minute — detailed SS look
+  const totalMins = Math.max(1, until - sessionStart);
+  const total = Math.max(1, Math.round(totalMins / step));
+  const fullSpan = Math.max(1, sessionEnd - sessionStart);
+  const progress = Math.min(1, totalMins / fullSpan);
   const drift = end - start;
-  const amp = Math.max(Math.abs(drift) * 1.55, Math.abs(end) * 0.0055, 12);
+  // Visible up/down detail, clamped so the plot doesn't overflow.
+  const amp = Math.max(Math.abs(drift) * 1.55, Math.abs(end) * 0.006, 12);
+  const tickAmp = Math.max(Math.abs(drift) * 0.08, Math.abs(end) * 0.00055, 0.55);
   const points: ChartPoint[] = [];
+  let walk = 0;
+  const bandLo = Math.min(start, end) - amp * 0.65;
+  const bandHi = Math.max(start, end) + amp * 0.65;
 
   for (let i = 0; i <= total; i += 1) {
-    const mins = startMin + i * step;
-    const t = i / total;
-    const wave = sampleWave(t);
+    const mins = sessionStart + i * step;
+    const tFull = Math.min(1, (mins - sessionStart) / fullSpan);
+    const wave = sampleWave(tFull);
+    const hash = ((i * 1103515245 + 12345) >>> 0) / 0xffffffff;
+    const hash2 = ((i * 1664525 + 1013904223) >>> 0) / 0xffffffff;
+    const hash3 = ((i * 214013 + 2531011) >>> 0) / 0xffffffff;
+    walk += (hash - 0.5) * 2 * tickAmp;
+    walk *= 0.84;
+    const micro =
+      (hash2 - 0.5) * tickAmp * 1.05 +
+      (hash3 - 0.5) * tickAmp * 0.55 +
+      Math.sin(i * 1.15) * tickAmp * 0.4;
     const ripple =
-      Math.sin(t * Math.PI * 9.5 + 0.4) * 0.04 +
-      Math.sin(t * Math.PI * 17 + 1.2) * 0.018;
-    const value =
+      Math.sin(tFull * Math.PI * 18 + 0.4) * 0.06 +
+      Math.sin(tFull * Math.PI * 42 + 1.3) * 0.032;
+    let value =
       i === total
         ? end
-        : start + drift * t + amp * (wave * 0.72 + ripple);
+        : start +
+          drift * (tFull / Math.max(progress, 0.08)) * progress +
+          amp * (wave * 0.7 + ripple) +
+          walk +
+          micro;
+    if (i !== total) {
+      value = Math.min(bandHi, Math.max(bandLo, value));
+    }
     const h = Math.floor(mins / 60);
-    const m = Math.round(mins % 60) % 60;
+    const m = mins % 60;
     points.push({
       label: fmtClock(h, m),
       value: Math.round(value * 100) / 100,
     });
+  }
+  if (points.length) {
+    points[points.length - 1] = {
+      ...points[points.length - 1]!,
+      value: Math.round(end * 100) / 100,
+    };
   }
   return points;
 }
@@ -223,7 +287,8 @@ export async function loadIndexChartPoints(
     value: c.close,
   }));
 
-  const maxPoints = range === '1M' ? 22 : range === '6M' ? 26 : 30;
+  const maxPoints = range === '1M' ? 22 : range === '6M' ? 40 : 48;
   const picked = pickLabels(maxPoints, mapped);
-  return densifyDailySeries(picked, range === '1M' ? 6 : 4);
+  // Keep longer ranges light — fewer synthetic midpoints = faster paint + cleaner axis.
+  return densifyDailySeries(picked, range === '1M' ? 4 : 2);
 }

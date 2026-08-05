@@ -30,6 +30,7 @@ export type RootStackParamList = {
   NepseData:
     | {
         tab?: 'summary' | 'live' | 'movers' | 'today';
+        moverTab?: 'gainers' | 'losers' | 'turnovers' | 'transactions';
         query?: string;
         openSearch?: boolean;
       }

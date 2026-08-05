@@ -16,16 +16,47 @@ import type {
   TradedShareRow,
   TurnoverRow,
 } from './types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const DISK_KEY = 'nepse.market.snapshot.v1';
 let lastSnapshot: NepseMarketSnapshot | null = null;
+let hydratePromise: Promise<NepseMarketSnapshot | null> | null = null;
 
 export function invalidateNepseMarketCache(): void {
   lastSnapshot = null;
+  void AsyncStorage.removeItem(DISK_KEY).catch(() => undefined);
 }
 
 /** Instant paint for Market tab — last good live snapshot (may be seconds old). */
 export function peekNepseMarketSnapshot(): NepseMarketSnapshot | null {
   return lastSnapshot;
+}
+
+/** Cold-start warm paint from disk (call once when opening Market). */
+export async function hydrateNepseMarketCache(): Promise<NepseMarketSnapshot | null> {
+  if (lastSnapshot) return lastSnapshot;
+  if (!hydratePromise) {
+    hydratePromise = (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(DISK_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as NepseMarketSnapshot;
+        if (!parsed || typeof parsed !== 'object') return null;
+        lastSnapshot = parsed;
+        return parsed;
+      } catch {
+        return null;
+      } finally {
+        hydratePromise = null;
+      }
+    })();
+  }
+  return hydratePromise;
+}
+
+function persistSnapshot(snap: NepseMarketSnapshot): void {
+  lastSnapshot = snap;
+  void AsyncStorage.setItem(DISK_KEY, JSON.stringify(snap)).catch(() => undefined);
 }
 
 function num(v: unknown): number | null {
@@ -230,9 +261,8 @@ function emptySnapshot(): NepseMarketSnapshot {
 }
 
 /**
- * Live NEPSE market snapshot — always fetches fresh from ShareHub/NEPSE.
- * Callers should `peekNepseMarketSnapshot()` for instant paint, then call this
- * to revalidate. `allowCache` only controls the *failure* fallback.
+ * Live NEPSE market snapshot — prefers ShareHub (fast path), then enriches.
+ * Callers should `peek` / `hydrate` for instant paint, then call this to revalidate.
  */
 export async function loadNepseMarketSnapshot(
   opts: { allowCache?: boolean } = {},
@@ -253,21 +283,48 @@ export async function loadNepseMarketSnapshot(
     .catch(() => undefined);
 
   try {
-    const [sharehub, officialSecurities] = await Promise.all([
-      fetchSharehubSnapshot(),
-      fetchOfficialSecurities(),
-    ]);
+    // Don't block the Market board on the slower official securities call.
+    const sharehubPromise = fetchSharehubSnapshot();
+    const officialPromise = fetchOfficialSecurities().catch(() => [] as SecurityQuote[]);
 
+    const sharehub = await sharehubPromise;
     if (sharehub) {
+      let officialSecurities: SecurityQuote[] = [];
+      try {
+        officialSecurities = await Promise.race([
+          officialPromise,
+          new Promise<SecurityQuote[]>((resolve) =>
+            setTimeout(() => resolve([]), 350),
+          ),
+        ]);
+      } catch {
+        officialSecurities = [];
+      }
+
       const securities = mergeSecurityLists(
         sharehub.securities,
         officialSecurities,
       );
       const snapshot = buildSnapshot({ ...sharehub, securities }, 'live');
-      lastSnapshot = snapshot;
+      persistSnapshot(snapshot);
+
+      // Finish merging icons/qty in the background if official was still loading.
+      void officialPromise.then((full) => {
+        if (!full.length) return;
+        const merged = buildSnapshot(
+          {
+            ...sharehub,
+            securities: mergeSecurityLists(sharehub.securities, full),
+          },
+          'live',
+        );
+        persistSnapshot(merged);
+      });
+
       return snapshot;
     }
 
+    const officialSecurities = await officialPromise;
     if (officialSecurities.length) {
       const session = sessionStatus();
       const status: MarketStatus = session === 'open' ? 'open' : 'closed';
@@ -288,7 +345,7 @@ export async function loadNepseMarketSnapshot(
         },
         'live',
       );
-      lastSnapshot = snapshot;
+      persistSnapshot(snapshot);
       return snapshot;
     }
 
@@ -296,7 +353,7 @@ export async function loadNepseMarketSnapshot(
       return { ...lastSnapshot, source: 'cached' };
     }
     const fallback = emptySnapshot();
-    lastSnapshot = fallback;
+    persistSnapshot(fallback);
     return fallback;
   } catch {
     if (allowCache && lastSnapshot) {

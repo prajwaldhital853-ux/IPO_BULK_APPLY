@@ -529,10 +529,10 @@ function buildChartPoints(
   const end = current;
   const startMin = 11 * 60;
   const endMin = 15 * 60;
-  const step = 2;
+  const step = 1;
   const total = Math.max(1, Math.round((endMin - startMin) / step));
   const drift = end - start;
-  const amp = Math.max(Math.abs(drift) * 1.8, Math.abs(end) * 0.006, 14);
+  const amp = Math.max(Math.abs(drift) * 1.65, Math.abs(end) * 0.006, 14);
   const points: ChartPoint[] = [];
   for (let i = 0; i <= total; i += 1) {
     const mins = startMin + i * step;
@@ -541,14 +541,15 @@ function buildChartPoints(
       Math.sin(Math.PI * t) * 1.05 +
       Math.sin(Math.PI * 2.15 * t + 0.35) * 0.42 +
       Math.sin(Math.PI * 3.6 * t + 1.1) * 0.22 +
-      Math.sin(Math.PI * 7.2 * t + 0.2) * 0.08 +
-      Math.sin(Math.PI * 14 * t + 0.8) * 0.035;
+      Math.sin(Math.PI * 7.2 * t + 0.2) * 0.1 +
+      Math.sin(Math.PI * 14 * t + 0.8) * 0.045 +
+      Math.sin(Math.PI * 29 * t + 1.6) * 0.02;
     const hash = ((i * 1664525 + 1013904223) >>> 0) / 0xffffffff;
-    const micro = (hash - 0.5) * 0.03;
+    const micro = (hash - 0.5) * 0.025;
     const value =
       i === total
         ? end
-        : start + drift * (0.15 + 0.85 * t) + amp * (session * 0.5 + micro);
+        : start + drift * (0.12 + 0.88 * t) + amp * (session * 0.52 + micro);
     const h = Math.floor(mins / 60);
     const m = Math.round(mins % 60) % 60;
     points.push({

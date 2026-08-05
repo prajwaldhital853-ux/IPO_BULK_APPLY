@@ -1,4 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, {
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   LayoutChangeEvent,
@@ -7,9 +14,16 @@ import {
   View,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import Svg, {
-  Circle,
+  ClipPath,
   Defs,
+  G,
   Line,
   LinearGradient,
   Path,
@@ -27,12 +41,28 @@ type Props = {
   height?: number;
   loading?: boolean;
   backgroundColor?: string;
+  /** Scrub driven by an overlay hit layer (via ref). */
+  externalScrub?: boolean;
+};
+
+export type NepseMarketChartHandle = {
+  scrubToX: (x: number) => void;
+  clearScrub: (delayMs?: number) => void;
 };
 
 /**
- * Merolagani-style Y scale: ~4 ticks at nice step (often 10),
- * with room above/below the series (e.g. 2714…2744).
+ * Nice Y scale with ~4–5 ticks for any range (1D step-5 or 6M/1Y wider steps).
  */
+function niceStep(span: number, targetTicks: number): number {
+  const rough = span / Math.max(targetTicks, 1);
+  const pow = 10 ** Math.floor(Math.log10(Math.max(rough, 1e-9)));
+  const n = rough / pow;
+  if (n <= 1) return 1 * pow;
+  if (n <= 2) return 2 * pow;
+  if (n <= 5) return 5 * pow;
+  return 10 * pow;
+}
+
 function buildYAxis(dMin: number, dMax: number): {
   min: number;
   max: number;
@@ -40,36 +70,43 @@ function buildYAxis(dMin: number, dMax: number): {
 } {
   const lo = Math.min(dMin, dMax);
   const hi = Math.max(dMin, dMax);
-  const rawSpan = Math.max(hi - lo, 8);
-  let step = rawSpan / 3;
-  const pow = 10 ** Math.floor(Math.log10(Math.max(step, 1e-6)));
-  const n = step / pow;
-  step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * pow;
-  if (hi > 400) {
-    if (step < 5) step = 5;
-    if (rawSpan >= 15 && step < 10) step = 10;
-  }
+  const pad = Math.max((hi - lo) * 0.1, hi > 400 ? 3 : 0.5);
+  const a = lo - pad;
+  const b = hi + pad;
+  const span = Math.max(b - a, hi > 400 ? 10 : 1);
 
-  let min = Math.floor(lo / step) * step - step;
-  let max = Math.ceil(hi / step) * step + step;
-  // Keep about 4 tick marks like the SS
-  while ((max - min) / step > 4) {
-    if (hi - min > max - lo) min += step;
-    else max -= step;
-  }
-  while ((max - min) / step < 3) {
-    min -= step;
-    max += step;
+  let step = niceStep(span, 4);
+  // Tight NEPSE day charts look best with step 5 (e.g. 2651…2671).
+  if (hi > 400 && span <= 35 && step < 5) step = 5;
+
+  let min = Math.floor(a / step) * step;
+  let max = Math.ceil(b / step) * step;
+
+  // Keep at most 5 intervals (6 labels). Widen step if still too dense.
+  let guard = 0;
+  while ((max - min) / step > 5 && guard < 8) {
+    step = niceStep(max - min, 4);
+    if ((max - min) / step > 5) {
+      const pow = 10 ** Math.floor(Math.log10(Math.max(step, 1)));
+      const bumped =
+        [1, 2, 5, 10, 20, 25, 50, 100]
+          .map((x) => x * pow)
+          .find((x) => x > step + 1e-9) ?? step * 2;
+      step = bumped;
+    }
+    min = Math.floor(a / step) * step;
+    max = Math.ceil(b / step) * step;
+    guard += 1;
   }
 
   const ticks: number[] = [];
   for (let v = min; v <= max + step * 0.001; v += step) {
     ticks.push(Math.round(v));
+    if (ticks.length >= 7) break; // hard safety against axis spam
   }
   return { min, max, ticks };
 }
 
-/** Unique, evenly spaced X tick indices (fixes duplicate key `x-2`). */
 function buildXTickIndices(count: number, length: number): number[] {
   if (length <= 0) return [];
   if (length === 1) return [0];
@@ -88,47 +125,19 @@ function buildXTickIndices(count: number, length: number): number[] {
   return [...new Set(idxs)].sort((a, b) => a - b);
 }
 
-/** Prefer labeled points for X axis when series was densified. */
 function pickXTicks(
   points: ChartPoint[],
   xs: number[],
   count: number,
 ): { idx: number; x: number; label: string }[] {
-  const labeled = points
-    .map((p, idx) => ({ idx, label: p.label.trim() }))
-    .filter((p) => p.label.length > 0);
-
-  if (labeled.length >= 2 && labeled.length <= count + 1) {
-    return labeled.map(({ idx, label }) => ({
-      idx,
-      x: xs[idx]!,
-      label,
-    }));
-  }
-
   const idxs = buildXTickIndices(count, points.length);
-  return idxs.map((idx) => {
-    // Walk to nearest non-empty label for densified series
-    let label = points[idx]!.label.trim();
-    if (!label) {
-      for (let d = 1; d < points.length; d += 1) {
-        const L = points[idx - d]?.label.trim();
-        const R = points[idx + d]?.label.trim();
-        if (L) {
-          label = L;
-          break;
-        }
-        if (R) {
-          label = R;
-          break;
-        }
-      }
-    }
-    return { idx, x: xs[idx]!, label: label || points[idx]!.label };
-  });
+  return idxs.map((idx) => ({
+    idx,
+    x: xs[idx]!,
+    label: points[idx]!.label.trim() || points[idx]!.label,
+  }));
 }
 
-/** Catmull-Rom → cubic Bezier. */
 function buildSmoothAreaPath(
   xs: number[],
   ys: number[],
@@ -151,10 +160,11 @@ function buildSmoothAreaPath(
     const y2 = ys[i + 1]!;
     const x3 = xs[Math.min(xs.length - 1, i + 2)]!;
     const y3 = ys[Math.min(ys.length - 1, i + 2)]!;
-    const cp1x = x1 + (x2 - x0) / 6;
-    const cp1y = y1 + (y2 - y0) / 6;
-    const cp2x = x2 - (x3 - x1) / 6;
-    const cp2y = y2 - (y3 - y1) / 6;
+    // Tighter control points = less smoothing, more up/down detail
+    const cp1x = x1 + (x2 - x0) / 14;
+    const cp1y = y1 + (y2 - y0) / 14;
+    const cp2x = x2 - (x3 - x1) / 14;
+    const cp2y = y2 - (y3 - y1) / 14;
     line += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${x2} ${y2}`;
   }
   const last = xs.length - 1;
@@ -162,153 +172,319 @@ function buildSmoothAreaPath(
   return { line, area };
 }
 
+function buildLinearAreaPath(
+  xs: number[],
+  ys: number[],
+  baselineY: number,
+): { line: string; area: string } {
+  if (xs.length < 2) return { line: '', area: '' };
+  let line = `M ${xs[0]} ${ys[0]}`;
+  for (let i = 1; i < xs.length; i += 1) {
+    line += ` L ${xs[i]} ${ys[i]}`;
+  }
+  const last = xs.length - 1;
+  const area = `${line} L ${xs[last]} ${baselineY} L ${xs[0]} ${baselineY} Z`;
+  return { line, area };
+}
+
+const TIP_W = 104;
+const TIP_H = 44;
+
 /**
  * Native NEPSE area chart — Merolagani SS look (1D / 1W / longer).
  */
-export function NepseMarketChart({
-  points,
-  isDark,
-  up = true,
-  height = rs(250),
-  loading = false,
-  backgroundColor,
-}: Props) {
-  const lineColor = up
-    ? isDark
-      ? '#4CAF50'
-      : '#2E7D32'
-    : isDark
-      ? '#EF5350'
-      : '#C62828';
-  // Match page cream-sage; SS chart sits on same soft ground
-  const bg = backgroundColor ?? (isDark ? '#121212' : '#FFFFFF');
-  const grid = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(90,100,80,0.22)';
-  const axis = isDark ? '#A0A0A0' : '#6B7364';
-  const tipBg = isDark ? '#2C2C2C' : '#1B2E1B';
+export const NepseMarketChart = forwardRef<NepseMarketChartHandle, Props>(
+  function NepseMarketChart(
+    {
+      points,
+      isDark,
+      up = true,
+      height = rs(250),
+      loading = false,
+      backgroundColor,
+      externalScrub = false,
+    },
+    ref,
+  ) {
+    const lineColor = up
+      ? isDark
+        ? '#66BB6A'
+        : '#5AB35A'
+      : isDark
+        ? '#EF5350'
+        : '#C62828';
+    const bg = backgroundColor ?? (isDark ? '#121212' : '#F9FAF2');
+    const grid = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(140,140,140,0.28)';
+    const axis = isDark ? '#A0A0A0' : '#8C8C8C';
+    const tipBg = up
+      ? isDark
+        ? '#4CAF50'
+        : '#5AB35A'
+      : isDark
+        ? '#EF5350'
+        : '#C62828';
+    const crosshair = isDark ? 'rgba(180,180,180,0.85)' : 'rgba(110,110,110,0.75)';
 
-  const [width, setWidth] = useState(0);
-  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+    const [width, setWidth] = useState(0);
+    const [tip, setTip] = useState<{ value: string; time: string } | null>(null);
 
-  const chart = useMemo(() => {
-    if (points.length < 2 || width < 40) return null;
-    const padL = 42;
-    const padR = 8;
-    const padT = 12;
-    const padB = 26;
-    const plotW = width - padL - padR;
-    const plotH = height - padT - padB;
+    const cursorX = useSharedValue(0);
+    const cursorY = useSharedValue(0);
+    const tipLeft = useSharedValue(0);
+    const tipTop = useSharedValue(0);
+    const scrubOpacity = useSharedValue(0);
+    const lastIdxRef = useRef(-1);
+    const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const chartGeom = useRef<{
+      padL: number;
+      plotW: number;
+      padT: number;
+      baselineY: number;
+      xs: number[];
+      ys: number[];
+    } | null>(null);
 
-    const dMin = Math.min(...points.map((p) => p.value));
-    const dMax = Math.max(...points.map((p) => p.value));
-    const { min, max, ticks: yTicks } = buildYAxis(dMin, dMax);
-    const span = max - min || 1;
+    const chart = useMemo(() => {
+      if (points.length < 2 || width < 40) return null;
+      const padL = 42;
+      const padR = 8;
+      const padT = 14;
+      const padB = 28;
+      const plotW = width - padL - padR;
+      const plotH = height - padT - padB;
 
-    const xs = points.map((_, i) => padL + (i / (points.length - 1)) * plotW);
-    const ys = points.map(
-      (p) => padT + plotH - ((p.value - min) / span) * plotH,
-    );
-    const { line, area } = buildSmoothAreaPath(xs, ys, padT + plotH);
-    const xTicks = pickXTicks(points, xs, 6);
+      const dMin = Math.min(...points.map((p) => p.value));
+      const dMax = Math.max(...points.map((p) => p.value));
+      const { min, max, ticks: yTicks } = buildYAxis(dMin, dMax);
+      const span = max - min || 1;
 
-    return {
-      padL,
-      padR,
-      padT,
-      padB,
-      plotW,
-      plotH,
-      min,
-      max,
-      span,
-      xs,
-      ys,
-      line,
-      area,
-      yTicks,
-      xTicks,
-      baselineY: padT + plotH,
-    };
-  }, [points, width, height]);
+      const xs = points.map((_, i) => padL + (i / (points.length - 1)) * plotW);
+      const ys = points.map((p) => {
+        const y = padT + plotH - ((p.value - min) / span) * plotH;
+        return Math.min(padT + plotH, Math.max(padT, y));
+      });
+      const { line, area } =
+        points.length >= 90
+          ? buildLinearAreaPath(xs, ys, padT + plotH)
+          : buildSmoothAreaPath(xs, ys, padT + plotH);
+      const xTicks = pickXTicks(points, xs, 6);
 
-  const idxFromX = (x: number) => {
-    if (!chart || points.length < 2) return 0;
-    const rel = (x - chart.padL) / chart.plotW;
-    return Math.max(
-      0,
-      Math.min(points.length - 1, Math.round(rel * (points.length - 1))),
-    );
-  };
+      return {
+        padL,
+        padR,
+        padT,
+        padB,
+        plotW,
+        plotH,
+        min,
+        max,
+        span,
+        xs,
+        ys,
+        line,
+        area,
+        yTicks,
+        xTicks,
+        baselineY: padT + plotH,
+      };
+    }, [points, width, height]);
 
-  const pan = Gesture.Pan()
-    .activeOffsetX([-6, 6])
-    .failOffsetY([-18, 18])
-    .runOnJS(true)
-    .onBegin((e) => setActiveIdx(idxFromX(e.x)))
-    .onUpdate((e) => setActiveIdx(idxFromX(e.x)))
-    .onFinalize(() => {
-      setTimeout(() => setActiveIdx(null), 1200);
-    });
-
-  const tap = Gesture.Tap()
-    .runOnJS(true)
-    .onEnd((e) => {
-      setActiveIdx(idxFromX(e.x));
-      setTimeout(() => setActiveIdx(null), 1800);
-    });
-
-  const gesture = Gesture.Exclusive(pan, tap);
-
-  const onLayout = (e: LayoutChangeEvent) => {
-    setWidth(e.nativeEvent.layout.width);
-  };
-
-  if (loading) {
-    return (
-      <View style={[styles.empty, { height, backgroundColor: bg }]}>
-        <ActivityIndicator color={lineColor} />
-      </View>
-    );
-  }
-
-  if (points.length < 2) {
-    return (
-      <View style={[styles.empty, { height, backgroundColor: bg }]}>
-        <Text style={[styles.emptyText, { color: axis }]}>Chart unavailable</Text>
-      </View>
-    );
-  }
-
-  const active =
-    activeIdx != null && chart
+    chartGeom.current = chart
       ? {
-          idx: activeIdx,
-          x: chart.xs[activeIdx]!,
-          y: chart.ys[activeIdx]!,
-          label: points[activeIdx]!.label,
-          value: points[activeIdx]!.value,
+          padL: chart.padL,
+          plotW: chart.plotW,
+          padT: chart.padT,
+          baselineY: chart.baselineY,
+          xs: chart.xs,
+          ys: chart.ys,
         }
       : null;
 
-  return (
-    <View style={[styles.wrap, { height, backgroundColor: bg }]} onLayout={onLayout}>
-      {width > 0 && chart ? (
-        <GestureDetector gesture={gesture}>
-          <View style={{ width, height }}>
-            <Svg width={width} height={height}>
+    const idxFromX = useCallback(
+      (x: number) => {
+        const g = chartGeom.current;
+        if (!g || points.length < 2) return 0;
+        const rel = (x - g.padL) / g.plotW;
+        return Math.max(
+          0,
+          Math.min(points.length - 1, Math.round(rel * (points.length - 1))),
+        );
+      },
+      [points.length],
+    );
+
+    const hideScrub = useCallback(() => {
+      scrubOpacity.value = withTiming(0, { duration: 160 });
+      lastIdxRef.current = -1;
+      setTip(null);
+    }, [scrubOpacity]);
+
+    const applyIdx = useCallback(
+      (idx: number) => {
+        const g = chartGeom.current;
+        if (!g || !points[idx]) return;
+        const x = g.xs[idx]!;
+        const y = g.ys[idx]!;
+        cursorX.value = x;
+        cursorY.value = y;
+
+        let tX = x + 10;
+        if (tX + TIP_W > width - 6) tX = x - TIP_W - 10;
+        tX = Math.max(6, Math.min(tX, width - TIP_W - 6));
+        const tY = Math.max(
+          g.padT,
+          Math.min(y - TIP_H / 2, g.baselineY - TIP_H - 4),
+        );
+        tipLeft.value = tX;
+        tipTop.value = tY;
+        scrubOpacity.value = 1;
+
+        if (lastIdxRef.current === idx) return;
+        lastIdxRef.current = idx;
+        const p = points[idx]!;
+        setTip({
+          value: p.value.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          }),
+          time: p.label.trim(),
+        });
+      },
+      [cursorX, cursorY, points, scrubOpacity, tipLeft, tipTop, width],
+    );
+
+    const scrubToX = useCallback(
+      (x: number) => {
+        if (clearTimer.current) {
+          clearTimeout(clearTimer.current);
+          clearTimer.current = null;
+        }
+        const idx = idxFromX(x);
+        // Skip duplicate index — keeps scrub buttery (no tip re-render).
+        if (idx === lastIdxRef.current && scrubOpacity.value > 0) {
+          return;
+        }
+        applyIdx(idx);
+      },
+      [applyIdx, idxFromX, scrubOpacity],
+    );
+
+    const clearScrub = useCallback(
+      (delayMs = 1800) => {
+        if (clearTimer.current) clearTimeout(clearTimer.current);
+        if (delayMs <= 0) {
+          hideScrub();
+          return;
+        }
+        clearTimer.current = setTimeout(() => hideScrub(), delayMs);
+      },
+      [hideScrub],
+    );
+
+    useImperativeHandle(ref, () => ({ scrubToX, clearScrub }), [
+      scrubToX,
+      clearScrub,
+    ]);
+
+    const pan = Gesture.Pan()
+      .minDistance(0)
+      .activeOffsetX([-2, 2])
+      .failOffsetY([-22, 22])
+      .onBegin((e) => {
+        'worklet';
+        runOnJS(scrubToX)(e.x);
+      })
+      .onUpdate((e) => {
+        'worklet';
+        runOnJS(scrubToX)(e.x);
+      })
+      .onEnd(() => {
+        'worklet';
+        runOnJS(clearScrub)(1800);
+      });
+
+    const tap = Gesture.Tap()
+      .maxDuration(320)
+      .onEnd((e) => {
+        'worklet';
+        runOnJS(scrubToX)(e.x);
+        runOnJS(clearScrub)(2200);
+      });
+
+    const gesture = Gesture.Exclusive(pan, tap);
+
+    const crosshairStyle = useAnimatedStyle(() => ({
+      opacity: scrubOpacity.value,
+      transform: [{ translateX: cursorX.value }],
+    }));
+
+    const dotStyle = useAnimatedStyle(() => ({
+      opacity: scrubOpacity.value,
+      transform: [
+        { translateX: cursorX.value - 5 },
+        { translateY: cursorY.value - 5 },
+      ],
+    }));
+
+    const tipStyle = useAnimatedStyle(() => ({
+      opacity: scrubOpacity.value,
+      transform: [
+        { translateX: tipLeft.value },
+        { translateY: tipTop.value },
+      ],
+    }));
+
+    const onLayout = (e: LayoutChangeEvent) => {
+      setWidth(e.nativeEvent.layout.width);
+    };
+
+    if (loading) {
+      return (
+        <View style={[styles.empty, { height, backgroundColor: bg }]}>
+          <ActivityIndicator color={lineColor} />
+        </View>
+      );
+    }
+
+    if (points.length < 2) {
+      return (
+        <View style={[styles.empty, { height, backgroundColor: bg }]}>
+          <Text style={[styles.emptyText, { color: axis }]}>Chart unavailable</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View
+        style={[styles.wrap, { height, backgroundColor: bg }]}
+        onLayout={onLayout}
+        collapsable={false}
+      >
+        {width > 0 && chart ? (
+          <View style={{ width, height, overflow: 'hidden' }}>
+            <Svg width={width} height={height} pointerEvents="none">
               <Defs>
                 <LinearGradient id="nepseAreaFill" x1="0" y1="0" x2="0" y2="1">
                   <Stop
                     offset="0%"
                     stopColor={lineColor}
-                    stopOpacity={isDark ? 0.36 : 0.34}
+                    stopOpacity={isDark ? 0.28 : 0.22}
                   />
                   <Stop
                     offset="55%"
                     stopColor={lineColor}
-                    stopOpacity={isDark ? 0.12 : 0.14}
+                    stopOpacity={isDark ? 0.1 : 0.08}
                   />
                   <Stop offset="100%" stopColor={lineColor} stopOpacity={0.02} />
                 </LinearGradient>
+                <ClipPath id="nepsePlotClip">
+                  <Rect
+                    x={chart.padL}
+                    y={chart.padT}
+                    width={chart.plotW}
+                    height={chart.plotH}
+                  />
+                </ClipPath>
               </Defs>
 
               {chart.yTicks.map((tick, yi) => {
@@ -341,15 +517,17 @@ export function NepseMarketChart({
                 );
               })}
 
-              <Path d={chart.area} fill="url(#nepseAreaFill)" />
-              <Path
-                d={chart.line}
-                stroke={lineColor}
-                strokeWidth={2}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              <G clipPath="url(#nepsePlotClip)">
+                <Path d={chart.area} fill="url(#nepseAreaFill)" />
+                <Path
+                  d={chart.line}
+                  stroke={lineColor}
+                  strokeWidth={2}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </G>
 
               {chart.xTicks.map((t, i) => (
                 <SvgText
@@ -370,68 +548,52 @@ export function NepseMarketChart({
                   {t.label}
                 </SvgText>
               ))}
+            </Svg>
 
-              {active ? (
+            {/* Reanimated scrub overlay — moves on UI thread, tip text only on index change */}
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.crosshair,
+                {
+                  top: chart.padT,
+                  height: chart.plotH,
+                  backgroundColor: crosshair,
+                },
+                crosshairStyle,
+              ]}
+            />
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.dot,
+                { borderColor: lineColor },
+                dotStyle,
+              ]}
+            />
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.tip, { backgroundColor: tipBg }, tipStyle]}
+            >
+              {tip ? (
                 <>
-                  <Line
-                    x1={active.x}
-                    y1={chart.padT}
-                    x2={active.x}
-                    y2={chart.baselineY}
-                    stroke={lineColor}
-                    strokeWidth={1}
-                    strokeDasharray="3 3"
-                    opacity={0.7}
-                  />
-                  <Circle
-                    cx={active.x}
-                    cy={active.y}
-                    r={5.5}
-                    fill="#fff"
-                    stroke={lineColor}
-                    strokeWidth={2.4}
-                  />
-                  {(() => {
-                    const tip = `${active.label}  ·  ${active.value.toFixed(2)}`;
-                    const tipW = Math.min(width - 12, Math.max(128, tip.length * 7.1));
-                    const tipH = 26;
-                    const tipX = Math.min(
-                      Math.max(active.x - tipW / 2, 6),
-                      width - tipW - 6,
-                    );
-                    const tipY = Math.max(active.y - tipH - 12, 4);
-                    return (
-                      <>
-                        <Rect
-                          x={tipX}
-                          y={tipY}
-                          width={tipW}
-                          height={tipH}
-                          rx={7}
-                          fill={tipBg}
-                        />
-                        <SvgText
-                          x={tipX + tipW / 2}
-                          y={tipY + tipH / 2 + 3.5}
-                          fill="#fff"
-                          fontSize={11}
-                          fontWeight="700"
-                          textAnchor="middle"
-                        >
-                          {tip}
-                        </SvgText>
-                      </>
-                    );
-                  })()}
+                  <Text style={styles.tipValue}>{tip.value}</Text>
+                  <Text style={styles.tipTime}>{tip.time}</Text>
                 </>
               ) : null}
-            </Svg>
+            </Animated.View>
+
+            {!externalScrub ? (
+              <GestureDetector gesture={gesture}>
+                <View style={StyleSheet.absoluteFillObject} collapsable={false} />
+              </GestureDetector>
+            ) : null}
           </View>
-        </GestureDetector>
-      ) : null}
-    </View>
-  );
-}
+        ) : null}
+      </View>
+    );
+  },
+);
 
 const styles = StyleSheet.create({
   wrap: {
@@ -444,4 +606,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyText: { fontSize: rs(12) },
+  crosshair: {
+    position: 'absolute',
+    left: 0,
+    width: StyleSheet.hairlineWidth * 2,
+    marginLeft: -1,
+  },
+  dot: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#fff',
+    borderWidth: 2.2,
+  },
+  tip: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: TIP_W,
+    height: TIP_H,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  tipValue: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tipTime: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+  },
 });

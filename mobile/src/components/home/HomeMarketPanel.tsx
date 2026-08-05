@@ -8,19 +8,33 @@ import {
   NativeSyntheticEvent,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Gesture, GestureDetector, ScrollView as GHScrollView } from 'react-native-gesture-handler';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { MarketChartSection } from '../nepse/MarketChartSection';
+import Reanimated, {
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedProps,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
+import {
+  MARKET_CHART_HEIGHT,
+  useMarketChartModel,
+} from '../nepse/MarketChartSection';
+import type { NepseMarketChartHandle } from '../nepse/NepseMarketChart';
 import { useTheme } from '../../context/ThemeContext';
 import {
   fmtMcap,
   fmtNum,
+  hydrateNepseMarketCache,
   loadNepseMarketSnapshot,
   peekNepseMarketSnapshot,
   type IndexQuote,
@@ -35,6 +49,8 @@ import { rs } from '../../utils/responsive';
 import { usePollingRefresh } from '../../utils/usePollingRefresh';
 import type { RootStackParamList } from '../../navigation/types';
 import { HOME_H_PAD } from './homeLayout';
+
+const AnimatedScrollView = Reanimated.createAnimatedComponent(GHScrollView);
 
 type Props = { active: boolean };
 
@@ -174,14 +190,120 @@ export function HomeMarketPanel({ active }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [moverPage, setMoverPage] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState<IndexQuote | null>(null);
+  const [controlsH, setControlsH] = useState(rs(52));
+  const chartScrubRef = useRef<NepseMarketChartHandle>(null);
   const moversRef = useRef<FlatList<(typeof LIST_TABS)[number]>>(null);
+  const scrollingRef = useRef(false);
+  const pendingSnapRef = useRef<NepseMarketSnapshot | null>(null);
+  const scrollY = useSharedValue(0);
+  const scrubClearedRef = useSharedValue(0);
+
+  const chartBlockH = controlsH + MARKET_CHART_HEIGHT + rs(8);
+
+  const applyPendingSnap = useCallback(() => {
+    if (pendingSnapRef.current) {
+      setData(pendingSnapRef.current);
+      pendingSnapRef.current = null;
+    }
+  }, []);
+
+  const setScrolling = useCallback(
+    (v: boolean) => {
+      scrollingRef.current = v;
+      if (!v) applyPendingSnap();
+    },
+    [applyPendingSnap],
+  );
+
+  const clearScrubOnce = useCallback(() => {
+    chartScrubRef.current?.clearScrub(0);
+  }, []);
+
+  const chartLiftStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY: interpolate(
+          scrollY.value,
+          [0, 24, 140],
+          [0, 0, -32],
+          Extrapolation.CLAMP,
+        ),
+      },
+    ],
+  }));
+
+  const hitLayerProps = useAnimatedProps(() => ({
+    pointerEvents: scrollY.value <= 4 ? 'auto' : 'none',
+  }));
+
+  const onScroll = useAnimatedScrollHandler({
+    onBeginDrag: () => {
+      'worklet';
+      runOnJS(setScrolling)(true);
+    },
+    onScroll: (e) => {
+      'worklet';
+      const y = e.contentOffset.y;
+      scrollY.value = y;
+      // Clear scrub only once when leaving the top — never every frame.
+      if (y > 4 && scrubClearedRef.value === 0) {
+        scrubClearedRef.value = 1;
+        runOnJS(clearScrubOnce)();
+      } else if (y <= 4) {
+        scrubClearedRef.value = 0;
+      }
+    },
+    onEndDrag: () => {
+      'worklet';
+      runOnJS(setScrolling)(false);
+    },
+    onMomentumEnd: () => {
+      'worklet';
+      runOnJS(setScrolling)(false);
+    },
+  });
+
+  const chartScrubGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(0)
+        .activeOffsetX([-3, 3])
+        .failOffsetY([-22, 22])
+        .runOnJS(true)
+        .onBegin((e) => chartScrubRef.current?.scrubToX(e.x))
+        .onUpdate((e) => chartScrubRef.current?.scrubToX(e.x))
+        .onEnd(() => chartScrubRef.current?.clearScrub(1800)),
+    [],
+  );
+
+  const chartTapGesture = useMemo(
+    () =>
+      Gesture.Tap()
+        .maxDuration(320)
+        .runOnJS(true)
+        .onEnd((e) => {
+          chartScrubRef.current?.scrubToX(e.x);
+          chartScrubRef.current?.clearScrub(2200);
+        }),
+    [],
+  );
+
+  const chartHitGesture = useMemo(
+    () => Gesture.Exclusive(chartScrubGesture, chartTapGesture),
+    [chartScrubGesture, chartTapGesture],
+  );
 
   const refresh = useCallback(async (silent = false) => {
     // Never blank a warm board — only spinner when we have nothing yet.
     if (!silent && !peekNepseMarketSnapshot()) setLoading(true);
     try {
       const snap = await loadNepseMarketSnapshot({ allowCache: true });
-      setData(snap);
+      // Don't re-render the whole Market board mid-scroll (causes brief freezes).
+      if (scrollingRef.current) {
+        pendingSnapRef.current = snap;
+      } else {
+        setData(snap);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -191,14 +313,34 @@ export function HomeMarketPanel({ active }: Props) {
   // Load only when Market is visible — don't fight Accounts scroll.
   useEffect(() => {
     if (!active || !tabFocused) return;
-    const peek = peekNepseMarketSnapshot();
-    if (peek) {
-      setData(peek);
-      setLoading(false);
-      void refresh(true);
-    } else if (!data) {
-      void refresh(false);
-    }
+    let cancelled = false;
+
+    const boot = async () => {
+      const peek = peekNepseMarketSnapshot();
+      if (peek) {
+        setData(peek);
+        setLoading(false);
+        void refresh(true);
+        return;
+      }
+
+      // Cold start: paint disk cache instantly, then revalidate in background.
+      const disk = await hydrateNepseMarketCache();
+      if (cancelled) return;
+      if (disk) {
+        setData(disk);
+        setLoading(false);
+        void refresh(true);
+        return;
+      }
+
+      if (!data) void refresh(false);
+    };
+
+    void boot();
+    return () => {
+      cancelled = true;
+    };
   }, [active, tabFocused, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Only poll while Market is the visible home sub-tab AND Home is focused —
@@ -243,6 +385,23 @@ export function HomeMarketPanel({ active }: Props) {
     };
     return [nepse, ...(data?.subIndices ?? [])];
   }, [data]);
+
+  const chartModel = useMarketChartModel({
+    indexQuote,
+    sectorOptions,
+    selectedIndex,
+    onSelectIndex: setSelectedIndex,
+    intradayPoints: data?.chartPoints ?? [],
+    isDark,
+    colors,
+    externalScrub: true,
+    chartRef: chartScrubRef,
+    onSearchPress: () =>
+      navigation.navigate('NepseData', {
+        tab: 'live',
+        openSearch: true,
+      }),
+  });
 
   const advanced = data?.summary.advanced ?? 0;
   const declined = data?.summary.declined ?? 0;
@@ -490,13 +649,23 @@ export function HomeMarketPanel({ active }: Props) {
       </View>
       <Pressable
         style={[styles.shortcutBtn, styles.shortcutUp]}
-        onPress={() => goMoversPage(0)}
+        onPress={() =>
+          navigation.navigate('NepseData', {
+            tab: 'movers',
+            moverTab: 'gainers',
+          })
+        }
       >
         <MaterialCommunityIcons name="trending-up" size={rs(24)} color="#fff" />
       </Pressable>
       <Pressable
         style={[styles.shortcutBtn, styles.shortcutDown]}
-        onPress={() => goMoversPage(1)}
+        onPress={() =>
+          navigation.navigate('NepseData', {
+            tab: 'movers',
+            moverTab: 'losers',
+          })
+        }
       >
         <MaterialCommunityIcons name="trending-down" size={rs(24)} color="#fff" />
       </Pressable>
@@ -506,36 +675,36 @@ export function HomeMarketPanel({ active }: Props) {
   return (
     <View style={styles.root}>
       <View style={styles.indexSticky}>{indexHeader}</View>
-      <ScrollView
-        style={styles.scrollFlex}
-        contentContainerStyle={styles.scroll}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              void refresh(true);
-            }}
-            tintColor={colors.primary}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      >
-      {data ? (
-        <MarketChartSection
-          indexQuote={indexQuote}
-          sectorOptions={sectorOptions}
-          selectedIndex={selectedIndex}
-          onSelectIndex={setSelectedIndex}
-          intradayPoints={data.chartPoints}
-          isDark={isDark}
-          colors={colors}
-          onSearchPress={() =>
-            navigation.navigate('NepseData', { tab: 'live', openSearch: true })
-          }
-        />
-      ) : null}
+      <View style={styles.chartStage}>
+        {/* Fixed chart — Summary scrolls over it; box lifts slightly while covered. */}
+        {data ? (
+          <Reanimated.View style={[styles.chartPinned, chartLiftStyle]}>
+            <View style={{ height: controlsH }} />
+            {chartModel.chart}
+          </Reanimated.View>
+        ) : null}
 
+        <AnimatedScrollView
+          style={styles.scrollOverlay}
+          contentContainerStyle={styles.scroll}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={16}
+          onScroll={onScroll}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                void refresh(true);
+              }}
+              tintColor={colors.primary}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          {data ? <View style={{ height: chartBlockH }} /> : null}
+          <View style={styles.coverSheet}>
       {/* Summary card */}
       <View style={styles.summaryCard}>
         <View style={styles.summaryHead}>
@@ -689,10 +858,11 @@ export function HomeMarketPanel({ active }: Props) {
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={onMoversScroll}
         onScrollEndDrag={onMoversScroll}
-        windowSize={3}
+        windowSize={2}
         initialNumToRender={1}
         maxToRenderPerBatch={1}
-        removeClippedSubviews
+        updateCellsBatchingPeriod={50}
+        removeClippedSubviews={false}
         getItemLayout={(_, index) => ({
           length: moversSnap,
           offset: moversSnap * index,
@@ -750,7 +920,42 @@ export function HomeMarketPanel({ active }: Props) {
       >
         <Text style={styles.moreLinkText}>See full market data →</Text>
       </Pressable>
-      </ScrollView>
+        </View>
+      </AnimatedScrollView>
+
+        {/* NEPSE / 1 Day stay above the scroll — always tappable. */}
+        {data ? (
+          <View
+            style={styles.controlsOverlay}
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              if (h > 0 && Math.abs(h - controlsH) > 1) setControlsH(h);
+            }}
+            pointerEvents="box-none"
+          >
+            {chartModel.controls}
+          </View>
+        ) : null}
+
+        {/* Scrub hit layer always mounted — pointerEvents toggled on UI thread (no React re-render). */}
+        {data ? (
+          <GestureDetector gesture={chartHitGesture}>
+            <Reanimated.View
+              animatedProps={hitLayerProps}
+              style={[
+                styles.chartHitLayer,
+                {
+                  top: controlsH,
+                  height: MARKET_CHART_HEIGHT,
+                },
+              ]}
+              collapsable={false}
+            />
+          </GestureDetector>
+        ) : null}
+
+        {chartModel.modals}
+      </View>
     </View>
   );
 }
@@ -758,18 +963,66 @@ export function HomeMarketPanel({ active }: Props) {
 function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     root: { flex: 1 },
-    scrollFlex: { flex: 1 },
     indexSticky: {
       paddingHorizontal: HOME_H_PAD,
       paddingTop: rs(8),
       paddingBottom: rs(6),
       backgroundColor: c.bg,
+      zIndex: 4,
+      elevation: 4,
+    },
+    chartStage: {
+      flex: 1,
+      position: 'relative',
+      overflow: 'hidden',
+    },
+    chartPinned: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 0,
+      paddingHorizontal: HOME_H_PAD,
+      paddingTop: rs(2),
+      backgroundColor: isDark ? c.bg : '#F9FAF2',
+    },
+    controlsOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 10,
+      paddingHorizontal: HOME_H_PAD,
+      paddingTop: rs(2),
+      backgroundColor: isDark ? c.bg : '#F9FAF2',
+    },
+    chartHitLayer: {
+      position: 'absolute',
+      left: HOME_H_PAD,
+      right: HOME_H_PAD,
+      zIndex: 5,
+    },
+    scrollOverlay: {
+      flex: 1,
       zIndex: 2,
+      backgroundColor: 'transparent',
     },
     scroll: {
-      paddingHorizontal: HOME_H_PAD,
       paddingBottom: rs(28),
-      paddingTop: rs(4),
+      flexGrow: 1,
+    },
+    coverSheet: {
+      backgroundColor: c.bg,
+      paddingHorizontal: HOME_H_PAD,
+      paddingTop: rs(10),
+      paddingBottom: rs(8),
+      borderTopLeftRadius: rs(16),
+      borderTopRightRadius: rs(16),
+      shadowColor: '#000',
+      shadowOpacity: isDark ? 0.35 : 0.12,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: -4 },
+      elevation: 6,
     },
     center: {
       flex: 1,
@@ -814,7 +1067,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
 
     summaryCard: {
-      marginTop: rs(14),
+      marginTop: rs(4),
       borderRadius: rs(16),
       borderWidth: 1,
       borderColor: isDark ? '#3A3A3A' : '#E8C4C4',

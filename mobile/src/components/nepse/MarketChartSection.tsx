@@ -6,9 +6,14 @@ import {
   StyleSheet,
   Text,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { NepseMarketChart } from './NepseMarketChart';
+import {
+  NepseMarketChart,
+  type NepseMarketChartHandle,
+} from './NepseMarketChart';
 import {
   INDEX_CHART_RANGES,
   loadIndexChartPoints,
@@ -18,7 +23,9 @@ import type { ChartPoint, IndexQuote } from '../../services/nepse';
 import type { ThemeColors } from '../../theme/colors';
 import { rs } from '../../utils/responsive';
 
-type Props = {
+export const MARKET_CHART_HEIGHT = rs(232);
+
+type ModelInput = {
   indexQuote: IndexQuote;
   sectorOptions: IndexQuote[];
   selectedIndex: IndexQuote | null;
@@ -27,6 +34,8 @@ type Props = {
   isDark: boolean;
   colors: ThemeColors;
   onSearchPress?: () => void;
+  chartRef?: React.Ref<NepseMarketChartHandle>;
+  externalScrub?: boolean;
 };
 
 function indexSymbol(index: IndexQuote | null, fallback = 'NEPSE'): string {
@@ -34,7 +43,8 @@ function indexSymbol(index: IndexQuote | null, fallback = 'NEPSE'): string {
   return (index.symbol ?? index.name).toUpperCase().replace(/\s+/g, '');
 }
 
-export function MarketChartSection({
+/** Shared chart state for inline or pinned (Summary-cover) layouts. */
+export function useMarketChartModel({
   indexQuote,
   sectorOptions,
   selectedIndex,
@@ -43,7 +53,9 @@ export function MarketChartSection({
   isDark,
   colors,
   onSearchPress,
-}: Props) {
+  chartRef,
+  externalScrub = false,
+}: ModelInput) {
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const [range, setRange] = useState<IndexChartRange>('1D');
   const [chartPoints, setChartPoints] = useState<ChartPoint[]>(intradayPoints);
@@ -55,9 +67,13 @@ export function MarketChartSection({
   const up = (indexQuote.change ?? 0) >= 0;
   const rangeLabel =
     INDEX_CHART_RANGES.find((r) => r.id === range)?.label ?? '1 Day';
+  const iconColor = isDark ? colors.sage : '#4A5544';
+  const chartBg = isDark ? colors.bg : '#F9FAF2';
 
   const loadChart = useCallback(async () => {
-    setChartLoading(true);
+    // 1D is synthetic/local — paint immediately, no spinner.
+    const showSpinner = range !== '1D';
+    if (showSpinner) setChartLoading(true);
     try {
       const pts = await loadIndexChartPoints(sym, range, intradayPoints, {
         current: indexQuote.current,
@@ -65,7 +81,7 @@ export function MarketChartSection({
       });
       setChartPoints(pts);
     } finally {
-      setChartLoading(false);
+      if (showSpinner) setChartLoading(false);
     }
   }, [sym, range, intradayPoints, indexQuote.current, indexQuote.change]);
 
@@ -73,46 +89,43 @@ export function MarketChartSection({
     void loadChart();
   }, [loadChart]);
 
-  const iconColor = isDark ? colors.sage : '#4A5544';
-  const chartBg = isDark ? colors.bg : colors.bg;
-
-  return (
-    <View style={styles.wrap}>
-      <View style={styles.controls}>
-        <Pressable
-          style={styles.dropdown}
-          onPress={() => setIndexMenuOpen(true)}
-        >
-          <Ionicons name="list" size={rs(15)} color={iconColor} />
-          <Text style={styles.dropdownText} numberOfLines={1}>
-            {indexQuote.name}
-          </Text>
-          <Ionicons name="chevron-down" size={rs(14)} color={iconColor} />
+  const controls = (
+    <View style={styles.controls}>
+      <Pressable style={styles.dropdown} onPress={() => setIndexMenuOpen(true)}>
+        <Ionicons name="list" size={rs(15)} color={iconColor} />
+        <Text style={styles.dropdownText} numberOfLines={1}>
+          {indexQuote.name}
+        </Text>
+        <Ionicons name="chevron-down" size={rs(14)} color={iconColor} />
+      </Pressable>
+      <Pressable style={styles.dropdown} onPress={() => setRangeMenuOpen(true)}>
+        <Ionicons name="calendar-outline" size={rs(14)} color={iconColor} />
+        <Text style={styles.dropdownText}>{rangeLabel}</Text>
+        <Ionicons name="chevron-down" size={rs(14)} color={iconColor} />
+      </Pressable>
+      {onSearchPress ? (
+        <Pressable style={styles.searchBtn} onPress={onSearchPress} hitSlop={8}>
+          <Ionicons name="search" size={rs(18)} color="#fff" />
         </Pressable>
-        <Pressable
-          style={styles.dropdown}
-          onPress={() => setRangeMenuOpen(true)}
-        >
-          <Ionicons name="calendar-outline" size={rs(14)} color={iconColor} />
-          <Text style={styles.dropdownText}>{rangeLabel}</Text>
-          <Ionicons name="chevron-down" size={rs(14)} color={iconColor} />
-        </Pressable>
-        {onSearchPress ? (
-          <Pressable style={styles.searchBtn} onPress={onSearchPress} hitSlop={8}>
-            <Ionicons name="search" size={rs(18)} color="#fff" />
-          </Pressable>
-        ) : null}
-      </View>
+      ) : null}
+    </View>
+  );
 
-      <NepseMarketChart
-        points={chartPoints}
-        isDark={isDark}
-        up={up}
-        loading={chartLoading}
-        height={rs(250)}
-        backgroundColor={chartBg}
-      />
+  const chart = (
+    <NepseMarketChart
+      ref={chartRef}
+      points={chartPoints}
+      isDark={isDark}
+      up={up}
+      loading={chartLoading}
+      height={MARKET_CHART_HEIGHT}
+      backgroundColor={chartBg}
+      externalScrub={externalScrub}
+    />
+  );
 
+  const modals = (
+    <>
       <Modal visible={indexMenuOpen} transparent animationType="fade">
         <View style={styles.modalRoot}>
           <Pressable
@@ -137,7 +150,11 @@ export function MarketChartSection({
                   >
                     <Text style={styles.menuItemText}>{opt.name}</Text>
                     {active ? (
-                      <Ionicons name="checkmark" size={rs(16)} color={colors.primary} />
+                      <Ionicons
+                        name="checkmark"
+                        size={rs(16)}
+                        color={colors.primary}
+                      />
                     ) : null}
                   </Pressable>
                 );
@@ -158,7 +175,10 @@ export function MarketChartSection({
             {INDEX_CHART_RANGES.map((opt) => (
               <Pressable
                 key={opt.id}
-                style={[styles.menuItem, range === opt.id && styles.menuItemActive]}
+                style={[
+                  styles.menuItem,
+                  range === opt.id && styles.menuItemActive,
+                ]}
                 onPress={() => {
                   setRange(opt.id);
                   setRangeMenuOpen(false);
@@ -166,20 +186,47 @@ export function MarketChartSection({
               >
                 <Text style={styles.menuItemText}>{opt.label}</Text>
                 {range === opt.id ? (
-                  <Ionicons name="checkmark" size={rs(16)} color={colors.primary} />
+                  <Ionicons
+                    name="checkmark"
+                    size={rs(16)}
+                    color={colors.primary}
+                  />
                 ) : null}
               </Pressable>
             ))}
           </View>
         </View>
       </Modal>
+    </>
+  );
+
+  return { controls, chart, modals, styles, chartBg };
+}
+
+type Props = ModelInput & {
+  style?: StyleProp<ViewStyle>;
+};
+
+/** Default inline chart block (controls + graph). */
+export function MarketChartSection(props: Props) {
+  const { style, ...modelInput } = props;
+  const { controls, chart, modals, styles } = useMarketChartModel(modelInput);
+  return (
+    <View style={[styles.wrap, style]}>
+      {controls}
+      {chart}
+      {modals}
     </View>
   );
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
-    wrap: { marginTop: rs(2) },
+    wrap: {
+      marginTop: rs(2),
+      backgroundColor: isDark ? c.bg : '#F9FAF2',
+      borderRadius: rs(4),
+    },
     controls: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -193,7 +240,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       paddingHorizontal: rs(12),
       paddingVertical: rs(9),
       borderRadius: rs(16),
-      backgroundColor: isDark ? c.surfaceAlt : '#D8E2CC',
+      backgroundColor: isDark ? c.surfaceAlt : '#E4EDD8',
       maxWidth: rs(148),
     },
     dropdownText: {

@@ -238,6 +238,10 @@ export function NepseDataScreen() {
     const params = route.params;
     if (!params) return;
     if (params.tab) setTab(params.tab);
+    if (params.moverTab) {
+      setMoverTab(params.moverTab);
+      if (!params.tab) setTab('movers');
+    }
     if (params.query != null) {
       setQuery(params.query);
       setSearchOpen(true);

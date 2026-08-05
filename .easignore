@@ -5,6 +5,13 @@ backend/**
 **/data/labeled/**
 **/*.png
 !mobile/assets/**
+**/*.apk
+**/*.aab
+mobile/*.apk
+mobile/*.aab
+mobile/builds/
+mobile/NEPSE-GHAR-*.apk
+mobile/nepse-ghar-*.apk
 mobile/build-fail-log*
 mobile/build-fail-log.*
 mobile/build-fail.json
