@@ -533,16 +533,24 @@
   // ============================================================
   // 5. 3D TILT EFFECT
   // ============================================================
+  // Soft tilt on cards only — skip anchors so links stay clickable
   document.querySelectorAll('.tilt-3d').forEach(function(el) {
+    if (el.tagName === 'A' || el.querySelector('a, button, input, textarea')) {
+      return;
+    }
     el.addEventListener('mousemove', function(e) {
       const rect = el.getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width - 0.5;
       const y = (e.clientY - rect.top) / rect.height - 0.5;
-      el.style.transform = 'perspective(1000px) rotateX(' + (y * -12) + 'deg) rotateY(' + (x * 12) + 'deg) translateZ(10px) scale(1.02)';
+      el.style.transform =
+        'perspective(1000px) rotateX(' +
+        y * -6 +
+        'deg) rotateY(' +
+        x * 6 +
+        'deg)';
     });
-    
     el.addEventListener('mouseleave', function() {
-      el.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) translateZ(0) scale(1)';
+      el.style.transform = '';
     });
   });
 
@@ -616,16 +624,18 @@
   document.querySelectorAll('a[href^="#"]').forEach(function(anchor) {
     anchor.addEventListener('click', function(e) {
       const targetId = this.getAttribute('href');
-      if (targetId === '#') return;
-      
+      if (!targetId || targetId === '#') return;
+
       const targetElement = document.querySelector(targetId);
-      if (targetElement) {
-        e.preventDefault();
-        targetElement.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start'
-        });
-      }
+      if (!targetElement) return;
+
+      e.preventDefault();
+      const header = document.querySelector('.site-header');
+      const offset = header ? header.offsetHeight + 8 : 0;
+      const top =
+        targetElement.getBoundingClientRect().top + window.scrollY - offset;
+      window.scrollTo({ top: top, behavior: 'smooth' });
+      history.pushState(null, '', targetId);
     });
   });
 
