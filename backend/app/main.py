@@ -6,7 +6,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+
+from .legal_pages import PRIVACY_HTML, TERMS_HTML
 
 from .auth import router as auth_router
 from .admin.routes import router as admin_router
@@ -356,6 +359,18 @@ async def allow_captcha_solve(
     if not await cdsc_user_limiter.check(ident):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     return ident
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_policy() -> HTMLResponse:
+    """Public privacy policy page for Google Play / store listing."""
+    return HTMLResponse(content=PRIVACY_HTML)
+
+
+@app.get("/terms", response_class=HTMLResponse)
+async def terms_of_service() -> HTMLResponse:
+    """Public terms page."""
+    return HTMLResponse(content=TERMS_HTML)
 
 
 @app.get("/health")
