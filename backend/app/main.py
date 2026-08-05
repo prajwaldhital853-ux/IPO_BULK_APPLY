@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from .legal_pages import PRIVACY_HTML, TERMS_HTML
+from .legal_html import PRIVACY_HTML, TERMS_HTML
 
 from .auth import router as auth_router
 from .admin.routes import router as admin_router
