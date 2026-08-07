@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormField } from '../components/FormField';
 import { KeyboardSheetModal } from '../components/KeyboardSheetModal';
 import { LocalDisclaimer } from '../components/LocalDisclaimer';
+import { MinorDobFields } from '../components/MinorDobFields';
 import { useAccounts } from '../context/AccountsContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
@@ -27,6 +28,10 @@ import {
 } from '../services/meroshare';
 import type { ThemeColors } from '../theme/colors';
 import { guardAddAccount } from '../utils/accountLimits';
+import {
+  buildMinorMetaFields,
+  extractDobFromOwnDetail,
+} from '../utils/minorAccount';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
@@ -63,19 +68,21 @@ function CredentialsSheet({
   insets,
   children,
   footer,
+  onClose,
 }: {
   visible: boolean;
   styles: ReturnType<typeof makeStyles>;
   insets: { bottom: number };
   children: React.ReactNode;
   footer: React.ReactNode;
+  onClose: () => void;
 }) {
   return (
     <KeyboardSheetModal
       visible={visible}
-      onClose={() => Keyboard.dismiss()}
+      onClose={onClose}
       title="CRN & Transaction PIN"
-      subtitle="Enter details from your bank / ASBA, then verify."
+      subtitle="Enter CRN and 4-digit PIN, then verify."
       footer={footer}
       bottomInset={insets.bottom}
       sheetStyle={styles.sheet}
@@ -106,17 +113,22 @@ export function BankDetailScreen() {
   const [bankRetryKey, setBankRetryKey] = useState(0);
   const [crn, setCrn] = useState('');
   const [pin, setPin] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [guardianName, setGuardianName] = useState('');
+  const [dobAutoFilled, setDobAutoFilled] = useState(false);
+  const [detectingDob, setDetectingDob] = useState(false);
   const [hideCrn, setHideCrn] = useState(true);
   const [hidePin, setHidePin] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errorField, setErrorField] = useState<VerifyField | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
-  // Credentials sheet stays open (same UX as Bank Tracker Start sheet).
-  const sheetOpen = true;
+  // DOB first; CRN/PIN sheet opens only after user taps the button.
+  const [sheetOpen, setSheetOpen] = useState(false);
   const savingDoneRef = useRef(false);
   const submitLockRef = useRef(false);
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const dobTouchedRef = useRef(false);
 
   // Unlock Verify button if PIN/setup modal was cancelled.
   useEffect(() => {
@@ -147,6 +159,7 @@ export function BankDetailScreen() {
       }
       setLoadingBank(true);
       setBankError('');
+      setDetectingDob(true);
       const client = new MeroshareClient();
       try {
         await client.login({
@@ -166,6 +179,17 @@ export function BankDetailScreen() {
             'No ASBA bank found on MeroShare. You can still enter CRN/PIN if your DP is correct.',
           );
         }
+        // Auto-detect DOB from ownDetail when MeroShare exposes it.
+        try {
+          const detail = await client.fetchOwnDetailRaw();
+          const dob = extractDobFromOwnDetail(detail);
+          if (dob && mounted && !dobTouchedRef.current) {
+            setDateOfBirth(dob);
+            setDobAutoFilled(true);
+          }
+        } catch {
+          // ownDetail DOB is optional
+        }
       } catch (e) {
         if (!mounted) return;
         setLinkedBank(draft.dpName);
@@ -177,7 +201,10 @@ export function BankDetailScreen() {
         );
       } finally {
         client.clearSession();
-        if (mounted) setLoadingBank(false);
+        if (mounted) {
+          setLoadingBank(false);
+          setDetectingDob(false);
+        }
       }
     })();
     return () => {
@@ -292,6 +319,7 @@ export function BankDetailScreen() {
                 : verify.boid);
             return full ? String(full).slice(-4) : undefined;
           })(),
+          ...buildMinorMetaFields(dateOfBirth, guardianName),
         });
 
         // Go straight to Bulk IPO Apply — do not bounce to Add Capital.
@@ -358,8 +386,8 @@ export function BankDetailScreen() {
         <LocalDisclaimer />
 
         <Text style={styles.verifyHint}>
-          Your DP was already chosen. ASBA bank is taken from your MeroShare
-          account automatically — only enter CRN and transaction PIN.
+          Your DP and bank are loaded from MeroShare. Continue to CRN & PIN
+          below.
         </Text>
 
         <View style={styles.infoCard}>
@@ -388,7 +416,29 @@ export function BankDetailScreen() {
               </Pressable>
             </View>
           ) : null}
+          <MinorDobFields
+            compact
+            dateOfBirth={dateOfBirth}
+            onDateOfBirthChange={(t) => {
+              dobTouchedRef.current = true;
+              setDobAutoFilled(false);
+              setDateOfBirth(t);
+            }}
+            guardianName={guardianName}
+            onGuardianNameChange={setGuardianName}
+          />
         </View>
+
+        {!sheetOpen ? (
+          <Pressable
+            style={styles.openSheetBtn}
+            onPress={() => setSheetOpen(true)}
+          >
+            <Text style={styles.openSheetBtnText}>
+              Enter CRN & Transaction PIN
+            </Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
 
       <CredentialsSheet
@@ -396,6 +446,10 @@ export function BankDetailScreen() {
         styles={styles}
         insets={insets}
         footer={submitButton}
+        onClose={() => {
+          Keyboard.dismiss();
+          setSheetOpen(false);
+        }}
       >
         {errorMsg ? (
           <View style={styles.sheetError}>
@@ -460,7 +514,9 @@ function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     flex: { flex: 1 },
-    scrollContent: { paddingBottom: rs(40) },
+    scrollContent: {
+      paddingBottom: Math.max(rs(28), 28),
+    },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -515,6 +571,25 @@ function makeStyles(colors: ThemeColors) {
       color: colors.sage,
       fontSize: rs(12),
       fontWeight: '700',
+    },
+    sheetClosedHint: {
+      marginTop: rs(12),
+      color: colors.textMuted,
+      fontSize: rs(11),
+      lineHeight: rs(15),
+    },
+    openSheetBtn: {
+      marginHorizontal: rs(16),
+      marginTop: rs(4),
+      backgroundColor: colors.primary,
+      borderRadius: rs(12),
+      paddingVertical: rs(14),
+      alignItems: 'center',
+    },
+    openSheetBtnText: {
+      color: '#FFFFFF',
+      fontWeight: '800',
+      fontSize: rs(15),
     },
     errorBanner: {
       marginHorizontal: rs(16),

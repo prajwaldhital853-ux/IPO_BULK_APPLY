@@ -115,6 +115,7 @@ function ssPastel(hex: string): string {
     '#FF7043': '#FFCCBC',
     '#5C6BC0': '#C5CAE9',
     '#81C784': '#C8E6C9',
+    '#8D6E63': '#D7CCC8',
   };
   return map[hex] ?? '#ECEFF1';
 }
@@ -139,6 +140,7 @@ function pastel(hex: string, isDark: boolean) {
       '#FF7043': '#5C3018',
       '#5C6BC0': '#2A3262',
       '#81C784': '#1F4A2E',
+      '#8D6E63': '#4E342E',
     };
     return map[hex] ?? `${hex}66`;
   }
@@ -159,6 +161,7 @@ function pastel(hex: string, isDark: boolean) {
     '#FF7043': '#FF8A65',
     '#5C6BC0': '#9FA8DA',
     '#81C784': '#A5D6A7',
+    '#8D6E63': '#BCAAA4',
   };
   return map[hex] ?? `${hex}28`;
 }
@@ -237,6 +240,7 @@ function buildSections(): Section[] {
         { id: 'bulk-result', label: 'IPO Result', iconSet: 'ion', iconName: 'checkmark-done-circle-outline', accent: '#66BB6A', route: 'PublicIpoResult' },
         { id: 'change-password', label: 'Change Password', iconSet: 'ion', iconName: 'key-outline', accent: '#FF7043', route: 'ChangePassword' },
         { id: 'track-account-expiry', label: 'Track Account Expiry', badge: 'NEW', iconSet: 'ion', iconName: 'hourglass-outline', accent: '#EC407A', route: 'TrackAccountExpiry' },
+        { id: 'minor-accounts', label: 'Minor Accounts', badge: 'NEW', iconSet: 'ion', iconName: 'happy-outline', accent: '#8D6E63', route: 'MinorAccounts' },
       ],
     },
     {

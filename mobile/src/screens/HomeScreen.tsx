@@ -32,6 +32,9 @@ import { exportFullAccountsExcel } from '../services/accounts/backup';
 import { loadAccountMeta } from '../storage/accountsStorage';
 import type { ThemeColors } from '../theme/colors';
 import { guardAddAccount } from '../utils/accountLimits';
+import {
+  isMinorAccount,
+} from '../utils/minorAccount';
 import { rs } from '../utils/responsive';
 import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
@@ -60,6 +63,7 @@ function AccountCard({
   colors: ThemeColors;
 }) {
   const verified = item.verified !== false;
+  const isMinor = isMinorAccount(item);
   const indexLabel = String(index + 1).padStart(2, '0');
   const canDrag = !searching && Boolean(onDrag);
 
@@ -89,6 +93,11 @@ function AccountCard({
             {verified ? (
               <View style={styles.verifiedBadge}>
                 <Ionicons name="checkmark" size={rs(7)} color="#FFFFFF" />
+              </View>
+            ) : null}
+            {isMinor ? (
+              <View style={styles.minorBadge}>
+                <Text style={styles.minorBadgeText}>Minor</Text>
               </View>
             ) : null}
           </View>
@@ -209,7 +218,9 @@ export function HomeScreen() {
         a.name.toLowerCase().includes(q) ||
         a.username.includes(q) ||
         (a.bankName ?? '').toLowerCase().includes(q) ||
-        (a.dpName ?? '').toLowerCase().includes(q),
+        (a.dpName ?? '').toLowerCase().includes(q) ||
+        (a.guardianName ?? '').toLowerCase().includes(q) ||
+        (q === 'minor' && isMinorAccount(a)),
     );
   }, [accounts, query]);
 
@@ -621,6 +632,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
   const cardBg = isDark ? c.surface : '#FFFFFF';
   const avatarBg = isDark ? c.surfaceAlt : '#FFFFFF';
   const railGreen = c.promoBanner;
+  const minorBadgeBg = isDark ? 'rgba(229,57,53,0.22)' : '#FFEBEE';
+  const minorBadgeFg = isDark ? '#FF8A80' : '#C62828';
+  const minorBadgeBorder = isDark ? '#E57373' : '#E53935';
 
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
@@ -828,6 +842,22 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'center',
       flexShrink: 0,
+    },
+    minorBadge: {
+      paddingHorizontal: rs(7),
+      paddingVertical: rs(2),
+      borderRadius: rs(6),
+      backgroundColor: minorBadgeBg,
+      borderWidth: 1,
+      borderColor: minorBadgeBorder,
+      flexShrink: 0,
+    },
+    minorBadgeText: {
+      color: minorBadgeFg,
+      fontSize: rs(9),
+      fontWeight: '800',
+      letterSpacing: 0.3,
+      textTransform: 'uppercase',
     },
     username: {
       color: c.textMuted,

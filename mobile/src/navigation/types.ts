@@ -56,6 +56,7 @@ export type RootStackParamList = {
     | undefined;
   CalculateWacc: undefined;
   TrackAccountExpiry: undefined;
+  MinorAccounts: undefined;
   BankTracker: undefined;
   BankTrackerDetail: { accountId: string };
   ChangePassword: undefined;

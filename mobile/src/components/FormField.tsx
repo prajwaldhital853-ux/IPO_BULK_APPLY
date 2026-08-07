@@ -21,6 +21,10 @@ type Props = {
   secure?: boolean;
   showEye?: boolean;
   onToggleEye?: () => void;
+  /** Trailing action icon inside the field (e.g. calendar). */
+  trailingIcon?: keyof typeof Ionicons.glyphMap;
+  onPressTrailing?: () => void;
+  trailingAccessibilityLabel?: string;
   dropdown?: boolean;
   onPressDropdown?: () => void;
   counter?: string;
@@ -41,6 +45,9 @@ export function FormField({
   secure,
   showEye,
   onToggleEye,
+  trailingIcon,
+  onPressTrailing,
+  trailingAccessibilityLabel,
   dropdown,
   onPressDropdown,
   counter,
@@ -90,6 +97,20 @@ export function FormField({
             autoCapitalize="none"
             onFocus={onFocus}
           />
+          {trailingIcon && onPressTrailing ? (
+            <Pressable
+              onPress={onPressTrailing}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={trailingAccessibilityLabel}
+            >
+              <Ionicons
+                name={trailingIcon}
+                size={rs(22)}
+                color={colors.primary}
+              />
+            </Pressable>
+          ) : null}
           {showEye ? (
             <Pressable onPress={onToggleEye} hitSlop={10}>
               <Ionicons

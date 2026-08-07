@@ -1,5 +1,9 @@
 import type { AccountMeta } from '../types/account';
 import type { ImportedHolding } from '../services/meroshare/portfolioImport';
+import {
+  dobWithDaysUntil18,
+  holderTypeFromDob,
+} from '../utils/minorAccount';
 
 export const MOCK_ID_PREFIX = 'mock_';
 
@@ -64,6 +68,9 @@ type PersonSeed = {
   waccVsLtp: number[];
   /** demat | password | both | none */
   expiryKind?: 'demat' | 'password' | 'both' | 'none';
+  /** ISO DOB — under-18 demos for Minor Accounts */
+  dateOfBirth?: string;
+  guardianName?: string;
 };
 
 const PEOPLE: PersonSeed[] = [
@@ -264,6 +271,100 @@ const PEOPLE: PersonSeed[] = [
   },
 ];
 
+/** Dedicated under-18 demat samples for Minor Accounts demos. */
+const MINOR_PEOPLE: PersonSeed[] = [
+  {
+    slug: 'minor-aarav',
+    name: 'AARAV SHRESTHA',
+    dpId: '13700',
+    dpName: 'NIC ASIA CAPITAL LTD',
+    username: '11024501',
+    bankName: 'NIC ASIA BANK LTD.',
+    accountNumber: '0542099887766554',
+    stockIdx: [0, 4],
+    qtys: [10, 25],
+    waccVsLtp: [0.95, 0.92],
+    expiryKind: 'none',
+    dateOfBirth: dobWithDaysUntil18(45),
+    guardianName: 'BINOD SHRESTHA',
+  },
+  {
+    slug: 'minor-anisha',
+    name: 'ANISHA THAPA',
+    dpId: '12300',
+    dpName: 'NMB CAPITAL LTD',
+    username: '11024502',
+    bankName: 'NMB BANK LTD.',
+    accountNumber: '0120987654321098',
+    stockIdx: [1, 8],
+    qtys: [15, 40],
+    waccVsLtp: [0.97, 1.02],
+    expiryKind: 'none',
+    dateOfBirth: dobWithDaysUntil18(120),
+    guardianName: 'SITA THAPA',
+  },
+  {
+    slug: 'minor-kabir',
+    name: 'KABIR ADHIKARI',
+    dpId: '13200',
+    dpName: 'NIBL ACE CAPITAL LTD',
+    username: '11024503',
+    bankName: 'NIC ASIA BANK LTD.',
+    accountNumber: '0542011223344556',
+    stockIdx: [2, 5],
+    qtys: [20, 30],
+    waccVsLtp: [0.9, 0.94],
+    expiryKind: 'demat',
+    dateOfBirth: dobWithDaysUntil18(18),
+    guardianName: 'RAM ADHIKARI',
+  },
+  {
+    slug: 'minor-nisha',
+    name: 'NISHA KARKI',
+    dpId: '14900',
+    dpName: 'PRABHU CAPITAL LTD',
+    username: '11024504',
+    bankName: 'PRABHU BANK LTD.',
+    accountNumber: '0211556677001122',
+    stockIdx: [3, 9],
+    qtys: [12, 18],
+    waccVsLtp: [0.96, 1.01],
+    expiryKind: 'none',
+    dateOfBirth: dobWithDaysUntil18(280),
+    guardianName: 'ANITA KARKI',
+  },
+  {
+    slug: 'minor-rehan',
+    name: 'REHAN GURUNG',
+    dpId: '11700',
+    dpName: 'CIVIL CAPITAL MARKET LTD',
+    username: '11024505',
+    bankName: 'GLOBAL IME BANK LTD.',
+    accountNumber: '0401122334455667',
+    stockIdx: [6, 7],
+    qtys: [22, 50],
+    waccVsLtp: [0.93, 0.88],
+    expiryKind: 'password',
+    dateOfBirth: dobWithDaysUntil18(7),
+    guardianName: 'PEMA GURUNG',
+  },
+  {
+    slug: 'minor-sara',
+    name: 'SARA MAHARJAN',
+    dpId: '14000',
+    dpName: 'NEPAL SBI MERCHANT BANKING',
+    username: '11024506',
+    bankName: 'NEPAL SBI BANK LTD.',
+    accountNumber: '0999111222333444',
+    stockIdx: [0, 10, 4],
+    qtys: [8, 5, 15],
+    waccVsLtp: [0.98, 0.95, 0.91],
+    expiryKind: 'none',
+    dateOfBirth: dobWithDaysUntil18(560),
+    guardianName: 'KRISHNA MAHARJAN',
+  },
+];
+
 function buildHoldings(person: PersonSeed): ImportedHolding[] {
   return person.stockIdx.map((qi, i) => {
     const q = QUOTES[qi]!;
@@ -325,6 +426,10 @@ function expiryFor(kind: PersonSeed['expiryKind']): MockAccountSeed['expiry'] {
 
 function buildSeed(person: PersonSeed, index: number): MockAccountSeed {
   const demat = `130${person.dpId}${person.username}`;
+  const dateOfBirth = person.dateOfBirth;
+  const holderType = dateOfBirth
+    ? holderTypeFromDob(dateOfBirth)
+    : undefined;
   return {
     meta: {
       id: `${MOCK_ID_PREFIX}${person.slug}`,
@@ -338,6 +443,12 @@ function buildSeed(person: PersonSeed, index: number): MockAccountSeed {
       verified: true,
       demat,
       boidHint: person.username.slice(-4),
+      dateOfBirth,
+      holderType,
+      guardianName:
+        holderType === 'minor'
+          ? person.guardianName
+          : undefined,
     },
     secrets: {
       password: 'mock-pass',
@@ -371,12 +482,12 @@ function buildExpandedPeople(targetCount: number): PersonSeed[] {
 }
 
 /**
- * 30 realistic sample accounts for Expo Go / offline demos.
- * Holdings include a mix of gains and losses vs previous close & WACC.
+ * 30 adult sample accounts + 6 under-18 minor demat samples for Expo Go demos.
  */
-export const MOCK_ACCOUNT_SEEDS: MockAccountSeed[] = buildExpandedPeople(30).map(
-  buildSeed,
-);
+export const MOCK_ACCOUNT_SEEDS: MockAccountSeed[] = [
+  ...buildExpandedPeople(30).map(buildSeed),
+  ...MINOR_PEOPLE.map((p, i) => buildSeed(p, 30 + i)),
+];
 
 export function mockHoldingsForAccount(
   accountId: string,

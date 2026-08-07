@@ -14,6 +14,12 @@ import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
 import { maskBoid, resolveBoidSync } from '../utils/boid';
+import {
+  daysUntilMajority,
+  formatCountdownLabel,
+  formatDobDisplay,
+  isMinorAccount,
+} from '../utils/minorAccount';
 import { rs } from '../utils/responsive';
 
 const ACTION_BLUE = '#2F80ED';
@@ -97,10 +103,56 @@ export function AccountDetailSheet({
                   color={colors.accentGreen}
                 />
               ) : null}
+              {isMinorAccount(account) ? (
+                <View style={styles.minorBadge}>
+                  <Text style={styles.minorBadgeText}>Minor</Text>
+                </View>
+              ) : null}
             </View>
             <Text style={styles.username}>Username : {account.username}</Text>
           </View>
         </View>
+
+        {isMinorAccount(account) ? (
+          <>
+            <View style={styles.fieldRow}>
+              <Ionicons
+                name="hourglass-outline"
+                size={rs(18)}
+                color={colors.textMuted}
+                style={styles.fieldIcon}
+              />
+              <Text style={styles.fieldLabel}>Left</Text>
+              <Text style={styles.fieldValue} numberOfLines={2}>
+                {formatCountdownLabel(daysUntilMajority(account.dateOfBirth))}
+              </Text>
+            </View>
+            <View style={styles.fieldRow}>
+              <Ionicons
+                name="calendar-outline"
+                size={rs(18)}
+                color={colors.textMuted}
+                style={styles.fieldIcon}
+              />
+              <Text style={styles.fieldLabel}>DOB</Text>
+              <Text style={styles.fieldValue} numberOfLines={1}>
+                {formatDobDisplay(account.dateOfBirth)}
+              </Text>
+            </View>
+            <View style={styles.fieldRow}>
+              <Ionicons
+                name="people-outline"
+                size={rs(18)}
+                color={colors.textMuted}
+                style={styles.fieldIcon}
+              />
+              <Text style={styles.fieldLabel}>Guard.</Text>
+              <Text style={styles.fieldValue} numberOfLines={1}>
+                {account.guardianName?.trim() || '—'}
+              </Text>
+            </View>
+          </>
+        ) : null}
 
         <View style={styles.fieldRow}>
           <MaterialCommunityIcons
@@ -247,6 +299,20 @@ function makeStyles(c: ThemeColors) {
     headBody: { flex: 1 },
     nameRow: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
     name: { color: c.text, fontWeight: '800', fontSize: rs(16) },
+    minorBadge: {
+      paddingHorizontal: rs(7),
+      paddingVertical: rs(2),
+      borderRadius: rs(6),
+      backgroundColor: c.surfaceAlt || c.bgElevated,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    minorBadgeText: {
+      color: c.textMuted,
+      fontSize: rs(10),
+      fontWeight: '800',
+      letterSpacing: 0.2,
+    },
     username: { color: c.textSecondary, fontSize: rs(13), marginTop: rs(4) },
     fieldRow: {
       flexDirection: 'row',

@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import type { AccountMeta, AccountSecrets, LinkedAccount } from '../types/account';
+import { holderTypeFromDob } from '../utils/minorAccount';
 import { clearApplyHistoryForAccount } from './applyHistory';
 import {
   clearBulkPortfolioSnapshot,
@@ -124,6 +125,16 @@ export async function addAccountWithSecrets(
     boidHint: meta.boidHint,
     demat: meta.demat,
     addedAt: meta.addedAt ?? new Date().toISOString(),
+    dateOfBirth: meta.dateOfBirth,
+    holderType: meta.dateOfBirth
+      ? holderTypeFromDob(meta.dateOfBirth)
+      : meta.holderType ?? 'major',
+    guardianName:
+      (meta.dateOfBirth
+        ? holderTypeFromDob(meta.dateOfBirth)
+        : meta.holderType) === 'minor'
+        ? meta.guardianName?.trim() || undefined
+        : undefined,
   };
   await saveSecrets(id, secrets);
   // Oldest accounts stay first; newly added accounts go to the end.
@@ -136,7 +147,22 @@ export async function patchAccountMeta(
   patch: Partial<Omit<AccountMeta, 'id'>>,
 ): Promise<AccountMeta[]> {
   const list = await loadAccountMeta();
-  const next = list.map((a) => (a.id === id ? { ...a, ...patch } : a));
+  const next = list.map((a) => {
+    if (a.id !== id) return a;
+    const merged: AccountMeta = { ...a, ...patch };
+    if ('dateOfBirth' in patch && !patch.dateOfBirth) {
+      delete merged.dateOfBirth;
+    }
+    if (merged.dateOfBirth) {
+      merged.holderType = holderTypeFromDob(merged.dateOfBirth);
+    } else if ('dateOfBirth' in patch) {
+      merged.holderType = patch.holderType ?? 'major';
+    }
+    if (merged.holderType !== 'minor') {
+      delete merged.guardianName;
+    }
+    return merged;
+  });
   await saveAccountMeta(next);
   return next;
 }

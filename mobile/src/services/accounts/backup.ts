@@ -12,6 +12,9 @@ export type ImportedAccount = {
   username: string;
   bankName?: string;
   demat?: string;
+  dateOfBirth?: string;
+  holderType?: 'major' | 'minor';
+  guardianName?: string;
 };
 
 /** Full device backup row — includes secrets (local Excel export only). */
@@ -101,6 +104,9 @@ export function buildAccountsBackup(accounts: AccountMeta[]): string {
         username: a.username,
         bankName: a.bankName,
         demat: a.demat,
+        dateOfBirth: a.dateOfBirth,
+        holderType: a.holderType,
+        guardianName: a.guardianName,
       })),
     },
     null,
@@ -156,11 +162,21 @@ function toAccount(
   dpName: string,
   bankName?: string,
   demat?: string,
+  holderType?: string,
+  guardianName?: string,
+  dateOfBirth?: string,
 ): ImportedAccount | null {
   const cleanName = name.trim();
   const cleanDp = dp.trim();
   const cleanUser = username.trim();
   if (!cleanUser || !cleanDp) return null;
+  const dob = dateOfBirth?.trim() || undefined;
+  const ht =
+    holderType?.trim().toLowerCase() === 'minor'
+      ? ('minor' as const)
+      : holderType?.trim().toLowerCase() === 'major'
+        ? ('major' as const)
+        : undefined;
   return {
     name: cleanName || cleanUser,
     // dpId resolves both the login clientId and the 5-digit code at runtime.
@@ -170,6 +186,10 @@ function toAccount(
     username: cleanUser,
     bankName: bankName?.trim() || undefined,
     demat: demat?.trim() || undefined,
+    dateOfBirth: dob,
+    holderType: ht,
+    guardianName:
+      ht === 'minor' ? guardianName?.trim() || undefined : undefined,
   };
 }
 
@@ -228,6 +248,9 @@ export function parseAccountsBackup(text: string): ImportedAccount[] {
       String(r.dpName ?? ''),
       r.bankName ? String(r.bankName) : undefined,
       r.demat ? String(r.demat) : undefined,
+      r.holderType ? String(r.holderType) : undefined,
+      r.guardianName ? String(r.guardianName) : undefined,
+      r.dateOfBirth ? String(r.dateOfBirth) : undefined,
     );
     if (acc) out.push(acc);
   }
@@ -333,6 +356,9 @@ export function toLinkedDraft(a: ImportedAccount): Omit<LinkedAccount, 'id'> {
     username: a.username,
     bankName: a.bankName,
     demat: a.demat,
+    dateOfBirth: a.dateOfBirth,
+    holderType: a.holderType,
+    guardianName: a.holderType === 'minor' ? a.guardianName : undefined,
     verified: false,
     crnPinVerified: false,
     password: '',

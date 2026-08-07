@@ -1,3 +1,6 @@
+/** Derived from date of birth (under 18 → minor). */
+export type AccountHolderType = 'major' | 'minor';
+
 /** Public account meta (safe for AsyncStorage) */
 export type AccountMeta = {
   id: string;
@@ -26,6 +29,18 @@ export type AccountMeta = {
   demat?: string;
   /** ISO date when the account was added on this device */
   addedAt?: string;
+  /**
+   * Holder date of birth as `YYYY-MM-DD` (A.D.).
+   * When set and age < 18, account is auto-classified as minor.
+   */
+  dateOfBirth?: string;
+  /**
+   * Under-18 vs adult — derived from dateOfBirth when present.
+   * Defaults to major when missing (older saves).
+   */
+  holderType?: AccountHolderType;
+  /** Optional guardian / parent name when holder is a minor */
+  guardianName?: string;
 };
 
 /** Sensitive fields — SecureStore only */

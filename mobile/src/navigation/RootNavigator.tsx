@@ -44,6 +44,7 @@ import { IpoIssuesScreen } from '../screens/IpoIssuesScreen';
 import { MeroshareWebScreen } from '../screens/MeroshareWebScreen';
 import { CalculateWaccScreen } from '../screens/CalculateWaccScreen';
 import { TrackAccountExpiryScreen } from '../screens/TrackAccountExpiryScreen';
+import { MinorAccountsScreen } from '../screens/MinorAccountsScreen';
 import { BankTrackerScreen } from '../screens/BankTrackerScreen';
 import { BankTrackerDetailScreen } from '../screens/BankTrackerDetailScreen';
 import { ChangePasswordScreen } from '../screens/ChangePasswordScreen';
@@ -178,6 +179,7 @@ function RootStack() {
       <Stack.Screen name="MeroshareWeb" component={MeroshareWebScreen} />
       <Stack.Screen name="CalculateWacc" component={CalculateWaccScreen} />
       <Stack.Screen name="TrackAccountExpiry" component={TrackAccountExpiryScreen} />
+      <Stack.Screen name="MinorAccounts" component={MinorAccountsScreen} />
       <Stack.Screen name="BankTracker" component={BankTrackerScreen} />
       <Stack.Screen name="BankTrackerDetail" component={BankTrackerDetailScreen} />
       <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />

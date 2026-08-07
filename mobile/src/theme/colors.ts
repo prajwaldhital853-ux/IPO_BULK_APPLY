@@ -16,6 +16,9 @@ export type ThemeColors = {
   primarySoft: string;
   primaryMid: string;
   accentGreen: string;
+  /** Warm accent for under-18 / minor demat cards (light + dark safe). */
+  minorAccent: string;
+  minorSoft: string;
   sage: string;
   teal: string;
   tealHeader: string;
@@ -71,6 +74,8 @@ export const darkColors: ThemeColors = {
   primarySoft: '#2A2F2A',
   primaryMid: '#222826',
   accentGreen: '#4CAF50',
+  minorAccent: '#E0A86C',
+  minorSoft: '#3A2F24',
   sage: '#81C784',
   teal: '#26A69A',
   tealHeader: '#2BBBAD',
@@ -125,6 +130,8 @@ export const lightColors: ThemeColors = {
   primarySoft: '#E8F5E9',
   primaryMid: '#C8E6C9',
   accentGreen: '#2E7D32',
+  minorAccent: '#A65D2F',
+  minorSoft: '#FFF3E6',
   sage: '#43A047',
   teal: '#00897B',
   tealHeader: '#00796B',

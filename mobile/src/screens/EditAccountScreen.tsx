@@ -20,6 +20,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormField } from '../components/FormField';
 import { LocalDisclaimer } from '../components/LocalDisclaimer';
+import { MinorDobFields } from '../components/MinorDobFields';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 import { useAccounts } from '../context/AccountsContext';
@@ -31,6 +32,7 @@ import {
   type VerifyField,
 } from '../services/meroshare';
 import type { ThemeColors } from '../theme/colors';
+import { buildMinorMetaFields } from '../utils/minorAccount';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -87,6 +89,12 @@ export function EditAccountScreen() {
   const [password, setPassword] = useState('');
   const [crn, setCrn] = useState('');
   const [pin, setPin] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState(
+    account?.dateOfBirth ?? '',
+  );
+  const [guardianName, setGuardianName] = useState(
+    account?.guardianName ?? '',
+  );
   const [hidePass, setHidePass] = useState(true);
   const [hideCrn, setHideCrn] = useState(true);
   const [hidePin, setHidePin] = useState(true);
@@ -263,6 +271,7 @@ export function EditAccountScreen() {
             crnPinVerified: !verify.crnPinDeferred,
             demat: demat || undefined,
             boidHint: demat ? String(demat).slice(-4) : account.boidHint,
+            ...buildMinorMetaFields(dateOfBirth, guardianName),
           },
           { password, crn: crn.trim(), pin },
         );
@@ -339,6 +348,12 @@ export function EditAccountScreen() {
           value={name}
           onChangeText={setName}
           placeholder="Display name"
+        />
+        <MinorDobFields
+          dateOfBirth={dateOfBirth}
+          onDateOfBirthChange={setDateOfBirth}
+          guardianName={guardianName}
+          onGuardianNameChange={setGuardianName}
         />
         <FormField
           emphasized
