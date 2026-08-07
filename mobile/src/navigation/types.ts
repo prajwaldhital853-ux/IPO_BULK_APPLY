@@ -47,6 +47,7 @@ export type RootStackParamList = {
   Announcements: undefined;
   Charts: { symbol?: string } | undefined;
   Watchlist: undefined;
+  Notes: undefined;
   StockDetail: { symbol: string };
   PriceAlert: undefined;
   BulkPortfolio: undefined;
@@ -90,6 +91,7 @@ export type RootStackParamList = {
   PremiumTool: { kind: PremiumToolKind };
   ExtraTool: { kind: ExtraToolKind };
   Calculator: undefined;
+  Weather: undefined;
   FinancialNews: undefined;
   TmsBrokers: undefined;
 };

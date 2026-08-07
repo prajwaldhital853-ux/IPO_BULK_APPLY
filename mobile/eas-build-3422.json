@@ -1,0 +1,47 @@
+﻿{
+  "id": "2fc54c32-c99d-4e93-b548-8a553bee8e33",
+  "status": "FINISHED",
+  "platform": "ANDROID",
+  "artifacts": {
+    "buildUrl": "https://expo.dev/artifacts/eas/XEzJL8RwWo_p-5LOnQzoY1KI4qwLFn1IgQFhvQhSy6w.apk",
+    "applicationArchiveUrl": "https://expo.dev/artifacts/eas/XEzJL8RwWo_p-5LOnQzoY1KI4qwLFn1IgQFhvQhSy6w.apk"
+  },
+  "fingerprint": {
+    "id": "019fdb26-8b58-7296-95e3-a9602b73ee6d",
+    "hash": "9a523a4a3226178eb6e73d324cf04c4e802885ec"
+  },
+  "initiatingActor": {
+    "id": "f51377b8-c437-4b2a-93d3-b70bd4354a8f",
+    "displayName": "hellohello636g"
+  },
+  "logFiles": [
+    "https://storage.googleapis.com/eas-workflows-production/logs/0a36c499-7902-465c-a03a-75f885ee337e/2fc54c32-c99d-4e93-b548-8a553bee8e33/2026-08-07T07%3A36%3A08Z-ec7011a0-215c-419d-9fb4-b96010b40326.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260807%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260807T074917Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=026ae71fea334877db9a5a0e727e293b08f720b03983e0fd04f7db4bbb4073233b60d04a953ef96a5e44208f613ffe358fbbf006e66b08c4dc1f47b8b986b2f94e196e00e8f700aa2f56a2b1b85edf36998e0943b6333e1294f7b88b8db4cbb1f3998f685328d2325ba45b7d4fcc71cbec334a387de78cbbc9b2845571d8aadd57dc768a700f9fa1a9d186fe443e6ff2c0e58ecbb8af969065202da2860b938d4d2b4f2c40227651de453eed32f1c46c060c126a8c365d19e993a7849aad607e0fe0d573624ffd558ff5898cdd6a11557c109745c86223bbccbdb74b8a0ce7ed541f2668a92bcd74f6c75bf09d2bf1f9cd3253e05b8265639857e421119d135c"
+  ],
+  "project": {
+    "id": "0a36c499-7902-465c-a03a-75f885ee337e",
+    "name": "hello35eg",
+    "slug": "hello35eg",
+    "ownerAccount": {
+      "id": "5644645e-b6fb-45a6-b350-3333f4e75828",
+      "name": "hellohello636gs-team"
+    }
+  },
+  "distribution": "INTERNAL",
+  "buildProfile": "preview",
+  "sdkVersion": "54.0.0",
+  "appVersion": "3.4.22",
+  "appBuildVersion": "68",
+  "gitCommitHash": "693e25562374fed9be0c4029424232630223b00d",
+  "gitCommitMessage": "Add minor demat account DOB tracking with Nepali calendar picker.\n\nUsers can enter or pick DOB for under-18 accounts, see countdown to majority, and manage minors from Services.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>",
+  "priority": "NORMAL",
+  "createdAt": "2026-08-07T07:36:04.142Z",
+  "updatedAt": "2026-08-07T07:51:33.294Z",
+  "completedAt": "2026-08-07T07:51:33.125Z",
+  "expirationDate": "2026-08-21T07:36:04.174Z",
+  "isForIosSimulator": false,
+  "metrics": {
+    "buildWaitTime": 1155,
+    "buildQueueTime": 8387,
+    "buildDuration": 919441
+  }
+}

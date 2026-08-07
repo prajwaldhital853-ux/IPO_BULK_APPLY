@@ -37,6 +37,7 @@ import { ProposedDividendScreen } from '../screens/ProposedDividendScreen';
 import { AnnouncementsScreen } from '../screens/AnnouncementsScreen';
 import { ChartsScreen } from '../screens/ChartsScreen';
 import { WatchlistScreen } from '../screens/WatchlistScreen';
+import { NotesScreen } from '../screens/NotesScreen';
 import { StockDetailScreen } from '../screens/StockDetailScreen';
 import { PriceAlertScreen } from '../screens/PriceAlertScreen';
 import { BulkPortfolioScreen } from '../screens/BulkPortfolioScreen';
@@ -86,6 +87,7 @@ import { PremiumScreenerScreen } from '../screens/premium/PremiumScreenerScreen'
 import { PremiumToolScreen } from '../screens/premium/PremiumToolScreen';
 import { ExtraToolScreen } from '../screens/extra/ExtraToolScreen';
 import { CalculatorScreen } from '../screens/extra/CalculatorScreen';
+import { WeatherScreen } from '../screens/extra/WeatherScreen';
 import { FinancialNewsScreen } from '../screens/FinancialNewsScreen';
 import { TmsBrokersScreen } from '../screens/TmsBrokersScreen';
 import { DrawerContent } from '../components/DrawerContent';
@@ -172,6 +174,7 @@ function RootStack() {
       <Stack.Screen name="Announcements" component={AnnouncementsScreen} />
       <Stack.Screen name="Charts" component={ChartsScreen} />
       <Stack.Screen name="Watchlist" component={WatchlistScreen} />
+      <Stack.Screen name="Notes" component={NotesScreen} />
       <Stack.Screen name="StockDetail" component={StockDetailScreen} />
       <Stack.Screen name="PriceAlert" component={PriceAlertScreen} />
       <Stack.Screen name="BulkPortfolio" component={BulkPortfolioScreen} />
@@ -216,6 +219,7 @@ function RootStack() {
       <Stack.Screen name="PremiumTool" component={PremiumToolScreen} />
       <Stack.Screen name="ExtraTool" component={ExtraToolScreen} />
       <Stack.Screen name="Calculator" component={CalculatorScreen} />
+      <Stack.Screen name="Weather" component={WeatherScreen} />
       <Stack.Screen name="FinancialNews" component={FinancialNewsScreen} />
       <Stack.Screen name="TmsBrokers" component={TmsBrokersScreen} />
     </Stack.Navigator>

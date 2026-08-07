@@ -400,3 +400,28 @@ class UserPriceAlert(Base):
         server_default=func.now(),
     )
 
+
+class UserNote(Base):
+    """Private cloud notes scoped to a signed-in Google account (User.id)."""
+
+    __tablename__ = 'user_notes'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey('users.id', ondelete='CASCADE'),
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(200), default='')
+    body: Mapped[str] = mapped_column(Text, default='')
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+

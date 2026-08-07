@@ -15,6 +15,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import * as XLSX from 'xlsx';
 import { MinorDobFields } from '../components/MinorDobFields';
 import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
@@ -100,6 +103,7 @@ export function MinorAccountsScreen() {
   const [dobDraft, setDobDraft] = useState('');
   const [guardianDraft, setGuardianDraft] = useState('');
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     setSelected((prev) => {
@@ -322,6 +326,136 @@ export function MinorAccountsScreen() {
   const showCenterOnly =
     tab === 'minors' && visibleMinors.length === 0 && Boolean(statusLine);
 
+  const downloadExcel = useCallback(async () => {
+    // Prefer fetched Minor Status list; else local DOB minors on saved accounts.
+    let rows: MinorFetchResult[] = minors.filter((r) => r.isMinor);
+    if (!rows.length) {
+      rows = accounts
+        .filter(
+          (a) =>
+            isMinorFromDob(a.dateOfBirth) ||
+            (a.holderType === 'minor' && !a.dateOfBirth),
+        )
+        .map((a) => {
+          const dob = a.dateOfBirth ?? null;
+          const daysLeft = daysUntilMajority(dob);
+          const age = ageYears(dob);
+          return {
+            accountId: a.id,
+            accountName: a.name,
+            username: a.username,
+            dpName: a.dpName,
+            isMinor: true,
+            dateOfBirth: dob,
+            daysLeft,
+            age,
+            guardianName: a.guardianName,
+            source: dob ? ('local' as const) : ('none' as const),
+            detail: formatCountdownLabel(daysLeft),
+          };
+        })
+        .sort(
+          (a, b) =>
+            (a.daysLeft ?? Number.MAX_SAFE_INTEGER) -
+            (b.daysLeft ?? Number.MAX_SAFE_INTEGER),
+        );
+    }
+
+    if (!rows.length) {
+      Alert.alert(
+        'No minor records',
+        'Fetch Minor Status first, or add DOB on minor accounts, then download.',
+      );
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const aoa: (string | number)[][] = [
+        [
+          'S.N.',
+          'Name',
+          'Username',
+          'DP Name',
+          'Date of Birth (AD)',
+          'Age (years)',
+          'Remaining Days',
+          'Countdown',
+          'Guardian Name',
+          'Status',
+          'Source',
+          'Detail',
+        ],
+        ...rows.map((r, i) => [
+          i + 1,
+          r.accountName,
+          r.username,
+          r.dpName || '',
+          r.dateOfBirth ? formatDobDisplay(r.dateOfBirth) : '',
+          r.age ?? '',
+          r.daysLeft ?? '',
+          formatCountdownLabel(r.daysLeft),
+          r.guardianName ?? '',
+          r.isMinor ? 'Minor' : 'Major',
+          r.source,
+          r.detail,
+        ]),
+      ];
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [
+        { wch: 6 },
+        { wch: 28 },
+        { wch: 18 },
+        { wch: 28 },
+        { wch: 16 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 28 },
+        { wch: 24 },
+        { wch: 10 },
+        { wch: 12 },
+        { wch: 36 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, 'Minor Accounts');
+
+      const base64 = XLSX.write(wb, {
+        type: 'base64',
+        bookType: 'xlsx',
+      }) as string;
+
+      const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+      if (!dir) {
+        Alert.alert('Download failed', 'Storage is not available on this device.');
+        return;
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      const fileUri = `${dir}Minor_Accounts_${stamp}.xlsx`;
+      await FileSystem.writeAsStringAsync(fileUri, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Saved', `Excel file created at:\n${fileUri}`);
+        return;
+      }
+      await Sharing.shareAsync(fileUri, {
+        mimeType:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        dialogTitle: 'Download Minor Accounts Excel',
+        UTI: 'com.microsoft.excel.xlsx',
+      });
+    } catch (e) {
+      Alert.alert(
+        'Download failed',
+        e instanceof Error ? e.message : 'Could not create Excel file',
+      );
+    } finally {
+      setExporting(false);
+    }
+  }, [accounts, minors]);
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -335,6 +469,22 @@ export function MinorAccountsScreen() {
         <Text style={styles.title} numberOfLines={1}>
           Minor Accounts
         </Text>
+        <Pressable
+          onPress={() => void downloadExcel()}
+          hitSlop={10}
+          style={styles.headerIcon}
+          disabled={exporting}
+        >
+          {exporting ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Ionicons
+              name="download-outline"
+              size={rs(22)}
+              color={colors.text}
+            />
+          )}
+        </Pressable>
         <Pressable
           onPress={() => setSearchOpen((v) => !v)}
           hitSlop={10}

@@ -6,10 +6,13 @@ export function ProtectedPersonalScreen({
   children,
   title,
   subtitle,
+  /** When true, user must sign in — no "Not now" dismiss. */
+  requireSignIn = false,
 }: {
   children: React.ReactNode;
   title?: string;
   subtitle?: string;
+  requireSignIn?: boolean;
 }) {
   const { enabled, isAuthenticated, loading } = useAuthGate();
   const [dismissed, setDismissed] = useState(false);
@@ -27,7 +30,7 @@ export function ProtectedPersonalScreen({
     );
   }
 
-  if (dismissed) return <>{children}</>;
+  if (!requireSignIn && dismissed) return <>{children}</>;
 
   return (
     <View style={styles.host}>
@@ -38,7 +41,7 @@ export function ProtectedPersonalScreen({
         visible
         title={title}
         subtitle={subtitle}
-        onDismiss={() => setDismissed(true)}
+        onDismiss={requireSignIn ? undefined : () => setDismissed(true)}
       />
     </View>
   );
