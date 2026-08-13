@@ -131,13 +131,13 @@ function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
   wrap: {
     marginHorizontal: rs(16),
-    marginTop: rs(14),
+    marginTop: rs(12),
   },
   labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: rs(6),
-    marginBottom: rs(8),
+    marginBottom: rs(6),
   },
   label: {
     color: colors.textSecondary,
@@ -146,35 +146,37 @@ function makeStyles(colors: ThemeColors) {
   },
   labelEmphasized: {
     color: colors.text,
-    fontSize: rs(14),
+    fontSize: rs(13),
     fontWeight: '700',
   },
   field: {
-    minHeight: rs(48),
+    minHeight: rs(44),
     borderRadius: rs(12),
     borderWidth: 1.5,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: rs(14),
+    backgroundColor: colors.bg,
+    paddingHorizontal: rs(12),
     flexDirection: 'row',
     alignItems: 'center',
     gap: rs(8),
   },
   fieldEmphasized: {
-    borderWidth: 2,
-    borderColor: colors.textDim,
-    backgroundColor: colors.surface,
+    minHeight: rs(44),
+    borderRadius: rs(12),
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
   },
   input: {
     flex: 1,
     color: colors.text,
-    fontSize: rs(15),
-    paddingVertical: rs(10),
+    fontSize: rs(14),
+    paddingVertical: rs(8),
   },
   value: {
     flex: 1,
     color: colors.text,
-    fontSize: rs(15),
+    fontSize: rs(14),
   },
   placeholder: {
     color: colors.textMuted,

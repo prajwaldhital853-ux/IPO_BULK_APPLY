@@ -43,6 +43,7 @@ function Section({
   return (
     <View style={styles.section}>
       <View style={styles.sectionHead}>
+        <View style={styles.line} />
         <Text style={styles.sectionTitle}>{title}</Text>
         <View style={styles.line} />
       </View>
@@ -73,9 +74,9 @@ function IconWell({
   return (
     <View
       style={{
-        width: rs(30),
-        height: rs(30),
-        borderRadius: rs(8),
+        width: rs(36),
+        height: rs(36),
+        borderRadius: rs(10),
         backgroundColor: bg,
         alignItems: 'center',
         justifyContent: 'center',
@@ -91,7 +92,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
   const { colors: theme, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(theme, isDark), [theme, isDark]);
   const nav = props.navigation as unknown as DrawerNavigationProp<DrawerParamList>;
-  const iconSize = rs(17);
+  const iconSize = rs(19);
   const versionName =
     Constants.expoConfig?.version ??
     Constants.nativeAppVersion ??
@@ -382,7 +383,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     >
       <Pressable style={styles.brand} onPress={() => goTab('Apply')}>
         <View style={styles.brandIcon}>
-          <BrandLogo variant="mark" height={rs(32)} />
+          <BrandLogo variant="mark" height={rs(44)} />
         </View>
         <Text style={styles.brandText}>NEPSE GHAR</Text>
       </Pressable>
@@ -406,17 +407,17 @@ export function DrawerContent(props: DrawerContentComponentProps) {
 }
 
 function makeStyles(colors: ThemeColors, isDark: boolean) {
-  const panelBg = isDark ? colors.bg : '#F5F6F2';
-  const rowBg = isDark ? '#2A2A2A' : '#F0F3EE';
-  const brandBg = isDark ? '#252724' : '#FAFCF9';
-  const brandBorder = isDark ? '#434540' : '#8BC4A0';
-  const lineBg = isDark ? '#3A3A3A' : '#C8D0C4';
+  const panelBg = isDark ? colors.bg : '#F8FBF2';
+  const rowBg = isDark ? '#2C2C2C' : '#ECEEE8';
+  const brandBg = isDark ? '#1A3320' : '#D4EDDA';
+  const brandBorder = isDark ? '#66BB6A' : '#43A047';
+  const lineBg = isDark ? '#3A3A3A' : '#C5CBC0';
 
   return StyleSheet.create({
     root: {
       flex: 1,
       backgroundColor: panelBg,
-      paddingHorizontal: rs(12),
+      paddingHorizontal: rs(14),
     },
     scroll: {
       flex: 1,
@@ -425,19 +426,19 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(12),
-      borderWidth: 1,
+      borderWidth: 1.5,
       borderColor: brandBorder,
       backgroundColor: brandBg,
-      borderRadius: rs(14),
-      paddingVertical: rs(10),
+      borderRadius: rs(18),
+      paddingVertical: rs(12),
       paddingHorizontal: rs(12),
-      marginBottom: rs(6),
+      marginBottom: rs(10),
     },
     brandIcon: {
-      width: rs(42),
-      height: rs(42),
-      borderRadius: rs(10),
-      backgroundColor: isDark ? '#1A1A1A' : '#FFFFFF',
+      width: rs(52),
+      height: rs(52),
+      borderRadius: rs(14),
+      backgroundColor: isDark ? '#122418' : '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
       overflow: 'hidden',
@@ -445,7 +446,7 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
     },
     brandText: {
       color: isDark ? colors.text : '#111111',
-      fontSize: rs(16),
+      fontSize: rs(17),
       fontWeight: '800',
       letterSpacing: 0.2,
       flexShrink: 1,
@@ -457,8 +458,8 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      marginTop: rs(6),
-      marginBottom: rs(8),
+      marginTop: rs(8),
+      marginBottom: rs(10),
     },
     line: {
       flex: 1,
@@ -469,24 +470,25 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
       color: isDark ? '#9E9E9E' : '#7A8574',
       fontSize: rs(10),
       fontWeight: '700',
-      letterSpacing: 0.7,
+      letterSpacing: 0.8,
     },
     item: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: rowBg,
-      borderRadius: rs(12),
-      paddingVertical: rs(8),
-      paddingHorizontal: rs(8),
-      marginBottom: rs(6),
-      gap: rs(8),
+      borderRadius: rs(16),
+      paddingVertical: rs(13),
+      paddingHorizontal: rs(12),
+      marginBottom: rs(9),
+      gap: rs(12),
+      minHeight: rs(52),
     },
     itemPressed: { opacity: 0.88 },
     itemIcon: {},
     itemLabel: {
       flex: 1,
       color: isDark ? colors.text : '#111111',
-      fontSize: rs(13),
+      fontSize: rs(15),
       fontWeight: '600',
     },
     version: {

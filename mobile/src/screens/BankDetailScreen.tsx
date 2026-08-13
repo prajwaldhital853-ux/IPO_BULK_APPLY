@@ -2,8 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Keyboard,
-  Modal,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -15,7 +14,6 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormField } from '../components/FormField';
-import { KeyboardSheetModal } from '../components/KeyboardSheetModal';
 import { LocalDisclaimer } from '../components/LocalDisclaimer';
 import { MinorDobFields } from '../components/MinorDobFields';
 import { useAccounts } from '../context/AccountsContext';
@@ -61,44 +59,8 @@ function fieldLabel(field: VerifyField | null): string {
 }
 
 /**
- * Same keypad-docking sheet used by Bank Tracker "Start tracking".
- * Footer (Verify & Save) stays flush above the keypad.
+ * Bank + CRN + PIN are entered on the page (same layout as Add Capital).
  */
-function CredentialsSheet({
-  visible,
-  styles,
-  insets,
-  children,
-  footer,
-  onClose,
-}: {
-  visible: boolean;
-  styles: ReturnType<typeof makeStyles>;
-  insets: { bottom: number };
-  children: React.ReactNode;
-  footer: React.ReactNode;
-  onClose: () => void;
-}) {
-  return (
-    <KeyboardSheetModal
-      visible={visible}
-      onClose={onClose}
-      title="CRN & Transaction PIN"
-      subtitle="Enter CRN and 4-digit PIN, then verify."
-      footer={footer}
-      bottomInset={insets.bottom}
-      sheetStyle={styles.sheet}
-      backdropStyle={styles.sheetBackdrop}
-      handleStyle={styles.sheetHandle}
-      titleStyle={styles.sheetTitle}
-      subtitleStyle={styles.sheetSubtitle}
-      footerStyle={styles.sheetFooter}
-    >
-      {children}
-    </KeyboardSheetModal>
-  );
-}
-
 export function BankDetailScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -124,8 +86,6 @@ export function BankDetailScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [errorField, setErrorField] = useState<VerifyField | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
-  // DOB first; CRN/PIN sheet opens only after user taps the button.
-  const [sheetOpen, setSheetOpen] = useState(false);
   const savingDoneRef = useRef(false);
   const submitLockRef = useRef(false);
   const draftRef = useRef(draft);
@@ -162,6 +122,11 @@ export function BankDetailScreen() {
       setLoadingBank(true);
       setBankError('');
       setDetectingDob(true);
+      setDobAutoFilled(false);
+      if (!dobTouchedRef.current) {
+        setDateOfBirth('');
+        setGuardianName('');
+      }
       const client = new MeroshareClient();
       try {
         await client.login({
@@ -365,26 +330,6 @@ export function BankDetailScreen() {
   const errStyle = (field: VerifyField) =>
     errorField === field ? styles.fieldErrorWrap : null;
 
-  const submitButton = (
-    <Pressable
-      style={[
-        styles.submitBtn,
-        (submitting || loadingBank) && { opacity: 0.6 },
-      ]}
-      onPress={onSubmit}
-      disabled={submitting || loadingBank}
-    >
-      {submitting ? (
-        <View style={styles.submitRow}>
-          <ActivityIndicator color="#FFFFFF" />
-          <Text style={styles.submitTextOnPrimary}> Verifying…</Text>
-        </View>
-      ) : (
-        <Text style={styles.submitTextOnPrimary}>Verify & Save</Text>
-      )}
-    </Pressable>
-  );
-
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -392,34 +337,40 @@ export function BankDetailScreen() {
           <Text style={styles.back}>←</Text>
         </Pressable>
         <Text style={styles.title}>Bank Detail</Text>
+        <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView
+      <KeyboardAvoidingView
         style={styles.flex}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <LocalDisclaimer />
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
+          <LocalDisclaimer />
 
-        <Text style={styles.verifyHint}>
-          Your DP and bank are loaded from MeroShare. Continue to CRN & PIN
-          below.
-        </Text>
+          {errorMsg ? (
+            <View style={styles.sheetError}>
+              <Text style={styles.errorBannerTitle}>
+                {errorField === 'unknown' || !errorField
+                  ? 'Verification issue'
+                  : `${fieldLabel(errorField)} does not match`}
+              </Text>
+              <Text style={styles.errorBannerText}>{errorMsg}</Text>
+            </View>
+          ) : null}
 
-        <View style={styles.infoCard}>
-          <Text style={styles.infoLabel}>Depository Participant</Text>
-          <Text style={styles.infoValue}>{draft?.dpName ?? '—'}</Text>
-          <Text style={[styles.infoLabel, { marginTop: rs(12) }]}>
-            Linked bank (from MeroShare)
-          </Text>
-          {loadingBank ? (
-            <ActivityIndicator
-              color={colors.primary}
-              style={{ marginTop: rs(8), alignSelf: 'flex-start' }}
-            />
-          ) : (
-            <Text style={styles.infoValue}>{linkedBank || '—'}</Text>
-          )}
+          <FormField
+            emphasized
+            icon="business-outline"
+            label="Select Bank"
+            value={loadingBank ? 'Loading…' : linkedBank || '—'}
+            dropdown
+          />
           {bankError ? (
             <View style={styles.bankWarnBox}>
               <Text style={styles.bankWarn}>{bankError}</Text>
@@ -432,96 +383,74 @@ export function BankDetailScreen() {
               </Pressable>
             </View>
           ) : null}
-          <MinorDobFields
-            compact
-            dateOfBirth={dateOfBirth}
-            onDateOfBirthChange={(t) => {
-              dobTouchedRef.current = true;
-              setDobAutoFilled(false);
-              setDateOfBirth(t);
-            }}
-            guardianName={guardianName}
-            onGuardianNameChange={setGuardianName}
-            detecting={detectingDob}
-            autoFilled={dobAutoFilled}
-          />
-        </View>
 
-        {!sheetOpen ? (
-          <Pressable
-            style={styles.openSheetBtn}
-            onPress={() => setSheetOpen(true)}
-          >
-            <Text style={styles.openSheetBtnText}>
-              Enter CRN & Transaction PIN
-            </Text>
-          </Pressable>
-        ) : null}
-      </ScrollView>
-
-      <CredentialsSheet
-        visible={sheetOpen}
-        styles={styles}
-        insets={insets}
-        footer={submitButton}
-        onClose={() => {
-          Keyboard.dismiss();
-          setSheetOpen(false);
-        }}
-      >
-        {errorMsg ? (
-          <View style={styles.sheetError}>
-            <Text style={styles.errorBannerTitle}>
-              {errorField === 'unknown' || !errorField
-                ? 'Verification issue'
-                : `${fieldLabel(errorField)} does not match`}
-            </Text>
-            <Text style={styles.errorBannerText}>{errorMsg}</Text>
+          <View style={errStyle('crn')}>
+            <FormField
+              emphasized
+              icon="key-outline"
+              label="CRN Number"
+              value={crn}
+              onChangeText={(t) => {
+                setCrn(t);
+                if (errorField === 'crn') {
+                  setErrorField(null);
+                  setErrorMsg('');
+                }
+              }}
+              placeholder="CRN Number"
+              secure={hideCrn}
+              showEye
+              onToggleEye={() => setHideCrn((v) => !v)}
+            />
           </View>
-        ) : null}
+          <View style={errStyle('pin')}>
+            <FormField
+              emphasized
+              icon="ellipsis-horizontal"
+              label="Pin Code"
+              value={pin}
+              onChangeText={(t) => {
+                setPin(t.replace(/[^0-9]/g, '').slice(0, 4));
+                if (errorField === 'pin') {
+                  setErrorField(null);
+                  setErrorMsg('');
+                }
+              }}
+              placeholder="Transaction Pin"
+              secure={hidePin}
+              showEye
+              onToggleEye={() => setHidePin((v) => !v)}
+              keyboardType="number-pad"
+              maxLength={4}
+              counter={`${pin.length}/4`}
+            />
+          </View>
 
-        <View style={errStyle('crn')}>
-          <FormField
-            emphasized
-            icon="key-outline"
-            label="CRN Number"
-            value={crn}
-            onChangeText={(t) => {
-              setCrn(t);
-              if (errorField === 'crn') {
-                setErrorField(null);
-                setErrorMsg('');
-              }
-            }}
-            placeholder="CRN from your bank / ASBA"
-            secure={hideCrn}
-            showEye
-            onToggleEye={() => setHideCrn((v) => !v)}
-          />
-        </View>
-        <View style={errStyle('pin')}>
-          <FormField
-            emphasized
-            icon="ellipsis-horizontal"
-            label="Transaction PIN"
-            value={pin}
-            onChangeText={(t) => {
-              setPin(t.replace(/[^0-9]/g, '').slice(0, 4));
-              if (errorField === 'pin') {
-                setErrorField(null);
-                setErrorMsg('');
-              }
-            }}
-            placeholder="4-digit MeroShare PIN"
-            secure={hidePin}
-            showEye
-            onToggleEye={() => setHidePin((v) => !v)}
-            keyboardType="number-pad"
-            maxLength={4}
-            counter={`${pin.length}/4`}
-          />
-        </View>
-      </CredentialsSheet>
+          {!detectingDob && !dobAutoFilled ? (
+            <MinorDobFields
+              compact
+              dateOfBirth={dateOfBirth}
+              onDateOfBirthChange={(t) => {
+                dobTouchedRef.current = true;
+                setDateOfBirth(t);
+              }}
+              guardianName={guardianName}
+              onGuardianNameChange={setGuardianName}
+            />
+          ) : null}
+
+          <Pressable style={styles.submitBtn} onPress={onSubmit}>
+            {submitting ? (
+              <View style={styles.submitRow}>
+                <ActivityIndicator color="#FFFFFF" />
+                <Text style={styles.submitText}> Verifying…</Text>
+              </View>
+            ) : (
+              <Text style={styles.submitText}>Submit</Text>
+            )}
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <SensitiveActionModals action={sensitive} />
     </View>
@@ -533,51 +462,31 @@ function makeStyles(colors: ThemeColors) {
     root: { flex: 1, backgroundColor: colors.bg },
     flex: { flex: 1 },
     scrollContent: {
-      paddingBottom: Math.max(rs(28), 28),
+      paddingBottom: Math.max(rs(40), 40),
     },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: rs(12),
-      paddingVertical: rs(12),
-      gap: rs(8),
+      paddingVertical: rs(14),
       backgroundColor: colors.bgElevated,
     },
-    back: { color: colors.text, fontSize: rs(22), width: rs(32) },
-    title: { color: colors.text, fontSize: rs(17), fontWeight: '600' },
-    verifyHint: {
-      marginHorizontal: rs(16),
-      marginBottom: rs(10),
-      color: colors.textSecondary,
-      fontSize: rs(12),
-      lineHeight: rs(17),
-    },
-    infoCard: {
-      marginHorizontal: rs(16),
-      marginBottom: rs(12),
-      padding: rs(14),
-      borderRadius: rs(12),
-      borderWidth: 1.5,
-      borderColor: colors.textDim,
-      backgroundColor: colors.surface,
-    },
-    infoLabel: {
-      color: colors.textSecondary,
-      fontSize: rs(12),
-      fontWeight: '600',
-    },
-    infoValue: {
+    back: { color: colors.text, fontSize: rs(24), width: rs(32) },
+    title: {
+      flex: 1,
       color: colors.text,
-      fontSize: rs(14),
+      fontSize: rs(18),
       fontWeight: '700',
-      marginTop: rs(4),
+      textAlign: 'center',
     },
+    headerSpacer: { width: rs(32) },
     bankWarn: {
       color: colors.textMuted,
       fontSize: rs(11),
       lineHeight: rs(15),
     },
     bankWarnBox: {
+      marginHorizontal: rs(16),
       marginTop: rs(8),
       gap: rs(6),
     },
@@ -589,34 +498,6 @@ function makeStyles(colors: ThemeColors) {
       color: colors.sage,
       fontSize: rs(12),
       fontWeight: '700',
-    },
-    sheetClosedHint: {
-      marginTop: rs(12),
-      color: colors.textMuted,
-      fontSize: rs(11),
-      lineHeight: rs(15),
-    },
-    openSheetBtn: {
-      marginHorizontal: rs(16),
-      marginTop: rs(4),
-      backgroundColor: colors.primary,
-      borderRadius: rs(12),
-      paddingVertical: rs(14),
-      alignItems: 'center',
-    },
-    openSheetBtnText: {
-      color: '#FFFFFF',
-      fontWeight: '800',
-      fontSize: rs(15),
-    },
-    errorBanner: {
-      marginHorizontal: rs(16),
-      marginBottom: rs(12),
-      padding: rs(12),
-      borderRadius: rs(10),
-      backgroundColor: 'rgba(198,40,40,0.12)',
-      borderWidth: 1,
-      borderColor: colors.danger,
     },
     sheetError: {
       marginHorizontal: rs(16),
@@ -644,61 +525,18 @@ function makeStyles(colors: ThemeColors) {
       borderLeftColor: colors.danger,
       marginLeft: rs(8),
     },
-    // Sheet — same structure as Bank Tracker Start tracking
-    sheetRoot: {
-      flex: 1,
-      justifyContent: 'flex-end',
-    },
-    sheetBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.4)',
-    },
-    sheet: {
-      backgroundColor: colors.bgElevated,
-      borderTopLeftRadius: rs(20),
-      borderTopRightRadius: rs(20),
-      paddingHorizontal: rs(18),
-      paddingTop: rs(10),
-      width: '100%',
-    },
-    sheetScrollView: {
-      flexGrow: 0,
-      flexShrink: 1,
-    },
-    sheetScroll: {
-      paddingBottom: rs(4),
-      flexGrow: 0,
-    },
-    sheetFooter: {
-      paddingTop: rs(8),
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.borderMuted,
-    },
-    sheetHandle: {
-      alignSelf: 'center',
-      width: rs(40),
-      height: rs(4),
-      borderRadius: rs(2),
-      backgroundColor: colors.border,
-      marginBottom: rs(14),
-    },
-    sheetTitle: { color: colors.text, fontWeight: '800', fontSize: rs(18) },
-    sheetSubtitle: {
-      color: colors.textSecondary,
-      fontSize: rs(12),
-      marginTop: rs(4),
-      marginBottom: rs(6),
-    },
     submitBtn: {
-      alignSelf: 'stretch',
+      alignSelf: 'center',
+      marginTop: rs(28),
       borderRadius: rs(24),
-      paddingHorizontal: rs(36),
-      paddingVertical: rs(14),
+      paddingHorizontal: rs(44),
+      paddingVertical: rs(11),
+      minWidth: rs(132),
       alignItems: 'center',
       backgroundColor: colors.primary,
     },
     submitRow: { flexDirection: 'row', alignItems: 'center' },
-    submitTextOnPrimary: {
+    submitText: {
       color: '#FFFFFF',
       fontWeight: '800',
       fontSize: rs(15),

@@ -120,7 +120,11 @@ export function AddCapitalScreen() {
   );
 
   const onNext = async () => {
-    if (!username.trim() || !password.trim() || checkingLogin) return;
+    if (!username.trim() || !password.trim()) {
+      Alert.alert('Missing details', 'Enter username and password first.');
+      return;
+    }
+    if (checkingLogin) return;
     if (
       !(await guardAddAccountAsync({
         currentCount: accounts.length,
@@ -201,74 +205,60 @@ export function AddCapitalScreen() {
         >
           <LocalDisclaimer />
 
-          <View style={styles.formCard}>
-            {loginError ? (
-              <Text style={styles.loginError}>{loginError}</Text>
+          {loginError ? (
+            <Text style={styles.loginError}>{loginError}</Text>
+          ) : null}
+
+          <FormField
+            emphasized
+            icon="business-outline"
+            label="Depository Participants"
+            value={loadingDps ? 'Loading DPs…' : dp.name}
+            dropdown
+            onPressDropdown={() => !loadingDps && setPickerOpen(true)}
+          />
+          <FormField
+            emphasized
+            icon="person-outline"
+            label="Username"
+            value={username}
+            onChangeText={(t) => {
+              setUsername(t);
+              setLoginError('');
+            }}
+            placeholder="Username"
+            onFocus={() => {
+              setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
+            }}
+          />
+          <FormField
+            emphasized
+            icon="lock-closed-outline"
+            label="Password"
+            value={password}
+            onChangeText={(t) => {
+              setPassword(t);
+              setLoginError('');
+            }}
+            placeholder="Password"
+            secure={hidePass}
+            showEye
+            onToggleEye={() => setHidePass((v) => !v)}
+            onFocus={() => {
+              setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
+            }}
+          />
+
+          <Pressable
+            style={styles.nextBtn}
+            onPress={() => void onNext()}
+          >
+            {loadingDps || checkingLogin ? (
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.hint}>
-                Next live-checks DP + username + password with MeroShare.
-              </Text>
+              <Text style={styles.nextText}>Next</Text>
             )}
-
-            <FormField
-              emphasized
-              icon="business-outline"
-              label="Depository Participants"
-              value={loadingDps ? 'Loading DPs…' : dp.name}
-              dropdown
-              onPressDropdown={() => !loadingDps && setPickerOpen(true)}
-            />
-            <FormField
-              emphasized
-              icon="person-outline"
-              label="Username"
-              value={username}
-              onChangeText={(t) => {
-                setUsername(t);
-                setLoginError('');
-              }}
-              placeholder="Username"
-              onFocus={() => {
-                setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
-              }}
-            />
-            <FormField
-              emphasized
-              icon="lock-closed-outline"
-              label="Password"
-              value={password}
-              onChangeText={(t) => {
-                setPassword(t);
-                setLoginError('');
-              }}
-              placeholder="Password"
-              secure={hidePass}
-              showEye
-              onToggleEye={() => setHidePass((v) => !v)}
-              onFocus={() => {
-                setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
-              }}
-            />
-
-            <Pressable
-              style={[
-                styles.nextBtn,
-                (!username.trim() ||
-                  !password.trim() ||
-                  loadingDps ||
-                  checkingLogin) &&
-                  styles.nextDisabled,
-              ]}
-              onPress={() => void onNext()}
-              disabled={loadingDps || checkingLogin}
-            >
-              {loadingDps || checkingLogin ? (
-                <ActivityIndicator color={colors.primary} />
-              ) : (
-                <Text style={styles.nextText}>Next</Text>
-              )}
-            </Pressable>
-          </View>
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -349,41 +339,21 @@ function makeStyles(colors: ThemeColors) {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: rs(12),
-    paddingVertical: rs(12),
+    paddingVertical: rs(14),
     gap: rs(8),
     backgroundColor: colors.bgElevated,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
-  back: { color: colors.text, fontSize: rs(22), width: rs(32) },
+  back: { color: colors.text, fontSize: rs(24), width: rs(32) },
   title: {
     color: colors.text,
     fontSize: rs(18),
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: 0.2,
-  },
-  formCard: {
-    marginHorizontal: rs(12),
-    marginTop: rs(4),
-    marginBottom: rs(8),
-    paddingVertical: rs(12),
-    paddingBottom: rs(20),
-    borderRadius: rs(14),
-    borderWidth: 1.5,
-    borderColor: colors.textDim,
-    backgroundColor: colors.surface,
-  },
-  hint: {
-    marginHorizontal: rs(16),
-    marginBottom: rs(4),
-    color: colors.text,
-    fontSize: rs(13),
-    fontWeight: '600',
-    lineHeight: rs(18),
   },
   loginError: {
     marginHorizontal: rs(16),
-    marginBottom: rs(8),
+    marginTop: rs(10),
+    marginBottom: rs(4),
     color: colors.danger,
     fontSize: rs(12),
     fontWeight: '700',
@@ -391,17 +361,14 @@ function makeStyles(colors: ThemeColors) {
   nextBtn: {
     alignSelf: 'center',
     marginTop: rs(28),
-    borderWidth: 2,
-    borderColor: colors.primary,
     borderRadius: rs(24),
-    paddingHorizontal: rs(36),
-    paddingVertical: rs(10),
-    minWidth: rs(120),
+    paddingHorizontal: rs(44),
+    paddingVertical: rs(11),
+    minWidth: rs(132),
     alignItems: 'center',
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.primary,
   },
-  nextDisabled: { opacity: 0.4 },
-  nextText: { color: colors.primary, fontWeight: '800', fontSize: rs(15) },
+  nextText: { color: '#FFFFFF', fontWeight: '800', fontSize: rs(15) },
   modalOverlay: {
     flex: 1,
     backgroundColor: colors.overlay,

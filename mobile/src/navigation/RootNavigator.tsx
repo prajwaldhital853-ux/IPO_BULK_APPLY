@@ -228,7 +228,7 @@ function RootStack() {
 
 export function RootNavigator() {
   const { colors, isDark } = useTheme();
-  const drawerWidth = isTablet ? Math.min(wp(42), 380) : wp(70);
+  const drawerWidth = isTablet ? Math.min(wp(48), 420) : wp(82);
 
   const navTheme = useMemo(
     () => ({
@@ -261,9 +261,9 @@ export function RootNavigator() {
           swipeEnabled: true,
           drawerStyle: {
             width: drawerWidth,
-            backgroundColor: colors.bg,
-            borderTopRightRadius: rs(18),
-            borderBottomRightRadius: rs(18),
+            backgroundColor: isDark ? colors.bg : '#F8FBF2',
+            borderTopRightRadius: rs(28),
+            borderBottomRightRadius: rs(28),
             overflow: 'hidden',
           },
         }}

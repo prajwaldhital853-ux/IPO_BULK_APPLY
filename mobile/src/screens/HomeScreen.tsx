@@ -40,6 +40,8 @@ import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 import type { AccountMeta } from '../types/account';
 
+const RAIL_GREEN = '#1a4d08';
+
 /** Home account row — green rail, avatar, status badge, menu + chevron. */
 function AccountCard({
   item,
@@ -80,8 +82,10 @@ function AccountCard({
           <View style={styles.leftRail}>
             <Text style={styles.railIndex}>{indexLabel}</Text>
           </View>
-          <View style={styles.avatarRing}>
-            <Ionicons name="person" size={rs(18)} color={colors.primary} />
+          <View style={styles.avatarWrap}>
+            <View style={styles.avatarRing}>
+              <Ionicons name="person" size={rs(16)} color={RAIL_GREEN} />
+            </View>
           </View>
         </View>
 
@@ -631,9 +635,8 @@ export function HomeScreen() {
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const cardBg = isDark ? c.surface : '#FFFFFF';
-  const avatarBg = isDark ? c.surfaceAlt : '#FFFFFF';
-  const railGreen = c.promoBanner;
+  const cardBg = c.bg;
+  const railGreen = RAIL_GREEN;
   const minorBadgeBg = isDark ? 'rgba(229,57,53,0.22)' : '#FFEBEE';
   const minorBadgeFg = isDark ? '#FF8A80' : '#C62828';
   const minorBadgeBorder = isDark ? '#E57373' : '#E53935';
@@ -755,7 +758,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     listEmpty: { flexGrow: 1, paddingBottom: rs(100) },
     card: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'stretch',
       position: 'relative',
       borderRadius: rs(10),
       marginBottom: HOME_CARD_GAP,
@@ -763,32 +766,26 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       minHeight: rs(64),
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark ? c.borderMuted : '#E8ECE6',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: rs(1) },
-      shadowOpacity: isDark ? 0.22 : 0.06,
-      shadowRadius: rs(4),
-      elevation: 2,
     },
     cardActive: {
       opacity: 0.94,
       borderColor: c.primary,
     },
     cardLeft: {
-      width: rs(46),
-      height: rs(64),
+      width: rs(50),
       position: 'relative',
       flexShrink: 0,
     },
     leftRail: {
       position: 'absolute',
       left: 0,
-      top: 0,
-      bottom: 0,
+      top: rs(6),
+      bottom: rs(6),
       width: rs(34),
       backgroundColor: railGreen,
       borderTopLeftRadius: rs(10),
       borderBottomLeftRadius: rs(10),
-      paddingTop: rs(8),
+      paddingTop: rs(7),
       paddingLeft: rs(8),
     },
     railIndex: {
@@ -797,24 +794,27 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontSize: rs(11),
       letterSpacing: 0.2,
     },
-    avatarRing: {
+    avatarWrap: {
       position: 'absolute',
-      left: rs(20),
-      top: rs(14),
-      width: rs(36),
-      height: rs(36),
-      borderRadius: rs(18),
-      backgroundColor: avatarBg,
+      left: rs(16),
+      top: 0,
+      bottom: 0,
+      width: rs(32),
+      justifyContent: 'center',
+      zIndex: 2,
+    },
+    avatarRing: {
+      width: rs(32),
+      height: rs(32),
+      borderRadius: rs(16),
+      backgroundColor: '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
-      borderWidth: 2,
-      borderColor: avatarBg,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: rs(1) },
-      shadowOpacity: 0.1,
+      shadowOpacity: 0.12,
       shadowRadius: rs(3),
       elevation: 3,
-      zIndex: 2,
     },
     cardBody: {
       flex: 1,

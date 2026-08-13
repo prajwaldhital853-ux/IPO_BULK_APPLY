@@ -111,13 +111,13 @@ export const darkColors: ThemeColors = {
 };
 
 /**
- * Light mode — drawer palette: page #F5F6F2, surfaces #F0F3EE (drawer rows).
+ * Light mode — page canvas #F8FBF2 (pale mint), cards stay slightly lifted.
  */
 export const lightColors: ThemeColors = {
-  bg: '#F5F6F2',
-  bgElevated: '#F0F3EE',
-  surface: '#F0F3EE',
-  surfaceAlt: '#FAFCF9',
+  bg: '#F8FBF2',
+  bgElevated: '#F8FBF2',
+  surface: '#F8FBF2',
+  surfaceAlt: '#F3F7EB',
   border: '#3D4F3A',
   borderMuted: '#6B7A64',
 
@@ -155,10 +155,10 @@ export const lightColors: ThemeColors = {
   tabActive: '#1B5E20',
   tabActiveBg: '#E8F5E9',
 
-  inputBg: '#F0F3EE',
+  inputBg: '#F3F7EB',
   overlay: 'rgba(0,0,0,0.4)',
 
-  searchBg: '#F0F3EE',
+  searchBg: '#F3F7EB',
   pillFree: '#0288D1',
   pillMero: '#00897B',
   pillPremiumStart: '#1976D2',

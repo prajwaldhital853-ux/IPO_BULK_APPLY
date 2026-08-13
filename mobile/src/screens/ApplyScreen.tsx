@@ -1227,8 +1227,8 @@ export function ApplyScreen() {
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const cardBg = isDark ? c.bgElevated : '#F9F8F4';
-  const fieldBg = isDark ? c.surface : '#F9F8F4';
+  const cardBg = c.bg;
+  const fieldBg = c.bg;
   const fieldBorder = isDark ? c.borderMuted : '#B8B8B8';
   const ink = isDark ? c.text : '#1B1B1B';
   const inkMuted = isDark ? c.textSecondary : '#5A6556';
@@ -1383,7 +1383,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       padding: rs(3),
     },
     summaryBtn: {
-      alignSelf: 'center',
+      alignSelf: 'flex-start',
       borderWidth: 1,
       borderColor: c.primary,
       borderRadius: rs(12),
@@ -1391,8 +1391,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       paddingHorizontal: rs(14),
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? c.surface : cardBg,
-      maxWidth: '82%',
+      backgroundColor: c.bg,
     },
     summaryBtnText: {
       color: isDark ? c.sage : c.primary,
@@ -1527,15 +1526,14 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     linkAction: { color: c.primary, fontWeight: '700', fontSize: rs(12) },
     autoApply: {
-      alignSelf: 'center',
-      marginTop: rs(2),
+      alignSelf: 'stretch',
+      marginTop: rs(8),
       backgroundColor: c.promoBanner,
-      borderRadius: rs(18),
-      paddingVertical: rs(10),
-      paddingHorizontal: rs(28),
+      borderRadius: rs(16),
+      paddingVertical: rs(8),
+      paddingHorizontal: rs(16),
       alignItems: 'center',
-      minHeight: rs(40),
-      minWidth: rs(160),
+      minHeight: rs(36),
       justifyContent: 'center',
     },
     autoApplyDisabled: { opacity: 0.7 },

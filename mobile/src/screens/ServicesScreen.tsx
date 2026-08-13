@@ -78,19 +78,19 @@ function computeServiceGridLayout(screenW: number): ServiceGridLayout {
 
 /** Reference SS palette (IPO Bulk Apply Free Services). */
 const SS = {
-  cream: '#FDFBF2',
+  cream: '#F8FBF2',
   card: '#FFFFFF',
   cardBorder: '#E8E8E8',
   featuredBorder: '#F2A154',
   headLine: '#9A9A9A',
   headLineHeight: 2,
-  pillFreeBg: '#82C3FB',
-  pillFreeText: '#2D2D2D',
-  pillMeroBg: '#6BC4BE',
+  pillFreeBg: '#5BAEE8',
+  pillFreeText: '#111111',
+  pillMeroBg: '#1E7F7A',
   pillPremiumStart: '#C8ED72',
   pillPremiumMid: '#7AE8B8',
   pillPremiumEnd: '#42CFF5',
-  pillExtraBg: '#43A047',
+  pillExtraBg: '#2E7D32',
   pillLabelInk: '#111111',
   iconInk: '#1A1A1A',
   labelInk: '#000000',
@@ -495,9 +495,19 @@ function SectionPill({
             ? colors.pillPremiumEnd
             : '#66BB6A';
     return (
-      <View style={[styles.pill, { backgroundColor: bg }]}>
+      <View
+        style={[
+          styles.pill,
+          section.variant === 'mero' && styles.pillMero,
+          { backgroundColor: bg },
+        ]}
+      >
         <Text
-          style={[styles.pillText, { color: textColor }]}
+          style={[
+            styles.pillText,
+            section.variant === 'mero' && styles.pillTextMero,
+            { color: textColor },
+          ]}
           numberOfLines={1}
         >
           {section.title}
@@ -524,9 +534,20 @@ function SectionPill({
         : SS.pillExtraBg;
 
   return (
-    <View style={[styles.pill, styles.pillLight, { backgroundColor: bg }]}>
+    <View
+      style={[
+        styles.pill,
+        styles.pillLight,
+        section.variant === 'mero' && styles.pillMero,
+        { backgroundColor: bg },
+      ]}
+    >
       <Text
-        style={[styles.pillText, { color: textColor }]}
+        style={[
+          styles.pillText,
+          section.variant === 'mero' && styles.pillTextMero,
+          { color: textColor },
+        ]}
         numberOfLines={1}
       >
         {section.title}
@@ -813,9 +834,9 @@ function makeStyles(c: ThemeColors, isDark: boolean, layout: ServiceGridLayout) 
       position: 'relative',
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: rs(14),
-      marginTop: rs(4),
-      minHeight: rs(34),
+      marginBottom: rs(16),
+      marginTop: rs(6),
+      minHeight: rs(44),
     },
     sectionHeadLine: {
       position: 'absolute',
@@ -827,34 +848,43 @@ function makeStyles(c: ThemeColors, isDark: boolean, layout: ServiceGridLayout) 
     },
     pill: {
       flexShrink: 0,
-      paddingHorizontal: rs(18),
-      paddingVertical: rs(7),
-      borderRadius: rs(10),
+      paddingHorizontal: rs(22),
+      paddingVertical: rs(10),
+      borderRadius: rs(12),
       alignItems: 'center',
       justifyContent: 'center',
-      minHeight: rs(34),
+      minHeight: rs(42),
       zIndex: 1,
     },
     pillLight: {
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.08,
-      shadowRadius: 2,
-      elevation: 1,
+      shadowOpacity: 0.12,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    pillMero: {
+      paddingHorizontal: rs(32),
+      paddingVertical: rs(15),
+      minHeight: rs(52),
+      borderRadius: rs(14),
+    },
+    pillTextMero: {
+      fontSize: rs(17),
     },
     pillPremium: {
       overflow: 'hidden',
-      paddingHorizontal: rs(22),
-      paddingVertical: rs(8),
-      minHeight: rs(36),
+      paddingHorizontal: rs(26),
+      paddingVertical: rs(11),
+      minHeight: rs(44),
     },
     pillTextPremium: {
-      fontSize: rs(14),
+      fontSize: rs(15),
       fontWeight: '800',
     },
     pillText: {
       fontWeight: '800',
-      fontSize: rs(13),
+      fontSize: rs(15),
       letterSpacing: 0,
       textAlign: 'center',
       includeFontPadding: false,

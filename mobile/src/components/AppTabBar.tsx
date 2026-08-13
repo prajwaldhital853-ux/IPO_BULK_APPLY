@@ -24,13 +24,12 @@ const ICONS: Record<
   { ion?: keyof typeof Ionicons.glyphMap; mci?: keyof typeof MaterialCommunityIcons.glyphMap }
 > = {
   Home: { ion: 'home' },
-  Apply: { mci: 'bank' },
-  Services: { ion: 'options' },
+  Apply: { mci: 'bank-outline' },
+  Services: { ion: 'options-outline' },
   Check: { ion: 'checkmark-circle-outline' },
   Profile: { ion: 'person-outline' },
 };
 
-/** Snappy spring — instant press feedback without a soft laggy settle. */
 const SPRING = { damping: 26, stiffness: 420, mass: 0.4 };
 
 function TabItem({
@@ -39,16 +38,14 @@ function TabItem({
   onPress,
   icon,
   activeBg,
-  activeColor,
-  inactiveColor,
+  ink,
 }: {
   label: string;
   focused: boolean;
   onPress: () => void;
   icon: React.ReactNode;
   activeBg: string;
-  activeColor: string;
-  inactiveColor: string;
+  ink: string;
 }) {
   const progress = useSharedValue(focused ? 1 : 0);
   const press = useSharedValue(1);
@@ -63,19 +60,11 @@ function TabItem({
       [0, 1],
       ['rgba(0,0,0,0)', activeBg],
     ),
-    transform: [{ scale: interpolate(progress.value, [0, 1], [0.88, 1]) }],
+    transform: [{ scale: interpolate(progress.value, [0, 1], [0.92, 1]) }],
   }));
 
   const wrapStyle = useAnimatedStyle(() => ({
     transform: [{ scale: press.value }],
-  }));
-
-  const labelStyle = useAnimatedStyle(() => ({
-    color: interpolateColor(
-      progress.value,
-      [0, 1],
-      [inactiveColor, activeColor],
-    ),
   }));
 
   return (
@@ -94,7 +83,13 @@ function TabItem({
     >
       <Animated.View style={[styles.itemInner, wrapStyle]}>
         <Animated.View style={[styles.iconPill, pillStyle]}>{icon}</Animated.View>
-        <Animated.Text style={[styles.label, labelStyle]} numberOfLines={1}>
+        <Animated.Text
+          style={[
+            styles.label,
+            { color: ink, fontWeight: focused ? '800' : '700' },
+          ]}
+          numberOfLines={1}
+        >
           {label}
         </Animated.Text>
       </Animated.View>
@@ -104,13 +99,16 @@ function TabItem({
 
 export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
 
   const systemNav =
     (insets.bottom > 0 ? insets.bottom : Platform.OS === 'android' ? rs(48) : 0) +
     (Platform.OS === 'android' ? rs(4) : 0);
 
-  const barBg = isDark ? '#252724' : colors.bgElevated;
+  const barBg = isDark ? '#252724' : '#F8FBF2';
+  const ink = isDark ? '#F2F2F2' : '#000000';
+  const pill = isDark ? '#3A5340' : '#C5DCC8';
+  const iconSize = rs(20);
 
   return (
     <View
@@ -118,7 +116,7 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
         styles.wrap,
         {
           backgroundColor: barBg,
-          borderTopColor: colors.borderMuted,
+          borderTopColor: isDark ? '#3A3A3A' : '#E0E0DC',
         },
       ]}
     >
@@ -138,19 +136,16 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
               canPreventDefault: true,
             });
             if (!focused && !event.defaultPrevented) {
-              // Free JS for the tab switch — pause background warm-up briefly.
               pausePrefetch(2500);
-              // Instant index change — same feel as the reference video.
               navigation.jumpTo(route.name);
             }
           };
 
-          const color = focused ? colors.tabActive : colors.tabInactive;
           const def = ICONS[route.name] ?? {};
           const icon = def.mci ? (
-            <MaterialCommunityIcons name={def.mci} size={rs(22)} color={color} />
+            <MaterialCommunityIcons name={def.mci} size={iconSize} color={ink} />
           ) : (
-            <Ionicons name={def.ion ?? 'ellipse'} size={rs(22)} color={color} />
+            <Ionicons name={def.ion ?? 'ellipse-outline'} size={iconSize} color={ink} />
           );
 
           return (
@@ -160,9 +155,8 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
               focused={focused}
               onPress={onPress}
               icon={icon}
-              activeBg={colors.tabActiveBg}
-              activeColor={colors.tabActive}
-              inactiveColor={colors.tabInactive}
+              activeBg={pill}
+              ink={ink}
             />
           );
         })}
@@ -180,10 +174,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    paddingTop: rs(8),
-    paddingBottom: rs(6),
-    paddingHorizontal: rs(4),
-    minHeight: rs(64),
+    paddingTop: rs(6),
+    paddingBottom: rs(4),
+    paddingHorizontal: rs(2),
+    minHeight: rs(56),
     backgroundColor: 'transparent',
   },
   item: {
@@ -193,19 +187,19 @@ const styles = StyleSheet.create({
   },
   itemInner: {
     alignItems: 'center',
-    gap: rs(3),
+    gap: rs(2),
   },
   iconPill: {
-    minWidth: rs(52),
-    height: rs(32),
-    borderRadius: rs(16),
+    minWidth: rs(56),
+    height: rs(28),
+    borderRadius: rs(14),
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: rs(14),
+    paddingHorizontal: rs(16),
   },
   label: {
     fontSize: rs(11),
-    fontWeight: '700',
-    marginBottom: rs(2),
+    marginBottom: rs(1),
+    letterSpacing: 0.1,
   },
 });

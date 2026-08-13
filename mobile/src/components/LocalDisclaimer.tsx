@@ -6,11 +6,18 @@ import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 
 export function LocalDisclaimer() {
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(
+    () => makeStyles(colors, isDark),
+    [colors, isDark],
+  );
   return (
     <View style={styles.box}>
-      <Ionicons name="information-circle" size={rs(20)} color={colors.sage} />
+      <Ionicons
+        name="information-circle"
+        size={rs(22)}
+        color={isDark ? colors.sage : '#1B5E20'}
+      />
       <Text style={styles.text}>
         We do not store your data on our server. All data is stored securely on
         your local device.
@@ -19,27 +26,26 @@ export function LocalDisclaimer() {
   );
 }
 
-function makeStyles(colors: ThemeColors) {
+function makeStyles(colors: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
-  box: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: rs(10),
-    backgroundColor: colors.surface,
-    borderRadius: rs(10),
-    borderWidth: 1.5,
-    borderColor: colors.sage,
-    padding: rs(12),
-    marginHorizontal: rs(16),
-    marginTop: rs(12),
-    marginBottom: rs(8),
-  },
-  text: {
-    flex: 1,
-    color: colors.text,
-    fontSize: rs(13),
-    lineHeight: rs(18),
-    fontWeight: '600',
-  },
+    box: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      backgroundColor: isDark ? colors.primarySoft : '#C8E6C9',
+      borderRadius: rs(16),
+      paddingVertical: rs(14),
+      paddingHorizontal: rs(14),
+      marginHorizontal: rs(16),
+      marginTop: rs(14),
+      marginBottom: rs(6),
+    },
+    text: {
+      flex: 1,
+      color: colors.text,
+      fontSize: rs(13),
+      lineHeight: rs(18),
+      fontWeight: '600',
+    },
   });
 }
