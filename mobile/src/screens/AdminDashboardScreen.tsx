@@ -951,7 +951,12 @@ export function AdminDashboardScreen() {
         ))}
       </View>
 
-      <View style={styles.filters}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filtersScroll}
+        contentContainerStyle={styles.filters}
+      >
         {tab === 'users'
           ? (
             [
@@ -977,7 +982,7 @@ export function AdminDashboardScreen() {
               },
               {
                 id: 'multi_device' as const,
-                label: `Multi-device · ${stats?.multiDeviceUserCount ?? 0}`,
+                label: `Multi · ${stats?.multiDeviceUserCount ?? 0}`,
               },
             ]
           ).map((f) => (
@@ -986,7 +991,10 @@ export function AdminDashboardScreen() {
                 style={[styles.chip, userFilter === f.id && styles.chipActive]}
                 onPress={() => setUserFilter(f.id)}
               >
-                <Text style={[styles.chipText, userFilter === f.id && styles.chipTextActive]}>
+                <Text
+                  style={[styles.chipText, userFilter === f.id && styles.chipTextActive]}
+                  numberOfLines={1}
+                >
                   {f.label}
                 </Text>
               </Pressable>
@@ -1017,7 +1025,10 @@ export function AdminDashboardScreen() {
                   style={[styles.chip, subFilter === f.id && styles.chipActive]}
                   onPress={() => setSubFilter(f.id)}
                 >
-                  <Text style={[styles.chipText, subFilter === f.id && styles.chipTextActive]}>
+                  <Text
+                    style={[styles.chipText, subFilter === f.id && styles.chipTextActive]}
+                    numberOfLines={1}
+                  >
                     {f.label}
                   </Text>
                 </Pressable>
@@ -1051,6 +1062,7 @@ export function AdminDashboardScreen() {
                   >
                     <Text
                       style={[styles.chipText, feedbackFilter === f.id && styles.chipTextActive]}
+                      numberOfLines={1}
                     >
                       {f.label}
                     </Text>
@@ -1062,14 +1074,17 @@ export function AdminDashboardScreen() {
                     style={[styles.chip, feedbackKind === f && styles.chipActive]}
                     onPress={() => setFeedbackKind(f)}
                   >
-                    <Text style={[styles.chipText, feedbackKind === f && styles.chipTextActive]}>
+                    <Text
+                      style={[styles.chipText, feedbackKind === f && styles.chipTextActive]}
+                      numberOfLines={1}
+                    >
                       {f === 'feature_request' ? 'features' : f}
                     </Text>
                   </Pressable>
                 ))}
               </>
             )}
-      </View>
+      </ScrollView>
 
       {loading ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: rs(24) }} />
@@ -1304,22 +1319,27 @@ function makeStyles(c: ThemeColors) {
     tabBtnActive: { backgroundColor: c.fab },
     tabText: { color: c.textSecondary, fontWeight: '700', fontSize: rs(12) },
     tabTextActive: { color: c.fabIcon },
+    filtersScroll: {
+      flexGrow: 0,
+      marginBottom: rs(8),
+    },
     filters: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: rs(8),
+      flexWrap: 'nowrap',
+      alignItems: 'center',
+      gap: rs(6),
       paddingHorizontal: rs(16),
-      marginBottom: rs(8),
     },
     chip: {
       borderWidth: 1,
       borderColor: c.borderMuted,
       borderRadius: rs(999),
-      paddingHorizontal: rs(12),
+      paddingHorizontal: rs(10),
       paddingVertical: rs(5),
+      flexShrink: 0,
     },
     chipActive: { backgroundColor: c.primarySoft, borderColor: c.primary },
-    chipText: { color: c.textSecondary, fontSize: rs(11), fontWeight: '600' },
+    chipText: { color: c.textSecondary, fontSize: rs(10), fontWeight: '600' },
     chipTextActive: { color: c.primary, fontWeight: '800' },
     listFlex: { flex: 1 },
     list: { paddingHorizontal: rs(16), paddingBottom: rs(24) },
