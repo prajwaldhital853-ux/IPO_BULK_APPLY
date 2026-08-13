@@ -6,16 +6,43 @@ from pydantic import BaseModel, Field
 class AdminLoginRequest(BaseModel):
     email: str
     password: str
-    # Stable per-install id from the app — used for device-scoped lockouts.
+    # Stable per-install id from the app — lockouts + new-device OTP.
     device_id: str | None = Field(default=None, alias='deviceId', max_length=128)
 
     model_config = {'populate_by_name': True}
 
 
-class AdminLoginResponse(BaseModel):
-    access_token: str = Field(alias='accessToken', serialization_alias='accessToken')
-    expires_in: int = Field(alias='expiresIn', serialization_alias='expiresIn')
+class AdminLoginVerifyRequest(BaseModel):
     email: str
+    password: str
+    otp: str = Field(min_length=6, max_length=6)
+    device_id: str = Field(alias='deviceId', min_length=8, max_length=128)
+
+    model_config = {'populate_by_name': True}
+
+
+class AdminLoginResponse(BaseModel):
+    access_token: str = Field(
+        default='',
+        alias='accessToken',
+        serialization_alias='accessToken',
+    )
+    expires_in: int = Field(
+        default=0,
+        alias='expiresIn',
+        serialization_alias='expiresIn',
+    )
+    email: str
+    needs_otp: bool = Field(
+        default=False,
+        alias='needsOtp',
+        serialization_alias='needsOtp',
+    )
+    masked_email: str | None = Field(
+        default=None,
+        alias='maskedEmail',
+        serialization_alias='maskedEmail',
+    )
 
     model_config = {'populate_by_name': True}
 

@@ -155,6 +155,41 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     "ADD COLUMN legal_pages_json TEXT NOT NULL DEFAULT '{}'"
                 )
             )
+        if 'admin_trusted_devices_json' not in cols:
+            sync_conn.execute(
+                text(
+                    "ALTER TABLE site_settings "
+                    "ADD COLUMN admin_trusted_devices_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            )
+        if 'admin_login_otp_hash' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE site_settings '
+                    'ADD COLUMN admin_login_otp_hash VARCHAR(128)'
+                )
+            )
+        if 'admin_login_otp_expires' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE site_settings '
+                    'ADD COLUMN admin_login_otp_expires TIMESTAMP'
+                )
+            )
+        if 'admin_login_otp_attempts' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE site_settings '
+                    'ADD COLUMN admin_login_otp_attempts INTEGER NOT NULL DEFAULT 0'
+                )
+            )
+        if 'admin_login_otp_device_id' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE site_settings '
+                    'ADD COLUMN admin_login_otp_device_id VARCHAR(128)'
+                )
+            )
     if 'premium_entitlements' in tables:
         pe_cols = {c['name'] for c in insp.get_columns('premium_entitlements')}
         if 'reminder_2d_sent_at' not in pe_cols:
@@ -351,6 +386,43 @@ def _apply_postgres_patches(sync_conn) -> None:
                 "ALTER TABLE site_settings "
                 "ADD COLUMN IF NOT EXISTS legal_pages_json TEXT "
                 "NOT NULL DEFAULT '{}'"
+            )
+        )
+    if 'admin_trusted_devices_json' not in cols:
+        sync_conn.execute(
+            text(
+                "ALTER TABLE site_settings "
+                "ADD COLUMN IF NOT EXISTS admin_trusted_devices_json TEXT "
+                "NOT NULL DEFAULT '[]'"
+            )
+        )
+    if 'admin_login_otp_hash' not in cols:
+        sync_conn.execute(
+            text(
+                'ALTER TABLE site_settings '
+                'ADD COLUMN IF NOT EXISTS admin_login_otp_hash VARCHAR(128)'
+            )
+        )
+    if 'admin_login_otp_expires' not in cols:
+        sync_conn.execute(
+            text(
+                'ALTER TABLE site_settings '
+                'ADD COLUMN IF NOT EXISTS admin_login_otp_expires TIMESTAMPTZ'
+            )
+        )
+    if 'admin_login_otp_attempts' not in cols:
+        sync_conn.execute(
+            text(
+                'ALTER TABLE site_settings '
+                'ADD COLUMN IF NOT EXISTS admin_login_otp_attempts '
+                'INTEGER NOT NULL DEFAULT 0'
+            )
+        )
+    if 'admin_login_otp_device_id' not in cols:
+        sync_conn.execute(
+            text(
+                'ALTER TABLE site_settings '
+                'ADD COLUMN IF NOT EXISTS admin_login_otp_device_id VARCHAR(128)'
             )
         )
 

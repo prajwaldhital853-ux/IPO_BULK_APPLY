@@ -13,7 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
-import { adminLogin } from '../services/admin/adminApi';
+import { adminLogin, verifyAdminLogin } from '../services/admin/adminApi';
 import { saveAdminToken } from '../services/admin/adminTokenStorage';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
@@ -36,6 +36,9 @@ export function AdminLoginScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
   const [busy, setBusy] = useState(false);
   const [lockMessage, setLockMessage] = useState<string | null>(null);
   const [lockSecondsLeft, setLockSecondsLeft] = useState(0);
@@ -72,9 +75,22 @@ export function AdminLoginScreen() {
     setBusy(true);
     try {
       const session = await adminLogin(email.trim(), password);
-      await saveAdminToken(session.accessToken);
       setLockMessage(null);
       setLockSecondsLeft(0);
+      if (session.needsOtp) {
+        const alreadyOnOtp = step === 'otp';
+        setMaskedEmail(session.maskedEmail);
+        setOtp('');
+        setStep('otp');
+        if (!alreadyOnOtp) {
+          Alert.alert(
+            'Verify this device',
+            `A 6-digit code was sent to ${session.maskedEmail || 'the admin Gmail'}. Enter it to continue.`,
+          );
+        }
+        return;
+      }
+      await saveAdminToken(session.accessToken);
       navigation.replace('AdminDashboard');
     } catch (e) {
       const message =
@@ -92,10 +108,42 @@ export function AdminLoginScreen() {
     }
   };
 
+  const onVerifyOtp = async () => {
+    if (otp.trim().length !== 6) {
+      Alert.alert('Enter the code', 'Type the 6-digit code from the admin Gmail.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const session = await verifyAdminLogin(email.trim(), password, otp.trim());
+      await saveAdminToken(session.accessToken);
+      setLockMessage(null);
+      setLockSecondsLeft(0);
+      navigation.replace('AdminDashboard');
+    } catch (e) {
+      Alert.alert(
+        'Verification failed',
+        e instanceof Error ? e.message : 'Invalid code',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable
+          onPress={() => {
+            if (step === 'otp') {
+              setStep('credentials');
+              setOtp('');
+              return;
+            }
+            navigation.goBack();
+          }}
+          hitSlop={12}
+        >
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>Admin</Text>
@@ -106,7 +154,11 @@ export function AdminLoginScreen() {
         <View style={styles.iconWrap}>
           <Ionicons name="shield-checkmark" size={rs(32)} color={colors.fabIcon} />
         </View>
-        <Text style={styles.subtitle}>Sign in to manage subscriptions</Text>
+        <Text style={styles.subtitle}>
+          {step === 'otp'
+            ? `Enter the code sent to ${maskedEmail || 'admin Gmail'}`
+            : 'Sign in to manage subscriptions'}
+        </Text>
 
         {locked || lockMessage ? (
           <View style={styles.lockBanner}>
@@ -119,51 +171,91 @@ export function AdminLoginScreen() {
           </View>
         ) : null}
 
-        <TextInput
-          style={styles.input}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          placeholder="Admin email"
-          placeholderTextColor={colors.textMuted}
-          value={email}
-          onChangeText={setEmail}
-          editable={!busy}
-        />
-        <TextInput
-          style={styles.input}
-          secureTextEntry
-          placeholder="Password"
-          placeholderTextColor={colors.textMuted}
-          value={password}
-          onChangeText={setPassword}
-          editable={!busy && !locked}
-        />
-        <Pressable
-          style={[styles.btn, (busy || locked) && { opacity: 0.7 }]}
-          onPress={() => void onLogin()}
-          disabled={busy || locked}
-        >
-          {busy ? (
-            <ActivityIndicator color={colors.fabIcon} />
-          ) : (
-            <Text style={styles.btnText}>
-              {locked ? `Locked (${lockMins}m)` : 'Login'}
-            </Text>
-          )}
-        </Pressable>
-        {busy ? (
-          <Text style={styles.wakeHint}>Signing in…</Text>
+        {step === 'credentials' ? (
+          <>
+            <TextInput
+              style={styles.input}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              placeholder="Admin email"
+              placeholderTextColor={colors.textMuted}
+              value={email}
+              onChangeText={setEmail}
+              editable={!busy}
+            />
+            <TextInput
+              style={styles.input}
+              secureTextEntry
+              placeholder="Password"
+              placeholderTextColor={colors.textMuted}
+              value={password}
+              onChangeText={setPassword}
+              editable={!busy && !locked}
+            />
+            <Pressable
+              style={[styles.btn, (busy || locked) && { opacity: 0.7 }]}
+              onPress={() => void onLogin()}
+              disabled={busy || locked}
+            >
+              {busy ? (
+                <ActivityIndicator color={colors.fabIcon} />
+              ) : (
+                <Text style={styles.btnText}>
+                  {locked ? `Locked (${lockMins}m)` : 'Login'}
+                </Text>
+              )}
+            </Pressable>
+            {busy ? (
+              <Text style={styles.wakeHint}>Signing in…</Text>
+            ) : (
+              <Text style={styles.wakeHint}>
+                New or unknown devices need a Gmail code after the password.
+                After 3 failed attempts, login locks for 5 minutes.
+              </Text>
+            )}
+            <Pressable
+              style={styles.forgotBtn}
+              onPress={() => navigation.navigate('AdminForgotPassword')}
+            >
+              <Text style={styles.forgotText}>Forgot password?</Text>
+            </Pressable>
+          </>
         ) : (
-          <Text style={styles.wakeHint}>
-            After 3 failed attempts, login locks for 5 minutes.
-          </Text>
+          <>
+            <TextInput
+              style={styles.input}
+              keyboardType="number-pad"
+              placeholder="6-digit code"
+              placeholderTextColor={colors.textMuted}
+              value={otp}
+              onChangeText={setOtp}
+              maxLength={6}
+              editable={!busy}
+            />
+            <Pressable
+              style={[styles.btn, busy && { opacity: 0.7 }]}
+              onPress={() => void onVerifyOtp()}
+              disabled={busy}
+            >
+              {busy ? (
+                <ActivityIndicator color={colors.fabIcon} />
+              ) : (
+                <Text style={styles.btnText}>Verify and continue</Text>
+              )}
+            </Pressable>
+            <Pressable
+              style={styles.forgotBtn}
+              onPress={() => void onLogin()}
+              disabled={busy}
+            >
+              <Text style={styles.forgotText}>Resend code</Text>
+            </Pressable>
+            <Text style={styles.wakeHint}>
+              This phone is remembered after a successful code so you will not
+              be asked again until you reinstall the app.
+            </Text>
+          </>
         )}
-        <Pressable
-          style={styles.forgotBtn}
-          onPress={() => navigation.navigate('AdminForgotPassword')}
-        >
-          <Text style={styles.forgotText}>Forgot password?</Text>
-        </Pressable>
       </View>
     </View>
   );

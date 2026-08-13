@@ -177,10 +177,25 @@ async function adminFetch(
   return fetch(`${AUTH_API_BASE}${path}`, { ...init, headers });
 }
 
+export type AdminLoginOk = {
+  needsOtp: false;
+  accessToken: string;
+  expiresIn: number;
+  email: string;
+};
+
+export type AdminLoginNeedsOtp = {
+  needsOtp: true;
+  maskedEmail: string;
+  email: string;
+};
+
+export type AdminLoginResult = AdminLoginOk | AdminLoginNeedsOtp;
+
 export async function adminLogin(
   email: string,
   password: string,
-): Promise<{ accessToken: string; expiresIn: number; email: string }> {
+): Promise<AdminLoginResult> {
   const { getAdminDeviceId } = await import('./adminDeviceId');
   const deviceId = await getAdminDeviceId();
   let res: Response;
@@ -221,11 +236,72 @@ export async function adminLogin(
   }
 
   const json = (await res.json()) as Record<string, unknown>;
+  const needsOtp = Boolean(json.needsOtp ?? json.needs_otp);
+  if (needsOtp) {
+    return {
+      needsOtp: true,
+      maskedEmail: String(json.maskedEmail ?? json.masked_email ?? ''),
+      email: String(json.email ?? email.trim()),
+    };
+  }
+
   const accessToken = String(json.accessToken ?? json.access_token ?? '');
   if (!accessToken || accessToken === 'undefined') {
     throw new Error('Login succeeded but no access token was returned');
   }
   return {
+    needsOtp: false,
+    accessToken,
+    expiresIn: Number(json.expiresIn ?? json.expires_in ?? 86400),
+    email: String(json.email ?? email.trim()),
+  };
+}
+
+export async function verifyAdminLogin(
+  email: string,
+  password: string,
+  otp: string,
+): Promise<AdminLoginOk> {
+  const { getAdminDeviceId } = await import('./adminDeviceId');
+  const deviceId = await getAdminDeviceId();
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      `${AUTH_API_BASE}/admin/login/verify`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          otp: otp.trim(),
+          deviceId,
+        }),
+      },
+      60_000,
+    );
+  } catch (e) {
+    throw new Error(
+      e instanceof Error
+        ? `Network error: ${e.message}`
+        : 'Network error contacting server',
+    );
+  }
+
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+
+  const json = (await res.json()) as Record<string, unknown>;
+  const accessToken = String(json.accessToken ?? json.access_token ?? '');
+  if (!accessToken || accessToken === 'undefined') {
+    throw new Error('Verification succeeded but no access token was returned');
+  }
+  return {
+    needsOtp: false,
     accessToken,
     expiresIn: Number(json.expiresIn ?? json.expires_in ?? 86400),
     email: String(json.email ?? email.trim()),

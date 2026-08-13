@@ -129,6 +129,18 @@ class SiteSettings(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    # JSON array of trusted install ids that may skip login OTP.
+    admin_trusted_devices_json: Mapped[str] = mapped_column(Text, default='[]')
+    admin_login_otp_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    admin_login_otp_expires: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    admin_login_otp_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    admin_login_otp_device_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+    )
 
     payment_qr_text: Mapped[str] = mapped_column(String(512), default='')
     payment_qr_image_b64: Mapped[str | None] = mapped_column(Text, nullable=True)

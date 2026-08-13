@@ -16,7 +16,7 @@ from .admin.passwords import (
 )
 from .config import get_settings
 from .db.models import AdminOtpReset, SiteSettings
-from .emailer import EmailNotConfiguredError, send_admin_otp
+from .emailer import EmailNotConfiguredError, send_admin_login_otp, send_admin_otp
 
 
 def _pepper() -> str:
@@ -218,8 +218,167 @@ async def update_admin_password(db: AsyncSession, new_password: str) -> None:
     row.admin_password_hash = hash_password(new_password, pepper=_pepper())
     row.admin_failed_login_count = 0
     row.admin_login_locked_until = None
+    _clear_login_otp(row)
     row.updated_at = datetime.now(UTC)
     await db.flush()
+
+
+MAX_TRUSTED_ADMIN_DEVICES = 20
+LOGIN_OTP_MAX_ATTEMPTS = 5
+LOGIN_OTP_RESEND_COOLDOWN_SECONDS = 45
+
+
+def mask_admin_email(email: str) -> str:
+    value = (email or '').strip().lower()
+    if '@' not in value:
+        return '***'
+    local, domain = value.split('@', 1)
+    if len(local) <= 2:
+        masked = local[:1] + '***'
+    else:
+        masked = local[:1] + '***' + local[-1]
+    return f'{masked}@{domain}'
+
+
+def _trusted_device_ids(row: SiteSettings) -> list[str]:
+    raw = getattr(row, 'admin_trusted_devices_json', None) or '[]'
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [str(item).strip() for item in data if str(item).strip()]
+
+
+def is_trusted_admin_device(row: SiteSettings, device_id: str | None) -> bool:
+    did = (device_id or '').strip()
+    if len(did) < 8:
+        return False
+    return did in _trusted_device_ids(row)
+
+
+def _trust_admin_device(row: SiteSettings, device_id: str) -> None:
+    did = device_id.strip()
+    if len(did) < 8:
+        return
+    ids = _trusted_device_ids(row)
+    if did in ids:
+        return
+    ids.append(did)
+    if len(ids) > MAX_TRUSTED_ADMIN_DEVICES:
+        ids = ids[-MAX_TRUSTED_ADMIN_DEVICES:]
+    row.admin_trusted_devices_json = json.dumps(ids)
+
+
+def _clear_login_otp(row: SiteSettings) -> None:
+    row.admin_login_otp_hash = None
+    row.admin_login_otp_expires = None
+    row.admin_login_otp_attempts = 0
+    row.admin_login_otp_device_id = None
+
+
+async def start_admin_login_otp(
+    db: AsyncSession,
+    *,
+    device_id: str | None,
+) -> str:
+    """Email a login OTP to the real admin Gmail. Returns a masked address."""
+    row = await get_or_create_settings(db)
+    settings = get_settings()
+    now = datetime.now(UTC)
+    ttl_minutes = settings.admin_otp_ttl_minutes
+    did = (device_id or '').strip() or None
+    existing_exp = _as_utc(getattr(row, 'admin_login_otp_expires', None))
+    same_device = did == (getattr(row, 'admin_login_otp_device_id', None) or None)
+    if (
+        same_device
+        and row.admin_login_otp_hash
+        and existing_exp
+        and existing_exp > now
+        and (existing_exp - now).total_seconds()
+        > (ttl_minutes * 60 - LOGIN_OTP_RESEND_COOLDOWN_SECONDS)
+    ):
+        return mask_admin_email(row.admin_email)
+
+    otp = generate_otp()
+    row.admin_login_otp_hash = hash_otp(otp, pepper=_pepper())
+    row.admin_login_otp_expires = now + timedelta(minutes=ttl_minutes)
+    row.admin_login_otp_attempts = 0
+    row.admin_login_otp_device_id = did
+    row.updated_at = now
+    await db.flush()
+
+    try:
+        send_admin_login_otp(to_email=row.admin_email, otp=otp)
+    except EmailNotConfiguredError:
+        import logging
+
+        logging.getLogger('admin-otp').warning(
+            'Email not configured — admin login OTP for %s: %s (expires %s)',
+            row.admin_email,
+            otp,
+            row.admin_login_otp_expires.isoformat()
+            if row.admin_login_otp_expires
+            else '',
+        )
+        if settings.app_env == 'production':
+            raise
+    return mask_admin_email(row.admin_email)
+
+
+async def complete_admin_login_otp(
+    db: AsyncSession,
+    *,
+    email: str,
+    password: str,
+    otp: str,
+    device_id: str,
+    client_key: str,
+) -> tuple[bool, str | None]:
+    """Password + Gmail OTP for a new device. Trusts the device on success."""
+    ok, err = await attempt_admin_login(
+        db,
+        email,
+        password,
+        client_key=client_key,
+    )
+    if not ok:
+        return False, err
+
+    row = await get_or_create_settings(db)
+    did = (device_id or '').strip()
+    stored_did = (row.admin_login_otp_device_id or '').strip()
+    if not did:
+        return False, 'This device could not be identified. Try signing in again.'
+    if stored_did and stored_did != did:
+        return (
+            False,
+            'This code is for a different device. Sign in again from this phone.',
+        )
+
+    exp = _as_utc(row.admin_login_otp_expires)
+    if not row.admin_login_otp_hash or exp is None or exp <= datetime.now(UTC):
+        return False, 'Code expired — sign in again to get a new code.'
+
+    attempts = int(row.admin_login_otp_attempts or 0) + 1
+    row.admin_login_otp_attempts = attempts
+    if attempts > LOGIN_OTP_MAX_ATTEMPTS:
+        _clear_login_otp(row)
+        row.updated_at = datetime.now(UTC)
+        await db.flush()
+        return False, 'Too many incorrect codes. Sign in again to get a new code.'
+
+    if not verify_otp(otp.strip(), row.admin_login_otp_hash, pepper=_pepper()):
+        await db.flush()
+        left = max(0, LOGIN_OTP_MAX_ATTEMPTS - attempts)
+        return False, f'Invalid verification code. {left} attempt(s) remaining.'
+
+    _trust_admin_device(row, did)
+    _clear_login_otp(row)
+    row.updated_at = datetime.now(UTC)
+    await db.flush()
+    return True, None
 
 
 async def request_password_reset(db: AsyncSession, email: str) -> None:

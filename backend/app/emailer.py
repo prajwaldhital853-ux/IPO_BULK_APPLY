@@ -101,6 +101,21 @@ def send_admin_otp(*, to_email: str, otp: str) -> None:
     )
 
 
+def send_admin_login_otp(*, to_email: str, otp: str) -> None:
+    settings = get_settings()
+    body = (
+        f'Someone (possibly you) signed in to NEPSE GHAR admin from a new device.\n\n'
+        f'Your verification code is: {otp}\n\n'
+        f'This code expires in {settings.admin_otp_ttl_minutes} minutes.\n'
+        'If this was not you, change the admin password immediately and ignore the code.'
+    )
+    _send_plain_email(
+        to_email=to_email,
+        subject='NEPSE GHAR Admin login from a new device',
+        body=body,
+    )
+
+
 def send_user_pin_otp(*, to_email: str, otp: str) -> None:
     settings = get_settings()
     body = (

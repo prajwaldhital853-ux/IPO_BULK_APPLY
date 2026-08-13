@@ -39,6 +39,7 @@ from .schemas import (
     AdminForgotPasswordIn,
     AdminLoginRequest,
     AdminLoginResponse,
+    AdminLoginVerifyRequest,
     AdminMaxAccountsIn,
     AdminPasswordChangeIn,
     AdminPendingBrief,
@@ -81,9 +82,12 @@ from ..managed_offerings import (
 from ..public_settings import _contact_out, _payment_out, _popup_notice_out
 from ..site_settings import (
     attempt_admin_login,
+    complete_admin_login_otp,
     get_or_create_settings,
+    is_trusted_admin_device,
     request_password_reset,
     reset_password_with_otp,
+    start_admin_login_otp,
     update_admin_password,
     update_site_settings,
     verify_admin_login,
@@ -238,13 +242,85 @@ async def admin_login(
         status = 429 if 'locked' in detail.lower() or 'try again' in detail.lower() else 401
         raise HTTPException(status_code=status, detail=detail)
     row = await get_or_create_settings(db)
+    device_id = (body.device_id or '').strip()
+    if is_trusted_admin_device(row, device_id):
+        await db.commit()
+        token, ttl = create_admin_token(
+            email=row.admin_email,
+            secret=settings.jwt_secret,
+            ttl_seconds=86_400,
+        )
+        return AdminLoginResponse(
+            accessToken=token,
+            expiresIn=ttl,
+            email=row.admin_email,
+            needsOtp=False,
+        )
+
+    try:
+        masked = await start_admin_login_otp(db, device_id=device_id)
+        await db.commit()
+    except EmailNotConfiguredError:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                'Admin email is not configured on the server, so a new-device '
+                'login code cannot be sent. Set SENDGRID_API_KEY, RESEND_API_KEY, '
+                'or BREVO_API_KEY.'
+            ),
+        ) from None
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    return AdminLoginResponse(
+        accessToken='',
+        expiresIn=0,
+        email=body.email.strip().lower(),
+        needsOtp=True,
+        maskedEmail=masked,
+    )
+
+
+@router.post(
+    '/login/verify',
+    response_model=AdminLoginResponse,
+    response_model_by_alias=True,
+)
+async def admin_login_verify(
+    body: AdminLoginVerifyRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminLoginResponse:
+    from .login_guard import build_client_key
+
+    settings = get_settings()
+    client_key = build_client_key(_client_ip(request), body.device_id)
+    ok, err = await complete_admin_login_otp(
+        db,
+        email=body.email,
+        password=body.password,
+        otp=body.otp,
+        device_id=body.device_id,
+        client_key=client_key,
+    )
+    if not ok:
+        await db.commit()
+        detail = err or 'Invalid verification code'
+        status = 429 if 'locked' in detail.lower() or 'try again' in detail.lower() else 401
+        raise HTTPException(status_code=status, detail=detail)
+    row = await get_or_create_settings(db)
     await db.commit()
     token, ttl = create_admin_token(
         email=row.admin_email,
         secret=settings.jwt_secret,
         ttl_seconds=86_400,
     )
-    return AdminLoginResponse(accessToken=token, expiresIn=ttl, email=row.admin_email)
+    return AdminLoginResponse(
+        accessToken=token,
+        expiresIn=ttl,
+        email=row.admin_email,
+        needsOtp=False,
+    )
 
 
 def _settings_out(row) -> AdminSettingsOut:
