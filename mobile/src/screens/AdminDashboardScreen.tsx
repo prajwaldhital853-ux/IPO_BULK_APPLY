@@ -44,7 +44,7 @@ import { rs } from '../utils/responsive';
 
 type Tab = 'users' | 'subscriptions' | 'feedback';
 type SubFilter = 'all' | 'pending' | 'approved' | 'rejected';
-type UserFilter = 'all' | 'free' | 'pending' | 'premium';
+type UserFilter = 'all' | 'free' | 'pending' | 'premium' | 'blocked' | 'multi_device';
 type FeedbackFilter = 'new' | 'read' | 'resolved' | 'all';
 type FeedbackKindFilter = 'all' | 'feedback' | 'feature_request';
 
@@ -276,8 +276,24 @@ export function AdminDashboardScreen() {
                 const updated = blocking
                   ? await blockAdminUser(token, user.id)
                   : await unblockAdminUser(token, user.id);
-                setUsers((prev) =>
-                  prev.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)),
+                setUsers((prev) => {
+                  if (userFilter === 'blocked' && !updated.isBlocked) {
+                    return prev.filter((u) => u.id !== updated.id);
+                  }
+                  return prev.map((u) =>
+                    u.id === updated.id ? { ...u, ...updated } : u,
+                  );
+                });
+                setStats((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        blockedUserCount: Math.max(
+                          0,
+                          prev.blockedUserCount + (blocking ? 1 : -1),
+                        ),
+                      }
+                    : prev,
                 );
                 setDetail({ kind: 'user', data: { ...user, ...updated } });
                 Alert.alert(
@@ -924,14 +940,29 @@ export function AdminDashboardScreen() {
 
       <View style={styles.filters}>
         {tab === 'users'
-          ? (['all', 'pending', 'premium', 'free'] as UserFilter[]).map((f) => (
+          ? (
+            [
+              { id: 'all' as const, label: 'All' },
+              { id: 'pending' as const, label: 'Pending' },
+              { id: 'premium' as const, label: 'Premium' },
+              { id: 'free' as const, label: 'Free' },
+              {
+                id: 'blocked' as const,
+                label: `Blocked · ${stats?.blockedUserCount ?? 0}`,
+              },
+              {
+                id: 'multi_device' as const,
+                label: `Multi-device · ${stats?.multiDeviceUserCount ?? 0}`,
+              },
+            ]
+          ).map((f) => (
               <Pressable
-                key={f}
-                style={[styles.chip, userFilter === f && styles.chipActive]}
-                onPress={() => setUserFilter(f)}
+                key={f.id}
+                style={[styles.chip, userFilter === f.id && styles.chipActive]}
+                onPress={() => setUserFilter(f.id)}
               >
-                <Text style={[styles.chipText, userFilter === f && styles.chipTextActive]}>
-                  {f}
+                <Text style={[styles.chipText, userFilter === f.id && styles.chipTextActive]}>
+                  {f.label}
                 </Text>
               </Pressable>
             ))
@@ -1225,8 +1256,8 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(5),
     },
     chipActive: { backgroundColor: c.primarySoft, borderColor: c.primary },
-    chipText: { color: c.textSecondary, fontSize: rs(11), textTransform: 'capitalize' },
-    chipTextActive: { color: c.primary, fontWeight: '700' },
+    chipText: { color: c.textSecondary, fontSize: rs(11), fontWeight: '600' },
+    chipTextActive: { color: c.primary, fontWeight: '800' },
     listFlex: { flex: 1 },
     list: { paddingHorizontal: rs(16), paddingBottom: rs(24) },
     compactRow: {

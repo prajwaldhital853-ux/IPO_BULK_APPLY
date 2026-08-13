@@ -1073,12 +1073,25 @@ async def admin_stats(
         .select_from(UserFeedback)
         .where(UserFeedback.status == 'new'),
     )
+    blocked_users = await db.scalar(
+        select(func.count()).select_from(User).where(User.is_blocked.is_(True)),
+    )
+    # Users with claims from more than one device/phone.
+    multi_device_rows = (
+        await db.execute(
+            select(UserDeviceSlot.user_id)
+            .group_by(UserDeviceSlot.user_id)
+            .having(func.count(UserDeviceSlot.id) > 1),
+        )
+    ).all()
     return AdminDashboardStats(
         pendingCount=int(pending or 0),
         activeCount=int(active or 0),
         totalRequests=int(total or 0),
         totalUsers=int(users or 0),
         newFeedbackCount=int(new_feedback or 0),
+        blockedUserCount=int(blocked_users or 0),
+        multiDeviceUserCount=len(multi_device_rows),
     )
 
 
@@ -1099,6 +1112,7 @@ async def admin_list_users(
     for s in all_slots:
         by_uid.setdefault(s.user_id, []).append(s)
     out: list[AdminUserRow] = []
+    filter_key = (access or 'all').strip().lower()
     for user in rows:
         slots = sorted(
             by_uid.get(user.id, []),
@@ -1106,7 +1120,13 @@ async def admin_list_users(
             reverse=True,
         )
         row = await _user_row(db, user, slots)
-        if access and access != 'all' and row.access_level != access:
+        if filter_key == 'blocked':
+            if not row.is_blocked:
+                continue
+        elif filter_key == 'multi_device':
+            if row.device_count <= 1:
+                continue
+        elif filter_key not in {'', 'all'} and row.access_level != filter_key:
             continue
         out.append(row)
     await db.commit()

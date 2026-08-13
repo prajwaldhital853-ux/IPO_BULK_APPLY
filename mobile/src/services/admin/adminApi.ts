@@ -67,6 +67,8 @@ export type AdminStats = {
   totalRequests: number;
   totalUsers: number;
   newFeedbackCount: number;
+  blockedUserCount: number;
+  multiDeviceUserCount: number;
 };
 
 export type AdminPaymentSettings = {
@@ -321,6 +323,10 @@ export async function fetchAdminStats(token: string): Promise<AdminStats> {
     totalRequests: Number(json.totalRequests ?? 0),
     totalUsers: Number(json.totalUsers ?? 0),
     newFeedbackCount: Number(json.newFeedbackCount ?? 0),
+    blockedUserCount: Number(json.blockedUserCount ?? json.blocked_user_count ?? 0),
+    multiDeviceUserCount: Number(
+      json.multiDeviceUserCount ?? json.multi_device_user_count ?? 0,
+    ),
   };
 }
 

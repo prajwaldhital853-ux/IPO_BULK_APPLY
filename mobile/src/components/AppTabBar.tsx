@@ -101,14 +101,16 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
 
-  const systemNav =
-    (insets.bottom > 0 ? insets.bottom : Platform.OS === 'android' ? rs(48) : 0) +
-    (Platform.OS === 'android' ? rs(4) : 0);
+  const systemNav = Math.max(
+    Platform.OS === 'android' ? rs(6) : 0,
+    (insets.bottom > 0 ? insets.bottom : Platform.OS === 'android' ? rs(36) : 0) -
+      (Platform.OS === 'android' ? rs(10) : 0),
+  );
 
   const barBg = isDark ? '#252724' : '#F8FBF2';
   const ink = isDark ? '#F2F2F2' : '#000000';
   const pill = isDark ? '#3A5340' : '#C5DCC8';
-  const iconSize = rs(20);
+  const iconSize = rs(24);
 
   return (
     <View
@@ -174,10 +176,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    paddingTop: rs(6),
-    paddingBottom: rs(4),
+    paddingTop: rs(4),
+    paddingBottom: rs(2),
     paddingHorizontal: rs(2),
-    minHeight: rs(56),
+    minHeight: rs(58),
     backgroundColor: 'transparent',
   },
   item: {
@@ -190,16 +192,16 @@ const styles = StyleSheet.create({
     gap: rs(2),
   },
   iconPill: {
-    minWidth: rs(56),
-    height: rs(28),
-    borderRadius: rs(14),
+    minWidth: rs(58),
+    height: rs(32),
+    borderRadius: rs(16),
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: rs(16),
+    paddingHorizontal: rs(14),
   },
   label: {
-    fontSize: rs(11),
-    marginBottom: rs(1),
+    fontSize: rs(12),
+    marginBottom: 0,
     letterSpacing: 0.1,
   },
 });

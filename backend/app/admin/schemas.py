@@ -80,6 +80,8 @@ class AdminDashboardStats(BaseModel):
     total_requests: int = Field(alias='totalRequests')
     total_users: int = Field(alias='totalUsers')
     new_feedback_count: int = Field(alias='newFeedbackCount')
+    blocked_user_count: int = Field(default=0, alias='blockedUserCount')
+    multi_device_user_count: int = Field(default=0, alias='multiDeviceUserCount')
 
     model_config = {'populate_by_name': True}
 
