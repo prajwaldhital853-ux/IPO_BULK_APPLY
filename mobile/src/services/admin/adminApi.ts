@@ -56,6 +56,9 @@ export type AdminUserRow = {
   claimedTotal: number;
   deviceCount: number;
   devices: AdminUserDeviceRow[];
+  isBlocked: boolean;
+  blockedAt: string | null;
+  blockedReason: string | null;
 };
 
 export type AdminStats = {
@@ -360,6 +363,17 @@ function mapUserRow(json: Record<string, unknown>): AdminUserRow {
           };
         })
       : [],
+    isBlocked: Boolean(json.isBlocked ?? json.is_blocked),
+    blockedAt: json.blockedAt
+      ? String(json.blockedAt)
+      : json.blocked_at
+        ? String(json.blocked_at)
+        : null,
+    blockedReason: json.blockedReason
+      ? String(json.blockedReason)
+      : json.blocked_reason
+        ? String(json.blocked_reason)
+        : null,
   };
 }
 
@@ -458,6 +472,31 @@ export async function forgetAdminUserDevice(
     token,
     { method: 'DELETE' },
   );
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapUserRow((await res.json()) as Record<string, unknown>);
+}
+
+export async function blockAdminUser(
+  token: string,
+  userId: string,
+  adminNote?: string,
+): Promise<AdminUserRow> {
+  const res = await adminFetch(`/admin/users/${userId}/block`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ adminNote }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapUserRow((await res.json()) as Record<string, unknown>);
+}
+
+export async function unblockAdminUser(
+  token: string,
+  userId: string,
+): Promise<AdminUserRow> {
+  const res = await adminFetch(`/admin/users/${userId}/unblock`, token, {
+    method: 'POST',
+  });
   if (!res.ok) throw new Error(await parseError(res));
   return mapUserRow((await res.json()) as Record<string, unknown>);
 }

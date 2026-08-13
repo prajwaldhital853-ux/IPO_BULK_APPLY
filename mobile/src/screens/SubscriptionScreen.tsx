@@ -100,7 +100,11 @@ export function SubscriptionScreen() {
       await auth.signInWithGoogle();
     } catch (e: unknown) {
       Alert.alert(
-        'Sign in failed',
+        /temporarily blocked/i.test(
+          e instanceof Error ? e.message : '',
+        )
+          ? 'Temporarily blocked'
+          : 'Sign in failed',
         e instanceof Error ? e.message : 'Could not sign in with Google.',
       );
     } finally {

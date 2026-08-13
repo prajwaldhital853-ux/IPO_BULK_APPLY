@@ -20,7 +20,7 @@ from ..db.models import (
 )
 from ..db.session import get_db
 from .blacklist import get_blacklist
-from .deps import CurrentUser, get_current_user, utcnow
+from .deps import CurrentUser, get_current_user, raise_if_user_blocked, utcnow
 from .google import GoogleAuthError, verify_google_id_token
 from .jwt_tokens import (
     create_access_token,
@@ -125,6 +125,7 @@ async def auth_google(
     await db.flush()
     user = await load_user_with_premium(db, user.id)
     assert user is not None
+    raise_if_user_blocked(user)
     return await _issue_tokens(db, user)
 
 
@@ -150,6 +151,7 @@ async def auth_refresh(
 
     row.revoked = True
     user = row.user
+    raise_if_user_blocked(user)
     access, _jti, ttl = create_access_token(
         user_id=user.id,
         email=user.email,

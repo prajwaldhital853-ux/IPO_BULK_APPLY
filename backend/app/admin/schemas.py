@@ -122,6 +122,9 @@ class AdminUserRow(BaseModel):
     claimed_total: int = Field(default=0, alias='claimedTotal')
     device_count: int = Field(default=0, alias='deviceCount')
     devices: list[AdminUserDeviceRow] = Field(default_factory=list)
+    is_blocked: bool = Field(default=False, alias='isBlocked')
+    blocked_at: str | None = Field(default=None, alias='blockedAt')
+    blocked_reason: str | None = Field(default=None, alias='blockedReason')
 
     model_config = {'populate_by_name': True}
 

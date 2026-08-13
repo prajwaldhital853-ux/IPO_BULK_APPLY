@@ -25,6 +25,17 @@ class CurrentUser:
     jti: str
 
 
+USER_BLOCKED_DETAIL = (
+    'You are temporarily blocked. You cannot sign in with this Google account '
+    'right now. You can still use the app as a guest without signing in.'
+)
+
+
+def raise_if_user_blocked(user: User | None) -> None:
+    if user is not None and bool(getattr(user, 'is_blocked', False)):
+        raise HTTPException(status_code=403, detail=USER_BLOCKED_DETAIL)
+
+
 async def get_current_user(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
@@ -63,6 +74,7 @@ async def get_current_user(
             detail='Session expired. Please sign in with Google again.',
         )
 
+    raise_if_user_blocked(row)
     return CurrentUser(id=row.id, email=email or row.email, jti=jti)
 
 

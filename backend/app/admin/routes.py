@@ -4,7 +4,7 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -25,6 +25,7 @@ from ..auth.subscription import (
 from ..account_slots.service import iso as slot_iso, list_slots as list_device_slots
 from ..db.models import (
     PremiumEntitlement,
+    RefreshToken,
     SubscriptionRequest,
     User,
     UserDeviceSlot,
@@ -205,6 +206,13 @@ async def _user_row(
         claimedTotal=claimed,
         deviceCount=len(device_outs),
         devices=device_outs,
+        isBlocked=bool(getattr(user, 'is_blocked', False)),
+        blockedAt=(
+            user.blocked_at.isoformat()
+            if getattr(user, 'blocked_at', None) is not None
+            else None
+        ),
+        blockedReason=getattr(user, 'blocked_reason', None),
     )
 
 
@@ -1307,6 +1315,51 @@ async def admin_set_user_max_accounts(
     if user is None:
         raise HTTPException(status_code=404, detail='User not found')
     user.max_accounts = int(body.max_accounts)
+    await db.commit()
+    user = await load_user_with_premium(db, user_id)
+    assert user is not None
+    return await _user_row(db, user)
+
+
+@router.post('/users/{user_id}/block', response_model=AdminUserRow)
+async def admin_block_user(
+    user_id: str,
+    body: AdminActionIn,
+    admin: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminUserRow:
+    """Block Google sign-in for this user. Guest use on device still works."""
+    user = await load_user_with_premium(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail='User not found')
+    user.is_blocked = True
+    user.blocked_at = utcnow()
+    note = (body.admin_note or '').strip()
+    user.blocked_reason = note or f'Blocked by admin ({admin.email})'
+    # Kill existing signed-in sessions.
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked.is_(False))
+        .values(revoked=True),
+    )
+    await db.commit()
+    user = await load_user_with_premium(db, user_id)
+    assert user is not None
+    return await _user_row(db, user)
+
+
+@router.post('/users/{user_id}/unblock', response_model=AdminUserRow)
+async def admin_unblock_user(
+    user_id: str,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminUserRow:
+    user = await load_user_with_premium(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail='User not found')
+    user.is_blocked = False
+    user.blocked_at = None
+    user.blocked_reason = None
     await db.commit()
     user = await load_user_with_premium(db, user_id)
     assert user is not None

@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import {
   approveSubscription,
+  blockAdminUser,
   deactivateUserPremium,
   deleteUserSubscription,
   fetchAdminFeedback,
@@ -29,6 +30,7 @@ import {
   rejectSubscription,
   setAdminUserMaxAccounts,
   forgetAdminUserDevice,
+  unblockAdminUser,
   updateAdminFeedbackStatus,
   type AdminFeedbackRow,
   type AdminStats,
@@ -254,6 +256,51 @@ export function AdminDashboardScreen() {
     );
   };
 
+  const onToggleBlockUser = (user: AdminUserRow) => {
+    const blocking = !user.isBlocked;
+    Alert.alert(
+      blocking ? 'Block this user?' : 'Unblock this user?',
+      blocking
+        ? `${user.email}\n\nThey will not be able to sign in with Google. Guest mode (without login) still works on their phone.`
+        : `${user.email}\n\nThey will be able to sign in with Google again.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: blocking ? 'Block' : 'Unblock',
+          style: blocking ? 'destructive' : 'default',
+          onPress: () => {
+            void (async () => {
+              if (!token) return;
+              setBusyId(`block-${user.id}`);
+              try {
+                const updated = blocking
+                  ? await blockAdminUser(token, user.id)
+                  : await unblockAdminUser(token, user.id);
+                setUsers((prev) =>
+                  prev.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)),
+                );
+                setDetail({ kind: 'user', data: { ...user, ...updated } });
+                Alert.alert(
+                  blocking ? 'Blocked' : 'Unblocked',
+                  blocking
+                    ? 'User cannot sign in until you unblock them.'
+                    : 'User can sign in again.',
+                );
+              } catch (e) {
+                Alert.alert(
+                  'Failed',
+                  e instanceof Error ? e.message : 'Could not update block status.',
+                );
+              } finally {
+                setBusyId(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
   const runSubAction = async (
     row: AdminSubscriptionRow,
     action: 'approve' | 'reject' | 'deactivate' | 'delete',
@@ -374,7 +421,9 @@ export function AdminDashboardScreen() {
   };
 
   const renderUser = ({ item }: { item: AdminUserRow }) => {
-    const tint = accessColor(item.accessLevel, colors);
+    const tint = item.isBlocked
+      ? colors.danger
+      : accessColor(item.accessLevel, colors);
     const busy = busyId === item.id;
     return (
       <Pressable
@@ -405,10 +454,10 @@ export function AdminDashboardScreen() {
         </View>
         <View style={[styles.badge, { backgroundColor: `${tint}18` }]}>
           <Text style={[styles.badgeText, { color: tint }]}>
-            {accessLabel(item.accessLevel)}
+            {item.isBlocked ? 'Blocked' : accessLabel(item.accessLevel)}
           </Text>
         </View>
-        {item.accessLevel === 'pending' && item.pendingRequest ? (
+        {item.accessLevel === 'pending' && item.pendingRequest && !item.isBlocked ? (
           <Pressable
             style={styles.quickApprove}
             disabled={busy}
@@ -496,7 +545,11 @@ export function AdminDashboardScreen() {
           <Text style={styles.detailName}>{item.name || '—'}</Text>
           <Text style={styles.detailEmail}>{item.email}</Text>
           <View style={styles.detailGrid}>
-            <DetailCell styles={styles} label="Status" value={accessLabel(item.accessLevel)} />
+            <DetailCell
+              styles={styles}
+              label="Status"
+              value={item.isBlocked ? 'Blocked' : accessLabel(item.accessLevel)}
+            />
             <DetailCell styles={styles} label="Joined" value={fmtDate(item.createdAt)} />
             <DetailCell
               styles={styles}
@@ -512,6 +565,13 @@ export function AdminDashboardScreen() {
                   : `${item.claimedTotal} / ${item.maxAccounts}`
               }
             />
+            {item.isBlocked ? (
+              <DetailCell
+                styles={styles}
+                label="Blocked since"
+                value={fmtDate(item.blockedAt)}
+              />
+            ) : null}
             {item.premiumPlan ? (
               <DetailCell
                 styles={styles}
@@ -531,9 +591,7 @@ export function AdminDashboardScreen() {
           <View style={styles.limitBox}>
             <Text style={styles.limitTitle}>Devices (account counts)</Text>
             <Text style={styles.limitHint}>
-              Same Google account on multiple phones. 50+50+50+4 = 154 of 200 is
-              OK. 200+200+200 is over the plan. Remove a device to free its
-              claimed slots.
+               Remove a device to free its claimed slots.
             </Text>
             {item.devices.length === 0 ? (
               <Text style={styles.limitHint}>No phones reported yet.</Text>
@@ -643,6 +701,12 @@ export function AdminDashboardScreen() {
                 onPress={() => void runUserAction(item, 'deactivate')}
               />
             ) : null}
+            <ActionBtn
+              label={item.isBlocked ? 'Unblock user' : 'Block user'}
+              color={item.isBlocked ? '#2E7D32' : colors.danger}
+              disabled={busy || busyId === `block-${item.id}`}
+              onPress={() => onToggleBlockUser(item)}
+            />
             <ActionBtn
               label="Clear data"
               color={colors.danger}

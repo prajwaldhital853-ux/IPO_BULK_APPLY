@@ -46,7 +46,12 @@ export function AuthGateSheet({
     try {
       await signIn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Sign-in failed');
+      const message =
+        e instanceof Error ? e.message : 'Sign-in failed';
+      setError(message);
+      if (/temporarily blocked/i.test(message)) {
+        // Keep guest usable — dismiss sheet if they prefer local use.
+      }
     } finally {
       setBusy(false);
     }

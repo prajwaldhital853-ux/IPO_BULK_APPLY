@@ -36,6 +36,24 @@ def _apply_sqlite_patches(sync_conn) -> None:
             sync_conn.execute(
                 text('ALTER TABLE users ADD COLUMN max_accounts INTEGER')
             )
+        if 'is_blocked' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE users '
+                    'ADD COLUMN is_blocked BOOLEAN NOT NULL DEFAULT 0'
+                )
+            )
+        if 'blocked_at' not in cols:
+            sync_conn.execute(
+                text('ALTER TABLE users ADD COLUMN blocked_at TIMESTAMP')
+            )
+        if 'blocked_reason' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE users '
+                    'ADD COLUMN blocked_reason VARCHAR(512)'
+                )
+            )
     if 'site_settings' in tables:
         cols = {c['name'] for c in insp.get_columns('site_settings')}
         if 'payment_qr_image_b64' not in cols:
@@ -240,6 +258,28 @@ def _apply_postgres_patches(sync_conn) -> None:
                 text(
                     'ALTER TABLE users '
                     'ADD COLUMN IF NOT EXISTS max_accounts INTEGER'
+                )
+            )
+        if 'is_blocked' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE users '
+                    'ADD COLUMN IF NOT EXISTS is_blocked '
+                    'BOOLEAN NOT NULL DEFAULT FALSE'
+                )
+            )
+        if 'blocked_at' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE users '
+                    'ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ'
+                )
+            )
+        if 'blocked_reason' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE users '
+                    'ADD COLUMN IF NOT EXISTS blocked_reason VARCHAR(512)'
                 )
             )
     if 'premium_entitlements' in tables:

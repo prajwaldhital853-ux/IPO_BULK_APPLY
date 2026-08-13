@@ -532,7 +532,18 @@ export function ProfileScreen() {
           ) : (
             <Pressable
               style={styles.logoutPill}
-              onPress={() => void auth.signInWithGoogle().catch(() => undefined)}
+              onPress={() => {
+                void auth.signInWithGoogle().catch((e: unknown) => {
+                  const message =
+                    e instanceof Error ? e.message : 'Could not sign in with Google.';
+                  Alert.alert(
+                    /temporarily blocked/i.test(message)
+                      ? 'Temporarily blocked'
+                      : 'Sign in failed',
+                    message,
+                  );
+                });
+              }}
             >
               <Text style={[styles.logoutText, { color: '#1565C0' }]}>
                 Log In

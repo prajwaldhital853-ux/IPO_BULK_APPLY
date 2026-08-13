@@ -31,6 +31,13 @@ class User(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Optional override for MeroShare account cap (null = plan default 10/50).
     max_accounts: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Admin can block Google login; guest (no sign-in) still works on device.
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    blocked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    blocked_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
