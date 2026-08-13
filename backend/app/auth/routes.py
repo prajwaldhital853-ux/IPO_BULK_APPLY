@@ -14,6 +14,7 @@ from ..db.models import (
     RefreshToken,
     SubscriptionRequest,
     User,
+    UserDeviceSlot,
     UserNote,
     UserPinOtp,
 )
@@ -224,6 +225,7 @@ async def delete_account(
     )
     await db.execute(delete(UserPinOtp).where(UserPinOtp.user_id == uid))
     await db.execute(delete(UserNote).where(UserNote.user_id == uid))
+    await db.execute(delete(UserDeviceSlot).where(UserDeviceSlot.user_id == uid))
     await db.delete(row)
     await db.commit()
     return {'ok': True}

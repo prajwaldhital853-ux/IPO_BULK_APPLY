@@ -32,6 +32,7 @@ import type {
   DraftCapital,
   LinkedAccount,
 } from '../types/account';
+import { reportAccountSlots } from '../services/accountSlots';
 import { useAuth } from './AuthContext';
 
 type AccountsContextValue = {
@@ -115,6 +116,11 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void reloadAccounts();
   }, [reloadAccounts, auth.user?.id, auth.loading]);
+
+  useEffect(() => {
+    if (!auth.isAuthenticated || auth.loading || loading) return;
+    void reportAccountSlots(accounts.length);
+  }, [accounts.length, auth.isAuthenticated, auth.loading, loading]);
 
   const addAccount = useCallback(async (account: Omit<LinkedAccount, 'id'>) => {
     const { password = '', crn = '', pin = '', ...meta } = account;

@@ -31,7 +31,7 @@ import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import { exportFullAccountsExcel } from '../services/accounts/backup';
 import { loadAccountMeta } from '../storage/accountsStorage';
 import type { ThemeColors } from '../theme/colors';
-import { guardAddAccount } from '../utils/accountLimits';
+import { guardAddAccountAsync } from '../utils/accountLimits';
 import {
   isMinorAccount,
 } from '../utils/minorAccount';
@@ -171,17 +171,19 @@ export function HomeScreen() {
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const goAddCapital = useCallback(() => {
-    if (
-      !guardAddAccount({
-        currentCount: accounts.length,
-        isPremium,
-        maxAccounts,
-        onUpgrade: () => navigation.navigate('Subscription'),
-      })
-    ) {
-      return;
-    }
-    navigation.navigate('AddCapital');
+    void (async () => {
+      if (
+        !(await guardAddAccountAsync({
+          currentCount: accounts.length,
+          isPremium,
+          maxAccounts,
+          onUpgrade: () => navigation.navigate('Subscription'),
+        }))
+      ) {
+        return;
+      }
+      navigation.navigate('AddCapital');
+    })();
   }, [accounts.length, isPremium, maxAccounts, navigation]);
 
   useEffect(() => {

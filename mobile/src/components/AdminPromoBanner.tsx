@@ -7,7 +7,7 @@ import { useAppBranding } from '../context/AppBrandingContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import type { RootStackParamList } from '../navigation/types';
 import type { HomePromoPageKey } from '../services/app/publicSettingsApi';
-import { guardAddAccount } from '../utils/accountLimits';
+import { guardAddAccountAsync } from '../utils/accountLimits';
 
 const TAB_ACTIONS = new Set(['Apply', 'Services', 'Profile', 'Home', 'Check']);
 
@@ -31,17 +31,19 @@ export function AdminPromoBanner({ page }: Props) {
     if (!action || action === 'none') return;
 
     if (action === 'AddCapital') {
-      if (
-        !guardAddAccount({
-          currentCount: accounts.length,
-          isPremium,
-          maxAccounts,
-          onUpgrade: () => navigation.navigate('Subscription'),
-        })
-      ) {
-        return;
-      }
-      navigation.navigate('AddCapital');
+      void (async () => {
+        if (
+          !(await guardAddAccountAsync({
+            currentCount: accounts.length,
+            isPremium,
+            maxAccounts,
+            onUpgrade: () => navigation.navigate('Subscription'),
+          }))
+        ) {
+          return;
+        }
+        navigation.navigate('AddCapital');
+      })();
       return;
     }
 

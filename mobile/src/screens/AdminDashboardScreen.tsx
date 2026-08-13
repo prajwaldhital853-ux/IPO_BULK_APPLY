@@ -28,6 +28,7 @@ import {
   fetchAdminUsers,
   rejectSubscription,
   setAdminUserMaxAccounts,
+  forgetAdminUserDevice,
   updateAdminFeedbackStatus,
   type AdminFeedbackRow,
   type AdminStats,
@@ -215,6 +216,44 @@ export function AdminDashboardScreen() {
     })();
   };
 
+  const onForgetDevice = (user: AdminUserRow, deviceId: string, label: string) => {
+    Alert.alert(
+      'Remove this device?',
+      `${label}\n\nFrees this phone's claimed account count from the shared limit. Accounts stay on the phone until the user opens the app again.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              if (!token) return;
+              setBusyId(`dev-${deviceId}`);
+              try {
+                const updated = await forgetAdminUserDevice(
+                  token,
+                  user.id,
+                  deviceId,
+                );
+                setUsers((prev) =>
+                  prev.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)),
+                );
+                setDetail({ kind: 'user', data: { ...user, ...updated } });
+              } catch (e) {
+                Alert.alert(
+                  'Failed',
+                  e instanceof Error ? e.message : 'Could not remove device.',
+                );
+              } finally {
+                setBusyId(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
   const runSubAction = async (
     row: AdminSubscriptionRow,
     action: 'approve' | 'reject' | 'deactivate' | 'delete',
@@ -354,9 +393,14 @@ export function AdminDashboardScreen() {
           <Text style={styles.rowTitle} numberOfLines={1}>
             {item.name || item.email}
           </Text>
-          <Text style={styles.rowSub} numberOfLines={1}>
+          <Text style={styles.rowSub} numberOfLines={2}>
             {item.email} ·{' '}
-            {item.maxAccounts >= 999999 ? 'Unlimited' : `${item.maxAccounts} accts`}
+            {item.maxAccounts >= 999999
+              ? 'Unlimited'
+              : `${item.claimedTotal}/${item.maxAccounts} accts`}
+            {item.deviceCount > 0
+              ? ` · ${item.deviceCount} device${item.deviceCount === 1 ? '' : 's'}`
+              : ''}
           </Text>
         </View>
         <View style={[styles.badge, { backgroundColor: `${tint}18` }]}>
@@ -459,6 +503,15 @@ export function AdminDashboardScreen() {
               label="Account limit"
               value={limitLabel}
             />
+            <DetailCell
+              styles={styles}
+              label="Claimed across devices"
+              value={
+                item.maxAccounts >= 999999
+                  ? `${item.claimedTotal} (unlimited plan)`
+                  : `${item.claimedTotal} / ${item.maxAccounts}`
+              }
+            />
             {item.premiumPlan ? (
               <DetailCell
                 styles={styles}
@@ -473,6 +526,41 @@ export function AdminDashboardScreen() {
                 value={`${item.pendingRequest.planTitle} · Rs ${item.pendingRequest.amountNpr}`}
               />
             ) : null}
+          </View>
+
+          <View style={styles.limitBox}>
+            <Text style={styles.limitTitle}>Devices (account counts)</Text>
+            <Text style={styles.limitHint}>
+              Same Google account on multiple phones. 50+50+50+4 = 154 of 200 is
+              OK. 200+200+200 is over the plan. Remove a device to free its
+              claimed slots.
+            </Text>
+            {item.devices.length === 0 ? (
+              <Text style={styles.limitHint}>No phones reported yet.</Text>
+            ) : (
+              item.devices.map((d) => (
+                <View key={d.deviceId} style={styles.deviceRow}>
+                  <View style={styles.deviceMain}>
+                    <Text style={styles.deviceName} numberOfLines={2}>
+                      {d.deviceLabel}
+                    </Text>
+                    <Text style={styles.deviceMeta}>
+                      {d.accountCount} account{d.accountCount === 1 ? '' : 's'} ·{' '}
+                      last seen {fmtDate(d.lastSeenAt)}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() =>
+                      onForgetDevice(item, d.deviceId, d.deviceLabel)
+                    }
+                    disabled={busyId === `dev-${d.deviceId}`}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.deviceRemove}>Remove</Text>
+                  </Pressable>
+                </View>
+              ))
+            )}
           </View>
 
           <View style={styles.limitBox}>
@@ -1177,6 +1265,18 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(12),
       lineHeight: rs(16),
     },
+    deviceRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      paddingVertical: rs(8),
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.border,
+    },
+    deviceMain: { flex: 1, minWidth: 0 },
+    deviceName: { color: c.text, fontWeight: '700', fontSize: rs(13) },
+    deviceMeta: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
+    deviceRemove: { color: c.danger, fontWeight: '800', fontSize: rs(12) },
     limitChips: {
       flexDirection: 'row',
       flexWrap: 'wrap',

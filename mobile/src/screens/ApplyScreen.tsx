@@ -30,7 +30,7 @@ import {
 } from '../services/nepse/premiumAnalytics';
 import type { ThemeColors } from '../theme/colors';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
-import { guardAddAccount } from '../utils/accountLimits';
+import { guardAddAccountAsync } from '../utils/accountLimits';
 import {
   loadOpenIssuesForUi,
   runBulkApply,
@@ -115,17 +115,19 @@ export function ApplyScreen() {
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const goAddCapital = useCallback(() => {
-    if (
-      !guardAddAccount({
-        currentCount: accounts.length,
-        isPremium,
-        maxAccounts,
-        onUpgrade: () => navigation.navigate('Subscription'),
-      })
-    ) {
-      return;
-    }
-    navigation.navigate('AddCapital');
+    void (async () => {
+      if (
+        !(await guardAddAccountAsync({
+          currentCount: accounts.length,
+          isPremium,
+          maxAccounts,
+          onUpgrade: () => navigation.navigate('Subscription'),
+        }))
+      ) {
+        return;
+      }
+      navigation.navigate('AddCapital');
+    })();
   }, [accounts.length, isPremium, maxAccounts, navigation]);
   const [mode, setMode] = useState<'Bulk' | 'Single'>('Bulk');
   const [hideValues, setHideValues] = useState(false);

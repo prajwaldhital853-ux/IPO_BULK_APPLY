@@ -21,8 +21,14 @@ from ..auth.subscription import (
     plan_info,
     upsert_premium,
 )
-from ..config import get_settings
-from ..db.models import PremiumEntitlement, SubscriptionRequest, User, UserFeedback
+from ..account_slots.service import iso as slot_iso, list_slots as list_device_slots
+from ..db.models import (
+    PremiumEntitlement,
+    SubscriptionRequest,
+    User,
+    UserDeviceSlot,
+    UserFeedback,
+)
 from ..db.session import get_db
 from ..emailer import email_configured
 from .deps import AdminUser, get_admin_user
@@ -39,6 +45,7 @@ from .schemas import (
     AdminSettingsOut,
     AdminSettingsUpdateIn,
     AdminSubscriptionRow,
+    AdminUserDeviceRow,
     AdminUserRow,
     FeedbackRowOut,
     FeedbackStatusIn,
@@ -133,7 +140,11 @@ def _row_out(req: SubscriptionRequest, user: User, access_level: str) -> AdminSu
     )
 
 
-async def _user_row(db: AsyncSession, user: User) -> AdminUserRow:
+async def _user_row(
+    db: AsyncSession,
+    user: User,
+    devices: list[UserDeviceSlot] | None = None,
+) -> AdminUserRow:
     access = await _access_level(db, user)
     active, expires_iso = _premium_active(user)
     pending = await get_pending_request(db, user.id)
@@ -149,6 +160,18 @@ async def _user_row(db: AsyncSession, user: User) -> AdminUserRow:
         .limit(1),
     )
     premium = user.premium
+    slot_rows = devices if devices is not None else await list_device_slots(db, user.id)
+    device_outs = [
+        AdminUserDeviceRow(
+            deviceId=s.device_id,
+            deviceLabel=s.device_label or 'Unknown device',
+            platform=s.platform or 'android',
+            accountCount=int(s.account_count or 0),
+            lastSeenAt=slot_iso(s.last_seen_at),
+        )
+        for s in slot_rows
+    ]
+    claimed = sum(d.account_count for d in device_outs)
     return AdminUserRow(
         id=user.id,
         googleSub=user.google_sub,
@@ -174,6 +197,9 @@ async def _user_row(db: AsyncSession, user: User) -> AdminUserRow:
         ),
         subscriptionRequestCount=int(req_count or 0),
         lastSubscriptionAt=last_req.isoformat() if last_req else None,
+        claimedTotal=claimed,
+        deviceCount=len(device_outs),
+        devices=device_outs,
     )
 
 
@@ -981,9 +1007,18 @@ async def admin_list_users(
         .order_by(User.created_at.desc())
     )
     rows = (await db.scalars(stmt)).all()
+    all_slots = (await db.scalars(select(UserDeviceSlot))).all()
+    by_uid: dict[str, list[UserDeviceSlot]] = {}
+    for s in all_slots:
+        by_uid.setdefault(s.user_id, []).append(s)
     out: list[AdminUserRow] = []
     for user in rows:
-        row = await _user_row(db, user)
+        slots = sorted(
+            by_uid.get(user.id, []),
+            key=lambda x: x.last_seen_at or x.created_at,
+            reverse=True,
+        )
+        row = await _user_row(db, user, slots)
         if access and access != 'all' and row.access_level != access:
             continue
         out.append(row)
@@ -1193,6 +1228,32 @@ async def admin_set_user_max_accounts(
     if user is None:
         raise HTTPException(status_code=404, detail='User not found')
     user.max_accounts = int(body.max_accounts)
+    await db.commit()
+    user = await load_user_with_premium(db, user_id)
+    assert user is not None
+    return await _user_row(db, user)
+
+
+@router.delete('/users/{user_id}/devices/{device_id}', response_model=AdminUserRow)
+async def admin_forget_user_device(
+    user_id: str,
+    device_id: str,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminUserRow:
+    """Remove a phone's claimed slot count (does not wipe accounts on the phone)."""
+    user = await load_user_with_premium(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail='User not found')
+    row = await db.scalar(
+        select(UserDeviceSlot).where(
+            UserDeviceSlot.user_id == user_id,
+            UserDeviceSlot.device_id == device_id,
+        ),
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail='Device not found')
+    await db.delete(row)
     await db.commit()
     user = await load_user_with_premium(db, user_id)
     assert user is not None

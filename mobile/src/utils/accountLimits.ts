@@ -1,4 +1,5 @@
 import { Alert } from 'react-native';
+import { checkCanAddAcrossDevices } from '../services/accountSlots';
 import {
   FREE_ACCOUNT_LIMIT,
   PREMIUM_ACCOUNT_LIMIT,
@@ -38,4 +39,36 @@ export function guardAddAccount(opts: {
       : [{ text: 'OK' }],
   );
   return false;
+}
+
+/**
+ * Local cap + shared cap across phones signed in with the same Google account.
+ * Does not upload MeroShare credentials — only a count per device.
+ */
+export async function guardAddAccountAsync(opts: {
+  currentCount: number;
+  isPremium: boolean;
+  maxAccounts?: number;
+  onUpgrade?: () => void;
+}): Promise<boolean> {
+  if (!guardAddAccount(opts)) return false;
+  try {
+    const status = await checkCanAddAcrossDevices(opts.currentCount);
+    if (!status) return true;
+    if (status.allowed) return true;
+    Alert.alert(
+      'Account limit reached',
+      status.message ||
+        `Your plan allows ${status.maxAccounts} accounts across all your phones (${status.claimedTotal - 1} already in use).`,
+      opts.onUpgrade
+        ? [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Upgrade', onPress: opts.onUpgrade },
+          ]
+        : [{ text: 'OK' }],
+    );
+    return false;
+  } catch {
+    return true;
+  }
 }

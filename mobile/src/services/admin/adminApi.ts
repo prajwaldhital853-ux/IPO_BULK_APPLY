@@ -24,6 +24,14 @@ export type AdminSubscriptionRow = {
   premiumExpiresAt: string | null;
 };
 
+export type AdminUserDeviceRow = {
+  deviceId: string;
+  deviceLabel: string;
+  platform: string;
+  accountCount: number;
+  lastSeenAt: string;
+};
+
 export type AdminUserRow = {
   id: string;
   googleSub: string;
@@ -45,6 +53,9 @@ export type AdminUserRow = {
   } | null;
   subscriptionRequestCount: number;
   lastSubscriptionAt: string | null;
+  claimedTotal: number;
+  deviceCount: number;
+  devices: AdminUserDeviceRow[];
 };
 
 export type AdminStats = {
@@ -259,6 +270,20 @@ function mapUserRow(json: Record<string, unknown>): AdminUserRow {
       : null,
     subscriptionRequestCount: Number(json.subscriptionRequestCount ?? 0),
     lastSubscriptionAt: json.lastSubscriptionAt ? String(json.lastSubscriptionAt) : null,
+    claimedTotal: Number(json.claimedTotal ?? 0),
+    deviceCount: Number(json.deviceCount ?? 0),
+    devices: Array.isArray(json.devices)
+      ? json.devices.map((d) => {
+          const row = d as Record<string, unknown>;
+          return {
+            deviceId: String(row.deviceId ?? ''),
+            deviceLabel: String(row.deviceLabel ?? 'Unknown device'),
+            platform: String(row.platform ?? 'android'),
+            accountCount: Number(row.accountCount ?? 0),
+            lastSeenAt: String(row.lastSeenAt ?? ''),
+          };
+        })
+      : [],
   };
 }
 
@@ -343,6 +368,20 @@ export async function setAdminUserMaxAccounts(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ maxAccounts }),
   });
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapUserRow((await res.json()) as Record<string, unknown>);
+}
+
+export async function forgetAdminUserDevice(
+  token: string,
+  userId: string,
+  deviceId: string,
+): Promise<AdminUserRow> {
+  const res = await adminFetch(
+    `/admin/users/${userId}/devices/${encodeURIComponent(deviceId)}`,
+    token,
+    { method: 'DELETE' },
+  );
   if (!res.ok) throw new Error(await parseError(res));
   return mapUserRow((await res.json()) as Record<string, unknown>);
 }

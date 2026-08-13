@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -423,5 +424,33 @@ class UserNote(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class UserDeviceSlot(Base):
+    """Per-install account *count* for a Google user. No demat credentials."""
+
+    __tablename__ = 'user_device_slots'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'device_id', name='uq_user_device_slot'),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey('users.id', ondelete='CASCADE'),
+        index=True,
+    )
+    device_id: Mapped[str] = mapped_column(String(128), index=True)
+    device_label: Mapped[str] = mapped_column(String(128), default='')
+    platform: Mapped[str] = mapped_column(String(16), default='android')
+    account_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
     )
 

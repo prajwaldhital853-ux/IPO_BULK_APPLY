@@ -27,7 +27,7 @@ import {
   type VerifyField,
 } from '../services/meroshare';
 import type { ThemeColors } from '../theme/colors';
-import { guardAddAccount } from '../utils/accountLimits';
+import { guardAddAccountAsync } from '../utils/accountLimits';
 import {
   buildMinorMetaFields,
   extractDobFromOwnDetail,
@@ -272,12 +272,12 @@ export function BankDetailScreen() {
         }
 
         if (
-          !guardAddAccount({
+          !(await guardAddAccountAsync({
             currentCount: accounts.length,
             isPremium,
             maxAccounts,
             onUpgrade: () => navigation.navigate('Subscription'),
-          })
+          }))
         ) {
           return;
         }

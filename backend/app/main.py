@@ -16,6 +16,7 @@ from .admin.routes import router as admin_router
 from .public_routes import router as public_router
 from .push.routes import router as push_router
 from .notes.routes import router as notes_router
+from .account_slots.routes import router as account_slots_router
 from .auth.blacklist import init_blacklist
 from .auth.deps import CurrentUser, get_current_user, get_optional_user
 from .auth.rate_limit import cdsc_user_limiter
@@ -315,6 +316,7 @@ app.include_router(admin_router)
 app.include_router(public_router)
 app.include_router(push_router)
 app.include_router(notes_router)
+app.include_router(account_slots_router)
 
 
 def require_key(x_api_key: str = Header(default="")) -> None:

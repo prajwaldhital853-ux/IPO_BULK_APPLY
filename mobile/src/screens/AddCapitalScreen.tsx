@@ -29,7 +29,7 @@ import {
   type CapitalDp,
 } from '../services/meroshare';
 import type { ThemeColors } from '../theme/colors';
-import { guardAddAccount } from '../utils/accountLimits';
+import { guardAddAccountAsync } from '../utils/accountLimits';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -122,12 +122,12 @@ export function AddCapitalScreen() {
   const onNext = async () => {
     if (!username.trim() || !password.trim() || checkingLogin) return;
     if (
-      !guardAddAccount({
+      !(await guardAddAccountAsync({
         currentCount: accounts.length,
         isPremium,
         maxAccounts,
         onUpgrade: () => navigation.navigate('Subscription'),
-      })
+      }))
     ) {
       return;
     }

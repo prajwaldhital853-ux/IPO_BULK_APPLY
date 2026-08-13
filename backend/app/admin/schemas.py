@@ -67,6 +67,16 @@ class AdminPendingBrief(BaseModel):
     model_config = {'populate_by_name': True}
 
 
+class AdminUserDeviceRow(BaseModel):
+    device_id: str = Field(alias='deviceId')
+    device_label: str = Field(alias='deviceLabel')
+    platform: str = 'android'
+    account_count: int = Field(alias='accountCount')
+    last_seen_at: str = Field(alias='lastSeenAt')
+
+    model_config = {'populate_by_name': True}
+
+
 class AdminUserRow(BaseModel):
     id: str
     google_sub: str = Field(alias='googleSub')
@@ -82,6 +92,9 @@ class AdminUserRow(BaseModel):
     pending_request: AdminPendingBrief | None = Field(default=None, alias='pendingRequest')
     subscription_request_count: int = Field(alias='subscriptionRequestCount')
     last_subscription_at: str | None = Field(default=None, alias='lastSubscriptionAt')
+    claimed_total: int = Field(default=0, alias='claimedTotal')
+    device_count: int = Field(default=0, alias='deviceCount')
+    devices: list[AdminUserDeviceRow] = Field(default_factory=list)
 
     model_config = {'populate_by_name': True}
 
