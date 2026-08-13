@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     # Admin dashboard
     admin_email: str = 'kalashfinancialsolution@gmail.com'
     admin_password: str = 'admin123'
+    # When true (once), startup overwrites DB admin password from ADMIN_PASSWORD.
+    # Leave false so Change password / forgot-password in the app stay permanent.
+    admin_password_force_sync: bool = False
     admin_otp_ttl_minutes: int = 10
     app_env: str = 'development'
 

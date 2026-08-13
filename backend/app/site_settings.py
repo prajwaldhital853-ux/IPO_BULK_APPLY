@@ -135,15 +135,12 @@ async def attempt_admin_login(
 
     email_ok = email.strip().lower() == row.admin_email.strip().lower()
     password_ok = False
-    if email_ok:
-        if verify_password(password, row.admin_password_hash, pepper=_pepper()):
-            password_ok = True
-        else:
-            # Recover when JWT_SECRET (password pepper) was rotated on Render
-            configured = get_settings().admin_password
-            if configured and password == configured:
-                row.admin_password_hash = hash_password(password, pepper=_pepper())
-                password_ok = True
+    if email_ok and verify_password(
+        password,
+        row.admin_password_hash,
+        pepper=_pepper(),
+    ):
+        password_ok = True
 
     if email_ok and password_ok:
         clear_attempts(client_key)
@@ -175,20 +172,17 @@ async def verify_admin_login(db: AsyncSession, email: str, password: str) -> boo
     row = await get_or_create_settings(db)
     if email.strip().lower() != row.admin_email.strip().lower():
         return False
-    if verify_password(password, row.admin_password_hash, pepper=_pepper()):
-        return True
-
-    configured = get_settings().admin_password
-    if configured and password == configured:
-        row.admin_password_hash = hash_password(password, pepper=_pepper())
-        row.updated_at = datetime.now(UTC)
-        await db.flush()
-        return True
-    return False
+    return verify_password(password, row.admin_password_hash, pepper=_pepper())
 
 
 async def sync_admin_credentials_from_env(db: AsyncSession) -> None:
-    """Keep DB admin email/password hash aligned with env after secret changes."""
+    """Sync admin email from env. Password is DB-owned after first bootstrap.
+
+    ADMIN_PASSWORD is only used when creating site_settings the first time.
+    Panel / forgot-password updates write the DB hash and must not be undone
+    on every restart. Set ADMIN_PASSWORD_FORCE_SYNC=true once to push the
+    current env password into the DB (then turn it off again).
+    """
     s = get_settings()
     row = await get_or_create_settings(db)
     changed = False
@@ -196,17 +190,9 @@ async def sync_admin_credentials_from_env(db: AsyncSession) -> None:
     if email and row.admin_email.strip().lower() != email:
         row.admin_email = email
         changed = True
-    if s.admin_password:
-        if not verify_password(
-            s.admin_password,
-            row.admin_password_hash,
-            pepper=_pepper(),
-        ):
-            row.admin_password_hash = hash_password(
-                s.admin_password,
-                pepper=_pepper(),
-            )
-            changed = True
+    if s.admin_password_force_sync and s.admin_password:
+        row.admin_password_hash = hash_password(s.admin_password, pepper=_pepper())
+        changed = True
     if changed:
         row.updated_at = datetime.now(UTC)
         await db.flush()
