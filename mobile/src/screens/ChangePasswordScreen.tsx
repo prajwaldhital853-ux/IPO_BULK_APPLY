@@ -14,11 +14,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { MeroshareClient } from '../services/meroshare/client';
 import { updateAccountSecrets } from '../storage/accountsStorage';
+import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -41,7 +44,9 @@ export function ChangePasswordScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { accounts, loadSecrets } = useAccounts();
+  const { loadSecrets } = useAccounts();
+  const { usableAccounts: accounts, isAccountActive, canEditSelection } =
+    useActiveAccounts();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -65,6 +70,15 @@ export function ChangePasswordScreen() {
   const onSubmit = async () => {
     if (!selected) {
       Alert.alert('Select Account', 'Please select a MeroShare account first.');
+      return;
+    }
+    if (!isAccountActive(selected.id)) {
+      showLockedAccountAlert(
+        canEditSelection
+          ? () => navigation.navigate('ChooseActiveAccounts')
+          : null,
+        () => navigation.navigate('Subscription'),
+      );
       return;
     }
     if (!oldPw || !newPw || !confirmPw) {
@@ -126,6 +140,10 @@ export function ChangePasswordScreen() {
         </Pressable>
         <Text style={styles.title}>Change Password</Text>
         <View style={{ width: rs(22) }} />
+      </View>
+
+      <View style={{ paddingHorizontal: rs(16) }}>
+        <OverQuotaBanner />
       </View>
 
       <ScrollView

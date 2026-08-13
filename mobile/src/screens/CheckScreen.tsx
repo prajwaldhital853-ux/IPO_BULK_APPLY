@@ -8,6 +8,7 @@ import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import type { ThemeColors } from '../theme/colors';
@@ -20,12 +21,27 @@ export function CheckScreen() {
   const openDrawer = useOpenDrawer();
   const insets = useSafeAreaInsets();
   const { accounts } = useAccounts();
+  const { usableAccounts, needsPick } = useActiveAccounts();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const needAccounts = (go: () => void) => {
     if (accounts.length === 0) {
       Alert.alert('No accounts', 'Add capital detail first from Apply.');
+      return;
+    }
+    if (needsPick || usableAccounts.length === 0) {
+      Alert.alert(
+        'Choose active accounts',
+        'Your plan limit is smaller than the number of saved accounts. Pick which accounts stay active first.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Choose now',
+            onPress: () => navigation.navigate('ChooseActiveAccounts'),
+          },
+        ],
+      );
       return;
     }
     go();

@@ -19,7 +19,9 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 import { MinorDobFields } from '../components/MinorDobFields';
+import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import {
   fetchMinorAccountInfo,
@@ -81,7 +83,8 @@ export function MinorAccountsScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const tone = isDark ? TONE : TONE_LIGHT;
-  const { accounts, loadSecrets, updateAccountMeta } = useAccounts();
+  const { loadSecrets, updateAccountMeta } = useAccounts();
+  const { usableAccounts: accounts } = useActiveAccounts();
   const listRef = useRef<FlatList<MinorFetchResult>>(null);
 
   const [tab, setTab] = useState<TabId>('users');
@@ -508,6 +511,10 @@ export function MinorAccountsScreen() {
         >
           <Ionicons name="add" size={rs(26)} color={colors.primary} />
         </Pressable>
+      </View>
+
+      <View style={{ paddingHorizontal: rs(16) }}>
+        <OverQuotaBanner />
       </View>
 
       {searchOpen ? (

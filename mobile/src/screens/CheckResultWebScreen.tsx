@@ -27,7 +27,8 @@ import {
   IpoResultWebBridge,
   type IpoResultWebBridgeHandle,
 } from '../components/IpoResultWebBridge';
-import { useAccounts } from '../context/AccountsContext';
+import { OverQuotaBanner } from '../components/OverQuotaBanner';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import type { AccountMeta } from '../types/account';
 import type { PublicCaptcha, PublicIpoCompany } from '../services/iporesult/parse';
 import {
@@ -92,7 +93,7 @@ export function CheckResultWebScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { accounts } = useAccounts();
+  const { usableAccounts: accounts } = useActiveAccounts();
 
   const bridgeRef = useRef<IpoResultWebBridgeHandle | null>(null);
   const ocrRef = useRef<CaptchaOcrHandle | null>(null);
@@ -377,6 +378,10 @@ export function CheckResultWebScreen() {
         <Pressable onPress={() => void onFreshSession()} hitSlop={12}>
           <Ionicons name="refresh" size={rs(20)} color="#1A1A1A" />
         </Pressable>
+      </View>
+
+      <View style={{ paddingHorizontal: rs(16) }}>
+        <OverQuotaBanner />
       </View>
 
       <KeyboardAvoidingView

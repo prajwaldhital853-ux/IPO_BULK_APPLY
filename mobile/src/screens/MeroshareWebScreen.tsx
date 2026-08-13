@@ -14,6 +14,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
@@ -26,7 +27,9 @@ import {
   MEROSHARE_WEB_PURCHASE_URL,
 } from '../services/meroshare/webSession';
 import { rs } from '../utils/responsive';
+import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
 import type { RootStackParamList } from '../navigation/types';
+import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
@@ -48,6 +51,7 @@ export function MeroshareWebScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { accounts, loadSecrets } = useAccounts();
+  const { isAccountActive, needsPick, canEditSelection } = useActiveAccounts();
   const sensitive = useSensitiveAction();
   const webRef = useRef<WebView>(null);
   const loginGenRef = useRef(0);
@@ -92,6 +96,14 @@ export function MeroshareWebScreen() {
 
   const signInAccount = useCallback(
     async (account: AccountMeta, index: number) => {
+      if (!isAccountActive(account.id)) {
+        setSigningIn(false);
+        setLoading(false);
+        setLoginError(
+          'This account is locked because it is over your plan limit. Choose it in the active set, or upgrade.',
+        );
+        return;
+      }
       const seq = ++loginSeqRef.current;
       setSigningIn(true);
       setSignInLabel(`Logging in as ${account.name}…`);
@@ -134,16 +146,29 @@ export function MeroshareWebScreen() {
         setSignInLabel('');
       }
     },
-    [destination, loadSecrets],
+    [destination, isAccountActive, loadSecrets],
   );
+
+  const promptLocked = useCallback(() => {
+    showLockedAccountAlert(
+      canEditSelection
+        ? () => navigation.navigate('ChooseActiveAccounts')
+        : null,
+      () => navigation.navigate('Subscription'),
+    );
+  }, [canEditSelection, navigation]);
 
   const retryLogin = useCallback(() => {
     if (!selected) return;
+    if (!isAccountActive(selected.id)) {
+      promptLocked();
+      return;
+    }
     attemptedRef.current = selected.id;
     void sensitiveRef.current.requestSensitiveAction(async () => {
       await signInAccount(selected, selectedIdx);
     });
-  }, [selected, selectedIdx, signInAccount]);
+  }, [isAccountActive, promptLocked, selected, selectedIdx, signInAccount]);
 
   useEffect(() => {
     if (!accounts.length) {
@@ -159,15 +184,30 @@ export function MeroshareWebScreen() {
       return;
     }
     const account = accounts[idx];
+    if (!isAccountActive(account.id)) {
+      setSessionToken(null);
+      setLoading(false);
+      setLoginError(
+        needsPick
+          ? 'Choose which accounts stay active before opening MeroShare.'
+          : 'This account is locked because it is over your plan limit.',
+      );
+      return;
+    }
     if (attemptedRef.current === account.id) return;
     attemptedRef.current = account.id;
     void sensitiveRef.current.requestSensitiveAction(async () => {
       await signInAccount(account, idx);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, selectedIdx, signInAccount]);
+  }, [accounts, isAccountActive, needsPick, selectedIdx, signInAccount]);
 
   const onSelectAccount = (index: number) => {
+    const account = accounts[index];
+    if (account && !isAccountActive(account.id)) {
+      promptLocked();
+      return;
+    }
     attemptedRef.current = null;
     setSelectedIdx(index);
     setPickerOpen(false);
@@ -231,6 +271,10 @@ export function MeroshareWebScreen() {
         </View>
       </View>
 
+      <View style={{ paddingHorizontal: rs(16) }}>
+        <OverQuotaBanner />
+      </View>
+
       {accounts.length > 0 ? (
         <Pressable
           style={styles.accountChip}
@@ -273,18 +317,25 @@ export function MeroshareWebScreen() {
 
       {pickerOpen && accounts.length > 0 ? (
         <ScrollView style={styles.picker} nestedScrollEnabled>
-          {accounts.map((account, index) => (
+          {accounts.map((account, index) => {
+            const locked = !isAccountActive(account.id);
+            return (
             <Pressable
               key={account.id}
               style={[
                 styles.pickerRow,
                 index === selectedIdx && styles.pickerRowOn,
+                locked && { opacity: 0.55 },
               ]}
               onPress={() => onSelectAccount(index)}
             >
-              <Text style={styles.pickerText}>{accountLabel(account, index)}</Text>
+              <Text style={styles.pickerText}>
+                {accountLabel(account, index)}
+                {locked ? '  (Locked)' : ''}
+              </Text>
             </Pressable>
-          ))}
+            );
+          })}
         </ScrollView>
       ) : null}
 

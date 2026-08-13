@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
@@ -36,7 +36,7 @@ export function CalculateWaccScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { accounts } = useAccounts();
+  const { usableAccounts: accounts } = useActiveAccounts();
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);

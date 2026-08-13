@@ -7,6 +7,7 @@ import { StyleSheet } from 'react-native';
 import { AuthProvider } from './src/context/AuthContext';
 import { AppLockProvider } from './src/context/AppLockContext';
 import { AccountsProvider } from './src/context/AccountsContext';
+import { ActiveAccountsProvider } from './src/context/ActiveAccountsContext';
 import { SubscriptionProvider } from './src/context/SubscriptionContext';
 import { AppBrandingProvider } from './src/context/AppBrandingContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
@@ -33,10 +34,12 @@ function AppShell() {
             <AppLockProvider>
               <AccountsProvider>
                 <SubscriptionProvider>
-                  <StatusBar style={isDark ? 'light' : 'dark'} />
-                  <AppWarmup />
-                  <RootNavigator />
-                  <StartupNoticeModal />
+                  <ActiveAccountsProvider>
+                    <StatusBar style={isDark ? 'light' : 'dark'} />
+                    <AppWarmup />
+                    <RootNavigator />
+                    <StartupNoticeModal />
+                  </ActiveAccountsProvider>
                 </SubscriptionProvider>
               </AccountsProvider>
             </AppLockProvider>

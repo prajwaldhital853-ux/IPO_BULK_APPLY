@@ -14,6 +14,7 @@ import {
   WATCHLIST_BASE,
 } from './userScope';
 import { clearLastSignedInUserId } from './sessionStorage';
+import { ACTIVE_SLOTS_BASE } from './activeAccountSlots';
 
 /** Remove all on-device data for the signed-in Google user. */
 export async function clearAllUserLocalData(userId?: string): Promise<void> {
@@ -29,6 +30,7 @@ export async function clearAllUserLocalData(userId?: string): Promise<void> {
     scopedAsyncKey(HISTORY_BASE, uid),
     scopedAsyncKey(PORTFOLIO_BASE, uid),
     scopedAsyncKey(WATCHLIST_BASE, uid),
+    scopedAsyncKey(ACTIVE_SLOTS_BASE, uid),
     scopedAsyncKey('migrated_v1', uid),
     scopedRefreshTokenKey(uid),
   ];

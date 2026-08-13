@@ -18,7 +18,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IssueOfferingCard } from '../components/ipo/IssueOfferingCard';
-import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import {
   loadOpenIssuesForUi,
@@ -135,7 +135,7 @@ export function IpoIssuesScreen() {
   const copy = COPY[mode];
   const insets = useSafeAreaInsets();
   const { width: pageWidth } = useWindowDimensions();
-  const { accounts } = useAccounts();
+  const { usableAccounts: accounts } = useActiveAccounts();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 

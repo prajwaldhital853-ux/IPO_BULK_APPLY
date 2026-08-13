@@ -20,6 +20,7 @@ import {
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import { KeyboardSheetModal } from '../components/KeyboardSheetModal';
 import { SwipeTabGesture } from '../components/SwipeTabGesture';
@@ -62,6 +63,7 @@ export function PortfolioDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'PortfolioDetail'>>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { isAccountActive } = useActiveAccounts();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [quotes, setQuotes] = useState<QuoteMap>({});
@@ -85,6 +87,11 @@ export function PortfolioDetailScreen() {
       loadMiniScreener().catch(() => []),
     ]);
     const p = list.find((x) => x.id === route.params.portfolioId) ?? null;
+    if (p?.sourceAccountId && !isAccountActive(p.sourceAccountId)) {
+      setPortfolio(null);
+      navigation.goBack();
+      return;
+    }
     setPortfolio(p);
     if (p) setEditName(p.name);
     const map: QuoteMap = {};
@@ -101,7 +108,7 @@ export function PortfolioDetailScreen() {
       };
     }
     setQuotes(map);
-  }, [route.params.portfolioId]);
+  }, [isAccountActive, navigation, route.params.portfolioId]);
 
   useFocusEffect(
     useCallback(() => {

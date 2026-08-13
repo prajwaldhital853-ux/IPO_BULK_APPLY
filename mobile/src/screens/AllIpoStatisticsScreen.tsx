@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { SwipeTabGesture } from '../components/SwipeTabGesture';
-import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 import type { ThemeColors } from '../theme/colors';
@@ -185,7 +185,7 @@ export function AllIpoStatisticsScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { accounts } = useAccounts();
+  const { usableAccounts: accounts } = useActiveAccounts();
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);

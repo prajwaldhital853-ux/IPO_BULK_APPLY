@@ -19,7 +19,9 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
+import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
@@ -31,6 +33,7 @@ import {
 import type { ThemeColors } from '../theme/colors';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import { guardAddAccountAsync } from '../utils/accountLimits';
+import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
 import {
   loadOpenIssuesForUi,
   runBulkApply,
@@ -108,6 +111,8 @@ export function ApplyScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const openDrawer = useOpenDrawer();
   const { accounts, updateAccountMeta } = useAccounts();
+  const { isAccountActive, needsPick, usableAccounts, canEditSelection } =
+    useActiveAccounts();
   const { user } = useAuth();
   const { isPremium, maxAccounts } = useSubscription();
   const { colors, isDark } = useTheme();
@@ -190,8 +195,10 @@ export function ApplyScreen() {
   }, [accounts]);
 
   const refreshInvestment = useCallback(async () => {
-    setInvestment(await loadInvestmentSummary());
-  }, []);
+    setInvestment(
+      await loadInvestmentSummary(usableAccounts.map((a) => a.id)),
+    );
+  }, [usableAccounts]);
 
   const refreshAll = useCallback(async () => {
     setRefreshing(true);
@@ -230,11 +237,11 @@ export function ApplyScreen() {
     setSelectedIds((prev) => {
       const next: Record<string, boolean> = {};
       for (const a of accounts) {
-        next[a.id] = prev[a.id] ?? true;
+        next[a.id] = isAccountActive(a.id) ? (prev[a.id] ?? true) : false;
       }
       return next;
     });
-  }, [accounts]);
+  }, [accounts, isAccountActive]);
 
   useEffect(() => {
     let mounted = true;
@@ -257,20 +264,33 @@ export function ApplyScreen() {
 
   const checkedEligible = useMemo(() => {
     if (!selected) return [];
-    return accounts.filter(
+    return usableAccounts.filter(
       (a) => selectedIds[a.id] && !alreadyApplied(a.id),
     );
-  }, [accounts, selectedIds, selected, alreadyApplied]);
+  }, [usableAccounts, selectedIds, selected, alreadyApplied]);
+
+  const promptLocked = useCallback(() => {
+    showLockedAccountAlert(
+      canEditSelection
+        ? () => navigation.navigate('ChooseActiveAccounts')
+        : null,
+      () => navigation.navigate('Subscription'),
+    );
+  }, [canEditSelection, navigation]);
 
   const toggleAccount = (id: string) => {
     if (alreadyApplied(id)) return;
+    if (!isAccountActive(id)) {
+      promptLocked();
+      return;
+    }
     setSelectedIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const selectAllEligible = () => {
     setSelectedIds((prev) => {
       const next = { ...prev };
-      for (const a of accounts) {
+      for (const a of usableAccounts) {
         if (!alreadyApplied(a.id)) next[a.id] = true;
       }
       return next;
@@ -280,7 +300,7 @@ export function ApplyScreen() {
   const clearEligible = () => {
     setSelectedIds((prev) => {
       const next = { ...prev };
-      for (const a of accounts) {
+      for (const a of usableAccounts) {
         if (!alreadyApplied(a.id)) next[a.id] = false;
       }
       return next;
@@ -311,6 +331,20 @@ export function ApplyScreen() {
   };
 
   const confirmBulkApply = useCallback(() => {
+    if (needsPick) {
+      Alert.alert(
+        'Choose active accounts',
+        'Your plan limit is smaller than the number of saved accounts. Pick which accounts stay active before applying.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Choose now',
+            onPress: () => navigation.navigate('ChooseActiveAccounts'),
+          },
+        ],
+      );
+      return;
+    }
     if (!selected) {
       Alert.alert('No IPO', 'Select a Current Opening IPO first.');
       return;
@@ -378,10 +412,14 @@ export function ApplyScreen() {
         },
       },
     ]);
-  }, [checkedEligible, kitta, selected, sensitive]);
+  }, [checkedEligible, kitta, needsPick, navigation, selected, sensitive]);
 
   const runSingle = useCallback(
     (accountId: string) => {
+      if (needsPick || !isAccountActive(accountId)) {
+        promptLocked();
+        return;
+      }
       if (!selected) {
         Alert.alert('No IPO', 'Select a Current Opening IPO first.');
         return;
@@ -443,7 +481,7 @@ export function ApplyScreen() {
         ],
       );
     },
-    [accounts, alreadyApplied, kitta, selected, sensitive],
+    [accounts, alreadyApplied, isAccountActive, kitta, needsPick, promptLocked, selected, sensitive],
   );
 
   const openingLabel = useMemo(() => {
@@ -465,7 +503,7 @@ export function ApplyScreen() {
     ? '••••'
     : `${plValue >= 0 ? '+' : '-'} ${formatRs(Math.abs(plValue))}`;
 
-  const eligibleCount = accounts.filter((a) => !alreadyApplied(a.id)).length;
+  const eligibleCount = usableAccounts.filter((a) => !alreadyApplied(a.id)).length;
 
   const applyCounts = useMemo(() => {
     const counts = {
@@ -540,6 +578,8 @@ export function ApplyScreen() {
   const renderSingleAccountRows = () =>
     accounts.map((acc, idx) => {
       const applied = alreadyApplied(acc.id);
+      const locked = !isAccountActive(acc.id);
+      const blocked = applied || locked;
       return (
         <View key={acc.id} style={styles.accountRow}>
           <View style={styles.indexBadge}>
@@ -550,21 +590,23 @@ export function ApplyScreen() {
             <Text style={styles.accBank}>
               {applied
                 ? 'Already applied for this IPO'
-                : acc.bankName || acc.dpName}
+                : locked
+                  ? 'Locked — over plan limit'
+                  : acc.bankName || acc.dpName}
             </Text>
           </View>
           <Pressable
-            style={[styles.applyBtn, applied && styles.applyBtnDisabled]}
+            style={[styles.applyBtn, blocked && styles.applyBtnDisabled]}
             onPress={() => runSingle(acc.id)}
             disabled={running || applied}
           >
             <Text
               style={[
                 styles.applyBtnText,
-                applied && { color: colors.textMuted },
+                blocked && { color: colors.textMuted },
               ]}
             >
-              {applied ? 'Done' : 'Apply'}
+              {applied ? 'Done' : locked ? 'Locked' : 'Apply'}
             </Text>
           </Pressable>
         </View>
@@ -753,7 +795,7 @@ export function ApplyScreen() {
         onPress={() => setAccountsModalOpen(true)}
       >
         <Text style={styles.dropdownText} numberOfLines={1}>
-          {checkedEligible.length === accounts.length ||
+          {checkedEligible.length === usableAccounts.length ||
           checkedEligible.length === eligibleCount
             ? 'Select Category (All Accounts)'
             : checkedEligible.length === 1
@@ -945,6 +987,7 @@ export function ApplyScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator
         >
+          <OverQuotaBanner />
           {renderFormTopSection()}
           {renderCategoryDropdown()}
           {renderIpoFieldSection()}
@@ -1000,6 +1043,8 @@ export function ApplyScreen() {
             </View>
             <Text style={styles.hint}>
               Already-applied accounts are locked (1 apply / account / IPO).
+              Over-limit accounts stay saved but cannot apply until you include
+              them in the active set.
             </Text>
             <FlatList
               data={accounts}
@@ -1007,12 +1052,13 @@ export function ApplyScreen() {
               style={{ maxHeight: rs(360) }}
               renderItem={({ item, index: idx }) => {
                 const applied = alreadyApplied(item.id);
-                const checked = Boolean(selectedIds[item.id]) && !applied;
+                const locked = !isAccountActive(item.id);
+                const checked = Boolean(selectedIds[item.id]) && !applied && !locked;
                 return (
                   <Pressable
                     style={[
                       styles.accountRow,
-                      applied && styles.accountRowDisabled,
+                      (applied || locked) && styles.accountRowDisabled,
                     ]}
                     onPress={() => toggleAccount(item.id)}
                     disabled={applied}
@@ -1021,17 +1067,21 @@ export function ApplyScreen() {
                       name={
                         applied
                           ? 'checkmark-done-circle'
-                          : checked
-                            ? 'checkbox'
-                            : 'square-outline'
+                          : locked
+                            ? 'lock-closed'
+                            : checked
+                              ? 'checkbox'
+                              : 'square-outline'
                       }
                       size={rs(22)}
                       color={
                         applied
                           ? colors.accentGreen
-                          : checked
-                            ? colors.primary
-                            : colors.textMuted
+                          : locked
+                            ? colors.minorAccent
+                            : checked
+                              ? colors.primary
+                              : colors.textMuted
                       }
                     />
                     <View style={styles.indexBadge}>
@@ -1042,7 +1092,9 @@ export function ApplyScreen() {
                       <Text style={styles.accBank}>
                         {applied
                           ? 'Already applied for this IPO'
-                          : item.bankName || item.dpName}
+                          : locked
+                            ? 'Locked — over plan limit'
+                            : item.bankName || item.dpName}
                       </Text>
                     </View>
                   </Pressable>

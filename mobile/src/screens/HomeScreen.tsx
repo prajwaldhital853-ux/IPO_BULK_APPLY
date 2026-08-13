@@ -19,11 +19,13 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AccountDetailSheet } from '../components/AccountDetailSheet';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { AppHeader } from '../components/AppHeader';
+import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { HomeMarketPanel } from '../components/home/HomeMarketPanel';
 import { HOME_CARD_GAP, HOME_H_PAD } from '../components/home/homeLayout';
 import { SwipeTabGesture } from '../components/SwipeTabGesture';
 import { isMockAccountId } from '../data/mockAccounts';
 import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useAppBranding } from '../context/AppBrandingContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
@@ -35,6 +37,7 @@ import { guardAddAccountAsync } from '../utils/accountLimits';
 import {
   isMinorAccount,
 } from '../utils/minorAccount';
+import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
 import { rs } from '../utils/responsive';
 import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
@@ -47,6 +50,7 @@ function AccountCard({
   item,
   index,
   isActive,
+  locked,
   searching,
   onOpen,
   onMenu,
@@ -57,6 +61,7 @@ function AccountCard({
   item: AccountMeta;
   index: number;
   isActive: boolean;
+  locked: boolean;
   searching: boolean;
   onOpen: () => void;
   onMenu: () => void;
@@ -72,7 +77,11 @@ function AccountCard({
   return (
     <ScaleDecorator>
       <Pressable
-        style={[styles.card, isActive && styles.cardActive]}
+        style={[
+          styles.card,
+          isActive && styles.cardActive,
+          locked && styles.cardLocked,
+        ]}
         onPress={onOpen}
         onLongPress={canDrag ? onDrag : undefined}
         delayLongPress={160}
@@ -108,20 +117,24 @@ function AccountCard({
           <Text style={styles.username} numberOfLines={1}>
             Username : {item.username}
           </Text>
-          <View style={styles.statusBadge}>
+          <View
+            style={[styles.statusBadge, locked && styles.statusBadgeLocked]}
+          >
             <View
               style={[
                 styles.statusDot,
                 !verified && styles.statusDotInactive,
+                locked && styles.statusDotLocked,
               ]}
             />
             <Text
               style={[
                 styles.statusText,
                 !verified && styles.statusTextInactive,
+                locked && styles.statusTextLocked,
               ]}
             >
-              {verified ? 'Active' : 'Inactive'}
+              {locked ? 'Locked' : verified ? 'Active' : 'Inactive'}
             </Text>
           </View>
         </View>
@@ -170,6 +183,7 @@ export function HomeScreen() {
     removeMockAccounts,
   } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
+  const { isAccountActive, canEditSelection } = useActiveAccounts();
   const { refresh: refreshBranding } = useAppBranding();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
@@ -354,14 +368,27 @@ export function HomeScreen() {
     })();
   }, [loadSecrets]);
 
+  const promptLocked = useCallback(() => {
+    showLockedAccountAlert(
+      canEditSelection
+        ? () => navigation.navigate('ChooseActiveAccounts')
+        : null,
+      () => navigation.navigate('Subscription'),
+    );
+  }, [canEditSelection, navigation]);
+
   const openMeroshare = useCallback(
     (item: AccountMeta) => {
+      if (!isAccountActive(item.id)) {
+        promptLocked();
+        return;
+      }
       navigation.navigate('MeroshareWeb', {
         accountId: item.id,
         destination: 'dashboard',
       });
     },
-    [navigation],
+    [isAccountActive, navigation, promptLocked],
   );
 
   const showAccountMenu = useCallback(
@@ -411,6 +438,7 @@ export function HomeScreen() {
           item={item}
           index={index}
           isActive={isActive}
+          locked={!isAccountActive(item.id)}
           searching={searching}
           onOpen={() => openSheet(item, index)}
           onMenu={() => showAccountMenu(item, index, drag)}
@@ -420,7 +448,7 @@ export function HomeScreen() {
         />
       );
     },
-    [colors, openSheet, searching, showAccountMenu, styles],
+    [colors, isAccountActive, openSheet, searching, showAccountMenu, styles],
   );
 
   return (
@@ -535,6 +563,8 @@ export function HomeScreen() {
               </View>
             </View>
 
+            <OverQuotaBanner />
+
             {searchOpen ? (
               <View style={styles.searchBar}>
                 <Ionicons name="search" size={rs(16)} color={colors.textMuted} />
@@ -618,6 +648,10 @@ export function HomeScreen() {
             onClose={() => setSheetOpen(false)}
             onOpen={(acc) => {
               setSheetOpen(false);
+              if (!isAccountActive(acc.id)) {
+                promptLocked();
+                return;
+              }
               navigation.navigate('MeroshareWeb', {
                 accountId: acc.id,
                 destination: 'dashboard',
@@ -866,6 +900,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontSize: rs(11),
       marginTop: rs(1),
     },
+    cardLocked: {
+      opacity: 0.88,
+    },
     statusBadge: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -877,6 +914,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderRadius: rs(10),
       backgroundColor: c.primarySoft,
     },
+    statusBadgeLocked: {
+      backgroundColor: c.minorSoft,
+    },
     statusDot: {
       width: rs(6),
       height: rs(6),
@@ -886,6 +926,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     statusDotInactive: {
       backgroundColor: c.textMuted,
     },
+    statusDotLocked: {
+      backgroundColor: c.minorAccent,
+    },
     statusText: {
       color: c.primary,
       fontSize: rs(10),
@@ -893,6 +936,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     statusTextInactive: {
       color: c.textMuted,
+    },
+    statusTextLocked: {
+      color: c.minorAccent,
     },
     cardActions: {
       position: 'absolute',

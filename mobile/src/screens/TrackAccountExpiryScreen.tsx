@@ -15,7 +15,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import {
   fetchAccountExpiryInfo,
@@ -149,7 +151,8 @@ export function TrackAccountExpiryScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const palette = useMemo(() => statusPalette(isDark), [isDark]);
-  const { accounts, loadSecrets } = useAccounts();
+  const { loadSecrets } = useAccounts();
+  const { usableAccounts: accounts } = useActiveAccounts();
 
   const [tab, setTab] = useState<TabId>('users');
   const [query, setQuery] = useState('');
@@ -318,6 +321,10 @@ export function TrackAccountExpiryScreen() {
             color={colors.text}
           />
         </Pressable>
+      </View>
+
+      <View style={{ paddingHorizontal: rs(16) }}>
+        <OverQuotaBanner />
       </View>
 
       {searchOpen ? (

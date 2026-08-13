@@ -23,7 +23,9 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardSheetModal } from '../components/KeyboardSheetModal';
+import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import {
@@ -41,6 +43,7 @@ import {
   type BankTxnGroup,
 } from '../storage/bankTrackerStorage';
 import { rs } from '../utils/responsive';
+import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
 import { formatRs } from './BankTrackerScreen';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -81,6 +84,7 @@ export function BankTrackerDetailScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { accounts } = useAccounts();
+  const { isAccountActive, canEditSelection } = useActiveAccounts();
 
   const account = useMemo(
     () => accounts.find((a) => a.id === accountId) ?? null,
@@ -148,8 +152,21 @@ export function BankTrackerDetailScreen() {
       }`
     : '';
 
+  const promptLocked = () => {
+    showLockedAccountAlert(
+      canEditSelection
+        ? () => navigation.navigate('ChooseActiveAccounts')
+        : null,
+      () => navigation.navigate('Subscription'),
+    );
+  };
+
   // ---- Actions ----
   const doStart = async () => {
+    if (!isAccountActive(accountId)) {
+      promptLocked();
+      return;
+    }
     const n = parseAmount(startValue);
     if (n == null) {
       Alert.alert('Enter a balance', 'Type your current bank balance to start.');
@@ -167,6 +184,10 @@ export function BankTrackerDetailScreen() {
   };
 
   const doAction = async () => {
+    if (!isAccountActive(accountId)) {
+      promptLocked();
+      return;
+    }
     if (!action) return;
     const n = parseAmount(actionValue);
     if (n == null || n < 0) {
@@ -270,6 +291,10 @@ export function BankTrackerDetailScreen() {
         ) : (
           <View style={styles.iconBtn} />
         )}
+      </View>
+
+      <View style={{ paddingHorizontal: rs(16) }}>
+        <OverQuotaBanner />
       </View>
 
       {!tracking ? (

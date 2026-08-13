@@ -12,7 +12,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAccounts } from '../context/AccountsContext';
+import { OverQuotaBanner } from '../components/OverQuotaBanner';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import { type ThemeColors } from '../theme/colors';
 import { importPortfolioFromMeroshare } from '../services/meroshare';
@@ -92,7 +93,7 @@ export function BulkPortfolioScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { accounts } = useAccounts();
+  const { usableAccounts: accounts } = useActiveAccounts();
 
   const [rows, setRows] = useState<PortfolioRow[]>([]);
   const [running, setRunning] = useState(false);
@@ -282,6 +283,10 @@ export function BulkPortfolioScreen() {
             color={colors.text}
           />
         </Pressable>
+      </View>
+
+      <View style={{ paddingHorizontal: rs(16) }}>
+        <OverQuotaBanner />
       </View>
 
       {searchOpen ? (

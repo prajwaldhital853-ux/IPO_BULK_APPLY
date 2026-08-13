@@ -49,6 +49,7 @@ import { MinorAccountsScreen } from '../screens/MinorAccountsScreen';
 import { BankTrackerScreen } from '../screens/BankTrackerScreen';
 import { BankTrackerDetailScreen } from '../screens/BankTrackerDetailScreen';
 import { ChangePasswordScreen } from '../screens/ChangePasswordScreen';
+import { ChooseActiveAccountsScreen } from '../screens/ChooseActiveAccountsScreen';
 import { SubscriptionScreen } from '../screens/SubscriptionScreen';
 import { AboutCompanyScreen } from '../screens/AboutCompanyScreen';
 import { TeamMembersScreen } from '../screens/TeamMembersScreen';
@@ -186,6 +187,10 @@ function RootStack() {
       <Stack.Screen name="BankTracker" component={BankTrackerScreen} />
       <Stack.Screen name="BankTrackerDetail" component={BankTrackerDetailScreen} />
       <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+      <Stack.Screen
+        name="ChooseActiveAccounts"
+        component={ChooseActiveAccountsScreen}
+      />
       <Stack.Screen name="Subscription" component={SubscriptionScreen} />
       <Stack.Screen name="AboutCompany" component={AboutCompanyScreen} />
       <Stack.Screen name="TeamMembers" component={TeamMembersScreen} />

@@ -14,7 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
-import { useAccounts } from '../context/AccountsContext';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import {
@@ -45,7 +45,7 @@ export function AllIpoStatusScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { accounts } = useAccounts();
+  const { usableAccounts: accounts } = useActiveAccounts();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
@@ -173,7 +173,7 @@ export function AllIpoStatusScreen() {
                       {badgeType(item.shareTypeName)}
                     </Text>
                   </View>
-                  <Text style={styles.bullet}>ù</Text>
+                  <Text style={styles.bullet}>?</Text>
                   <Text style={styles.audience} numberOfLines={1}>
                     {audienceLabel(item)}
                   </Text>

@@ -18,7 +18,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { KeyboardSheetModal } from '../components/KeyboardSheetModal';
-import { useAccounts } from '../context/AccountsContext';
+import { OverQuotaBanner } from '../components/OverQuotaBanner';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { RootStackParamList } from '../navigation/types';
 import {
@@ -56,7 +57,7 @@ export function PortfolioScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-  const { accounts } = useAccounts();
+  const { usableAccounts: accounts, isAccountActive } = useActiveAccounts();
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [quotes, setQuotes] = useState<QuoteMap>({});
   const [sortAsc, setSortAsc] = useState(true);
@@ -99,9 +100,18 @@ export function PortfolioScreen() {
 
   const { refreshing, onRefresh } = usePullToRefresh(reload);
 
+  const visiblePortfolios = useMemo(
+    () =>
+      portfolios.filter((p) => {
+        if (!p.sourceAccountId) return true;
+        return isAccountActive(p.sourceAccountId);
+      }),
+    [isAccountActive, portfolios],
+  );
+
   const agg = useMemo(
-    () => aggregatePortfolios(portfolios, quotes),
-    [portfolios, quotes],
+    () => aggregatePortfolios(visiblePortfolios, quotes),
+    [visiblePortfolios, quotes],
   );
 
   const sorted = useMemo(() => {
@@ -219,6 +229,10 @@ export function PortfolioScreen() {
               />
             </Pressable>
           </View>
+        </View>
+
+        <View style={{ paddingHorizontal: rs(16) }}>
+          <OverQuotaBanner />
         </View>
 
         <FlatList

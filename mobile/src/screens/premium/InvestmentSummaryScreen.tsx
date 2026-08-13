@@ -16,7 +16,9 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PremiumGate } from '../../components/PremiumGate';
+import { OverQuotaBanner } from '../../components/OverQuotaBanner';
 import { SwipeTabGesture } from '../../components/SwipeTabGesture';
+import { useActiveAccounts } from '../../context/ActiveAccountsContext';
 import { useTheme } from '../../context/ThemeContext';
 import type { ThemeColors } from '../../theme/colors';
 import {
@@ -290,6 +292,7 @@ export function InvestmentSummaryScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { usableAccounts } = useActiveAccounts();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const ready = useAfterInteractions();
   const [data, setData] = useState<InvestmentSummary | null>(null);
@@ -301,11 +304,13 @@ export function InvestmentSummaryScreen() {
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
-    const next = await loadInvestmentSummary();
+    const next = await loadInvestmentSummary(
+      usableAccounts.map((a) => a.id),
+    );
     setData(next);
     setSelectedSector((prev) => prev ?? next.sectors[0]?.sector ?? null);
     setLoading(false);
-  }, []);
+  }, [usableAccounts]);
 
   useEffect(() => {
     if (!ready) return;
@@ -965,6 +970,9 @@ export function InvestmentSummaryScreen() {
             color={loading ? colors.textMuted : colors.text}
           />
         </Pressable>
+      </View>
+      <View style={{ paddingHorizontal: rs(16) }}>
+        <OverQuotaBanner />
       </View>
       <PremiumGate
         title="Investment Summary"

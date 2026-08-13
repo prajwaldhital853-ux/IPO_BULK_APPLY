@@ -560,7 +560,11 @@ function finalizeSummary(args: {
   };
 }
 
-export async function loadInvestmentSummary(): Promise<InvestmentSummary> {
+export async function loadInvestmentSummary(
+  allowedAccountIds?: string[],
+): Promise<InvestmentSummary> {
+  const allow =
+    allowedAccountIds != null ? new Set(allowedAccountIds) : null;
   const [portfolios, screener, bulk] = await Promise.all([
     listPortfolios(),
     loadMiniScreener(),
@@ -568,7 +572,14 @@ export async function loadInvestmentSummary(): Promise<InvestmentSummary> {
   ]);
   const bySym = new Map(screener.map((r) => [r.symbol.toUpperCase(), r]));
 
-  if (bulk && bulk.rows.length > 0) {
+  const bulkRows =
+    bulk && bulk.rows.length > 0
+      ? allow
+        ? bulk.rows.filter((h) => allow.has(h.accountId))
+        : bulk.rows
+      : [];
+
+  if (bulkRows.length > 0) {
     let invested = 0;
     const holdingMap = new Map<
       string,
@@ -594,7 +605,11 @@ export async function loadInvestmentSummary(): Promise<InvestmentSummary> {
       }
     >();
 
-    for (const h of bulk.rows) {
+    let bulkValue = 0;
+    let bulkDay = 0;
+    for (const h of bulkRows) {
+      bulkValue += h.value;
+      bulkDay += h.dayChange;
       const cost = h.qty * (h.wacc || 0);
       invested += cost;
       const key = h.symbol.toUpperCase();
@@ -633,13 +648,13 @@ export async function loadInvestmentSummary(): Promise<InvestmentSummary> {
     }
 
     return finalizeSummary({
-      portfolios: Math.max(portfolios.length, bulk.accounts),
-      holdingsCount: bulk.holdings,
+      portfolios: Math.max(portfolios.length, accountMap.size),
+      holdingsCount: bulkRows.length,
       invested,
-      currentValue: bulk.totalValue,
-      dayChange: bulk.dayChange,
+      currentValue: bulkValue,
+      dayChange: bulkDay,
       valueSource: 'bulk',
-      updatedAt: bulk.updatedAt,
+      updatedAt: bulk!.updatedAt,
       holdingMap,
       accountMap,
     });

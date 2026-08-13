@@ -60,6 +60,7 @@ export type RootStackParamList = {
   MinorAccounts: undefined;
   BankTracker: undefined;
   BankTrackerDetail: { accountId: string };
+  ChooseActiveAccounts: undefined;
   ChangePassword: undefined;
   Subscription: undefined;
   AboutCompany: undefined;

@@ -15,7 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
-import { useAccounts } from '../context/AccountsContext';
+import { OverQuotaBanner } from '../components/OverQuotaBanner';
+import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
@@ -79,7 +80,7 @@ export function BankTrackerScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-  const { accounts } = useAccounts();
+  const { usableAccounts: accounts } = useActiveAccounts();
 
   const [trackers, setTrackers] = useState<Record<string, BankTrackerAccount>>(
     {},
@@ -267,6 +268,10 @@ export function BankTrackerScreen() {
             color={colors.text}
           />
         </Pressable>
+      </View>
+
+      <View style={{ paddingHorizontal: rs(16) }}>
+        <OverQuotaBanner />
       </View>
 
       {searchOpen ? (
