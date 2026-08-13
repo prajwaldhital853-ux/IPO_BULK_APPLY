@@ -101,11 +101,13 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
 
-  const systemNav = Math.max(
-    Platform.OS === 'android' ? rs(6) : 0,
-    (insets.bottom > 0 ? insets.bottom : Platform.OS === 'android' ? rs(36) : 0) -
-      (Platform.OS === 'android' ? rs(10) : 0),
-  );
+  // Keep full system-nav inset so labels are never covered by Android buttons.
+  const systemNav =
+    insets.bottom > 0
+      ? insets.bottom
+      : Platform.OS === 'android'
+        ? rs(48)
+        : 0;
 
   const barBg = isDark ? '#252724' : '#F8FBF2';
   const ink = isDark ? '#F2F2F2' : '#000000';
@@ -176,8 +178,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    paddingTop: rs(4),
-    paddingBottom: rs(2),
+    paddingTop: rs(6),
+    paddingBottom: rs(4),
     paddingHorizontal: rs(2),
     minHeight: rs(58),
     backgroundColor: 'transparent',
@@ -201,7 +203,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: rs(12),
-    marginBottom: 0,
+    marginBottom: rs(1),
     letterSpacing: 0.1,
   },
 });
