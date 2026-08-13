@@ -925,14 +925,27 @@ export function AdminDashboardScreen() {
       </View>
 
       <View style={styles.tabs}>
-        {(['users', 'subscriptions', 'feedback'] as Tab[]).map((t) => (
+        {([
+          {
+            id: 'users' as const,
+            label: `Users · ${stats?.totalUsers ?? 0}`,
+          },
+          {
+            id: 'subscriptions' as const,
+            label: `Requests · ${stats?.totalRequests ?? 0}`,
+          },
+          {
+            id: 'feedback' as const,
+            label: `Inbox · ${stats?.feedbackTotalCount ?? 0}`,
+          },
+        ]).map((t) => (
           <Pressable
-            key={t}
-            style={[styles.tabBtn, tab === t && styles.tabBtnActive]}
-            onPress={() => setTab(t)}
+            key={t.id}
+            style={[styles.tabBtn, tab === t.id && styles.tabBtnActive]}
+            onPress={() => setTab(t.id)}
           >
-            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
-              {t === 'users' ? 'Users' : t === 'subscriptions' ? 'Requests' : 'Inbox'}
+            <Text style={[styles.tabText, tab === t.id && styles.tabTextActive]}>
+              {t.label}
             </Text>
           </Pressable>
         ))}
@@ -942,10 +955,22 @@ export function AdminDashboardScreen() {
         {tab === 'users'
           ? (
             [
-              { id: 'all' as const, label: 'All' },
-              { id: 'pending' as const, label: 'Pending' },
-              { id: 'premium' as const, label: 'Premium' },
-              { id: 'free' as const, label: 'Free' },
+              {
+                id: 'all' as const,
+                label: `All · ${stats?.totalUsers ?? 0}`,
+              },
+              {
+                id: 'pending' as const,
+                label: `Pending · ${stats?.pendingUserCount ?? 0}`,
+              },
+              {
+                id: 'premium' as const,
+                label: `Premium · ${stats?.premiumUserCount ?? 0}`,
+              },
+              {
+                id: 'free' as const,
+                label: `Free · ${stats?.freeUserCount ?? 0}`,
+              },
               {
                 id: 'blocked' as const,
                 label: `Blocked · ${stats?.blockedUserCount ?? 0}`,
@@ -967,29 +992,67 @@ export function AdminDashboardScreen() {
               </Pressable>
             ))
           : tab === 'subscriptions'
-            ? (['pending', 'approved', 'rejected', 'all'] as SubFilter[]).map((f) => (
+            ? (
+              [
+                {
+                  id: 'pending' as const,
+                  label: `Pending · ${stats?.pendingCount ?? 0}`,
+                },
+                {
+                  id: 'approved' as const,
+                  label: `Approved · ${stats?.approvedRequestCount ?? 0}`,
+                },
+                {
+                  id: 'rejected' as const,
+                  label: `Rejected · ${stats?.rejectedRequestCount ?? 0}`,
+                },
+                {
+                  id: 'all' as const,
+                  label: `All · ${stats?.totalRequests ?? 0}`,
+                },
+              ]
+            ).map((f) => (
                 <Pressable
-                  key={f}
-                  style={[styles.chip, subFilter === f && styles.chipActive]}
-                  onPress={() => setSubFilter(f)}
+                  key={f.id}
+                  style={[styles.chip, subFilter === f.id && styles.chipActive]}
+                  onPress={() => setSubFilter(f.id)}
                 >
-                  <Text style={[styles.chipText, subFilter === f && styles.chipTextActive]}>
-                    {f}
+                  <Text style={[styles.chipText, subFilter === f.id && styles.chipTextActive]}>
+                    {f.label}
                   </Text>
                 </Pressable>
               ))
             : (
               <>
-                {(['new', 'read', 'resolved', 'all'] as FeedbackFilter[]).map((f) => (
+                {(
+                  [
+                    {
+                      id: 'new' as const,
+                      label: `New · ${stats?.newFeedbackCount ?? 0}`,
+                    },
+                    {
+                      id: 'read' as const,
+                      label: `Read · ${stats?.feedbackReadCount ?? 0}`,
+                    },
+                    {
+                      id: 'resolved' as const,
+                      label: `Resolved · ${stats?.feedbackResolvedCount ?? 0}`,
+                    },
+                    {
+                      id: 'all' as const,
+                      label: `All · ${stats?.feedbackTotalCount ?? 0}`,
+                    },
+                  ]
+                ).map((f) => (
                   <Pressable
-                    key={f}
-                    style={[styles.chip, feedbackFilter === f && styles.chipActive]}
-                    onPress={() => setFeedbackFilter(f)}
+                    key={f.id}
+                    style={[styles.chip, feedbackFilter === f.id && styles.chipActive]}
+                    onPress={() => setFeedbackFilter(f.id)}
                   >
                     <Text
-                      style={[styles.chipText, feedbackFilter === f && styles.chipTextActive]}
+                      style={[styles.chipText, feedbackFilter === f.id && styles.chipTextActive]}
                     >
-                      {f}
+                      {f.label}
                     </Text>
                   </Pressable>
                 ))}
@@ -1239,7 +1302,7 @@ function makeStyles(c: ThemeColors) {
       backgroundColor: c.surface,
     },
     tabBtnActive: { backgroundColor: c.fab },
-    tabText: { color: c.textSecondary, fontWeight: '700', fontSize: rs(13) },
+    tabText: { color: c.textSecondary, fontWeight: '700', fontSize: rs(12) },
     tabTextActive: { color: c.fabIcon },
     filters: {
       flexDirection: 'row',

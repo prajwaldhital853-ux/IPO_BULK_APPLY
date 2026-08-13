@@ -1056,15 +1056,26 @@ async def admin_stats(
     _: AdminUser = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> AdminDashboardStats:
+    now = utcnow()
     pending = await db.scalar(
         select(func.count())
         .select_from(SubscriptionRequest)
         .where(SubscriptionRequest.status == 'pending'),
     )
+    approved_requests = await db.scalar(
+        select(func.count())
+        .select_from(SubscriptionRequest)
+        .where(SubscriptionRequest.status == 'approved'),
+    )
+    rejected_requests = await db.scalar(
+        select(func.count())
+        .select_from(SubscriptionRequest)
+        .where(SubscriptionRequest.status == 'rejected'),
+    )
     active = await db.scalar(
         select(func.count())
         .select_from(PremiumEntitlement)
-        .where(PremiumEntitlement.expires_at > utcnow()),
+        .where(PremiumEntitlement.expires_at > now),
     )
     total = await db.scalar(select(func.count()).select_from(SubscriptionRequest))
     users = await db.scalar(select(func.count()).select_from(User))
@@ -1073,6 +1084,17 @@ async def admin_stats(
         .select_from(UserFeedback)
         .where(UserFeedback.status == 'new'),
     )
+    feedback_read = await db.scalar(
+        select(func.count())
+        .select_from(UserFeedback)
+        .where(UserFeedback.status == 'read'),
+    )
+    feedback_resolved = await db.scalar(
+        select(func.count())
+        .select_from(UserFeedback)
+        .where(UserFeedback.status == 'resolved'),
+    )
+    feedback_total = await db.scalar(select(func.count()).select_from(UserFeedback))
     blocked_users = await db.scalar(
         select(func.count()).select_from(User).where(User.is_blocked.is_(True)),
     )
@@ -1084,14 +1106,47 @@ async def admin_stats(
             .having(func.count(UserDeviceSlot.id) > 1),
         )
     ).all()
+
+    premium_ids = set(
+        (
+            await db.scalars(
+                select(PremiumEntitlement.user_id).where(
+                    PremiumEntitlement.expires_at > now,
+                ),
+            )
+        ).all(),
+    )
+    pending_ids = set(
+        (
+            await db.scalars(
+                select(SubscriptionRequest.user_id).where(
+                    SubscriptionRequest.status == 'pending',
+                ),
+            )
+        ).all(),
+    )
+    # Match list filters: premium > pending > free
+    pending_user_count = len(pending_ids - premium_ids)
+    premium_user_count = len(premium_ids)
+    total_users = int(users or 0)
+    free_user_count = max(0, total_users - premium_user_count - pending_user_count)
+
     return AdminDashboardStats(
         pendingCount=int(pending or 0),
         activeCount=int(active or 0),
         totalRequests=int(total or 0),
-        totalUsers=int(users or 0),
+        totalUsers=total_users,
         newFeedbackCount=int(new_feedback or 0),
         blockedUserCount=int(blocked_users or 0),
         multiDeviceUserCount=len(multi_device_rows),
+        premiumUserCount=premium_user_count,
+        pendingUserCount=pending_user_count,
+        freeUserCount=free_user_count,
+        approvedRequestCount=int(approved_requests or 0),
+        rejectedRequestCount=int(rejected_requests or 0),
+        feedbackReadCount=int(feedback_read or 0),
+        feedbackResolvedCount=int(feedback_resolved or 0),
+        feedbackTotalCount=int(feedback_total or 0),
     )
 
 

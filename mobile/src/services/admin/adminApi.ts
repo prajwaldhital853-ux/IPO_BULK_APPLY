@@ -69,6 +69,14 @@ export type AdminStats = {
   newFeedbackCount: number;
   blockedUserCount: number;
   multiDeviceUserCount: number;
+  premiumUserCount: number;
+  pendingUserCount: number;
+  freeUserCount: number;
+  approvedRequestCount: number;
+  rejectedRequestCount: number;
+  feedbackReadCount: number;
+  feedbackResolvedCount: number;
+  feedbackTotalCount: number;
 };
 
 export type AdminPaymentSettings = {
@@ -326,6 +334,22 @@ export async function fetchAdminStats(token: string): Promise<AdminStats> {
     blockedUserCount: Number(json.blockedUserCount ?? json.blocked_user_count ?? 0),
     multiDeviceUserCount: Number(
       json.multiDeviceUserCount ?? json.multi_device_user_count ?? 0,
+    ),
+    premiumUserCount: Number(json.premiumUserCount ?? json.premium_user_count ?? 0),
+    pendingUserCount: Number(json.pendingUserCount ?? json.pending_user_count ?? 0),
+    freeUserCount: Number(json.freeUserCount ?? json.free_user_count ?? 0),
+    approvedRequestCount: Number(
+      json.approvedRequestCount ?? json.approved_request_count ?? 0,
+    ),
+    rejectedRequestCount: Number(
+      json.rejectedRequestCount ?? json.rejected_request_count ?? 0,
+    ),
+    feedbackReadCount: Number(json.feedbackReadCount ?? json.feedback_read_count ?? 0),
+    feedbackResolvedCount: Number(
+      json.feedbackResolvedCount ?? json.feedback_resolved_count ?? 0,
+    ),
+    feedbackTotalCount: Number(
+      json.feedbackTotalCount ?? json.feedback_total_count ?? 0,
     ),
   };
 }

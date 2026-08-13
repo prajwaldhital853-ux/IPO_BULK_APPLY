@@ -82,6 +82,14 @@ class AdminDashboardStats(BaseModel):
     new_feedback_count: int = Field(alias='newFeedbackCount')
     blocked_user_count: int = Field(default=0, alias='blockedUserCount')
     multi_device_user_count: int = Field(default=0, alias='multiDeviceUserCount')
+    premium_user_count: int = Field(default=0, alias='premiumUserCount')
+    pending_user_count: int = Field(default=0, alias='pendingUserCount')
+    free_user_count: int = Field(default=0, alias='freeUserCount')
+    approved_request_count: int = Field(default=0, alias='approvedRequestCount')
+    rejected_request_count: int = Field(default=0, alias='rejectedRequestCount')
+    feedback_read_count: int = Field(default=0, alias='feedbackReadCount')
+    feedback_resolved_count: int = Field(default=0, alias='feedbackResolvedCount')
+    feedback_total_count: int = Field(default=0, alias='feedbackTotalCount')
 
     model_config = {'populate_by_name': True}
 
