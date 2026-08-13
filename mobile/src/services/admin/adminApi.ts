@@ -916,7 +916,7 @@ export async function requestAdminPasswordReset(email: string): Promise<string> 
   });
   if (!res.ok) throw new Error(await parseError(res));
   const json = (await res.json()) as { message?: string };
-  return json.message ?? 'If that email is registered as admin, a verification code was sent.';
+  return json.message ?? 'A verification code was sent to the admin Gmail.';
 }
 
 export async function resetAdminPassword(

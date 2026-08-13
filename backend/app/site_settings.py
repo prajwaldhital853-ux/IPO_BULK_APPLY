@@ -370,9 +370,10 @@ async def complete_admin_login_otp(
 async def request_password_reset(db: AsyncSession, email: str) -> None:
     row = await get_or_create_settings(db)
     normalized = email.strip().lower()
+    if not normalized or '@' not in normalized:
+        raise ValueError('Enter a valid admin email address.')
     if normalized != row.admin_email.strip().lower():
-        # Do not reveal whether email exists
-        return
+        raise ValueError('This email is not the registered admin email.')
 
     settings = get_settings()
     otp = generate_otp()

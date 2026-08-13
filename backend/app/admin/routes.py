@@ -682,6 +682,8 @@ async def admin_forgot_password(
     try:
         await request_password_reset(db, body.email)
         await db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except EmailNotConfiguredError:
         raise HTTPException(
             status_code=503,
@@ -691,7 +693,7 @@ async def admin_forgot_password(
         raise HTTPException(status_code=502, detail=str(e)) from e
     return {
         'ok': True,
-        'message': 'If that email is registered as admin, a verification code was sent.',
+        'message': 'A verification code was sent to the admin Gmail.',
     }
 
 

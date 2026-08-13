@@ -27,44 +27,57 @@ import {
 } from '../utils/passwordPolicy';
 import { rs } from '../utils/responsive';
 
+function looksLikeEmail(value: string): boolean {
+  const v = value.trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+}
+
 export function AdminForgotPasswordScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [step, setStep] = useState<'email' | 'reset'>('email');
   const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const [codeSent, setCodeSent] = useState(false);
 
   const onSendOtp = async () => {
-    if (!email.trim()) {
-      Alert.alert('Email required', 'Enter the admin Gmail address.');
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setEmailError('Enter the admin Gmail address.');
       return;
     }
+    if (!looksLikeEmail(trimmed)) {
+      setEmailError('Enter a valid email address.');
+      return;
+    }
+    setEmailError(null);
     setBusy(true);
     try {
-      const msg = await requestAdminPasswordReset(email.trim());
-      setCodeSent(true);
+      const msg = await requestAdminPasswordReset(trimmed);
+      setStep('reset');
+      setOtp('');
       Alert.alert(
         'Check your email',
-        `${msg}\n\nEnter the 6-digit code in the field below, then set a new password.`,
+        `${msg}\n\nEnter the 6-digit code below, then set a new password.`,
       );
     } catch (e) {
-      Alert.alert('Could not send code', e instanceof Error ? e.message : 'Try again');
+      const message =
+        e instanceof Error ? e.message : 'Could not verify email';
+      setEmailError(message);
+      setStep('email');
+      Alert.alert('Email not accepted', message);
     } finally {
       setBusy(false);
     }
   };
 
   const onReset = async () => {
-    if (!email.trim()) {
-      Alert.alert('Email required', 'Enter the admin Gmail address.');
-      return;
-    }
     if (otp.trim().length !== 6) {
       Alert.alert('Invalid', 'Enter the 6-digit code from email.');
       return;
@@ -94,7 +107,6 @@ export function AdminForgotPasswordScreen() {
   };
 
   const canReset =
-    email.trim().length > 0 &&
     otp.trim().length === 6 &&
     isPasswordStrong(newPassword) &&
     passwordsMatch(newPassword, confirmPassword);
@@ -102,7 +114,19 @@ export function AdminForgotPasswordScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable
+          onPress={() => {
+            if (step === 'reset') {
+              setStep('email');
+              setOtp('');
+              setNewPassword('');
+              setConfirmPassword('');
+              return;
+            }
+            navigation.goBack();
+          }}
+          hitSlop={12}
+        >
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>Reset password</Text>
@@ -113,97 +137,116 @@ export function AdminForgotPasswordScreen() {
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.subtitle}>
-          1) Send a code to the admin Gmail{'\n'}
-          2) Enter the code below{'\n'}
-          3) Choose a new password
-        </Text>
-
-        {codeSent ? (
-          <View style={styles.sentBanner}>
-            <Ionicons name="mail-open-outline" size={rs(16)} color={colors.primary} />
-            <Text style={styles.sentText}>
-              Code sent. Open Gmail, copy the 6-digit code, and enter it below.
+        {step === 'email' ? (
+          <>
+            <Text style={styles.subtitle}>
+              Enter the registered admin email. Only that address can receive a
+              reset code.
             </Text>
-          </View>
-        ) : null}
 
-        <Text style={styles.label}>Admin email</Text>
-        <TextInput
-          style={styles.input}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          placeholder="Admin email"
-          placeholderTextColor={colors.textMuted}
-          value={email}
-          onChangeText={setEmail}
-          editable={!busy}
-        />
+            <Text style={styles.label}>Admin email</Text>
+            <TextInput
+              style={[styles.input, emailError ? styles.inputError : null]}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              placeholder="Admin email"
+              placeholderTextColor={colors.textMuted}
+              value={email}
+              onChangeText={(v) => {
+                setEmail(v);
+                if (emailError) setEmailError(null);
+              }}
+              editable={!busy}
+            />
+            {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
 
-        <Pressable
-          style={[styles.btn, busy && { opacity: 0.65 }]}
-          onPress={() => void onSendOtp()}
-          disabled={busy}
-        >
-          {busy && !otp ? (
-            <ActivityIndicator color={colors.fabIcon} />
-          ) : (
-            <Text style={styles.btnText}>
-              {codeSent ? 'Resend verification code' : 'Send verification code'}
-            </Text>
-          )}
-        </Pressable>
+            <Pressable
+              style={[styles.btn, busy && { opacity: 0.65 }]}
+              onPress={() => void onSendOtp()}
+              disabled={busy}
+            >
+              {busy ? (
+                <ActivityIndicator color={colors.fabIcon} />
+              ) : (
+                <Text style={styles.btnText}>Continue</Text>
+              )}
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <View style={styles.sentBanner}>
+              <Ionicons name="mail-open-outline" size={rs(16)} color={colors.primary} />
+              <Text style={styles.sentText}>
+                Code sent to {email.trim()}. Enter it below and choose a new
+                password.
+              </Text>
+            </View>
 
-        <Text style={[styles.label, { marginTop: rs(20) }]}>
-          6-digit code from email
-        </Text>
-        <TextInput
-          style={styles.input}
-          keyboardType="number-pad"
-          placeholder="Enter OTP from Gmail"
-          placeholderTextColor={colors.textMuted}
-          value={otp}
-          onChangeText={setOtp}
-          maxLength={6}
-          editable={!busy}
-        />
+            <Text style={styles.label}>Admin email</Text>
+            <TextInput
+              style={[styles.input, { opacity: 0.7 }]}
+              value={email.trim()}
+              editable={false}
+            />
 
-        <Text style={styles.label}>New password</Text>
-        <TextInput
-          style={styles.input}
-          secureTextEntry
-          placeholder="New password"
-          placeholderTextColor={colors.textMuted}
-          value={newPassword}
-          onChangeText={setNewPassword}
-          editable={!busy}
-        />
-        <TextInput
-          style={styles.input}
-          secureTextEntry
-          placeholder="Confirm new password"
-          placeholderTextColor={colors.textMuted}
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          editable={!busy}
-        />
-        <PasswordRequirementsLive
-          password={newPassword}
-          confirmPassword={confirmPassword}
-          colors={colors}
-        />
+            <Text style={styles.label}>6-digit code from email</Text>
+            <TextInput
+              style={styles.input}
+              keyboardType="number-pad"
+              placeholder="Enter OTP from Gmail"
+              placeholderTextColor={colors.textMuted}
+              value={otp}
+              onChangeText={setOtp}
+              maxLength={6}
+              editable={!busy}
+            />
 
-        <Pressable
-          style={[styles.btn, (!canReset || busy) && { opacity: 0.65 }]}
-          onPress={() => void onReset()}
-          disabled={busy || !canReset}
-        >
-          {busy && otp ? (
-            <ActivityIndicator color={colors.fabIcon} />
-          ) : (
-            <Text style={styles.btnText}>Verify code & set password</Text>
-          )}
-        </Pressable>
+            <Text style={styles.label}>New password</Text>
+            <TextInput
+              style={styles.input}
+              secureTextEntry
+              placeholder="New password"
+              placeholderTextColor={colors.textMuted}
+              value={newPassword}
+              onChangeText={setNewPassword}
+              editable={!busy}
+            />
+            <TextInput
+              style={styles.input}
+              secureTextEntry
+              placeholder="Confirm new password"
+              placeholderTextColor={colors.textMuted}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              editable={!busy}
+            />
+            <PasswordRequirementsLive
+              password={newPassword}
+              confirmPassword={confirmPassword}
+              colors={colors}
+            />
+
+            <Pressable
+              style={[styles.btn, (!canReset || busy) && { opacity: 0.65 }]}
+              onPress={() => void onReset()}
+              disabled={busy || !canReset}
+            >
+              {busy ? (
+                <ActivityIndicator color={colors.fabIcon} />
+              ) : (
+                <Text style={styles.btnText}>Verify code & set password</Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              style={styles.linkBtn}
+              onPress={() => void onSendOtp()}
+              disabled={busy}
+            >
+              <Text style={styles.link}>Resend code</Text>
+            </Pressable>
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -269,6 +312,16 @@ function makeStyles(c: ThemeColors) {
       marginBottom: rs(12),
       backgroundColor: c.surface,
     },
+    inputError: {
+      borderColor: c.danger,
+      marginBottom: rs(4),
+    },
+    errorText: {
+      color: c.danger,
+      fontSize: rs(12),
+      fontWeight: '600',
+      marginBottom: rs(12),
+    },
     btn: {
       backgroundColor: c.fab,
       borderRadius: rs(12),
@@ -277,5 +330,7 @@ function makeStyles(c: ThemeColors) {
       marginTop: rs(4),
     },
     btnText: { color: c.fabIcon, fontWeight: '800', fontSize: rs(15) },
+    linkBtn: { alignItems: 'center', marginTop: rs(16), paddingVertical: rs(8) },
+    link: { color: c.primary, fontWeight: '600', fontSize: rs(14) },
   });
 }
