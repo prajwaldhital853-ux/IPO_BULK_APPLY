@@ -12,6 +12,12 @@ export const PATHS = {
   captcha: '/api/meroShare/auth/captcha/',
   /** After login — GET with Authorization token */
   me: '/api/meroShare/ownDetail/',
+  /**
+   * My Details page (DOB, citizenship, father/mother name).
+   * GET with Authorization; `{boid}` is ownDetail.demat (16-digit).
+   */
+  myDetail: (boid: string) =>
+    `/api/meroShareView/myDetail/${encodeURIComponent(boid)}`,
   /** POST { sortBy, demat[], clientCode, page, size } — live share holdings */
   myPortfolio: '/api/meroShareView/myPortfolio/',
   /** POST filter body — searchable applicable issues */

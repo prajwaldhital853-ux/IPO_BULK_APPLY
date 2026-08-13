@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from ..auth.deps import utcnow
 from ..auth.jwt_tokens import create_admin_token
+from ..config import get_settings
 from ..auth.subscription import (
     DEFAULT_PLAN_DETAILS,
     PLAN_CATALOG,

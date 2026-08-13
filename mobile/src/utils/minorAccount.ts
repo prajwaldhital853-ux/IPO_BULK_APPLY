@@ -199,50 +199,103 @@ export function dobWithDaysUntil18(daysLeft: number, now = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+const DOB_KEY_ALIASES = new Set(
+  [
+    'dateofbirth',
+    'dateofbirthstr',
+    'dob',
+    'dobstr',
+    'birthdate',
+    'birthdatestr',
+    'dateofbirthad',
+    'birthday',
+    'customerdateofbirth',
+    'accountholderdob',
+  ].map((s) => s.toLowerCase()),
+);
+
+function walkRecords(
+  raw: unknown,
+  depth = 0,
+  acc: Record<string, unknown>[] = [],
+): Record<string, unknown>[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || depth > 3) {
+    return acc;
+  }
+  const rec = raw as Record<string, unknown>;
+  acc.push(rec);
+  for (const value of Object.values(rec)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      walkRecords(value, depth + 1, acc);
+    }
+  }
+  return acc;
+}
+
+function parseDobValue(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  const parsed = parseDobInput(String(value));
+  if (parsed) return parsed;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const ms = value > 1e12 ? value : value * 1000;
+    const dt = new Date(ms);
+    if (!Number.isNaN(dt.getTime())) {
+      return parseDobInput(
+        `${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()}`,
+      );
+    }
+  }
+  return null;
+}
+
+function isDobKey(key: string): boolean {
+  const k = key.toLowerCase().replace(/[_\s-]/g, '');
+  if (DOB_KEY_ALIASES.has(k)) return true;
+  // My Details labels / nested KYC — avoid expiry / password dates.
+  return k.includes('dateofbirth');
+}
+
 /**
- * Pull DOB from MeroShare / CDSC ownDetail when the API exposes it.
+ * Pull DOB from MeroShare ownDetail or My Details (`dob`).
  * Returns ISO `YYYY-MM-DD` or null.
  */
 export function extractDobFromOwnDetail(
   raw: Record<string, unknown> | null | undefined,
 ): string | null {
   if (!raw || typeof raw !== 'object') return null;
-  const flat: Record<string, unknown> = { ...raw };
-  const inner = raw.object;
-  if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
-    Object.assign(flat, inner as Record<string, unknown>);
-  }
-
-  const aliases = [
-    'dateOfBirth',
-    'dateOfBirthStr',
-    'dob',
-    'dobStr',
-    'birthDate',
-    'birthDateStr',
-    'dateOfBirthAD',
-    'birthDay',
-    'customerDateOfBirth',
-    'accountHolderDob',
-  ];
-
-  for (const alias of aliases) {
-    const target = alias.toLowerCase();
-    for (const [key, value] of Object.entries(flat)) {
-      if (key.toLowerCase() !== target) continue;
-      if (value == null || value === '') continue;
-      const parsed = parseDobInput(String(value));
+  for (const rec of walkRecords(raw)) {
+    for (const [key, value] of Object.entries(rec)) {
+      if (!isDobKey(key)) continue;
+      const parsed = parseDobValue(value);
       if (parsed) return parsed;
-      // Epoch ms / seconds
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        const ms = value > 1e12 ? value : value * 1000;
-        const dt = new Date(ms);
-        if (!Number.isNaN(dt.getTime())) {
-          return parseDobInput(
-            `${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()}`,
-          );
-        }
-      }
+    }
+  }
+  return null;
+}
+
+const GUARDIAN_KEY_ALIASES = new Set(
+  [
+    'fathermothername',
+    'fathername',
+    'mothername',
+    'guardianname',
+    'parentname',
+    'guardian',
+  ].map((s) => s.toLowerCase()),
+);
+
+/** Parent / guardian name from My Details when present. */
+export function extractGuardianFromProfile(
+  raw: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!raw || typeof raw !== 'object') return null;
+  for (const rec of walkRecords(raw)) {
+    for (const [key, value] of Object.entries(rec)) {
+      const k = key.toLowerCase().replace(/[_\s-]/g, '');
+      if (!GUARDIAN_KEY_ALIASES.has(k)) continue;
+      if (typeof value !== 'string') continue;
+      const name = value.trim();
+      if (name && name.toUpperCase() !== 'N/A') return name;
     }
   }
   return null;

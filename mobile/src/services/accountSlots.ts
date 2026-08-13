@@ -1,8 +1,8 @@
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
-import { AUTH_ENABLED } from '../auth/config';
-import { authFetch } from '../auth/http';
-import { getInstallDeviceId } from '../../storage/installDeviceId';
+import { AUTH_ENABLED } from './auth/config';
+import { authFetch } from './auth/http';
+import { getInstallDeviceId } from '../storage/installDeviceId';
 
 export type SlotDevice = {
   deviceId: string;

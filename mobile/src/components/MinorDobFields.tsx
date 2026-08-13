@@ -22,6 +22,8 @@ type Props = {
   onGuardianNameChange: (next: string) => void;
   /** Compact spacing when nested inside another card */
   compact?: boolean;
+  detecting?: boolean;
+  autoFilled?: boolean;
 };
 
 /** DOB via keypad (AD) or Nepali calendar icon — only needed if account is MINOR. */
@@ -31,6 +33,8 @@ export function MinorDobFields({
   guardianName,
   onGuardianNameChange,
   compact,
+  detecting,
+  autoFilled,
 }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -50,6 +54,11 @@ export function MinorDobFields({
       <Text style={styles.hint}>
         If MINOR: type DOB or tap calendar. Otherwise ignore / don’t add.
       </Text>
+      {detecting ? (
+        <Text style={styles.statusHint}>Reading DOB from MeroShare…</Text>
+      ) : autoFilled ? (
+        <Text style={styles.statusHint}>Filled from MeroShare My Details</Text>
+      ) : null}
 
       <FormField
         emphasized
@@ -137,6 +146,12 @@ function makeStyles(c: ThemeColors) {
       lineHeight: rs(18),
       fontWeight: '700',
       marginBottom: rs(10),
+    },
+    statusHint: {
+      color: c.textMuted,
+      fontSize: rs(12),
+      fontWeight: '600',
+      marginBottom: rs(8),
     },
     bsHint: {
       color: c.textMuted,

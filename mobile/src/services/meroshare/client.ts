@@ -42,6 +42,18 @@ type BankBranch = {
   accountTypeId: number;
 };
 
+/** CDSC often wraps payloads in `{ object: { ... } }`. */
+function flattenCdscObject(
+  data: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  if (!data || typeof data !== 'object') return {};
+  const inner = data.object;
+  if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+    return { ...data, ...(inner as Record<string, unknown>) };
+  }
+  return data;
+}
+
 const APPLICABLE_PAYLOAD = {
   filterFieldParams: [
     { key: 'companyIssue.companyISIN.script', alias: 'Scrip' },
@@ -387,15 +399,55 @@ export class MeroshareClient {
       method: 'GET',
       auth: true,
     });
-    if (!data || typeof data !== 'object') return {};
-    const inner = (data as { object?: unknown }).object;
-    if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
-      return {
-        ...(data as Record<string, unknown>),
-        ...(inner as Record<string, unknown>),
-      };
+    return flattenCdscObject(data);
+  }
+
+  /**
+   * My Details (DOB, citizenship, father/mother). `{boid}` is 16-digit demat.
+   */
+  async fetchMyDetailRaw(boid?: string): Promise<Record<string, unknown>> {
+    if (!this.session) {
+      throw new MeroshareError('AUTH', 'Not logged in');
     }
-    return data as Record<string, unknown>;
+    const id = (
+      boid ??
+      this.session.demat ??
+      this.session.boid ??
+      ''
+    ).trim();
+    if (!id) return {};
+    const data = await this.request<Record<string, unknown>>(
+      PATHS.myDetail(id),
+      { method: 'GET', auth: true },
+    );
+    return flattenCdscObject(data);
+  }
+
+  /**
+   * ownDetail + My Details merged. My Details wins for DOB / guardian fields.
+   */
+  async fetchAccountProfileRaw(): Promise<Record<string, unknown>> {
+    const own = await this.fetchOwnDetailRaw();
+    const demat = String(
+      own.demat ?? own.boid ?? this.session?.demat ?? this.session?.boid ?? '',
+    ).trim();
+    if (this.session) {
+      if (typeof own.demat === 'string' && own.demat) {
+        this.session.demat = own.demat;
+      }
+      if (typeof own.boid === 'string' && own.boid) {
+        this.session.boid = own.boid;
+      } else if (demat) {
+        this.session.boid = demat;
+      }
+    }
+    let my: Record<string, unknown> = {};
+    try {
+      my = await this.fetchMyDetailRaw(demat || undefined);
+    } catch {
+      // My Details is optional — ownDetail still usable
+    }
+    return { ...own, ...my };
   }
 
   /**

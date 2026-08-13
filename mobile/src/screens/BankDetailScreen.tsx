@@ -31,6 +31,8 @@ import { guardAddAccountAsync } from '../utils/accountLimits';
 import {
   buildMinorMetaFields,
   extractDobFromOwnDetail,
+  extractGuardianFromProfile,
+  isMinorFromDob,
 } from '../utils/minorAccount';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
@@ -169,35 +171,49 @@ export function BankDetailScreen() {
           username: draft.username,
           password: draft.password,
         });
-        const banks = await client.listBanksWithRetry();
-        if (!mounted) return;
-        if (banks.length) {
-          setLinkedBank(banks[0].name || `Bank #${banks[0].id}`);
-        } else {
+        try {
+          const banks = await client.listBanksWithRetry();
+          if (!mounted) return;
+          if (banks.length) {
+            setLinkedBank(banks[0].name || `Bank #${banks[0].id}`);
+          } else {
+            setLinkedBank(draft.dpName);
+            setBankError(
+              'No ASBA bank found on MeroShare. You can still enter CRN/PIN if your DP is correct.',
+            );
+          }
+        } catch (e) {
+          if (!mounted) return;
           setLinkedBank(draft.dpName);
+          const msg =
+            e instanceof Error ? e.message : 'MeroShare bank list failed';
           setBankError(
-            'No ASBA bank found on MeroShare. You can still enter CRN/PIN if your DP is correct.',
+            /unable to process/i.test(msg)
+              ? 'MeroShare bank list is busy right now. Showing your DP name instead — you can still enter CRN/PIN and tap Verify & Save.'
+              : `Could not load linked bank (${msg}). You can still enter CRN/PIN and save.`,
           );
         }
-        // Auto-detect DOB from ownDetail when MeroShare exposes it.
+        // Auto-detect DOB from My Details (ownDetail usually has no DOB).
         try {
-          const detail = await client.fetchOwnDetailRaw();
+          const detail = await client.fetchAccountProfileRaw();
           const dob = extractDobFromOwnDetail(detail);
           if (dob && mounted && !dobTouchedRef.current) {
             setDateOfBirth(dob);
             setDobAutoFilled(true);
+            const guardian = extractGuardianFromProfile(detail);
+            if (isMinorFromDob(dob) && guardian) {
+              setGuardianName((prev) => prev.trim() || guardian);
+            }
           }
         } catch {
-          // ownDetail DOB is optional
+          // My Details DOB is optional — keypad / Nepali calendar remain
         }
       } catch (e) {
         if (!mounted) return;
         setLinkedBank(draft.dpName);
-        const msg = e instanceof Error ? e.message : 'MeroShare bank list failed';
+        const msg = e instanceof Error ? e.message : 'MeroShare login failed';
         setBankError(
-          /unable to process/i.test(msg)
-            ? 'MeroShare bank list is busy right now. Showing your DP name instead — you can still enter CRN/PIN and tap Verify & Save.'
-            : `Could not load linked bank (${msg}). You can still enter CRN/PIN and save.`,
+          `Could not sign in to MeroShare (${msg}). You can still enter CRN/PIN and DOB, then save.`,
         );
       } finally {
         client.clearSession();
@@ -426,6 +442,8 @@ export function BankDetailScreen() {
             }}
             guardianName={guardianName}
             onGuardianNameChange={setGuardianName}
+            detecting={detectingDob}
+            autoFilled={dobAutoFilled}
           />
         </View>
 

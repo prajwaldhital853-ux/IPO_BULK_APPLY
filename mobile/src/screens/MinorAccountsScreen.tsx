@@ -208,8 +208,13 @@ export function MinorAccountsScreen() {
         const info = await fetchMinorAccountInfo(
           account,
           secrets?.password,
-          async (dob) => {
-            await updateAccountMeta(account.id, minorMetaFromDob(dob));
+          async (dob, extras) => {
+            await updateAccountMeta(account.id, {
+              ...minorMetaFromDob(dob),
+              ...(extras?.guardianName
+                ? { guardianName: extras.guardianName }
+                : {}),
+            });
           },
         );
         bump(info);

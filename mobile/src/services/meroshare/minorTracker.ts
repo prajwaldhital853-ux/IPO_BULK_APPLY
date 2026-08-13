@@ -5,6 +5,7 @@ import {
   ageYears,
   daysUntilMajority,
   extractDobFromOwnDetail,
+  extractGuardianFromProfile,
   formatCountdownLabel,
   holderTypeFromDob,
   isMinorFromDob,
@@ -26,13 +27,16 @@ export type MinorFetchResult = {
 };
 
 /**
- * Resolve whether an account is minor: local DOB first, else MeroShare ownDetail.
+ * Resolve whether an account is minor: local DOB first, else MeroShare My Details.
  * Optionally persist newly discovered DOB via `onDobFound`.
  */
 export async function fetchMinorAccountInfo(
   account: AccountMeta,
   password: string | null | undefined,
-  onDobFound?: (dob: string) => Promise<void>,
+  onDobFound?: (
+    dob: string,
+    extras?: { guardianName?: string },
+  ) => Promise<void>,
 ): Promise<MinorFetchResult> {
   const base = {
     accountId: account.id,
@@ -112,18 +116,22 @@ export async function fetchMinorAccountInfo(
       dpCode: account.dpCode,
       dpName: account.dpName,
     });
-    const detail = await client.fetchOwnDetailRaw();
+    const detail = await client.fetchAccountProfileRaw();
     client.clearSession();
     const dob = extractDobFromOwnDetail(detail);
     if (dob) {
+      const guardian = isMinorFromDob(dob)
+        ? extractGuardianFromProfile(detail) ?? undefined
+        : undefined;
       if (onDobFound) {
         try {
-          await onDobFound(dob);
+          await onDobFound(dob, guardian ? { guardianName: guardian } : undefined);
         } catch {
           /* persist is best-effort */
         }
       }
-      return fromLocal(dob, 'meroshare');
+      const result = fromLocal(dob, 'meroshare');
+      return guardian ? { ...result, guardianName: guardian } : result;
     }
     return {
       ...base,
