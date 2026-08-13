@@ -98,15 +98,8 @@ export function SubscriptionScreen() {
     setSigningIn(true);
     try {
       await auth.signInWithGoogle();
-    } catch (e: unknown) {
-      Alert.alert(
-        /temporarily blocked/i.test(
-          e instanceof Error ? e.message : '',
-        )
-          ? 'Temporarily blocked'
-          : 'Sign in failed',
-        e instanceof Error ? e.message : 'Could not sign in with Google.',
-      );
+    } catch {
+      // AuthContext already shows Alert (blocked / failed).
     } finally {
       setSigningIn(false);
     }

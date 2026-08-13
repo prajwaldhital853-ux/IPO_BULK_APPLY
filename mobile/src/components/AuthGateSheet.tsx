@@ -48,10 +48,11 @@ export function AuthGateSheet({
     } catch (e) {
       const message =
         e instanceof Error ? e.message : 'Sign-in failed';
-      setError(message);
-      if (/temporarily blocked/i.test(message)) {
-        // Keep guest usable — dismiss sheet if they prefer local use.
+      if (/sign-in cancelled|signin cancelled|cancelled/i.test(message)) {
+        return;
       }
+      // AuthContext already alerts; also keep in-sheet text for blocked/failed.
+      setError(message);
     } finally {
       setBusy(false);
     }

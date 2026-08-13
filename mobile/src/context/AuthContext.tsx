@@ -6,7 +6,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import {
   AUTH_API_BASE,
   AUTH_ENABLED,
@@ -166,11 +166,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (Platform.OS === 'web') {
       throw new Error('Google sign-in on web is not configured yet.');
     }
-    const idToken = isExpoGo()
-      ? await signInWithGoogleExpoGo()
-      : await signInWithGoogleNative();
-    const session = await authGoogle(idToken, AUTH_API_BASE);
-    await applySession(session);
+    try {
+      const idToken = isExpoGo()
+        ? await signInWithGoogleExpoGo()
+        : await signInWithGoogleNative();
+      const session = await authGoogle(idToken, AUTH_API_BASE);
+      await applySession(session);
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : 'Could not sign in with Google.';
+      if (/sign-in cancelled|signin cancelled|cancelled/i.test(message)) {
+        // User closed the Google sheet — no error dialog.
+        return;
+      }
+      const blocked = /temporarily blocked/i.test(message);
+      Alert.alert(
+        blocked ? 'Temporarily blocked' : 'Sign in failed',
+        blocked
+          ? `${message}\n\nYou can still use the app as a guest without signing in.`
+          : message,
+      );
+      throw e;
+    }
   }, [applySession]);
 
   const signOut = useCallback(async () => {

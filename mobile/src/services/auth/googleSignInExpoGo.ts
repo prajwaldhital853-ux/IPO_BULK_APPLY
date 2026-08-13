@@ -22,6 +22,8 @@ export async function signInWithGoogleExpoGo(): Promise<string> {
     usePKCE: false,
     extraParams: {
       nonce: `${Date.now()}${Math.random().toString(36).slice(2)}`,
+      // Always show the Google account chooser (don't reuse last account silently).
+      prompt: 'select_account',
     },
   });
 

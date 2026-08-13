@@ -50,6 +50,12 @@ export async function signInWithGoogleNative(): Promise<string> {
   const { GoogleSignin, isCancelledResponse, isSuccessResponse } =
     await loadGoogleSignIn();
   await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  // Clear the previous Google session so the account chooser always appears.
+  try {
+    await GoogleSignin.signOut();
+  } catch {
+    // ignore — first-time users may not be signed in yet
+  }
   const response = await GoogleSignin.signIn();
   if (isCancelledResponse(response)) {
     throw new Error('Google sign-in cancelled');
