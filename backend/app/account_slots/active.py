@@ -11,11 +11,30 @@ from ..db.models import UserActiveAccounts
 _KEY_RE = re.compile(r'^[du]:.{2,80}$')
 
 
+def _parts(raw: str) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for piece in (raw or '').strip().lower().split(';'):
+        piece = piece.strip()[:96]
+        if piece and _KEY_RE.match(piece) and piece not in seen:
+            seen.add(piece)
+            out.append(piece)
+    return out
+
+
 def normalize_active_key(raw: str) -> str | None:
-    key = (raw or '').strip().lower()
-    if not key or not _KEY_RE.match(key):
+    parts = _parts(raw)
+    if not parts:
         return None
-    return key[:96]
+    return ';'.join(parts)[:120]
+
+
+def key_aliases(raw: str) -> set[str]:
+    return set(_parts(raw))
+
+
+def keys_overlap(left: str, right: str) -> bool:
+    return bool(key_aliases(left) & key_aliases(right))
 
 
 def parse_keys(raw: str | None) -> list[str]:
@@ -69,30 +88,38 @@ async def save_active_set(
             seen.add(key)
             cleaned.append(key)
 
-    if confirmed_for_max < 1:
-        raise ValueError('Invalid plan limit')
-    if confirmed_for_max > max_accounts:
-        raise ValueError('confirmedForMax exceeds plan limit')
+    confirmed_for_max = int(max_accounts)
     if not cleaned:
         raise ValueError('Select at least one active account')
+    # Collapse aliases that point at the same demat.
+    collapsed: list[str] = []
+    for key in cleaned:
+        if any(keys_overlap(key, e) for e in collapsed):
+            continue
+        collapsed.append(key)
+    cleaned = collapsed
     if len(cleaned) > max_accounts:
         raise ValueError(
             f'Your plan allows {max_accounts} active accounts across all phones',
         )
 
     existing_keys, existing_max = await get_active_set(db, user_id)
-    if existing_keys and existing_max == confirmed_for_max:
-        # Locked set: cannot drop any previously confirmed key.
-        missing = [k for k in existing_keys if k not in cleaned]
+    if existing_keys and existing_max == max_accounts:
+        # Locked set for this plan: cannot swap in a different group of demats.
+        missing = [
+            k
+            for k in existing_keys
+            if not any(keys_overlap(k, n) for n in cleaned)
+        ]
         if missing:
             raise ValueError(
-                'Active accounts are locked for this plan across all your phones. '
-                'You cannot swap them out. Delete an active account first to free a slot.',
+                'Active accounts are already chosen for this Google account '
+                'on another phone. You cannot pick a different set. '
+                'Delete an active account first to free a slot.',
             )
-        # Keep original order, then append new fills.
         ordered = list(existing_keys)
         for key in cleaned:
-            if key not in ordered:
+            if not any(keys_overlap(key, e) for e in ordered):
                 ordered.append(key)
         cleaned = ordered[:max_accounts]
 
@@ -127,15 +154,18 @@ async def prune_active_keys(
     if not existing_keys:
         return [], 0
 
-    drop: set[str] = set()
+    drop_parts: set[str] = set()
     for raw in remove_keys:
+        drop_parts |= key_aliases(str(raw))
         key = normalize_active_key(str(raw))
         if key:
-            drop.add(key)
-    if not drop:
+            drop_parts |= key_aliases(key)
+    if not drop_parts:
         return existing_keys, existing_max
 
-    remaining = [k for k in existing_keys if k not in drop]
+    remaining = [
+        k for k in existing_keys if not (key_aliases(k) & drop_parts)
+    ]
     row = await db.get(UserActiveAccounts, user_id)
     now = datetime.now(UTC)
 

@@ -212,14 +212,9 @@ async def get_shared_active_accounts(
             await clear_active_set(db, user.id)
             await db.commit()
         return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
-    # Plan cap changed → unlock so every phone must pick again for the new limit.
-    if confirmed and confirmed != max_acc:
-        await clear_active_set(db, user.id)
-        await db.commit()
-        keys, confirmed = [], 0
     return ActiveSetOut(
         keys=keys,
-        confirmedForMax=confirmed if confirmed == max_acc else 0,
+        confirmedForMax=confirmed if keys else 0,
         maxAccounts=max_acc,
     )
 
@@ -259,9 +254,19 @@ async def delete_shared_active_accounts(
     db: AsyncSession = Depends(get_db),
 ) -> ActiveSetOut:
     max_acc = await _max_for_user(db, user.id)
-    await clear_active_set(db, user.id)
-    await db.commit()
-    return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
+    # Clients used to wipe the shared set when THIS phone was under quota
+    # (including while accounts were still loading). That unlocked every
+    # other phone. Only unlimited plans may clear.
+    if is_unlimited(max_acc):
+        await clear_active_set(db, user.id)
+        await db.commit()
+        return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
+    keys, confirmed = await get_active_set(db, user.id)
+    return ActiveSetOut(
+        keys=keys,
+        confirmedForMax=confirmed if confirmed == max_acc else 0,
+        maxAccounts=max_acc,
+    )
 
 
 class PruneActiveIn(BaseModel):

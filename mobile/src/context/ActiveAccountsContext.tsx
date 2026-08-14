@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { Alert } from 'react-native';
@@ -29,7 +30,6 @@ import { isUnlimitedAccountLimit } from '../storage/subscriptionStorage';
 import {
   fetchSharedActiveAccounts,
   putSharedActiveAccounts,
-  clearSharedActiveAccounts,
   pruneSharedActiveAccounts,
 } from '../services/accountSlots';
 
@@ -52,43 +52,56 @@ type ActiveAccountsValue = {
 const ActiveAccountsContext = createContext<ActiveAccountsValue | null>(null);
 
 export function ActiveAccountsProvider({ children }: { children: React.ReactNode }) {
-  const { accounts } = useAccounts();
+  const { accounts, loading: accountsLoading } = useAccounts();
   const { maxAccounts } = useSubscription();
   const auth = useAuth();
   const [stored, setStored] = useState<ActiveSlotsStored | null>(null);
+  const [syncReady, setSyncReady] = useState(false);
   const signedIn = Boolean(AUTH_ENABLED && auth.user?.id && !auth.loading);
-  const prevAccountsRef = React.useRef<AccountMeta[] | null>(null);
+  const prevAccountsRef = useRef<AccountMeta[] | null>(null);
 
   useEffect(() => {
     let mounted = true;
+    setSyncReady(false);
     void (async () => {
       const local = await loadActiveSlots();
       if (!signedIn) {
-        if (mounted) setStored(local);
+        if (mounted) {
+          setStored(local);
+          setSyncReady(true);
+        }
         return;
       }
 
       const remote = await fetchSharedActiveAccounts();
       if (!mounted) return;
 
-      if (remote && remote.confirmedForMax === maxAccounts && remote.keys.length > 0) {
+      const remoteCap = remote?.maxAccounts || maxAccounts;
+      if (
+        remote &&
+        remote.keys.length > 0 &&
+        !isUnlimitedAccountLimit(remoteCap)
+      ) {
         const ids = idsMatchingFingerprints(accounts, remote.keys);
         const next: ActiveSlotsStored = {
           ids,
           keys: remote.keys,
-          confirmedForMax: remote.confirmedForMax,
+          confirmedForMax: remote.confirmedForMax || remoteCap,
         };
         await saveActiveSlots(next.ids, next.confirmedForMax, next.keys);
-        if (mounted) setStored(next);
+        if (mounted) {
+          setStored(next);
+          setSyncReady(true);
+        }
         return;
       }
 
-      // Server empty: optionally migrate a local confirmed set once.
+      // Server empty: upload this phone's confirmed set once (first writer).
       if (
         remote &&
         remote.keys.length === 0 &&
         local &&
-        local.confirmedForMax === maxAccounts &&
+        accounts.length > 0 &&
         !isUnlimitedAccountLimit(maxAccounts)
       ) {
         const migrateKeys =
@@ -105,30 +118,31 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
               confirmedForMax: saved.confirmedForMax,
             };
             await saveActiveSlots(next.ids, next.confirmedForMax, next.keys);
-            if (mounted) setStored(next);
+            if (mounted) {
+              setStored(next);
+              setSyncReady(true);
+            }
             return;
           } catch {
-            // Fall through to local-only if upload fails.
+            // Another phone may have locked the set first.
           }
         }
       }
 
-      if (
-        local &&
-        local.confirmedForMax === maxAccounts &&
-        (local.keys?.length || local.ids.length)
-      ) {
+      if (local && (local.keys?.length || local.ids.length)) {
         if (mounted) setStored(local);
-      } else {
-        if (local) await clearActiveSlots();
-        if (mounted) setStored(null);
+      } else if (mounted) {
+        setStored(null);
       }
+      if (mounted) setSyncReady(true);
     })();
     return () => {
       mounted = false;
     };
+    // Re-fetch when sign-in or plan cap changes. Do not depend on
+    // accounts.length — an empty first paint used to wipe the shared set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.user?.id, auth.loading, maxAccounts, signedIn, accounts.length]);
+  }, [auth.user?.id, auth.loading, maxAccounts, signedIn]);
 
   const resolved = useMemo(
     () => resolveActiveSlots(accounts, maxAccounts, stored),
@@ -136,21 +150,28 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
   );
 
   useEffect(() => {
-    if (!resolved.overQuota && stored) {
-      void (async () => {
-        await clearActiveSlots();
-        if (signedIn) await clearSharedActiveAccounts();
-        setStored(null);
-      })();
+    if (!syncReady || accountsLoading) return;
+    if (resolved.overQuota || !stored) return;
+    if (stored.keys?.length && signedIn) return;
+    if (isUnlimitedAccountLimit(maxAccounts) || accounts.length <= maxAccounts) {
+      void clearActiveSlots();
+      setStored(null);
     }
-  }, [resolved.overQuota, stored, signedIn]);
+  }, [
+    accounts.length,
+    accountsLoading,
+    maxAccounts,
+    resolved.overQuota,
+    signedIn,
+    stored,
+    syncReady,
+  ]);
 
   // When an active demat is deleted on this phone, free its shared slot.
   useEffect(() => {
     const prev = prevAccountsRef.current;
     prevAccountsRef.current = accounts;
-    if (!prev || !stored?.keys?.length) return;
-    if (stored.confirmedForMax !== maxAccounts) return;
+    if (!syncReady || !prev || !stored?.keys?.length) return;
 
     const nowKeys = new Set(
       accounts
@@ -160,11 +181,20 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
     const removed = prev
       .map((a) => accountFingerprint(a))
       .filter((k): k is string => Boolean(k))
-      .filter((k) => stored.keys!.includes(k) && !nowKeys.has(k));
+      .filter((k) => {
+        const packed = stored.keys ?? [];
+        const want = packed
+          .flatMap((row) => row.split(';'))
+          .map((p) => p.trim().toLowerCase());
+        return want.includes(k) && !nowKeys.has(k);
+      });
     if (!removed.length) return;
 
     void (async () => {
-      let nextKeys = stored.keys!.filter((k) => !removed.includes(k));
+      let nextKeys = (stored.keys ?? []).filter((row) => {
+        const parts = row.split(';').map((p) => p.trim().toLowerCase());
+        return !parts.some((p) => removed.includes(p));
+      });
       let nextConfirmed = stored.confirmedForMax;
       if (signedIn) {
         const remote = await pruneSharedActiveAccounts(removed);
@@ -173,7 +203,7 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
           nextConfirmed = remote.confirmedForMax;
         }
       }
-      if (!nextKeys.length || nextConfirmed !== maxAccounts) {
+      if (!nextKeys.length) {
         await clearActiveSlots();
         setStored(null);
         return;
@@ -182,7 +212,7 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
       await saveActiveSlots(ids, nextConfirmed, nextKeys);
       setStored({ ids, keys: nextKeys, confirmedForMax: nextConfirmed });
     })();
-  }, [accounts, maxAccounts, signedIn, stored]);
+  }, [accounts, signedIn, stored, syncReady]);
 
   const sharedKeyCount = stored?.keys?.length ?? 0;
 
@@ -205,15 +235,11 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
       const lockedKeys = resolved.lockedKeys;
       const confirmed =
         stored != null &&
-        stored.confirmedForMax === maxAccounts &&
         (lockedKeys.length > 0 || stored.ids.some((id) => exist.has(id)));
 
       let nextIds: string[];
-      if (confirmed) {
-        const lockedLocal = idsMatchingFingerprints(
-          accounts,
-          lockedKeys.length ? lockedKeys : stored!.keys ?? [],
-        );
+      if (confirmed && lockedKeys.length > 0) {
+        const lockedLocal = idsMatchingFingerprints(accounts, lockedKeys);
         const extras = ids.filter(
           (id) => exist.has(id) && !lockedLocal.includes(id),
         );
@@ -265,20 +291,26 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
     [accounts, maxAccounts, resolved.lockedKeys, signedIn, stored],
   );
 
-  // Use shared fingerprint count when signed in so phone B cannot "fill"
-  // just because some demats are not installed locally.
   const effectiveCount =
     sharedKeyCount > 0 ? sharedKeyCount : resolved.activeIds.size;
+  const waitingForSync = signedIn && !syncReady;
+  const needsPick = !waitingForSync && resolved.needsPick;
   const selectionLocked =
-    resolved.overQuota && !resolved.needsPick && effectiveCount >= maxAccounts;
+    !waitingForSync &&
+    resolved.overQuota &&
+    !needsPick &&
+    effectiveCount >= maxAccounts;
   const canFillSlots =
-    resolved.overQuota && !resolved.needsPick && effectiveCount < maxAccounts;
-  const canEditSelection = resolved.needsPick || canFillSlots;
+    !waitingForSync &&
+    resolved.overQuota &&
+    !needsPick &&
+    effectiveCount < maxAccounts;
+  const canEditSelection = needsPick || canFillSlots;
 
   const value = useMemo(
     () => ({
       overQuota: resolved.overQuota,
-      needsPick: resolved.needsPick,
+      needsPick,
       selectionLocked,
       canFillSlots,
       canEditSelection,
@@ -294,8 +326,8 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
       canFillSlots,
       isAccountActive,
       maxAccounts,
+      needsPick,
       resolved.activeIds,
-      resolved.needsPick,
       resolved.overQuota,
       resolved.suggestedIds,
       saveSelection,
