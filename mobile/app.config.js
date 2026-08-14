@@ -43,7 +43,9 @@ module.exports = {
       favicon: './assets/nepse-ghar-logo.png',
     },
     plugins: [
-      ...(process.env.EAS_BUILD_PROFILE === 'development'
+      // Dev client for local USB builds (npm run android:dev). EAS preview/production
+      // builds do not set LOCAL_DEV, so those APKs stay normal release-style.
+      ...(process.env.LOCAL_DEV === '1' || process.env.EAS_BUILD_PROFILE === 'development'
         ? ['expo-dev-client']
         : []),
       [
