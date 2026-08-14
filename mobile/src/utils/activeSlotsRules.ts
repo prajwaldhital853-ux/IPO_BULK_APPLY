@@ -29,7 +29,7 @@ export type ActiveSlotsStored = {
 };
 
 export type ActiveSlotsResolved = {
-  /** This phone holds demats that the plan cap keeps locked. */
+  /** Plan cap is exceeded across all phones (admin lowered limit, etc.). */
   overQuota: boolean;
   activeIds: Set<string>;
   lockedIds: string[];
@@ -47,6 +47,17 @@ function queueOrder(accounts: AccountMeta[]): AccountMeta[] {
     if (ta !== tb) return ta - tb;
     return a.id.localeCompare(b.id);
   });
+}
+
+function claimedTotal(
+  accounts: AccountMeta[],
+  stored: ActiveSlotsStored | null,
+): number {
+  const local = accounts.length;
+  if (stored && stored.total > 0) {
+    return Math.max(stored.total, local);
+  }
+  return local;
 }
 
 /**
@@ -70,18 +81,23 @@ export function resolveActiveSlots(
     };
   }
 
+  const total = claimedTotal(accounts, stored);
+  const globalOver = total > maxAccounts;
+  const staleCap =
+    stored != null && stored.maxAccounts > 0 && stored.maxAccounts !== maxAccounts;
+
   const serverKeys =
-    stored && stored.maxAccounts === maxAccounts ? stored.keys : [];
+    stored && !staleCap ? stored.keys.slice(0, maxAccounts) : [];
 
   if (serverKeys.length) {
     const activeIds = new Set(idsMatchingFingerprints(accounts, serverKeys));
     const lockedIds = allIds.filter((id) => !activeIds.has(id));
     return {
-      overQuota: lockedIds.length > 0,
+      overQuota: globalOver,
       activeIds,
       lockedIds,
-      activeCount: Math.min(serverKeys.length, maxAccounts),
-      total: Math.max(stored?.total ?? 0, serverKeys.length),
+      activeCount: serverKeys.length,
+      total,
     };
   }
 
@@ -89,10 +105,10 @@ export function resolveActiveSlots(
   const activeIds = new Set(ordered.slice(0, maxAccounts).map((a) => a.id));
   const lockedIds = ordered.slice(maxAccounts).map((a) => a.id);
   return {
-    overQuota: lockedIds.length > 0,
+    overQuota: globalOver,
     activeIds,
     lockedIds,
     activeCount: activeIds.size,
-    total: allIds.length,
+    total,
   };
 }

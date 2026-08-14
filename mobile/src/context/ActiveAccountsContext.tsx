@@ -67,9 +67,6 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
   useEffect(() => {
     let mounted = true;
     void (async () => {
-      const cached = await loadActiveSlots();
-      if (mounted && cached) setStored(cached);
-
       if (!signedIn) {
         // Guest: cap is enforced locally with the same oldest-first rule.
         if (mounted) {
@@ -86,7 +83,13 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
       }
 
       const status = await syncAccountSlots(keys, accounts.length);
-      if (!mounted || !status) return;
+      if (!mounted) return;
+      if (!status) {
+        const cached = await loadActiveSlots();
+        if (mounted && cached) setStored(cached);
+        return;
+      }
+
       setServerMax(status.maxAccounts);
       if (isUnlimitedAccountLimit(status.maxAccounts)) {
         await clearActiveSlots();

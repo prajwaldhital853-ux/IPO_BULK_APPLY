@@ -61,7 +61,7 @@ function run() {
     const a = phone('13013700', 10);
     // Phone A registered first, so its demats own the 10 active slots.
     const r = resolveActiveSlots(a, 10, server(dematKeys('13013700', 10), 10, 20));
-    assert(!r.overQuota, 'phone A keeps all 10 active');
+    assert(r.overQuota, 'global cap exceeded even when this phone holds active slots');
     assert(r.activeIds.size === 10, 'A has the 10 active demats');
   }
   {
@@ -98,6 +98,15 @@ function run() {
     const r = resolveActiveSlots(b, 20, server(dematKeys('13013700', 20), 20, 20));
     assert(!r.overQuota, 'mirrored phones are not over quota');
     assert(r.activeIds.size === 20, 'all mirrored demats active');
+  }
+
+  // --- Admin drops 10 → 2 with 5 saved: only 2 oldest active everywhere. ---
+  {
+    const a = phone('13013700', 5);
+    const r = resolveActiveSlots(a, 2, server(dematKeys('13013700', 2), 2, 5));
+    assert(r.overQuota, '5 saved with cap 2 is over quota');
+    assert(r.activeIds.size === 2, 'only first 2 demats active');
+    assert(r.lockedIds.length === 3, 'other 3 on this phone locked');
   }
 
   // --- Stale cache for an old cap is ignored; local rule applies instead. ---
