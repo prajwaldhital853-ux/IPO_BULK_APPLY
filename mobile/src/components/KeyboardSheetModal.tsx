@@ -31,6 +31,8 @@ type Props = {
   titleStyle?: StyleProp<TextStyle>;
   subtitleStyle?: StyleProp<TextStyle>;
   footerStyle?: StyleProp<ViewStyle>;
+  scrollContentStyle?: StyleProp<ViewStyle>;
+  showsVerticalScrollIndicator?: boolean;
 };
 
 function keyboardOcclusion(e: {
@@ -65,6 +67,8 @@ export function KeyboardSheetModal({
   titleStyle,
   subtitleStyle,
   footerStyle,
+  scrollContentStyle,
+  showsVerticalScrollIndicator = false,
 }: Props) {
   const [keyboardLift, setKeyboardLift] = useState(0);
 
@@ -165,10 +169,11 @@ export function KeyboardSheetModal({
         <ScrollView
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          showsVerticalScrollIndicator={false}
-          bounces={false}
+          showsVerticalScrollIndicator={showsVerticalScrollIndicator}
+          nestedScrollEnabled
+          bounces
           style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, scrollContentStyle]}
         >
           <View style={[styles.handle, handleStyle]} />
           <Text style={[styles.title, titleStyle]}>{title}</Text>
@@ -237,8 +242,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   scrollContent: {
-    paddingBottom: rs(4),
-    flexGrow: 0,
+    paddingBottom: rs(8),
   },
   handle: {
     alignSelf: 'center',

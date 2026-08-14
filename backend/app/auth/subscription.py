@@ -224,6 +224,11 @@ async def get_pending_request(
     )
 
 
+def reset_user_limit_after_premium_end(user: User) -> None:
+    """Drop admin/premium overrides so the free default cap (10) applies again."""
+    user.max_accounts = None
+
+
 async def expire_premium_if_needed(
     db: AsyncSession,
     user: User,
@@ -238,6 +243,7 @@ async def expire_premium_if_needed(
     await db.delete(row)
     await db.flush()
     user.premium = None
+    reset_user_limit_after_premium_end(user)
     return True
 
 
@@ -324,6 +330,9 @@ async def clear_premium(db: AsyncSession, user_id: str) -> None:
     )
     if row is not None:
         await db.delete(row)
+    user = await db.scalar(select(User).where(User.id == user_id))
+    if user is not None:
+        reset_user_limit_after_premium_end(user)
 
 
 async def load_user_with_premium(db: AsyncSession, user_id: str) -> User | None:

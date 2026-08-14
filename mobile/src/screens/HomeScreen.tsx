@@ -27,13 +27,17 @@ import { isMockAccountId } from '../data/mockAccounts';
 import { useAccounts } from '../context/AccountsContext';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useAppBranding } from '../context/AppBrandingContext';
+import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import { exportFullAccountsExcel } from '../services/accounts/backup';
 import { loadAccountMeta } from '../storage/accountsStorage';
 import type { ThemeColors } from '../theme/colors';
-import { guardAddAccountAsync } from '../utils/accountLimits';
+import {
+  ensureGoogleSignedInForAddAccount,
+  guardAddAccountAsync,
+} from '../utils/accountLimits';
 import {
   isMinorAccount,
 } from '../utils/minorAccount';
@@ -183,6 +187,7 @@ export function HomeScreen() {
     removeMockAccounts,
   } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
+  const { isAuthenticated, signInWithGoogle } = useAuth();
   const { isAccountActive } = useActiveAccounts();
   const { refresh: refreshBranding } = useAppBranding();
   const { colors, isDark } = useTheme();
@@ -190,6 +195,14 @@ export function HomeScreen() {
 
   const goAddCapital = useCallback(() => {
     void (async () => {
+      if (
+        !(await ensureGoogleSignedInForAddAccount(
+          isAuthenticated,
+          signInWithGoogle,
+        ))
+      ) {
+        return;
+      }
       if (
         !(await guardAddAccountAsync({
           currentCount: accounts.length,
@@ -202,7 +215,14 @@ export function HomeScreen() {
       }
       navigation.navigate('AddCapital');
     })();
-  }, [accounts.length, isPremium, maxAccounts, navigation]);
+  }, [
+    accounts.length,
+    isAuthenticated,
+    isPremium,
+    maxAccounts,
+    navigation,
+    signInWithGoogle,
+  ]);
 
   useEffect(() => {
     void refreshBranding();

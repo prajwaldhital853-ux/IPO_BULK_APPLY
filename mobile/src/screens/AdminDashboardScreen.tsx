@@ -1,10 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Keyboard,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -41,6 +39,7 @@ import { clearAdminToken, loadAdminToken } from '../services/admin/adminTokenSto
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
+import { KeyboardSheetModal } from '../components/KeyboardSheetModal';
 
 type Tab = 'users' | 'subscriptions' | 'feedback';
 type SubFilter = 'all' | 'pending' | 'approved' | 'rejected';
@@ -98,21 +97,6 @@ export function AdminDashboardScreen() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailItem | null>(null);
   const [customMaxAccounts, setCustomMaxAccounts] = useState('');
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const detailScrollRef = useRef<ScrollView>(null);
-
-  useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const onShow = Keyboard.addListener(showEvt, (e) => {
-      setKeyboardHeight(e.endCoordinates.height);
-    });
-    const onHide = Keyboard.addListener(hideEvt, () => setKeyboardHeight(0));
-    return () => {
-      onShow.remove();
-      onHide.remove();
-    };
-  }, []);
 
   const load = useCallback(
     async (
@@ -445,7 +429,9 @@ export function AdminDashboardScreen() {
       <Pressable
         style={styles.compactRow}
         onPress={() => {
-          setCustomMaxAccounts('');
+          setCustomMaxAccounts(
+            item.maxAccounts >= 999999 ? '' : String(item.maxAccounts),
+          );
           setDetail({ kind: 'user', data: item });
         }}
       >
@@ -553,13 +539,10 @@ export function AdminDashboardScreen() {
     if (detail.kind === 'user') {
       const item = detail.data;
       const limitBusy = busy || busyId === `max-${item.id}`;
-      const limitPresets = [50, 100, 200, 500, 999999];
       const limitLabel =
         item.maxAccounts >= 999999 ? 'Unlimited' : `${item.maxAccounts} accounts`;
       return (
         <>
-          <Text style={styles.detailName}>{item.name || '—'}</Text>
-          <Text style={styles.detailEmail}>{item.email}</Text>
           <View style={styles.detailGrid}>
             <DetailCell
               styles={styles}
@@ -640,59 +623,18 @@ export function AdminDashboardScreen() {
           <View style={styles.limitBox}>
             <Text style={styles.limitTitle}>Set account limit</Text>
             <Text style={styles.limitHint}>
-              Premium default is 50. Raise after offline payment, or set Unlimited. Applies immediately.
+              Enter the max MeroShare accounts for this Google account (across all
+              phones). Use 999999 for unlimited. Applies immediately.
             </Text>
-            <View style={styles.limitChips}>
-              {limitPresets.map((n) => {
-                const active = item.maxAccounts === n;
-                return (
-                  <Pressable
-                    key={n}
-                    style={[
-                      styles.limitChip,
-                      active && styles.limitChipActive,
-                      limitBusy && { opacity: 0.5 },
-                    ]}
-                    disabled={limitBusy}
-                    hitSlop={10}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      n >= 999999
-                        ? 'Set unlimited accounts'
-                        : `Set account limit to ${n}`
-                    }
-                    onPress={() => {
-                      setCustomMaxAccounts(n >= 999999 ? '' : String(n));
-                      onSetMaxAccounts(item, n);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.limitChipText,
-                        active && styles.limitChipTextActive,
-                      ]}
-                    >
-                      {n >= 999999 ? 'Unlimited' : n}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
             <View style={styles.limitCustomRow}>
               <TextInput
                 style={styles.limitInput}
                 keyboardType="number-pad"
-                placeholder="Custom (any number)"
+                placeholder="Account limit (e.g. 2, 50, 999999)"
                 placeholderTextColor={colors.textMuted}
                 value={customMaxAccounts}
                 onChangeText={setCustomMaxAccounts}
                 editable={!limitBusy}
-                onFocus={() => {
-                  // Wait for keyboard + sheet lift, then reveal the custom field.
-                  setTimeout(() => {
-                    detailScrollRef.current?.scrollToEnd({ animated: true });
-                  }, Platform.OS === 'ios' ? 280 : 180);
-                }}
               />
               <Pressable
                 style={[styles.limitApplyBtn, limitBusy && { opacity: 0.5 }]}
@@ -762,12 +704,6 @@ export function AdminDashboardScreen() {
       const fbBusy = busyId === item.id;
       return (
         <>
-          <Text style={styles.detailName}>
-            {feedbackKindLabel(item.kind)} · {item.status.toUpperCase()}
-          </Text>
-          <Text style={styles.detailEmail}>
-            {item.name || '—'} · {item.email || 'no email'}
-          </Text>
           <View style={styles.detailGrid}>
             <DetailCell styles={styles} label="Submitted" value={fmtDate(item.createdAt)} />
             <DetailCell styles={styles} label="Message" value={item.message} />
@@ -805,8 +741,6 @@ export function AdminDashboardScreen() {
     const item = detail.data;
     return (
       <>
-        <Text style={styles.detailName}>{item.userName || item.userEmail}</Text>
-        <Text style={styles.detailEmail}>{item.userEmail}</Text>
         <View style={styles.detailGrid}>
           <DetailCell styles={styles} label="Plan" value={`${item.planTitle} · Rs ${item.amountNpr}`} />
           <DetailCell styles={styles} label="Status" value={item.status.toUpperCase()} />
@@ -866,6 +800,28 @@ export function AdminDashboardScreen() {
       </>
     );
   };
+
+  const detailSheetMeta = useMemo(() => {
+    if (!detail) return { title: '', subtitle: undefined as string | undefined };
+    if (detail.kind === 'user') {
+      return {
+        title: detail.data.name || detail.data.email,
+        subtitle: detail.data.email,
+      };
+    }
+    if (detail.kind === 'feedback') {
+      const item = detail.data;
+      return {
+        title: `${feedbackKindLabel(item.kind)} · ${item.status.toUpperCase()}`,
+        subtitle: `${item.name || '—'} · ${item.email || 'no email'}`,
+      };
+    }
+    const item = detail.data;
+    return {
+      title: item.userName || item.userEmail,
+      subtitle: item.userEmail,
+    };
+  }, [detail]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -1143,39 +1099,27 @@ export function AdminDashboardScreen() {
         />
       )}
 
-      <Modal visible={detail != null} animationType="slide" transparent onRequestClose={closeDetail}>
-        {/* Backdrop + sheet as siblings used to steal chip taps on Android.
-            Wrap so only the dimmed area closes; sheet owns its own presses. */}
-        <View style={styles.modalRoot}>
-          <Pressable style={styles.modalBackdrop} onPress={closeDetail} />
-          <View
-            style={[
-              styles.modalSheet,
-              {
-                bottom: keyboardHeight,
-                paddingBottom: Math.max(insets.bottom, rs(16)),
-                maxHeight: keyboardHeight > 0 ? '88%' : '78%',
-              },
-            ]}
-            onStartShouldSetResponder={() => true}
-          >
-            <View style={styles.modalGrab} />
-            <ScrollView
-              ref={detailScrollRef}
-              keyboardShouldPersistTaps="always"
-              keyboardDismissMode="on-drag"
-              nestedScrollEnabled
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.modalScrollContent}
-            >
-              {renderDetailModal()}
-              <Pressable style={styles.modalClose} onPress={closeDetail}>
-                <Text style={styles.modalCloseText}>Close</Text>
-              </Pressable>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      <KeyboardSheetModal
+        visible={detail != null}
+        onClose={closeDetail}
+        title={detailSheetMeta.title}
+        subtitle={detailSheetMeta.subtitle}
+        bottomInset={insets.bottom}
+        showsVerticalScrollIndicator
+        sheetStyle={{ backgroundColor: colors.surface }}
+        titleStyle={{ color: colors.text }}
+        subtitleStyle={{ color: colors.textSecondary }}
+        handleStyle={{ backgroundColor: colors.border }}
+        backdropStyle={{ backgroundColor: colors.overlay }}
+        scrollContentStyle={styles.detailScrollContent}
+        footer={
+          <Pressable style={styles.modalClose} onPress={closeDetail}>
+            <Text style={styles.modalCloseText}>Close</Text>
+          </Pressable>
+        }
+      >
+        {renderDetailModal()}
+      </KeyboardSheetModal>
     </View>
   );
 }
@@ -1397,49 +1341,14 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
     },
-    empty: {
-      color: c.textSecondary,
-      textAlign: 'center',
-      marginTop: rs(24),
-      fontSize: rs(13),
+    detailScrollContent: {
+      paddingBottom: rs(32),
     },
-    modalRoot: {
-      flex: 1,
-      justifyContent: 'flex-end',
+    modalClose: {
+      alignItems: 'center',
+      paddingVertical: rs(12),
     },
-    modalBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: c.overlay,
-    },
-    modalSheet: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: c.surface,
-      borderTopLeftRadius: rs(18),
-      borderTopRightRadius: rs(18),
-      paddingHorizontal: rs(20),
-      paddingTop: rs(8),
-      maxHeight: '78%',
-      // Keep sheet above the full-screen backdrop so 50/100 chips receive taps.
-      zIndex: 2,
-      elevation: 8,
-    },
-    modalScrollContent: {
-      paddingBottom: rs(8),
-    },
-    modalGrab: {
-      alignSelf: 'center',
-      width: rs(36),
-      height: rs(4),
-      borderRadius: rs(2),
-      backgroundColor: c.border,
-      marginBottom: rs(16),
-    },
-    detailName: { color: c.text, fontWeight: '800', fontSize: rs(17) },
-    detailEmail: { color: c.textSecondary, fontSize: rs(13), marginTop: rs(4) },
-    detailGrid: { marginTop: rs(16) },
+    detailGrid: { marginTop: rs(4) },
     detailCell: { marginBottom: rs(10) },
     detailLabel: {
       color: c.textMuted,
@@ -1482,34 +1391,10 @@ function makeStyles(c: ThemeColors) {
     deviceName: { color: c.text, fontWeight: '700', fontSize: rs(13) },
     deviceMeta: { color: c.textMuted, fontSize: rs(11), marginTop: rs(2) },
     deviceRemove: { color: c.danger, fontWeight: '800', fontSize: rs(12) },
-    limitChips: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: rs(8),
-    },
-    limitChip: {
-      minWidth: rs(56),
-      minHeight: rs(40),
-      paddingVertical: rs(10),
-      paddingHorizontal: rs(14),
-      borderRadius: rs(10),
-      borderWidth: 1,
-      borderColor: c.borderMuted,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: c.bg,
-    },
-    limitChipActive: {
-      borderColor: c.primary,
-      backgroundColor: c.primary,
-    },
-    limitChipText: { color: c.text, fontWeight: '700', fontSize: rs(13) },
-    limitChipTextActive: { color: '#fff' },
     limitCustomRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      marginTop: rs(4),
     },
     limitInput: {
       flex: 1,
@@ -1529,10 +1414,11 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(10),
     },
     limitApplyText: { color: '#fff', fontWeight: '800', fontSize: rs(13) },
-    modalClose: {
-      marginTop: rs(16),
-      alignItems: 'center',
-      paddingVertical: rs(12),
+    empty: {
+      color: c.textSecondary,
+      textAlign: 'center',
+      marginTop: rs(24),
+      fontSize: rs(13),
     },
     modalCloseText: { color: c.primary, fontWeight: '700', fontSize: rs(14) },
   });

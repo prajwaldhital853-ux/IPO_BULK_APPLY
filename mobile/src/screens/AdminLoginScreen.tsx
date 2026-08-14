@@ -209,8 +209,8 @@ export function AdminLoginScreen() {
               <Text style={styles.wakeHint}>Signing in…</Text>
             ) : (
               <Text style={styles.wakeHint}>
-                New or unknown devices need a Gmail code after the password.
-                After 3 failed attempts, login locks for 5 minutes.
+                
+      
               </Text>
             )}
             <Pressable

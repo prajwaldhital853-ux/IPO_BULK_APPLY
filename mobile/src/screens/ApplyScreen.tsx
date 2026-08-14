@@ -32,7 +32,10 @@ import {
 } from '../services/nepse/premiumAnalytics';
 import type { ThemeColors } from '../theme/colors';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
-import { guardAddAccountAsync } from '../utils/accountLimits';
+import {
+  ensureGoogleSignedInForAddAccount,
+  guardAddAccountAsync,
+} from '../utils/accountLimits';
 import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
 import {
   loadOpenIssuesForUi,
@@ -112,7 +115,7 @@ export function ApplyScreen() {
   const openDrawer = useOpenDrawer();
   const { accounts, updateAccountMeta } = useAccounts();
   const { isAccountActive, usableAccounts } = useActiveAccounts();
-  const { user } = useAuth();
+  const { user, isAuthenticated, signInWithGoogle } = useAuth();
   const { isPremium, maxAccounts } = useSubscription();
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
@@ -120,6 +123,14 @@ export function ApplyScreen() {
 
   const goAddCapital = useCallback(() => {
     void (async () => {
+      if (
+        !(await ensureGoogleSignedInForAddAccount(
+          isAuthenticated,
+          signInWithGoogle,
+        ))
+      ) {
+        return;
+      }
       if (
         !(await guardAddAccountAsync({
           currentCount: accounts.length,
@@ -132,7 +143,14 @@ export function ApplyScreen() {
       }
       navigation.navigate('AddCapital');
     })();
-  }, [accounts.length, isPremium, maxAccounts, navigation]);
+  }, [
+    accounts.length,
+    isAuthenticated,
+    isPremium,
+    maxAccounts,
+    navigation,
+    signInWithGoogle,
+  ]);
   const [mode, setMode] = useState<'Bulk' | 'Single'>('Bulk');
   const [hideValues, setHideValues] = useState(false);
   const [accountsModalOpen, setAccountsModalOpen] = useState(false);

@@ -4,10 +4,14 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { PromoBanner } from './PromoBanner';
 import { useAccounts } from '../context/AccountsContext';
 import { useAppBranding } from '../context/AppBrandingContext';
+import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import type { RootStackParamList } from '../navigation/types';
 import type { HomePromoPageKey } from '../services/app/publicSettingsApi';
-import { guardAddAccountAsync } from '../utils/accountLimits';
+import {
+  ensureGoogleSignedInForAddAccount,
+  guardAddAccountAsync,
+} from '../utils/accountLimits';
 
 const TAB_ACTIONS = new Set(['Apply', 'Services', 'Profile', 'Home', 'Check']);
 
@@ -25,6 +29,7 @@ export function AdminPromoBanner({ page }: Props) {
   const promo = homePromos[page];
   const { accounts } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
+  const { isAuthenticated, signInWithGoogle } = useAuth();
 
   const onPress = useCallback(() => {
     const action = (promo.action || 'none').trim();
@@ -32,6 +37,14 @@ export function AdminPromoBanner({ page }: Props) {
 
     if (action === 'AddCapital') {
       void (async () => {
+        if (
+          !(await ensureGoogleSignedInForAddAccount(
+            isAuthenticated,
+            signInWithGoogle,
+          ))
+        ) {
+          return;
+        }
         if (
           !(await guardAddAccountAsync({
             currentCount: accounts.length,
@@ -56,9 +69,11 @@ export function AdminPromoBanner({ page }: Props) {
   }, [
     accounts.length,
     promo.action,
+    isAuthenticated,
     isPremium,
     maxAccounts,
     navigation,
+    signInWithGoogle,
   ]);
 
   if (!promo.visible) return null;

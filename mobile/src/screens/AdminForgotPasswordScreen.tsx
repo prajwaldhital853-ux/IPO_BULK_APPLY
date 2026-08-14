@@ -140,8 +140,6 @@ export function AdminForgotPasswordScreen() {
         {step === 'email' ? (
           <>
             <Text style={styles.subtitle}>
-              Enter the registered admin email. Only that address can receive a
-              reset code.
             </Text>
 
             <Text style={styles.label}>Admin email</Text>

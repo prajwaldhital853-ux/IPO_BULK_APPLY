@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
 import { checkCanAddAcrossDevices } from '../services/accountSlots';
 import { AUTH_ENABLED } from '../services/auth/config';
+import { getAccessToken } from '../services/auth/tokenStorage';
 import { loadAccountMeta } from '../storage/accountsStorage';
 import {
   FREE_ACCOUNT_LIMIT,
@@ -68,6 +69,16 @@ function candidateKey(candidate?: CandidateAccount): string | undefined {
     demat: candidate.demat,
   } as AccountMeta);
   return keys.length ? keys.join(';') : undefined;
+}
+
+/** Open Google sign-in when adding accounts as a guest. */
+export async function ensureGoogleSignedInForAddAccount(
+  isAuthenticated: boolean,
+  signInWithGoogle: () => Promise<void>,
+): Promise<boolean> {
+  if (!AUTH_ENABLED || isAuthenticated) return true;
+  await signInWithGoogle();
+  return Boolean(getAccessToken());
 }
 
 /**
