@@ -16,8 +16,11 @@ UNLIMITED = 999999
 # Must be days, not minutes: a phone in a pocket looks identical to uninstall,
 # and a short timeout let phone B eat phone A's slots.
 HARD_STALE = timedelta(days=7)
-# Empty reinstall leftover (last reported 0 accounts).
+# Routine cleanup when another phone is syncing normally.
 EMPTY_STALE = timedelta(hours=2)
+# Uninstall / reinstall: when cap is full or this phone is empty, free silent
+# phones sooner so users do not need admin to forget the old install.
+AGGRESSIVE_STALE = timedelta(minutes=20)
 
 
 def iso(dt: datetime | None) -> str:
@@ -140,9 +143,11 @@ async def release_stale_device_claims(
     user_id: str,
     *,
     keep_device_id: str = '',
+    stale_threshold: timedelta | None = None,
 ) -> list[str]:
     """Free registry slots held by phones that stopped heartbeating with accounts."""
     keep = (keep_device_id or '').strip()
+    threshold = stale_threshold or EMPTY_STALE
     now = datetime.now(UTC)
     registry_devices: set[str] = set()
     for row in await list_registry(db, user_id):
@@ -156,7 +161,7 @@ async def release_stale_device_claims(
         count = max(0, int(slot.account_count or 0))
         if count <= 0:
             continue
-        if _age(slot.last_seen_at, now) >= EMPTY_STALE:
+        if _age(slot.last_seen_at, now) >= threshold:
             released.append(slot.device_id)
     if released:
         await release_devices(db, user_id, released)

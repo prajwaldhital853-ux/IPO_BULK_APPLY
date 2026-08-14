@@ -183,6 +183,22 @@ async def _user_row(
         slot_rows = devices
     else:
         await reconcile_device_slots(db, user.id)
+        from ..account_slots.service import (
+            AGGRESSIVE_STALE,
+            EMPTY_STALE,
+            release_stale_device_claims,
+        )
+
+        await release_stale_device_claims(
+            db,
+            user.id,
+            stale_threshold=AGGRESSIVE_STALE,
+        )
+        await release_stale_device_claims(
+            db,
+            user.id,
+            stale_threshold=EMPTY_STALE,
+        )
         dead = await prune_devices(db, user.id)
         if dead:
             await release_devices(db, user.id, dead)

@@ -23,6 +23,7 @@ from app.account_slots.registry import (
     sync_device_keys,
 )
 from app.account_slots.service import (
+    AGGRESSIVE_STALE,
     EMPTY_STALE,
     HARD_STALE,
     list_slots,
@@ -272,6 +273,57 @@ async def scenarios() -> None:
             unlimited=False,
         )
         check('limit freed after ghost cleanup', allowed is True)
+
+        # --- Uninstall on phone A: phone B at cap frees A after AGGRESSIVE_STALE. ---
+        uid4 = str(uuid.uuid4())
+        db.add(
+            User(
+                id=uid4,
+                google_sub='sub-4',
+                email='uninstall@test',
+                name='Uninstall',
+            ),
+        )
+        await db.commit()
+        await sync(db, uid4, 'phone-a', demats('1601', 20), 20)
+        phone_a = next(s for s in await list_slots(db, uid4) if s.device_id == 'phone-a')
+        phone_a.last_seen_at = datetime.now(UTC) - AGGRESSIVE_STALE - timedelta(minutes=1)
+        await db.commit()
+        from app.account_slots.service import (
+            reconcile_device_slots,
+            release_stale_device_claims,
+        )
+
+        await upsert_slot(
+            db,
+            user_id=uid4,
+            device_id='phone-b',
+            device_label='B',
+            platform='android',
+            account_count=0,
+        )
+        await release_stale_device_claims(
+            db,
+            uid4,
+            keep_device_id='phone-b',
+            stale_threshold=AGGRESSIVE_STALE,
+        )
+        await reconcile_device_slots(db, uid4)
+        await db.commit()
+        state = build_state(
+            await list_registry(db, uid4),
+            max_accounts=20,
+            unlimited=False,
+        )
+        check('uninstalled phone frees slots for empty phone B', state.total == 0)
+        allowed, _ = await can_add_key(
+            db,
+            user_id=uid4,
+            candidate_key='d:160399999999',
+            max_accounts=20,
+            unlimited=False,
+        )
+        check('phone B can add after uninstall cleanup', allowed is True)
 
         # --- B reinstalls: its demats keep their old queue position. ---
         state = await sync(db, uid, 'B2', demats('1302', 8), 20)

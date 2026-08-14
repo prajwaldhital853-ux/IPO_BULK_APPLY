@@ -22,6 +22,8 @@ from .registry import (
     sync_device_keys,
 )
 from .service import (
+    AGGRESSIVE_STALE,
+    EMPTY_STALE,
     is_unlimited,
     iso,
     list_slots,
@@ -138,7 +140,8 @@ def _out(
             f'Your plan allows {state.max_accounts} MeroShare accounts in '
             f'total across every phone signed in with this Google account.\n\n'
             f'Already added: {total} / {state.max_accounts}\n\n'
-            'Delete an account you no longer need, or ask for a higher limit.'
+            'Delete an account you no longer need, or wait ~20 minutes if you '
+            'uninstalled on another phone — slots free automatically.'
         )
     return SlotStatusOut(
         allowed=allowed,
@@ -201,11 +204,29 @@ async def _sync(
         if dead:
             await release_devices(db, user_id, dead)
         await reconcile_device_slots(db, user_id)
+        stale_threshold = AGGRESSIVE_STALE if this_count <= 0 else EMPTY_STALE
         await release_stale_device_claims(
             db,
             user_id,
             keep_device_id=body.device_id,
+            stale_threshold=stale_threshold,
         )
+        slots = await list_slots(db, user_id)
+        rows = await list_registry(db, user_id)
+        state = build_state(rows, max_accounts=max_acc, unlimited=unlimited)
+        if (
+            not unlimited
+            and cap_claimed(state, slots) >= state.max_accounts
+        ):
+            await release_stale_device_claims(
+                db,
+                user_id,
+                keep_device_id=body.device_id,
+                stale_threshold=AGGRESSIVE_STALE,
+            )
+            await reconcile_device_slots(db, user_id)
+            rows = await list_registry(db, user_id)
+            state = build_state(rows, max_accounts=max_acc, unlimited=unlimited)
         await purge_unclaimed(db, user_id)
         rows = await list_registry(db, user_id)
         state = build_state(rows, max_accounts=max_acc, unlimited=unlimited)
