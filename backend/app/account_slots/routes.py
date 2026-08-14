@@ -14,7 +14,8 @@ from ..db.session import get_db
 from .registry import (
     RegistryState,
     build_state,
-    can_add_key,
+    candidate_is_known,
+    cap_claimed,
     list_registry,
     purge_unclaimed,
     release_devices,
@@ -116,11 +117,6 @@ def _devices_out(slots, this_id: str) -> list[DeviceOut]:
     ]
 
 
-def counts_total(slots) -> int:
-    """Sum of per-install counts — the only figure a legacy build reports."""
-    return sum(max(0, int(s.account_count or 0)) for s in slots)
-
-
 def _out(
     state: RegistryState,
     *,
@@ -132,7 +128,7 @@ def _out(
     claimed: int | None = None,
 ) -> SlotStatusOut:
     unlimited = is_unlimited(state.max_accounts)
-    total = state.total if claimed is None else claimed
+    total = cap_claimed(state, slots) if claimed is None else claimed
     others = max(0, total - this_count)
     message = ''
     if not allowed and not unlimited:
@@ -166,7 +162,11 @@ async def _sync(
     """Heartbeat + register this phone's demats; free traces of dead installs."""
     max_acc = await _max_for_user(db, user_id)
     unlimited = is_unlimited(max_acc)
-    this_count = len(body.keys) if body.sync_keys else body.account_count
+    key_n = len(body.keys) if body.sync_keys else 0
+    this_count = max(body.account_count, key_n)
+    # Never treat "36 accounts, 0 fingerprints" as a wipe — that used to
+    # unregister the phone and let the other phone add a second full set.
+    do_sync_keys = body.sync_keys and (bool(body.keys) or this_count <= 0)
     try:
         await upsert_slot(
             db,
@@ -176,7 +176,7 @@ async def _sync(
             platform=body.platform,
             account_count=this_count,
         )
-        if body.sync_keys:
+        if do_sync_keys:
             state = await sync_device_keys(
                 db,
                 user_id=user_id,
@@ -191,13 +191,10 @@ async def _sync(
                 max_accounts=max_acc,
                 unlimited=unlimited,
             )
-        # An install that stopped heartbeating while the plan is full is treated
-        # as uninstalled so live phones get those slots back automatically.
         dead = await prune_devices(
             db,
             user_id,
             keep_device_id=body.device_id,
-            free_idle=not unlimited and state.total >= max_acc,
         )
         if dead:
             await release_devices(db, user_id, dead)
@@ -235,27 +232,18 @@ async def check_can_add(
     """Can this Google account claim one more demat anywhere?"""
     state, slots, this_count = await _sync(db, user_id=user.id, body=body)
     unlimited = is_unlimited(state.max_accounts)
-    if not body.sync_keys:
-        # Legacy build: it never registers demats, so fall back to the sum of
-        # per-install counts. Otherwise an old APK would see an empty registry
-        # and could add past the shared cap.
-        legacy = counts_total(slots)
-        return _out(
-            state,
-            slots=slots,
-            device_id=body.device_id,
-            this_count=this_count,
-            allowed=unlimited or legacy < state.max_accounts,
-            adding=True,
-            claimed=legacy,
-        )
-    allowed, state = await can_add_key(
+    claimed = cap_claimed(state, slots)
+    if unlimited:
+        allowed = True
+    elif await candidate_is_known(
         db,
         user_id=user.id,
         candidate_key=body.candidate_key or None,
-        max_accounts=state.max_accounts,
-        unlimited=unlimited,
-    )
+    ):
+        # Same demat already on another phone — no extra slot used.
+        allowed = True
+    else:
+        allowed = claimed < state.max_accounts
     return _out(
         state,
         slots=slots,
@@ -263,6 +251,7 @@ async def check_can_add(
         this_count=this_count,
         allowed=allowed,
         adding=True,
+        claimed=claimed,
     )
 
 

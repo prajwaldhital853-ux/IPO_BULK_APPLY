@@ -18,7 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import UserDematSlot
 
-_ALIAS_RE = re.compile(r'^[du]:[a-z0-9:._-]{2,80}$')
+# Permissive on purpose: MeroShare usernames can include characters the old
+# stricter charset dropped, which registered 0 demats and disabled the cap.
+_ALIAS_RE = re.compile(r'^[du]:.{2,80}$')
 
 # A demat released because its phone went silent keeps its queue position for a
 # while: if that phone comes back (or the app is reinstalled) it stays where it
@@ -99,6 +101,7 @@ class RegistryState:
     active_keys: list[str] = field(default_factory=list)
     locked_keys: list[str] = field(default_factory=list)
     device_count: int = 0
+    device_ids: set[str] = field(default_factory=set)
 
     @property
     def can_add(self) -> bool:
@@ -157,6 +160,7 @@ def build_state(
             active_keys=keys,
             locked_keys=[],
             device_count=len(devices),
+            device_ids=devices,
         )
     return RegistryState(
         max_accounts=max_accounts,
@@ -164,7 +168,22 @@ def build_state(
         active_keys=keys[:max_accounts],
         locked_keys=keys[max_accounts:],
         device_count=len(devices),
+        device_ids=devices,
     )
+
+
+def cap_claimed(state: RegistryState, slots) -> int:
+    """Unique demats, plus any phone that reported accounts without fingerprints.
+
+    Phone A with 36 keyed demats + phone B with 36 unkeyed accounts → 72.
+    The same 36 demats on both phones stay 36 (both device ids are on the rows).
+    """
+    extra = 0
+    for s in slots:
+        if s.device_id in state.device_ids:
+            continue
+        extra += max(0, int(s.account_count or 0))
+    return state.total + extra
 
 
 async def release_devices(
@@ -285,3 +304,17 @@ async def can_add_key(
             # Same demat already claimed (e.g. present on another phone).
             return True, state
     return state.can_add, state
+
+
+async def candidate_is_known(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    candidate_key: str | None,
+) -> bool:
+    parts = aliases_of(candidate_key or '')
+    if not parts:
+        return False
+    rows = await list_registry(db, user_id)
+    known = {a for r in rows if _devices(r) for a in aliases_of(r.key)}
+    return bool(known & set(parts))

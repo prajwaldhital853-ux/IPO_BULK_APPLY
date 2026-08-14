@@ -21,7 +21,7 @@ export async function loadActiveSlots(): Promise<ActiveSlotsStored | null> {
       ? parsed.keys.map(String).filter(Boolean)
       : [];
     const max = Number(parsed.maxAccounts ?? parsed.confirmedForMax ?? 0);
-    if (!keys.length || !Number.isFinite(max) || max <= 0) return null;
+    if (!Number.isFinite(max) || max <= 0) return null;
     return {
       keys,
       maxAccounts: Math.floor(max),

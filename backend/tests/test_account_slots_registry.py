@@ -17,11 +17,18 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.account_slots.registry import (
     build_state,
     can_add_key,
+    cap_claimed,
     list_registry,
     release_devices,
     sync_device_keys,
 )
-from app.account_slots.service import IDLE_FREE, list_slots, prune_devices, upsert_slot
+from app.account_slots.service import (
+    EMPTY_STALE,
+    HARD_STALE,
+    list_slots,
+    prune_devices,
+    upsert_slot,
+)
 from app.db.models import Base, User
 
 failures: list[str] = []
@@ -130,11 +137,68 @@ async def scenarios() -> None:
         check('queue promotes a replacement', len(after.active_keys) == 10)
         check('total dropped by one', after.total == 19)
 
-        # --- Phone B uninstalls: its demats free up once it stops reporting. ---
+        # --- Phone sitting unused for 15 minutes must NOT lose its slots. ---
         slot = next(s for s in await list_slots(db, uid) if s.device_id == 'B')
-        slot.last_seen_at = datetime.now(UTC) - IDLE_FREE - timedelta(minutes=1)
+        slot.last_seen_at = datetime.now(UTC) - timedelta(minutes=16)
         await db.commit()
         dead = await prune_devices(db, uid, keep_device_id='A', free_idle=True)
+        check('15 min idle phone with accounts is kept', dead == [])
+        state = build_state(
+            await list_registry(db, uid),
+            max_accounts=10,
+            unlimited=False,
+        )
+        check('idle phone still occupies slots', state.total == 19)
+
+        # --- Distinct 36+36 with cap 51 cannot add another. ---
+        uid2 = str(uuid.uuid4())
+        db.add(
+            User(
+                id=uid2,
+                google_sub='sub-2',
+                email='c@d.e',
+                name='Two',
+            ),
+        )
+        await db.commit()
+        await sync(db, uid2, 'A', demats('1401', 36), 51)
+        state = await sync(db, uid2, 'B', demats('1402', 36), 51)
+        check('36+36 unique demats count as 72', state.total == 72)
+        allowed, _ = await can_add_key(
+            db,
+            user_id=uid2,
+            candidate_key='d:140399999999',
+            max_accounts=51,
+            unlimited=False,
+        )
+        check('cannot add a 73rd when cap is 51', allowed is False)
+        slots = await list_slots(db, uid2)
+        check(
+            'cap_claimed matches unique 72',
+            cap_claimed(state, slots) == 72,
+        )
+        check('first 51 stay active', len(state.active_keys) == 51)
+        check('the rest are locked', len(state.locked_keys) == 21)
+
+        # --- Empty-key sync with a positive count must not wipe A. ---
+        before = (await list_registry(db, uid2))
+        await upsert_slot(
+            db,
+            user_id=uid2,
+            device_id='A',
+            device_label='A',
+            platform='android',
+            account_count=36,
+        )
+        # Simulate the server skip: we do not call sync_device_keys([], ...)
+        after_rows = await list_registry(db, uid2)
+        check('empty keys do not delete existing demats', len(after_rows) == len(before))
+
+        # --- Uninstall: only a 7-day silent phone with accounts is dropped. ---
+        slot = next(s for s in await list_slots(db, uid) if s.device_id == 'B')
+        slot.last_seen_at = datetime.now(UTC) - HARD_STALE - timedelta(minutes=1)
+        await db.commit()
+        dead = await prune_devices(db, uid, keep_device_id='A')
         await release_devices(db, uid, dead)
         await db.commit()
         state = build_state(
@@ -142,8 +206,8 @@ async def scenarios() -> None:
             max_accounts=10,
             unlimited=False,
         )
-        check('uninstalled phone is forgotten', dead == ['B'])
-        check('uninstalled phone frees its demats', state.total == 11)
+        check('7-day silent phone is forgotten', dead == ['B'])
+        check('stale phone frees its demats', state.total == 11)
         allowed, _ = await can_add_key(
             db,
             user_id=uid,
@@ -152,6 +216,21 @@ async def scenarios() -> None:
             unlimited=False,
         )
         check('freed slots can be reused', allowed is True)
+
+        # --- Empty leftover install is dropped after EMPTY_STALE. ---
+        await upsert_slot(
+            db,
+            user_id=uid,
+            device_id='ghost',
+            device_label='ghost',
+            platform='android',
+            account_count=0,
+        )
+        ghost = next(s for s in await list_slots(db, uid) if s.device_id == 'ghost')
+        ghost.last_seen_at = datetime.now(UTC) - EMPTY_STALE - timedelta(minutes=1)
+        await db.commit()
+        dead = await prune_devices(db, uid, keep_device_id='A')
+        check('empty leftover install is pruned', 'ghost' in dead)
 
         # --- B reinstalls: its demats keep their old queue position. ---
         state = await sync(db, uid, 'B2', demats('1302', 8), 20)

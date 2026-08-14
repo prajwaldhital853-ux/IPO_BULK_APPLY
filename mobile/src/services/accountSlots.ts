@@ -35,14 +35,18 @@ function deviceLabel(): string {
   return (model || name || Platform.OS).slice(0, 128);
 }
 
-async function payload(keys: string[]) {
+async function payload(keys: string[], accountCount: number) {
+  const count = Math.max(0, Math.floor(accountCount));
+  // Do not send syncKeys with an empty key list while accounts exist —
+  // the server would treat that as "this phone deleted everything".
+  const syncKeys = keys.length > 0 || count === 0;
   return {
     deviceId: await getInstallDeviceId(),
     deviceLabel: deviceLabel(),
     platform: Platform.OS,
-    accountCount: keys.length,
-    keys,
-    syncKeys: true,
+    accountCount: count,
+    keys: syncKeys ? keys : [],
+    syncKeys,
   };
 }
 
@@ -92,13 +96,14 @@ async function readStatus(res: Response): Promise<SlotStatus> {
  */
 export async function syncAccountSlots(
   keys: string[],
+  accountCount: number,
 ): Promise<SlotStatus | null> {
   if (!AUTH_ENABLED) return null;
   try {
     const res = await authFetch('/app/account-slots/sync', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(await payload(keys)),
+      body: JSON.stringify(await payload(keys, accountCount)),
     });
     if (res.status === 401) return null;
     return await readStatus(res);
@@ -110,6 +115,7 @@ export async function syncAccountSlots(
 /** Ask the server whether this Google account can claim one more demat. */
 export async function checkCanAddAcrossDevices(
   keys: string[],
+  accountCount: number,
   candidateKey?: string,
 ): Promise<SlotStatus | null> {
   if (!AUTH_ENABLED) return null;
@@ -117,7 +123,7 @@ export async function checkCanAddAcrossDevices(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      ...(await payload(keys)),
+      ...(await payload(keys, accountCount)),
       candidateKey: candidateKey ?? '',
     }),
   });

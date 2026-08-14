@@ -123,6 +123,20 @@ function run() {
     assert(!r.overQuota && r.activeIds.size === 200, 'unlimited keeps all');
   }
 
+  // --- 36 on A + 36 on B, cap 51: A keeps 36, B only 15, rest locked. ---
+  {
+    const a = phone('13013700', 36);
+    const b = phone('13013701', 36);
+    const active = dematKeys('13013700', 36).concat(dematKeys('13013701', 15));
+    const stored = server(active, 51, 72);
+    const rA = resolveActiveSlots(a, 51, stored);
+    const rB = resolveActiveSlots(b, 51, stored);
+    assert(!rA.overQuota && rA.activeIds.size === 36, 'phone A stays fully active');
+    assert(rB.overQuota, 'phone B extras must lock');
+    assert(rB.activeIds.size === 15, 'phone B only fills remaining slots');
+    assert(rB.lockedIds.length === 21, '21 on phone B stay locked');
+  }
+
   console.log('All derived active-slot scenarios passed.');
 }
 

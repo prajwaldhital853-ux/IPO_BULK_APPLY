@@ -85,13 +85,10 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
         // keep going with the cached cap
       }
 
-      const status = await syncAccountSlots(keys);
+      const status = await syncAccountSlots(keys, accounts.length);
       if (!mounted || !status) return;
       setServerMax(status.maxAccounts);
-      if (
-        isUnlimitedAccountLimit(status.maxAccounts) ||
-        !status.activeKeys.length
-      ) {
+      if (isUnlimitedAccountLimit(status.maxAccounts)) {
         await clearActiveSlots();
         if (mounted) setStored(null);
         return;
@@ -101,8 +98,13 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
         maxAccounts: status.maxAccounts,
         total: status.claimedTotal,
       };
-      await saveActiveSlots(next);
-      if (mounted) setStored(next);
+      if (next.keys.length || next.total > 0) {
+        await saveActiveSlots(next);
+        if (mounted) setStored(next);
+      } else {
+        await clearActiveSlots();
+        if (mounted) setStored(null);
+      }
     })();
     return () => {
       mounted = false;

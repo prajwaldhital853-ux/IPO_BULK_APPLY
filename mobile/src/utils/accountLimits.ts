@@ -93,6 +93,7 @@ export async function guardAddAccountAsync(opts: {
     );
     const status = await checkCanAddAcrossDevices(
       keys,
+      Math.max(opts.currentCount, accounts.length),
       candidateKey(opts.candidate),
     );
     if (!status) {

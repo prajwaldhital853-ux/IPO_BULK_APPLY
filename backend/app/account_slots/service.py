@@ -10,11 +10,12 @@ from ..db.models import UserDeviceSlot
 
 UNLIMITED = 999999
 
-# Always forget installs that never heartbeated this long (uninstalled / lost).
+# Forget installs that never heartbeated this long (lost / uninstalled).
+# Must be days, not minutes: a phone in a pocket looks identical to uninstall,
+# and a short timeout let phone B eat phone A's slots.
 HARD_STALE = timedelta(days=7)
-# When the plan is full, free quiet installs so a live phone can use the slots.
-# Uninstall cannot notify the server, so silence is the only signal we get.
-IDLE_FREE = timedelta(minutes=15)
+# Empty reinstall leftover (last reported 0 accounts).
+EMPTY_STALE = timedelta(hours=2)
 
 
 def iso(dt: datetime | None) -> str:
@@ -106,10 +107,11 @@ async def prune_devices(
 ) -> list[str]:
     """Forget install traces that can no longer be alive. Returns removed ids.
 
-    `free_idle` is set when the Google account is at/over its cap: a phone that
-    stopped heartbeating is most likely uninstalled, and its demats must be
-    released so the phones still in use can claim those slots.
+    A phone with saved accounts is never dropped just because the plan is full
+    (`free_idle` is ignored for those). That used to let phone B add a second
+    full set after phone A sat unused for a few minutes.
     """
+    del free_idle  # kept so older callers do not break
     keep = (keep_device_id or '').strip()
     now = datetime.now(UTC)
     removed: list[str] = []
@@ -117,9 +119,12 @@ async def prune_devices(
         if s.device_id == keep:
             continue
         age = _age(s.last_seen_at, now)
-        if age >= HARD_STALE or (free_idle and age >= IDLE_FREE):
-            removed.append(s.device_id)
-            await db.delete(s)
+        count = max(0, int(s.account_count or 0))
+        stale = age >= HARD_STALE or (count <= 0 and age >= EMPTY_STALE)
+        if not stale:
+            continue
+        removed.append(s.device_id)
+        await db.delete(s)
     if removed:
         await db.flush()
     return removed
