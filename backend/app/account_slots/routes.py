@@ -92,6 +92,7 @@ class SlotStatusOut(BaseModel):
         default=20,
         alias='staleReleaseMinutes',
     )
+    release_at: str = Field(default='', alias='releaseAt')
 
     model_config = {'populate_by_name': True}
 
@@ -145,29 +146,34 @@ def _out(
     message = ''
     retry_after = 0
     block_reason = 'none'
+    release_at = ''
     if not allowed and not unlimited:
-        retry_after, block_reason = estimate_stale_release_wait(
+        retry_after, block_reason, when = estimate_stale_release_wait(
             slots,
             device_id,
             state.device_ids,
         )
+        if when is not None:
+            release_at = iso(when)
         if block_reason == 'waiting_stale_release':
             mins = stale_release_minutes()
             message = (
                 f'Your Google account already has {total} of '
                 f'{state.max_accounts} MeroShare accounts saved across '
                 f'all phones.\n\n'
-                f'Another phone still holds some of those slots. If you '
-                f'uninstalled the app there, they free automatically after '
-                f'it has been offline for {mins} minutes.'
+                f'Another phone was uninstalled (or has been offline) and still '
+                f'holds some of those slots. They free automatically after '
+                f'{mins} minutes offline — you do not need to contact admin.'
             )
         else:
             message = (
                 f'Your plan allows {state.max_accounts} MeroShare accounts in '
                 f'total across every phone signed in with this Google account.\n\n'
                 f'Already added: {total} / {state.max_accounts}\n\n'
-                'Delete an account you no longer need on any phone, or upgrade '
-                'your plan.'
+                'Those accounts are still on another phone that has the app '
+                'installed. Delete an account there, or uninstall the app on '
+                f'that phone — slots then free automatically after '
+                f'{stale_release_minutes()} minutes.'
             )
     return SlotStatusOut(
         allowed=allowed,
@@ -184,6 +190,7 @@ def _out(
         retryAfterSeconds=retry_after,
         blockReason=block_reason,
         staleReleaseMinutes=stale_release_minutes(),
+        releaseAt=release_at,
     )
 
 

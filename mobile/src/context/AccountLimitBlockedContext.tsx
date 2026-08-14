@@ -8,6 +8,10 @@ import React, {
 } from 'react';
 import { AccountLimitBlockedModal } from '../components/AccountLimitBlockedModal';
 import type { SlotStatus } from '../services/accountSlots';
+import {
+  clearStaleReleaseAt,
+  rememberStaleReleaseAt,
+} from '../storage/staleReleaseTimer';
 
 type PresentParams = {
   status: SlotStatus;
@@ -37,9 +41,29 @@ export function AccountLimitBlockedProvider({
   const [onUpgrade, setOnUpgrade] = useState<(() => void) | undefined>();
 
   const show = useCallback((params: PresentParams) => {
-    setStatus(params.status);
-    setOnUpgrade(() => params.onUpgrade);
-    setVisible(true);
+    void (async () => {
+      let next = params.status;
+      if (next.blockReason === 'waiting_stale_release') {
+        const frozen = await rememberStaleReleaseAt(
+          next.releaseAt ||
+            new Date(Date.now() + next.retryAfterSeconds * 1000).toISOString(),
+        );
+        const left = Math.max(
+          0,
+          Math.ceil((Date.parse(frozen) - Date.now()) / 1000),
+        );
+        next = {
+          ...next,
+          releaseAt: frozen,
+          retryAfterSeconds: left,
+        };
+      } else {
+        await clearStaleReleaseAt();
+      }
+      setStatus(next);
+      setOnUpgrade(() => params.onUpgrade);
+      setVisible(true);
+    })();
   }, []);
 
   const hide = useCallback(() => {

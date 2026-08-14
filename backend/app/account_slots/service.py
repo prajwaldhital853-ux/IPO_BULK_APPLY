@@ -21,6 +21,10 @@ EMPTY_STALE = timedelta(hours=2)
 # Uninstall / reinstall: when cap is full or this phone is empty, free silent
 # phones sooner so users do not need admin to forget the old install.
 AGGRESSIVE_STALE = timedelta(minutes=20)
+# A phone that heartbeated this recently still has the app. Do not start the
+# uninstall countdown while it is online — that made the timer appear on both
+# live phones and reset every time the sheet was opened.
+ALIVE_WINDOW = timedelta(minutes=2)
 
 
 def iso(dt: datetime | None) -> str:
@@ -148,11 +152,14 @@ def estimate_stale_release_wait(
     registry_device_ids: set[str],
     *,
     threshold: timedelta | None = None,
-) -> tuple[int, str]:
-    """Seconds until a silent other phone may auto-release its claimed slots."""
+) -> tuple[int, str, datetime | None]:
+    """Countdown only for phones that look uninstalled (silent), not live ones.
+
+    Returns (seconds, reason, release_at).
+    """
     keep = (keep_device_id or '').strip()
     if not registry_device_ids:
-        return 0, 'cap_full'
+        return 0, 'cap_full', None
     threshold = threshold or AGGRESSIVE_STALE
     now = datetime.now(UTC)
     next_release: datetime | None = None
@@ -164,14 +171,22 @@ def estimate_stale_release_wait(
         count = max(0, int(slot.account_count or 0))
         if count <= 0:
             continue
-        release_at = _aware(slot.last_seen_at) + threshold
-        if release_at > now:
-            if next_release is None or release_at < next_release:
-                next_release = release_at
+        age = _age(slot.last_seen_at, now)
+        # Still online — another phone has the app. No uninstall timer.
+        if age < ALIVE_WINDOW:
+            continue
+        last = _aware(slot.last_seen_at)
+        if last is None:
+            continue
+        release_at = last + threshold
+        if release_at <= now:
+            continue
+        if next_release is None or release_at < next_release:
+            next_release = release_at
     if next_release is None:
-        return 0, 'cap_full'
-    secs = int(max(0, (next_release - now).total_seconds()))
-    return secs, 'waiting_stale_release'
+        return 0, 'cap_full', None
+    secs = int(max(1, (next_release - now).total_seconds()))
+    return secs, 'waiting_stale_release', next_release
 
 
 async def release_stale_device_claims(

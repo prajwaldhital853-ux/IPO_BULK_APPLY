@@ -30,6 +30,8 @@ export type SlotStatus = {
   retryAfterSeconds: number;
   blockReason: 'none' | 'waiting_stale_release' | 'cap_full';
   staleReleaseMinutes: number;
+  /** Absolute time the silent phone's slots may free (ISO). */
+  releaseAt: string;
 };
 
 function deviceLabel(): string {
@@ -78,6 +80,7 @@ function mapStatus(json: Record<string, unknown>): SlotStatus {
     retryAfterSeconds: Math.max(0, Number(json.retryAfterSeconds ?? 0)),
     blockReason: parsedReason,
     staleReleaseMinutes: Math.max(1, Number(json.staleReleaseMinutes ?? 20)),
+    releaseAt: String(json.releaseAt ?? ''),
     devices: devicesRaw.map((d) => {
       const row = d as Record<string, unknown>;
       return {

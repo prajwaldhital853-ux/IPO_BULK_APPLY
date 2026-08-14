@@ -39,23 +39,26 @@ export function AccountLimitBlockedModal({
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
-  const initialSeconds = status?.retryAfterSeconds ?? 0;
-  const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
+  const [secondsLeft, setSecondsLeft] = useState(0);
 
   useEffect(() => {
     if (!visible || !status) return;
-    setSecondsLeft(status.retryAfterSeconds);
-  }, [visible, status]);
-
-  useEffect(() => {
-    if (!visible || !status || status.retryAfterSeconds <= 0) return;
-    if (status.blockReason !== 'waiting_stale_release') return;
-    const endAt = Date.now() + status.retryAfterSeconds * 1000;
-    const id = setInterval(() => {
-      const left = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
-      setSecondsLeft(left);
-      if (left <= 0) clearInterval(id);
-    }, 1000);
+    const endMs = Date.parse(status.releaseAt);
+    const tick = () => {
+      if (!Number.isFinite(endMs)) {
+        setSecondsLeft(status.retryAfterSeconds);
+        return;
+      }
+      setSecondsLeft(Math.max(0, Math.ceil((endMs - Date.now()) / 1000)));
+    };
+    tick();
+    if (
+      status.blockReason !== 'waiting_stale_release' ||
+      !Number.isFinite(endMs)
+    ) {
+      return;
+    }
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [visible, status]);
 
@@ -93,20 +96,21 @@ export function AccountLimitBlockedModal({
           >
             <Text style={styles.lead}>
               {waitingStale
-                ? `Your Google account already has ${status.claimedTotal} of ${status.maxAccounts} MeroShare accounts saved across all phones. Another phone is still holding those slots.`
-                : `Your plan allows ${status.maxAccounts} accounts in total on this Google account (already saved: ${status.claimedTotal}).`}
+                ? `Your Google account already has ${status.claimedTotal} of ${status.maxAccounts} MeroShare accounts. Another phone was uninstalled (or has been offline) and still holds those slots.`
+                : `Your plan allows ${status.maxAccounts} accounts in total on this Google account (already saved: ${status.claimedTotal}). Another phone still has the app installed, so those slots stay in use.`}
             </Text>
 
             {waitingStale ? (
               <Text style={styles.reason}>
-                If you removed the app on another phone, those slots are released
-                automatically after it has been offline for {staleMins} minutes.
-                You do not need to contact admin.
+                Those slots free automatically {staleMins} minutes after that
+                phone last used the app. The timer does not restart if you close
+                this window. You do not need to contact admin.
               </Text>
             ) : (
               <Text style={styles.reason}>
-                Delete an account you no longer need on any phone, or upgrade your
-                plan for a higher limit.
+                Delete an account on the other phone, or uninstall the app there.
+                After uninstall, a {staleMins}-minute timer starts and then those
+                slots become available on this phone.
               </Text>
             )}
 
@@ -138,7 +142,7 @@ export function AccountLimitBlockedModal({
                 </Text>
                 {!timerDone ? (
                   <Text style={styles.timerHint}>
-                    Keep this app open or try adding again after the timer ends.
+                    Closing this window or the app will not restart the timer.
                   </Text>
                 ) : null}
               </View>

@@ -10,7 +10,7 @@ module.exports = {
     slug: 'nepseghar',
     owner: 'prajwal851s-team',
     scheme: 'nepseghar',
-    version: '3.4.40',
+    version: '3.4.41',
     orientation: 'portrait',
     icon: './assets/nepse-ghar-logo.png',
     userInterfaceStyle: 'dark',
@@ -25,7 +25,7 @@ module.exports = {
     },
     android: {
       package: 'com.nepse.ghar',
-      versionCode: 86,
+      versionCode: 87,
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',
         foregroundImage: './assets/nepse-ghar-logo.png',
