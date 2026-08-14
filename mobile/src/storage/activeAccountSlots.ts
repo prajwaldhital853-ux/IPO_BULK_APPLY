@@ -71,12 +71,19 @@ export type ActiveSlotsResolved = {
   lockedKeys: string[];
 };
 
+/**
+ * @param claimedTotal Accounts claimed across all phones for this Google login.
+ *   When the admin drops the plan limit, even a phone with few local demats
+ *   must re-pick if the household total exceeds the new cap.
+ */
 export function resolveActiveSlots(
   accounts: AccountMeta[],
   maxAccounts: number,
   stored: ActiveSlotsStored | null,
+  claimedTotal = 0,
 ): ActiveSlotsResolved {
   const accountIds = accounts.map((a) => a.id);
+  const claimed = Math.max(claimedTotal, accountIds.length);
 
   if (isUnlimitedAccountLimit(maxAccounts)) {
     return {
@@ -91,10 +98,13 @@ export function resolveActiveSlots(
   const keys = (stored?.keys ?? [])
     .map((k) => k.trim().toLowerCase())
     .filter(Boolean);
+
+  // Only lock when the shared set matches the LIVE plan cap.
   const sharedLock =
-    Boolean(stored) &&
+    stored != null &&
     keys.length > 0 &&
-    (stored!.confirmedForMax === maxAccounts || stored!.confirmedForMax > 0);
+    stored.confirmedForMax === maxAccounts &&
+    keys.length <= maxAccounts;
 
   if (sharedLock) {
     const keptIds = idsMatchingFingerprints(accounts, keys).slice(
@@ -104,7 +114,7 @@ export function resolveActiveSlots(
     const kept = new Set(keptIds);
     const hasExtras = accountIds.some((id) => !kept.has(id));
     return {
-      overQuota: hasExtras || accountIds.length > maxAccounts,
+      overQuota: hasExtras || accountIds.length > maxAccounts || claimed > maxAccounts,
       needsPick: false,
       activeIds: new Set(keptIds),
       suggestedIds: keptIds,
@@ -112,7 +122,10 @@ export function resolveActiveSlots(
     };
   }
 
-  if (accountIds.length <= maxAccounts) {
+  const overQuota =
+    accountIds.length > maxAccounts || claimed > maxAccounts;
+
+  if (!overQuota) {
     return {
       overQuota: false,
       needsPick: false,
@@ -128,10 +141,12 @@ export function resolveActiveSlots(
     maxAccounts,
   );
 
+  // Stale confirmation for an old plan cap → force a fresh pick.
   const confirmed =
     stored != null &&
     stored.confirmedForMax === maxAccounts &&
-    keptIds.length > 0;
+    keptIds.length > 0 &&
+    (stored.keys?.length ?? keptIds.length) <= maxAccounts;
 
   return {
     overQuota: true,

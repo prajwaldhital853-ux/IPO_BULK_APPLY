@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import { useAccounts } from './AccountsContext';
 import { useSubscription } from './SubscriptionContext';
 import { useAuth } from './AuthContext';
@@ -31,6 +31,8 @@ import {
   fetchSharedActiveAccounts,
   putSharedActiveAccounts,
   pruneSharedActiveAccounts,
+  reportAccountSlots,
+  getLastSlotStatus,
 } from '../services/accountSlots';
 
 type ActiveAccountsValue = {
@@ -53,40 +55,90 @@ const ActiveAccountsContext = createContext<ActiveAccountsValue | null>(null);
 
 export function ActiveAccountsProvider({ children }: { children: React.ReactNode }) {
   const { accounts, loading: accountsLoading } = useAccounts();
-  const { maxAccounts } = useSubscription();
+  const { maxAccounts, refresh: refreshSubscription } = useSubscription();
   const auth = useAuth();
   const [stored, setStored] = useState<ActiveSlotsStored | null>(null);
   const [syncReady, setSyncReady] = useState(false);
+  const [claimedTotal, setClaimedTotal] = useState(0);
   const signedIn = Boolean(AUTH_ENABLED && auth.user?.id && !auth.loading);
   const prevAccountsRef = useRef<AccountMeta[] | null>(null);
+
+  const refreshClaimed = useCallback(async () => {
+    if (!signedIn) {
+      setClaimedTotal(accounts.length);
+      return accounts.length;
+    }
+    const status = await reportAccountSlots(accounts.length);
+    const total = status?.claimedTotal ?? getLastSlotStatus()?.claimedTotal ?? accounts.length;
+    setClaimedTotal(total);
+    return total;
+  }, [accounts.length, signedIn]);
 
   useEffect(() => {
     let mounted = true;
     setSyncReady(false);
     void (async () => {
-      const local = await loadActiveSlots();
-      if (!signedIn) {
-        if (mounted) {
-          setStored(local);
-          setSyncReady(true);
+      // Pick up admin limit changes before deciding over-quota.
+      if (signedIn) {
+        try {
+          await refreshSubscription();
+        } catch {
+          // keep going with cached max
         }
+      }
+
+      const local = await loadActiveSlots();
+      const claimed = await refreshClaimed();
+      if (!mounted) return;
+
+      if (!signedIn) {
+        // Drop stale local lock if the plan cap changed.
+        if (
+          local &&
+          local.confirmedForMax > 0 &&
+          local.confirmedForMax !== maxAccounts
+        ) {
+          await clearActiveSlots();
+          setStored(null);
+        } else {
+          setStored(local);
+        }
+        setSyncReady(true);
         return;
       }
 
       const remote = await fetchSharedActiveAccounts();
       if (!mounted) return;
 
-      const remoteCap = remote?.maxAccounts || maxAccounts;
+      const liveMax = remote?.maxAccounts || maxAccounts;
+
+      // Server says no valid lock for this cap (admin reduced limit, etc.).
+      if (
+        remote &&
+        (remote.keys.length === 0 ||
+          remote.confirmedForMax !== liveMax ||
+          remote.keys.length > liveMax)
+      ) {
+        if (local) await clearActiveSlots();
+        if (mounted) {
+          setStored(null);
+          setSyncReady(true);
+        }
+        return;
+      }
+
       if (
         remote &&
         remote.keys.length > 0 &&
-        !isUnlimitedAccountLimit(remoteCap)
+        remote.confirmedForMax === liveMax &&
+        remote.keys.length <= liveMax &&
+        !isUnlimitedAccountLimit(liveMax)
       ) {
         const ids = idsMatchingFingerprints(accounts, remote.keys);
         const next: ActiveSlotsStored = {
           ids,
           keys: remote.keys,
-          confirmedForMax: remote.confirmedForMax || remoteCap,
+          confirmedForMax: remote.confirmedForMax,
         };
         await saveActiveSlots(next.ids, next.confirmedForMax, next.keys);
         if (mounted) {
@@ -96,19 +148,24 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
         return;
       }
 
-      // Server empty: upload this phone's confirmed set once (first writer).
+      // Only migrate a local set that matches the LIVE cap and is under quota.
       if (
         remote &&
         remote.keys.length === 0 &&
         local &&
+        local.confirmedForMax === maxAccounts &&
         accounts.length > 0 &&
+        claimed <= maxAccounts &&
         !isUnlimitedAccountLimit(maxAccounts)
       ) {
         const migrateKeys =
           local.keys?.length
             ? local.keys
             : keysForAccountIds(accounts, local.ids);
-        if (migrateKeys.length > 0) {
+        if (
+          migrateKeys.length > 0 &&
+          migrateKeys.length <= maxAccounts
+        ) {
           try {
             const saved = await putSharedActiveAccounts(migrateKeys, maxAccounts);
             const ids = idsMatchingFingerprints(accounts, saved.keys);
@@ -129,24 +186,44 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
         }
       }
 
-      if (local && (local.keys?.length || local.ids.length)) {
+      if (
+        local &&
+        local.confirmedForMax === maxAccounts &&
+        (local.keys?.length || local.ids.length)
+      ) {
         if (mounted) setStored(local);
-      } else if (mounted) {
-        setStored(null);
+      } else {
+        if (local) await clearActiveSlots();
+        if (mounted) setStored(null);
       }
       if (mounted) setSyncReady(true);
     })();
     return () => {
       mounted = false;
     };
-    // Re-fetch when sign-in or plan cap changes. Do not depend on
-    // accounts.length — an empty first paint used to wipe the shared set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.user?.id, auth.loading, maxAccounts, signedIn]);
+  }, [auth.user?.id, auth.loading, maxAccounts, signedIn, accounts.length]);
+
+  // Re-check claimed total + subscription when app comes to foreground
+  // (admin may have just lowered the limit).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !signedIn) return;
+      void (async () => {
+        try {
+          await refreshSubscription();
+        } catch {
+          /* ignore */
+        }
+        await refreshClaimed();
+      })();
+    });
+    return () => sub.remove();
+  }, [refreshClaimed, refreshSubscription, signedIn]);
 
   const resolved = useMemo(
-    () => resolveActiveSlots(accounts, maxAccounts, stored),
-    [accounts, maxAccounts, stored],
+    () => resolveActiveSlots(accounts, maxAccounts, stored, claimedTotal),
+    [accounts, maxAccounts, stored, claimedTotal],
   );
 
   useEffect(() => {
@@ -172,6 +249,7 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
     const prev = prevAccountsRef.current;
     prevAccountsRef.current = accounts;
     if (!syncReady || !prev || !stored?.keys?.length) return;
+    if (stored.confirmedForMax !== maxAccounts) return;
 
     const nowKeys = new Set(
       accounts
@@ -212,22 +290,25 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
       await saveActiveSlots(ids, nextConfirmed, nextKeys);
       setStored({ ids, keys: nextKeys, confirmedForMax: nextConfirmed });
     })();
-  }, [accounts, signedIn, stored, syncReady]);
+  }, [accounts, maxAccounts, signedIn, stored, syncReady]);
 
   const sharedKeyCount = stored?.keys?.length ?? 0;
 
   const isAccountActive = useCallback(
     (id: string) => {
       if (!resolved.overQuota) return true;
+      // Until they pick after a limit drop, nothing is usable for apply.
+      if (resolved.needsPick) return false;
       return resolved.activeIds.has(id);
     },
-    [resolved.activeIds, resolved.overQuota],
+    [resolved.activeIds, resolved.needsPick, resolved.overQuota],
   );
 
   const usableAccounts = useMemo(() => {
     if (!resolved.overQuota) return accounts;
+    if (resolved.needsPick) return [];
     return accounts.filter((a) => resolved.activeIds.has(a.id));
-  }, [accounts, resolved.activeIds, resolved.overQuota]);
+  }, [accounts, resolved.activeIds, resolved.needsPick, resolved.overQuota]);
 
   const saveSelection = useCallback(
     async (ids: string[]) => {
@@ -235,10 +316,11 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
       const lockedKeys = resolved.lockedKeys;
       const confirmed =
         stored != null &&
-        (lockedKeys.length > 0 || stored.ids.some((id) => exist.has(id)));
+        stored.confirmedForMax === maxAccounts &&
+        lockedKeys.length > 0;
 
       let nextIds: string[];
-      if (confirmed && lockedKeys.length > 0) {
+      if (confirmed) {
         const lockedLocal = idsMatchingFingerprints(accounts, lockedKeys);
         const extras = ids.filter(
           (id) => exist.has(id) && !lockedLocal.includes(id),
@@ -273,6 +355,7 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
             keys: remote.keys,
             confirmedForMax: remote.confirmedForMax,
           });
+          await refreshClaimed();
           return;
         } catch (e) {
           Alert.alert(
@@ -288,7 +371,14 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
       await saveActiveSlots(nextIds, maxAccounts, keys);
       setStored({ ids: nextIds, keys, confirmedForMax: maxAccounts });
     },
-    [accounts, maxAccounts, resolved.lockedKeys, signedIn, stored],
+    [
+      accounts,
+      maxAccounts,
+      refreshClaimed,
+      resolved.lockedKeys,
+      signedIn,
+      stored,
+    ],
   );
 
   const effectiveCount =

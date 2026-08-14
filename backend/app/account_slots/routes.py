@@ -212,9 +212,17 @@ async def get_shared_active_accounts(
             await clear_active_set(db, user.id)
             await db.commit()
         return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
+    # Plan raised/lowered (or too many keys for new cap) → unlock so phones re-pick.
+    stale = bool(keys) and (
+        confirmed != max_acc or len(keys) > max_acc or confirmed < 1
+    )
+    if stale:
+        await clear_active_set(db, user.id)
+        await db.commit()
+        keys, confirmed = [], 0
     return ActiveSetOut(
         keys=keys,
-        confirmedForMax=confirmed if keys else 0,
+        confirmedForMax=confirmed if confirmed == max_acc and keys else 0,
         maxAccounts=max_acc,
     )
 

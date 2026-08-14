@@ -27,7 +27,7 @@ export function OverQuotaBanner() {
       : `${activeIds.size} of ${accounts.length} accounts active`;
 
   const body = needsPick
-    ? `Your plan allows ${maxAccounts} active accounts total for this Google login across all phones. Extra accounts stay saved but cannot apply until you pick (or upgrade). The same active set is used on every device.`
+    ? `Your plan now allows ${maxAccounts} active accounts for this Google login (across all phones). You have more demats saved than that — pick which ${maxAccounts} stay active. The same set applies on every device.`
     : canFillSlots
       ? `You deleted an active account, so you can fill the empty slot. You cannot swap accounts that are already active on this Google login.`
       : `Your active set is locked for this plan on every phone with this Google account. Extra accounts stay saved but cannot be swapped in. Upgrade or ask admin to raise the limit to change them.`;

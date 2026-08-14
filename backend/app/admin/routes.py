@@ -23,6 +23,7 @@ from ..auth.subscription import (
     upsert_premium,
 )
 from ..account_slots.service import iso as slot_iso, list_slots as list_device_slots
+from ..account_slots.active import clear_active_set, get_active_set
 from ..db.models import (
     PremiumEntitlement,
     RefreshToken,
@@ -1389,7 +1390,23 @@ async def admin_set_user_max_accounts(
     user = await load_user_with_premium(db, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail='User not found')
-    user.max_accounts = int(body.max_accounts)
+    await expire_premium_if_needed(db, user)
+    premium = user.premium
+    active = False
+    if premium and premium.expires_at:
+        exp = (
+            premium.expires_at
+            if premium.expires_at.tzinfo
+            else premium.expires_at.replace(tzinfo=UTC)
+        )
+        active = exp > datetime.now(UTC)
+    old_max = effective_max_accounts(user, premium_active=active)
+    new_max = int(body.max_accounts)
+    user.max_accounts = new_max
+    # Limit changed → force every phone to re-choose active accounts.
+    keys, confirmed = await get_active_set(db, user_id)
+    if keys or confirmed or new_max != old_max:
+        await clear_active_set(db, user_id)
     await db.commit()
     user = await load_user_with_premium(db, user_id)
     assert user is not None
