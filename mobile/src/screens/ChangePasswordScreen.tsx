@@ -45,8 +45,7 @@ export function ChangePasswordScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { loadSecrets } = useAccounts();
-  const { usableAccounts: accounts, isAccountActive, canEditSelection } =
-    useActiveAccounts();
+  const { usableAccounts: accounts, isAccountActive } = useActiveAccounts();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -73,12 +72,7 @@ export function ChangePasswordScreen() {
       return;
     }
     if (!isAccountActive(selected.id)) {
-      showLockedAccountAlert(
-        canEditSelection
-          ? () => navigation.navigate('ChooseActiveAccounts')
-          : null,
-        () => navigation.navigate('Subscription'),
-      );
+      showLockedAccountAlert(() => navigation.navigate('Subscription'));
       return;
     }
     if (!oldPw || !newPw || !confirmPw) {

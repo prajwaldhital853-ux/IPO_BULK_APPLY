@@ -25,9 +25,14 @@ from ..auth.subscription import (
 from ..account_slots.service import (
     iso as slot_iso,
     list_slots as list_device_slots,
-    cleanup_device_slots,
+    prune_devices,
 )
-from ..account_slots.active import clear_active_set, get_active_set
+from ..account_slots.registry import (
+    build_state,
+    claimed_totals,
+    list_registry,
+    release_devices,
+)
 from ..db.models import (
     PremiumEntitlement,
     RefreshToken,
@@ -155,6 +160,7 @@ async def _user_row(
     db: AsyncSession,
     user: User,
     devices: list[UserDeviceSlot] | None = None,
+    claimed_total: int | None = None,
 ) -> AdminUserRow:
     access = await _access_level(db, user)
     active, expires_iso = _premium_active(user)
@@ -171,26 +177,15 @@ async def _user_row(
         .limit(1),
     )
     premium = user.premium
+    max_acc = effective_max_accounts(user, premium_active=active)
     if devices is not None:
         slot_rows = devices
     else:
-        max_acc = effective_max_accounts(user, premium_active=active)
-        existing = await list_device_slots(db, user.id)
-        if existing:
-            newest = max(
-                existing,
-                key=lambda s: s.last_seen_at or s.created_at,
-            )
-            slot_rows = await cleanup_device_slots(
-                db,
-                user.id,
-                keep_device_id=newest.device_id,
-                max_accounts=max_acc,
-                this_count=int(newest.account_count or 0),
-            )
+        dead = await prune_devices(db, user.id)
+        if dead:
+            await release_devices(db, user.id, dead)
             await db.commit()
-        else:
-            slot_rows = []
+        slot_rows = await list_device_slots(db, user.id)
     device_outs = [
         AdminUserDeviceRow(
             deviceId=s.device_id,
@@ -201,7 +196,16 @@ async def _user_row(
         )
         for s in slot_rows
     ]
-    claimed = sum(d.account_count for d in device_outs)
+    # Unique demats claimed across every phone — one demat on two phones is
+    # a single slot, so this is never inflated by duplicates.
+    if claimed_total is None:
+        claimed = build_state(
+            await list_registry(db, user.id),
+            max_accounts=max_acc,
+            unlimited=False,
+        ).total
+    else:
+        claimed = claimed_total
     return AdminUserRow(
         id=user.id,
         googleSub=user.google_sub,
@@ -1190,6 +1194,7 @@ async def admin_list_users(
     by_uid: dict[str, list[UserDeviceSlot]] = {}
     for s in all_slots:
         by_uid.setdefault(s.user_id, []).append(s)
+    claimed_by_uid = await claimed_totals(db)
     out: list[AdminUserRow] = []
     filter_key = (access or 'all').strip().lower()
     for user in rows:
@@ -1198,7 +1203,12 @@ async def admin_list_users(
             key=lambda x: x.last_seen_at or x.created_at,
             reverse=True,
         )
-        row = await _user_row(db, user, slots)
+        row = await _user_row(
+            db,
+            user,
+            slots,
+            claimed_total=claimed_by_uid.get(user.id, 0),
+        )
         if filter_key == 'blocked':
             if not row.is_blocked:
                 continue
@@ -1423,13 +1433,9 @@ async def admin_set_user_max_accounts(
             else premium.expires_at.replace(tzinfo=UTC)
         )
         active = exp > datetime.now(UTC)
-    old_max = effective_max_accounts(user, premium_active=active)
-    new_max = int(body.max_accounts)
-    user.max_accounts = new_max
-    # Limit changed → force every phone to re-choose active accounts.
-    keys, confirmed = await get_active_set(db, user_id)
-    if keys or confirmed or new_max != old_max:
-        await clear_active_set(db, user_id)
+    # The active set is derived from the new cap (first N demats by the order
+    # they were added), so phones pick it up on their next sync automatically.
+    user.max_accounts = int(body.max_accounts)
     await db.commit()
     user = await load_user_with_premium(db, user_id)
     assert user is not None
@@ -1501,6 +1507,7 @@ async def admin_forget_user_device(
     if row is None:
         raise HTTPException(status_code=404, detail='Device not found')
     await db.delete(row)
+    await release_devices(db, user_id, [device_id])
     await db.commit()
     user = await load_user_with_premium(db, user_id)
     assert user is not None

@@ -183,7 +183,7 @@ export function HomeScreen() {
     removeMockAccounts,
   } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
-  const { isAccountActive, canEditSelection } = useActiveAccounts();
+  const { isAccountActive } = useActiveAccounts();
   const { refresh: refreshBranding } = useAppBranding();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
@@ -369,13 +369,8 @@ export function HomeScreen() {
   }, [loadSecrets]);
 
   const promptLocked = useCallback(() => {
-    showLockedAccountAlert(
-      canEditSelection
-        ? () => navigation.navigate('ChooseActiveAccounts')
-        : null,
-      () => navigation.navigate('Subscription'),
-    );
-  }, [canEditSelection, navigation]);
+    showLockedAccountAlert(() => navigation.navigate('Subscription'));
+  }, [navigation]);
 
   const openMeroshare = useCallback(
     (item: AccountMeta) => {

@@ -84,7 +84,7 @@ export function BankTrackerDetailScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { accounts } = useAccounts();
-  const { isAccountActive, canEditSelection } = useActiveAccounts();
+  const { isAccountActive } = useActiveAccounts();
 
   const account = useMemo(
     () => accounts.find((a) => a.id === accountId) ?? null,
@@ -153,12 +153,7 @@ export function BankTrackerDetailScreen() {
     : '';
 
   const promptLocked = () => {
-    showLockedAccountAlert(
-      canEditSelection
-        ? () => navigation.navigate('ChooseActiveAccounts')
-        : null,
-      () => navigation.navigate('Subscription'),
-    );
+    showLockedAccountAlert(() => navigation.navigate('Subscription'));
   };
 
   // ---- Actions ----

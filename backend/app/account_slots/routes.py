@@ -11,16 +11,22 @@ from ..auth.subscription import (
     load_user_with_premium,
 )
 from ..db.session import get_db
+from .registry import (
+    RegistryState,
+    build_state,
+    can_add_key,
+    list_registry,
+    purge_unclaimed,
+    release_devices,
+    sync_device_keys,
+)
 from .service import (
-    cleanup_device_slots,
-    iso,
     is_unlimited,
+    iso,
     list_slots,
-    projected_total,
-    release_other_slots,
+    prune_devices,
     upsert_slot,
 )
-from .active import clear_active_set, get_active_set, prune_active_keys, save_active_set
 
 router = APIRouter(prefix='/app/account-slots', tags=['account-slots'])
 
@@ -29,7 +35,22 @@ class SlotIn(BaseModel):
     device_id: str = Field(alias='deviceId', min_length=4, max_length=128)
     device_label: str = Field(default='', alias='deviceLabel', max_length=128)
     platform: str = 'android'
-    account_count: int = Field(alias='accountCount', ge=0, le=999999)
+    account_count: int = Field(default=0, alias='accountCount', ge=0, le=999999)
+
+    model_config = {'populate_by_name': True}
+
+
+class SyncIn(SlotIn):
+    keys: list[str] = Field(default_factory=list)
+    # Older builds only sent a count. Without this flag the registry is left
+    # alone, so a legacy heartbeat can never release a phone's demats.
+    sync_keys: bool = Field(default=False, alias='syncKeys')
+
+    model_config = {'populate_by_name': True}
+
+
+class CheckIn(SyncIn):
+    candidate_key: str = Field(default='', alias='candidateKey', max_length=200)
 
     model_config = {'populate_by_name': True}
 
@@ -53,7 +74,10 @@ class SlotStatusOut(BaseModel):
     other_devices_total: int = Field(alias='otherDevicesTotal')
     device_count: int = Field(alias='deviceCount')
     message: str = ''
+    # Kept false: freeing other phones on demand was a way around the cap.
     can_release_others: bool = Field(default=False, alias='canReleaseOthers')
+    active_keys: list[str] = Field(default_factory=list, alias='activeKeys')
+    locked_keys: list[str] = Field(default_factory=list, alias='lockedKeys')
     devices: list[DeviceOut] = Field(default_factory=list)
 
     model_config = {'populate_by_name': True}
@@ -92,172 +116,207 @@ def _devices_out(slots, this_id: str) -> list[DeviceOut]:
     ]
 
 
-def _status(
+def counts_total(slots) -> int:
+    """Sum of per-install counts — the only figure a legacy build reports."""
+    return sum(max(0, int(s.account_count or 0)) for s in slots)
+
+
+def _out(
+    state: RegistryState,
     *,
-    max_accounts: int,
     slots,
     device_id: str,
     this_count: int,
-    adding: bool,
+    allowed: bool = True,
+    adding: bool = False,
+    claimed: int | None = None,
 ) -> SlotStatusOut:
-    next_count = this_count + (1 if adding else 0)
-    total = projected_total(slots, device_id=device_id, this_count=next_count)
-    others = max(0, total - next_count)
-    unlimited = is_unlimited(max_accounts)
-    allowed = unlimited or total <= max_accounts
+    unlimited = is_unlimited(state.max_accounts)
+    total = state.total if claimed is None else claimed
+    others = max(0, total - this_count)
     message = ''
-    if not allowed:
+    if not allowed and not unlimited:
         message = (
-            f'Your plan allows {max_accounts} MeroShare accounts in total '
-            f'across all phones signed in with this Google account.\n\n'
-            f'This phone: {this_count}\n'
-            f'Other phones: {others}\n'
-            f'Total: {this_count + others} / {max_accounts}'
+            f'Your plan allows {state.max_accounts} MeroShare accounts in '
+            f'total across every phone signed in with this Google account.\n\n'
+            f'Already added: {total} / {state.max_accounts}\n\n'
+            'Delete an account you no longer need, or ask for a higher limit.'
         )
-        if others > 0:
-            message += (
-                '\n\nIf you uninstalled the app on another phone, '
-                'you can free those slots now.'
-            )
-    reported_total = projected_total(
-        slots, device_id=device_id, this_count=this_count,
-    )
     return SlotStatusOut(
         allowed=allowed,
-        maxAccounts=max_accounts,
-        claimedTotal=reported_total if not adding else total,
+        maxAccounts=state.max_accounts,
+        claimedTotal=total + (1 if (adding and allowed) else 0),
         thisDeviceCount=this_count,
         otherDevicesTotal=others,
         deviceCount=len({s.device_id for s in slots} | {device_id}),
         message=message,
-        canReleaseOthers=(not allowed) and others > 0,
+        canReleaseOthers=False,
+        activeKeys=state.active_keys,
+        lockedKeys=state.locked_keys,
         devices=_devices_out(slots, device_id),
     )
 
 
-@router.put('/report', response_model=SlotStatusOut)
-async def report_slots(
-    body: SlotIn,
-    user: CurrentUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> SlotStatusOut:
-    max_acc = await _max_for_user(db, user.id)
+async def _sync(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    body: SyncIn,
+) -> tuple[RegistryState, list, int]:
+    """Heartbeat + register this phone's demats; free traces of dead installs."""
+    max_acc = await _max_for_user(db, user_id)
+    unlimited = is_unlimited(max_acc)
+    this_count = len(body.keys) if body.sync_keys else body.account_count
     try:
         await upsert_slot(
             db,
-            user_id=user.id,
+            user_id=user_id,
             device_id=body.device_id,
             device_label=body.device_label,
             platform=body.platform,
-            account_count=body.account_count,
+            account_count=this_count,
         )
+        if body.sync_keys:
+            state = await sync_device_keys(
+                db,
+                user_id=user_id,
+                device_id=body.device_id,
+                keys=body.keys,
+                max_accounts=max_acc,
+                unlimited=unlimited,
+            )
+        else:
+            state = build_state(
+                await list_registry(db, user_id),
+                max_accounts=max_acc,
+                unlimited=unlimited,
+            )
+        # An install that stopped heartbeating while the plan is full is treated
+        # as uninstalled so live phones get those slots back automatically.
+        dead = await prune_devices(
+            db,
+            user_id,
+            keep_device_id=body.device_id,
+            free_idle=not unlimited and state.total >= max_acc,
+        )
+        if dead:
+            await release_devices(db, user_id, dead)
+        await purge_unclaimed(db, user_id)
+        rows = await list_registry(db, user_id)
+        state = build_state(rows, max_accounts=max_acc, unlimited=unlimited)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    slots = await cleanup_device_slots(
-        db,
-        user.id,
-        keep_device_id=body.device_id,
-        max_accounts=max_acc,
-        this_count=body.account_count,
-    )
     await db.commit()
-    return _status(
-        max_accounts=max_acc,
+    slots = await list_slots(db, user_id)
+    return state, slots, this_count
+
+
+@router.put('/sync', response_model=SlotStatusOut)
+async def sync_slots(
+    body: SyncIn,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SlotStatusOut:
+    state, slots, this_count = await _sync(db, user_id=user.id, body=body)
+    return _out(
+        state,
         slots=slots,
         device_id=body.device_id,
-        this_count=body.account_count,
-        adding=False,
+        this_count=this_count,
     )
 
 
 @router.post('/check', response_model=SlotStatusOut)
 async def check_can_add(
-    body: SlotIn,
+    body: CheckIn,
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SlotStatusOut:
-    """Report this phone's current count, then check if adding one more is allowed."""
-    max_acc = await _max_for_user(db, user.id)
-    try:
-        await upsert_slot(
-            db,
-            user_id=user.id,
+    """Can this Google account claim one more demat anywhere?"""
+    state, slots, this_count = await _sync(db, user_id=user.id, body=body)
+    unlimited = is_unlimited(state.max_accounts)
+    if not body.sync_keys:
+        # Legacy build: it never registers demats, so fall back to the sum of
+        # per-install counts. Otherwise an old APK would see an empty registry
+        # and could add past the shared cap.
+        legacy = counts_total(slots)
+        return _out(
+            state,
+            slots=slots,
             device_id=body.device_id,
-            device_label=body.device_label,
-            platform=body.platform,
-            account_count=body.account_count,
+            this_count=this_count,
+            allowed=unlimited or legacy < state.max_accounts,
+            adding=True,
+            claimed=legacy,
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    slots = await cleanup_device_slots(
+    allowed, state = await can_add_key(
         db,
-        user.id,
-        keep_device_id=body.device_id,
-        max_accounts=max_acc,
-        this_count=body.account_count,
+        user_id=user.id,
+        candidate_key=body.candidate_key or None,
+        max_accounts=state.max_accounts,
+        unlimited=unlimited,
     )
-    await db.commit()
-    return _status(
-        max_accounts=max_acc,
+    return _out(
+        state,
         slots=slots,
         device_id=body.device_id,
-        this_count=body.account_count,
+        this_count=this_count,
+        allowed=allowed,
         adding=True,
+    )
+
+
+@router.put('/report', response_model=SlotStatusOut)
+async def report_slots(
+    body: SyncIn,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SlotStatusOut:
+    """Legacy heartbeat for older builds that only reported a count."""
+    state, slots, this_count = await _sync(db, user_id=user.id, body=body)
+    return _out(
+        state,
+        slots=slots,
+        device_id=body.device_id,
+        this_count=this_count,
     )
 
 
 @router.post('/release-others', response_model=SlotStatusOut)
 async def release_other_device_slots(
-    body: SlotIn,
+    body: SyncIn,
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SlotStatusOut:
-    """Drop every other install's claimed count for this Google user.
-
-    Use after uninstalling the app on another phone — the OS cannot notify us,
-    so the user confirms from the phone they still have.
-    """
-    max_acc = await _max_for_user(db, user.id)
-    try:
-        await upsert_slot(
-            db,
-            user_id=user.id,
-            device_id=body.device_id,
-            device_label=body.device_label,
-            platform=body.platform,
-            account_count=body.account_count,
-        )
-        await release_other_slots(
-            db,
-            user.id,
-            keep_device_id=body.device_id,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    await db.commit()
-    slots = await list_slots(db, user.id)
-    return _status(
-        max_accounts=max_acc,
+    """Retired: on-demand freeing let users hop the cap. Now a plain sync."""
+    state, slots, this_count = await _sync(db, user_id=user.id, body=body)
+    return _out(
+        state,
         slots=slots,
         device_id=body.device_id,
-        this_count=body.account_count,
-        adding=False,
+        this_count=this_count,
     )
 
 
 class ActiveSetOut(BaseModel):
     keys: list[str] = Field(default_factory=list)
+    locked_keys: list[str] = Field(default_factory=list, alias='lockedKeys')
     confirmed_for_max: int = Field(default=0, alias='confirmedForMax')
     max_accounts: int = Field(alias='maxAccounts')
+    total: int = 0
 
     model_config = {'populate_by_name': True}
 
 
-class ActiveSetIn(BaseModel):
-    keys: list[str] = Field(default_factory=list)
-    confirmed_for_max: int = Field(alias='confirmedForMax', ge=1)
-
-    model_config = {'populate_by_name': True}
+def _active_out(state: RegistryState) -> ActiveSetOut:
+    unlimited = is_unlimited(state.max_accounts)
+    return ActiveSetOut(
+        keys=[] if unlimited else state.active_keys,
+        lockedKeys=state.locked_keys,
+        confirmedForMax=0 if unlimited else state.max_accounts,
+        maxAccounts=state.max_accounts,
+        total=state.total,
+    )
 
 
 @router.get('/active', response_model=ActiveSetOut)
@@ -265,26 +324,22 @@ async def get_shared_active_accounts(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ActiveSetOut:
+    """The derived active set — first N demats by registration order."""
     max_acc = await _max_for_user(db, user.id)
-    keys, confirmed = await get_active_set(db, user.id)
-    if is_unlimited(max_acc):
-        if keys or confirmed:
-            await clear_active_set(db, user.id)
-            await db.commit()
-        return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
-    # Plan raised/lowered (or too many keys for new cap) → unlock so phones re-pick.
-    stale = bool(keys) and (
-        confirmed != max_acc or len(keys) > max_acc or confirmed < 1
+    rows = await list_registry(db, user.id)
+    state = build_state(
+        rows,
+        max_accounts=max_acc,
+        unlimited=is_unlimited(max_acc),
     )
-    if stale:
-        await clear_active_set(db, user.id)
-        await db.commit()
-        keys, confirmed = [], 0
-    return ActiveSetOut(
-        keys=keys,
-        confirmedForMax=confirmed if confirmed == max_acc and keys else 0,
-        maxAccounts=max_acc,
-    )
+    return _active_out(state)
+
+
+class ActiveSetIn(BaseModel):
+    keys: list[str] = Field(default_factory=list)
+    confirmed_for_max: int = Field(default=0, alias='confirmedForMax')
+
+    model_config = {'populate_by_name': True}
 
 
 @router.put('/active', response_model=ActiveSetOut)
@@ -293,27 +348,8 @@ async def put_shared_active_accounts(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ActiveSetOut:
-    max_acc = await _max_for_user(db, user.id)
-    if is_unlimited(max_acc):
-        await clear_active_set(db, user.id)
-        await db.commit()
-        return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
-    try:
-        keys, confirmed = await save_active_set(
-            db,
-            user_id=user.id,
-            keys=body.keys,
-            confirmed_for_max=body.confirmed_for_max,
-            max_accounts=max_acc,
-        )
-        await db.commit()
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    return ActiveSetOut(
-        keys=keys,
-        confirmedForMax=confirmed,
-        maxAccounts=max_acc,
-    )
+    """Retired: phones no longer choose which accounts are active."""
+    return await get_shared_active_accounts(user=user, db=db)
 
 
 @router.delete('/active', response_model=ActiveSetOut)
@@ -321,49 +357,15 @@ async def delete_shared_active_accounts(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ActiveSetOut:
-    max_acc = await _max_for_user(db, user.id)
-    # Clients used to wipe the shared set when THIS phone was under quota
-    # (including while accounts were still loading). That unlocked every
-    # other phone. Only unlimited plans may clear.
-    if is_unlimited(max_acc):
-        await clear_active_set(db, user.id)
-        await db.commit()
-        return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
-    keys, confirmed = await get_active_set(db, user.id)
-    return ActiveSetOut(
-        keys=keys,
-        confirmedForMax=confirmed if confirmed == max_acc else 0,
-        maxAccounts=max_acc,
-    )
-
-
-class PruneActiveIn(BaseModel):
-    keys: list[str] = Field(default_factory=list)
-
-    model_config = {'populate_by_name': True}
+    """Retired: a phone can no longer unlock the shared set."""
+    return await get_shared_active_accounts(user=user, db=db)
 
 
 @router.post('/active/prune', response_model=ActiveSetOut)
 async def prune_shared_active_accounts(
-    body: PruneActiveIn,
+    body: ActiveSetIn,
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ActiveSetOut:
-    """Free slots after deleting demats that were in the shared active set."""
-    max_acc = await _max_for_user(db, user.id)
-    if is_unlimited(max_acc):
-        await clear_active_set(db, user.id)
-        await db.commit()
-        return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
-    keys, confirmed = await prune_active_keys(
-        db,
-        user_id=user.id,
-        remove_keys=body.keys,
-        max_accounts=max_acc,
-    )
-    await db.commit()
-    return ActiveSetOut(
-        keys=keys,
-        confirmedForMax=confirmed,
-        maxAccounts=max_acc,
-    )
+    """Retired: deleting a demat frees its slot through /sync instead."""
+    return await get_shared_active_accounts(user=user, db=db)

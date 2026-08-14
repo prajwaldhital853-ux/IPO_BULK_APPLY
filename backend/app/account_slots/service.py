@@ -10,14 +10,11 @@ from ..db.models import UserDeviceSlot
 
 UNLIMITED = 999999
 
-# Always remove installs that never heartbeated this long (uninstalled / lost).
+# Always forget installs that never heartbeated this long (uninstalled / lost).
 HARD_STALE = timedelta(days=7)
-# Auto-free quiet phones when at/over the plan cap (uninstall = no more heartbeats).
-GHOST_ABS = timedelta(minutes=3)
-# Fresh reinstall with 0 local accounts — free other traces immediately.
-GHOST_ABS_EMPTY = timedelta(0)
-# Sibling lag while at/over cap.
-GHOST_LAG = timedelta(minutes=2)
+# When the plan is full, free quiet installs so a live phone can use the slots.
+# Uninstall cannot notify the server, so silence is the only signal we get.
+IDLE_FREE = timedelta(minutes=15)
 
 
 def iso(dt: datetime | None) -> str:
@@ -96,120 +93,33 @@ async def upsert_slot(
     return row
 
 
-def projected_total(
-    slots: list[UserDeviceSlot],
-    *,
-    device_id: str,
-    this_count: int,
-) -> int:
-    total = 0
-    seen = False
-    for s in slots:
-        if s.device_id == device_id:
-            total += max(0, this_count)
-            seen = True
-        else:
-            total += max(0, int(s.account_count or 0))
-    if not seen:
-        total += max(0, this_count)
-    return total
-
-
 def is_unlimited(max_accounts: int) -> bool:
     return max_accounts >= UNLIMITED
 
 
-async def cleanup_device_slots(
+async def prune_devices(
     db: AsyncSession,
     user_id: str,
     *,
-    keep_device_id: str,
-    max_accounts: int,
-    this_count: int,
-) -> list[UserDeviceSlot]:
-    """Drop uninstalled / abandoned install traces so they stop consuming the plan.
+    keep_device_id: str = '',
+    free_idle: bool = False,
+) -> list[str]:
+    """Forget install traces that can no longer be alive. Returns removed ids.
 
-    Uninstall cannot notify the server (new install id). We free slots that:
-    - have not heartbeated for HARD_STALE (7 days), or
-    - are over-cap ghosts: quiet for GHOST_ABS, or lagging live siblings by GHOST_LAG.
-    The phone currently reporting is never deleted.
+    `free_idle` is set when the Google account is at/over its cap: a phone that
+    stopped heartbeating is most likely uninstalled, and its demats must be
+    released so the phones still in use can claim those slots.
     """
     keep = (keep_device_id or '').strip()
     now = datetime.now(UTC)
-    slots = await list_slots(db, user_id)
-    changed = False
-
-    for s in list(slots):
+    removed: list[str] = []
+    for s in await list_slots(db, user_id):
         if s.device_id == keep:
             continue
-        if _age(s.last_seen_at, now) >= HARD_STALE:
-            await db.delete(s)
-            changed = True
-
-    if changed:
-        await db.flush()
-        slots = await list_slots(db, user_id)
-
-    if is_unlimited(max_accounts):
-        return slots
-
-    total = projected_total(slots, device_id=keep, this_count=this_count)
-    # At or over the cap: drop quiet/uninstalled installs so the live phone
-    # can use the freed slots (OS cannot notify us on uninstall).
-    if total < max_accounts:
-        return slots
-
-    others = [s for s in slots if s.device_id != keep]
-    if not others:
-        return slots
-
-    newest_other = max(
-        (_aware(s.last_seen_at) or _aware(s.created_at) or now) for s in others
-    )
-
-    abs_ghost = GHOST_ABS_EMPTY if this_count <= 0 else GHOST_ABS
-
-    def is_ghost(s: UserDeviceSlot) -> bool:
         age = _age(s.last_seen_at, now)
-        if age >= abs_ghost:
-            return True
-        seen = _aware(s.last_seen_at) or _aware(s.created_at)
-        if seen is None:
-            return True
-        return (newest_other - seen) >= GHOST_LAG
-
-    ghosts = sorted(
-        [s for s in others if is_ghost(s)],
-        key=lambda s: _aware(s.last_seen_at) or _aware(s.created_at) or now,
-    )
-    for s in ghosts:
-        await db.delete(s)
-        await db.flush()
-        slots = await list_slots(db, user_id)
-        total = projected_total(slots, device_id=keep, this_count=this_count)
-        if total < max_accounts:
-            break
-
-    return slots
-
-
-async def release_other_slots(
-    db: AsyncSession,
-    user_id: str,
-    *,
-    keep_device_id: str,
-) -> int:
-    """Immediately drop every install except this phone (user confirmed uninstall)."""
-    keep = (keep_device_id or '').strip()
-    if not keep:
-        raise ValueError('deviceId required')
-    slots = await list_slots(db, user_id)
-    removed = 0
-    for s in list(slots):
-        if s.device_id == keep:
-            continue
-        await db.delete(s)
-        removed += 1
+        if age >= HARD_STALE or (free_idle and age >= IDLE_FREE):
+            removed.append(s.device_id)
+            await db.delete(s)
     if removed:
         await db.flush()
     return removed

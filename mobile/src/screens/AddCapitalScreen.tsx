@@ -131,6 +131,11 @@ export function AddCapitalScreen() {
         isPremium,
         maxAccounts,
         onUpgrade: () => navigation.navigate('Subscription'),
+        candidate: {
+          dpId: dp.id,
+          dpCode: dp.code,
+          username: username.trim(),
+        },
       }))
     ) {
       return;

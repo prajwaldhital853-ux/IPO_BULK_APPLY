@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-  Alert,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,6 +18,10 @@ import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
+/**
+ * Read-only view of the active set. The plan decides it — the oldest demats
+ * across all phones stay active — so there is nothing to choose here.
+ */
 export function ChooseActiveAccountsScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -27,101 +31,32 @@ export function ChooseActiveAccountsScreen() {
   const { accounts } = useAccounts();
   const {
     maxAccounts,
-    suggestedIds,
-    saveSelection,
     overQuota,
-    needsPick,
-    canFillSlots,
-    selectionLocked,
     activeIds,
+    activeCount,
+    claimedTotal,
+    refresh,
   } = useActiveAccounts();
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [picked, setPicked] = useState<Set<string>>(
-    () => new Set(suggestedIds),
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void (async () => {
+      await refresh();
+      setRefreshing(false);
+    })();
+  }, [refresh]);
+
+  const ordered = useMemo(
+    () =>
+      [...accounts].sort((a, b) => {
+        const av = activeIds.has(a.id) ? 0 : 1;
+        const bv = activeIds.has(b.id) ? 0 : 1;
+        if (av !== bv) return av - bv;
+        return a.name.localeCompare(b.name);
+      }),
+    [accounts, activeIds],
   );
-
-  const suggestedKey = suggestedIds.join('|');
-  useEffect(() => {
-    setPicked(new Set(suggestedIds));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestedKey]);
-
-  const toggle = (id: string) => {
-    if (selectionLocked) return;
-    if (canFillSlots && activeIds.has(id)) {
-      Alert.alert(
-        'Locked',
-        'This account is already in your active set. You cannot swap it out on this plan.',
-      );
-      return;
-    }
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        if (canFillSlots && activeIds.has(id)) return prev;
-        next.delete(id);
-        return next;
-      }
-      if (next.size >= maxAccounts) {
-        Alert.alert(
-          'Limit reached',
-          `Your plan allows ${maxAccounts} active accounts.`,
-        );
-        return prev;
-      }
-      next.add(id);
-      return next;
-    });
-  };
-
-  const onSave = async () => {
-    if (selectionLocked) {
-      navigation.goBack();
-      return;
-    }
-    if (picked.size < 1) {
-      Alert.alert('Pick at least one', 'Choose which accounts stay active.');
-      return;
-    }
-    if (picked.size > maxAccounts) {
-      Alert.alert(
-        'Too many',
-        `Select at most ${maxAccounts} accounts.`,
-      );
-      return;
-    }
-    if (needsPick) {
-      // If this phone has enough demats, require a full set so one phone
-      // cannot lock the Google account to a tiny active set by mistake.
-      const required = Math.min(maxAccounts, accounts.length);
-      if (picked.size < required) {
-        Alert.alert(
-          'Select more',
-          accounts.length >= maxAccounts
-            ? `Select exactly ${maxAccounts} accounts for this plan.`
-            : `Select all ${accounts.length} accounts on this phone (or open the phone that has more demats to choose the full ${maxAccounts}).`,
-        );
-        return;
-      }
-    }
-    if (canFillSlots) {
-      for (const id of activeIds) {
-        if (!picked.has(id)) {
-          Alert.alert(
-            'Cannot swap',
-            'Already-active accounts stay active. You can only fill empty slots.',
-          );
-          return;
-        }
-      }
-    }
-    try {
-      await saveSelection([...picked]);
-      navigation.goBack();
-    } catch {
-      // Alert already shown by saveSelection
-    }
-  };
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -134,42 +69,32 @@ export function ChooseActiveAccountsScreen() {
 
       <Text style={styles.hint}>
         {!overQuota
-          ? 'You are within your plan limit. All saved accounts are active.'
-          : needsPick
-            ? `You have ${accounts.length} saved accounts, but your plan allows ${maxAccounts} active across all phones on this Google account. ${
-                accounts.length >= maxAccounts
-                  ? `Select exactly ${maxAccounts}.`
-                  : `Select all ${accounts.length} on this phone (the other phone can fill the rest up to ${maxAccounts}).`
-              } After you save, the same set applies on every device.`
-            : canFillSlots
-              ? `Your active set is locked across all phones. Empty slot(s) are available because an active account was removed. You can add replacements, but you cannot uncheck accounts that are already active.`
-              : `Your active set is locked for this plan on every phone signed in with this Google account. Upgrade or ask admin to raise the limit to change it.`}
+          ? 'You are within your plan limit, so every saved account is active.'
+          : `Your plan allows ${maxAccounts} active accounts across every phone signed in with this Google account. ${claimedTotal} accounts are saved in total, so the ${maxAccounts} added first stay active and the rest are locked — on all your phones. Delete an active account and the next one unlocks automatically.`}
       </Text>
       <Text style={styles.count}>
-        Selected {picked.size} / {maxAccounts}
+        Active {activeCount} / {maxAccounts}
+        {activeIds.size !== activeCount
+          ? ` · ${activeIds.size} on this phone`
+          : ''}
       </Text>
 
       <ScrollView
         contentContainerStyle={{ paddingBottom: insets.bottom + rs(90) }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
-        {accounts.map((a) => {
-          const on = picked.has(a.id);
-          const frozen = selectionLocked || (canFillSlots && activeIds.has(a.id));
+        {ordered.map((a) => {
+          const on = activeIds.has(a.id);
           return (
-            <Pressable
+            <View
               key={a.id}
-              style={[styles.row, on && styles.rowOn, frozen && { opacity: 0.72 }]}
-              onPress={() => toggle(a.id)}
+              style={[styles.row, on ? styles.rowOn : { opacity: 0.72 }]}
             >
               <Ionicons
-                name={
-                  frozen && on
-                    ? 'lock-closed'
-                    : on
-                      ? 'checkbox'
-                      : 'square-outline'
-                }
+                name={on ? 'checkmark-circle' : 'lock-closed'}
                 size={rs(22)}
                 color={on ? colors.primary : colors.textMuted}
               />
@@ -178,30 +103,24 @@ export function ChooseActiveAccountsScreen() {
                   {a.name.toUpperCase()}
                 </Text>
                 <Text style={styles.user} numberOfLines={1}>
-                  {frozen && on ? 'Active · locked' : a.username}
+                  {on ? `Active · ${a.username}` : `Locked · ${a.username}`}
                 </Text>
               </View>
-            </Pressable>
+            </View>
           );
         })}
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + rs(12) }]}>
-        {selectionLocked ? (
+      {overQuota ? (
+        <View style={[styles.footer, { paddingBottom: insets.bottom + rs(12) }]}>
           <Pressable
             style={styles.saveBtn}
             onPress={() => navigation.navigate('Subscription')}
           >
-            <Text style={styles.saveText}>Upgrade to change set</Text>
+            <Text style={styles.saveText}>Raise my limit</Text>
           </Pressable>
-        ) : (
-          <Pressable style={styles.saveBtn} onPress={() => void onSave()}>
-            <Text style={styles.saveText}>
-              {canFillSlots ? 'Save extra slots' : 'Save active set'}
-            </Text>
-          </Pressable>
-        )}
-      </View>
+        </View>
+      ) : null}
     </View>
   );
 }

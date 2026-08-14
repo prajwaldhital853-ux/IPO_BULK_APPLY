@@ -1,15 +1,26 @@
 import { Alert } from 'react-native';
-import {
-  checkCanAddAcrossDevices,
-  releaseOtherDeviceSlots,
-} from '../services/accountSlots';
+import { checkCanAddAcrossDevices } from '../services/accountSlots';
 import { AUTH_ENABLED } from '../services/auth/config';
+import { loadAccountMeta } from '../storage/accountsStorage';
 import {
   FREE_ACCOUNT_LIMIT,
   PREMIUM_ACCOUNT_LIMIT,
   accountLimitForPlan,
   isUnlimitedAccountLimit,
 } from '../storage/subscriptionStorage';
+import type { AccountMeta } from '../types/account';
+import {
+  accountFingerprintList,
+  keysForAccountIds,
+} from './accountFingerprint';
+
+/** Identity of the account about to be added, when it is already known. */
+export type CandidateAccount = {
+  dpId?: string;
+  dpCode?: string;
+  username?: string;
+  demat?: string;
+};
 
 /** Returns true if the user may add another account. Shows Alert when blocked. */
 export function guardAddAccount(opts: {
@@ -45,87 +56,45 @@ export function guardAddAccount(opts: {
   return false;
 }
 
-function promptReleaseOthers(
-  opts: {
-    currentCount: number;
-    onUpgrade?: () => void;
-  },
-  statusMessage: string,
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    const buttons: {
-      text: string;
-      style?: 'cancel' | 'destructive' | 'default';
-      onPress?: () => void;
-    }[] = [
-      {
-        text: 'Cancel',
-        style: 'cancel',
-        onPress: () => resolve(false),
-      },
-      {
-        text: 'Free other phones',
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            try {
-              const next = await releaseOtherDeviceSlots(opts.currentCount);
-              if (next.allowed || opts.currentCount < next.maxAccounts) {
-                Alert.alert(
-                  'Slots freed',
-                  'Claims from other installs were cleared. You can add accounts on this phone now.',
-                );
-                resolve(true);
-                return;
-              }
-              Alert.alert(
-                'Still at limit',
-                next.message || 'This phone already uses the full plan limit.',
-              );
-              resolve(false);
-            } catch (e) {
-              Alert.alert(
-                'Could not free slots',
-                e instanceof Error ? e.message : 'Try again.',
-              );
-              resolve(false);
-            }
-          })();
-        },
-      },
-    ];
-    if (opts.onUpgrade) {
-      buttons.splice(1, 0, {
-        text: 'Upgrade',
-        onPress: () => {
-          opts.onUpgrade?.();
-          resolve(false);
-        },
-      });
-    }
-    Alert.alert(
-      'Account limit reached',
-      `${statusMessage}\n\nUninstalled the app on another phone? Free those slots now so you can add accounts here.`,
-      buttons,
-    );
-  });
+function candidateKey(candidate?: CandidateAccount): string | undefined {
+  if (!candidate) return undefined;
+  const keys = accountFingerprintList({
+    id: '',
+    name: '',
+    dpName: '',
+    dpId: candidate.dpId ?? '',
+    dpCode: candidate.dpCode,
+    username: candidate.username ?? '',
+    demat: candidate.demat,
+  } as AccountMeta);
+  return keys.length ? keys.join(';') : undefined;
 }
 
 /**
- * Local cap + shared cap across phones signed in with the same Google account.
- * Does not upload MeroShare credentials — only a count per device.
+ * Local cap + shared cap across every phone signed in with the same Google
+ * account. Only demat fingerprints are sent — never MeroShare credentials.
  */
 export async function guardAddAccountAsync(opts: {
   currentCount: number;
   isPremium: boolean;
   maxAccounts?: number;
   onUpgrade?: () => void;
+  /** The account being added, when its DP + username are already known. */
+  candidate?: CandidateAccount;
 }): Promise<boolean> {
   if (!guardAddAccount(opts)) return false;
   // Auth off (dev) → local guard only.
   if (!AUTH_ENABLED) return true;
   try {
-    const status = await checkCanAddAcrossDevices(opts.currentCount);
+    const accounts = await loadAccountMeta();
+    const keys = keysForAccountIds(
+      accounts,
+      accounts.map((a) => a.id),
+    );
+    const status = await checkCanAddAcrossDevices(
+      keys,
+      candidateKey(opts.candidate),
+    );
     if (!status) {
       Alert.alert(
         'Sign in required',
@@ -134,13 +103,6 @@ export async function guardAddAccountAsync(opts: {
       return false;
     }
     if (status.allowed) return true;
-    if (status.canReleaseOthers || status.otherDevicesTotal > 0) {
-      return promptReleaseOthers(
-        opts,
-        status.message ||
-          `Your plan allows ${status.maxAccounts} accounts across all phones.`,
-      );
-    }
     Alert.alert(
       'Account limit reached',
       status.message ||

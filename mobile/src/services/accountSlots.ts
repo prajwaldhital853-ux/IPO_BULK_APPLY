@@ -16,20 +16,17 @@ export type SlotDevice = {
 export type SlotStatus = {
   allowed: boolean;
   maxAccounts: number;
+  /** Unique demats claimed across every phone on this Google account. */
   claimedTotal: number;
   thisDeviceCount: number;
   otherDevicesTotal: number;
   deviceCount: number;
   message: string;
-  canReleaseOthers: boolean;
+  /** Active demats, chosen by the server: first N in the order they were added. */
+  activeKeys: string[];
+  lockedKeys: string[];
   devices: SlotDevice[];
 };
-
-let lastStatus: SlotStatus | null = null;
-
-export function getLastSlotStatus(): SlotStatus | null {
-  return lastStatus;
-}
 
 function deviceLabel(): string {
   const model = Device.modelName?.trim();
@@ -38,13 +35,19 @@ function deviceLabel(): string {
   return (model || name || Platform.OS).slice(0, 128);
 }
 
-async function payload(accountCount: number) {
+async function payload(keys: string[]) {
   return {
     deviceId: await getInstallDeviceId(),
     deviceLabel: deviceLabel(),
     platform: Platform.OS,
-    accountCount: Math.max(0, Math.floor(accountCount)),
+    accountCount: keys.length,
+    keys,
+    syncKeys: true,
   };
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
 
 function mapStatus(json: Record<string, unknown>): SlotStatus {
@@ -57,7 +60,8 @@ function mapStatus(json: Record<string, unknown>): SlotStatus {
     otherDevicesTotal: Number(json.otherDevicesTotal ?? 0),
     deviceCount: Number(json.deviceCount ?? 0),
     message: String(json.message ?? ''),
-    canReleaseOthers: Boolean(json.canReleaseOthers),
+    activeKeys: strings(json.activeKeys),
+    lockedKeys: strings(json.lockedKeys),
     devices: devicesRaw.map((d) => {
       const row = d as Record<string, unknown>;
       return {
@@ -78,21 +82,23 @@ async function readStatus(res: Response): Promise<SlotStatus> {
     const detail = json.detail != null ? String(json.detail) : `Request failed (${res.status})`;
     throw new Error(detail);
   }
-  const status = mapStatus(json);
-  lastStatus = status;
-  return status;
+  return mapStatus(json);
 }
 
-export async function reportAccountSlots(
-  accountCount: number,
+/**
+ * Register this phone's demats for the signed-in Google account and read back
+ * which of them are active. Demats missing from `keys` are released, so
+ * deleting an account here frees that slot on every phone.
+ */
+export async function syncAccountSlots(
+  keys: string[],
 ): Promise<SlotStatus | null> {
   if (!AUTH_ENABLED) return null;
   try {
-    const body = await payload(accountCount);
-    const res = await authFetch('/app/account-slots/report', {
+    const res = await authFetch('/app/account-slots/sync', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(await payload(keys)),
     });
     if (res.status === 401) return null;
     return await readStatus(res);
@@ -101,122 +107,20 @@ export async function reportAccountSlots(
   }
 }
 
-/** Ask server if this Google account can add one more slot across all phones. */
+/** Ask the server whether this Google account can claim one more demat. */
 export async function checkCanAddAcrossDevices(
-  currentCount: number,
+  keys: string[],
+  candidateKey?: string,
 ): Promise<SlotStatus | null> {
   if (!AUTH_ENABLED) return null;
-  const body = await payload(currentCount);
   const res = await authFetch('/app/account-slots/check', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      ...(await payload(keys)),
+      candidateKey: candidateKey ?? '',
+    }),
   });
   if (res.status === 401) return null;
   return await readStatus(res);
-}
-
-/**
- * Immediately free claimed slots from every other install.
- * Use after uninstalling the app on another phone.
- */
-export async function releaseOtherDeviceSlots(
-  currentCount: number,
-): Promise<SlotStatus> {
-  const body = await payload(currentCount);
-  const res = await authFetch('/app/account-slots/release-others', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return await readStatus(res);
-}
-
-export type SharedActiveSet = {
-  keys: string[];
-  confirmedForMax: number;
-  maxAccounts: number;
-};
-
-export async function fetchSharedActiveAccounts(): Promise<SharedActiveSet | null> {
-  if (!AUTH_ENABLED) return null;
-  try {
-    const res = await authFetch('/app/account-slots/active', { method: 'GET' });
-    if (res.status === 401) return null;
-    const json = (await res.json()) as Record<string, unknown>;
-    if (!res.ok) {
-      const detail =
-        json.detail != null ? String(json.detail) : `Request failed (${res.status})`;
-      throw new Error(detail);
-    }
-    const keysRaw = Array.isArray(json.keys) ? json.keys : [];
-    return {
-      keys: keysRaw.map(String).filter(Boolean),
-      confirmedForMax: Math.floor(Number(json.confirmedForMax ?? 0)),
-      maxAccounts: Math.floor(Number(json.maxAccounts ?? 0)),
-    };
-  } catch {
-    return null;
-  }
-}
-
-export async function putSharedActiveAccounts(
-  keys: string[],
-  confirmedForMax: number,
-): Promise<SharedActiveSet> {
-  const res = await authFetch('/app/account-slots/active', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ keys, confirmedForMax }),
-  });
-  const json = (await res.json()) as Record<string, unknown>;
-  if (!res.ok) {
-    const detail =
-      json.detail != null ? String(json.detail) : `Request failed (${res.status})`;
-    throw new Error(detail);
-  }
-  const keysRaw = Array.isArray(json.keys) ? json.keys : [];
-  return {
-    keys: keysRaw.map(String).filter(Boolean),
-    confirmedForMax: Math.floor(Number(json.confirmedForMax ?? 0)),
-    maxAccounts: Math.floor(Number(json.maxAccounts ?? 0)),
-  };
-}
-
-export async function clearSharedActiveAccounts(): Promise<void> {
-  if (!AUTH_ENABLED) return;
-  try {
-    await authFetch('/app/account-slots/active', { method: 'DELETE' });
-  } catch {
-    // best-effort
-  }
-}
-
-/** Free shared slots after deleting demats that were active. */
-export async function pruneSharedActiveAccounts(
-  keys: string[],
-): Promise<SharedActiveSet | null> {
-  if (!AUTH_ENABLED || !keys.length) return null;
-  try {
-    const res = await authFetch('/app/account-slots/active/prune', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keys }),
-    });
-    if (res.status === 401) return null;
-    const json = (await res.json()) as Record<string, unknown>;
-    if (!res.ok) {
-      const detail =
-        json.detail != null ? String(json.detail) : `Request failed (${res.status})`;
-      throw new Error(detail);
-    }
-    const keysRaw = Array.isArray(json.keys) ? json.keys : [];
-    return {
-      keys: keysRaw.map(String).filter(Boolean),
-      confirmedForMax: Math.floor(Number(json.confirmedForMax ?? 0)),
-      maxAccounts: Math.floor(Number(json.maxAccounts ?? 0)),
-    };
-  } catch {
-    return null;
-  }
 }

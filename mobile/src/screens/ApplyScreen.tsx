@@ -111,8 +111,7 @@ export function ApplyScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const openDrawer = useOpenDrawer();
   const { accounts, updateAccountMeta } = useAccounts();
-  const { isAccountActive, needsPick, usableAccounts, canEditSelection } =
-    useActiveAccounts();
+  const { isAccountActive, usableAccounts } = useActiveAccounts();
   const { user } = useAuth();
   const { isPremium, maxAccounts } = useSubscription();
   const { colors, isDark } = useTheme();
@@ -270,13 +269,8 @@ export function ApplyScreen() {
   }, [usableAccounts, selectedIds, selected, alreadyApplied]);
 
   const promptLocked = useCallback(() => {
-    showLockedAccountAlert(
-      canEditSelection
-        ? () => navigation.navigate('ChooseActiveAccounts')
-        : null,
-      () => navigation.navigate('Subscription'),
-    );
-  }, [canEditSelection, navigation]);
+    showLockedAccountAlert(() => navigation.navigate('Subscription'));
+  }, [navigation]);
 
   const toggleAccount = (id: string) => {
     if (alreadyApplied(id)) return;
@@ -331,20 +325,6 @@ export function ApplyScreen() {
   };
 
   const confirmBulkApply = useCallback(() => {
-    if (needsPick) {
-      Alert.alert(
-        'Choose active accounts',
-        'Your plan limit is smaller than the number of saved accounts. Pick which accounts stay active before applying.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Choose now',
-            onPress: () => navigation.navigate('ChooseActiveAccounts'),
-          },
-        ],
-      );
-      return;
-    }
     if (!selected) {
       Alert.alert('No IPO', 'Select a Current Opening IPO first.');
       return;
@@ -412,11 +392,11 @@ export function ApplyScreen() {
         },
       },
     ]);
-  }, [checkedEligible, kitta, needsPick, navigation, selected, sensitive]);
+  }, [checkedEligible, kitta, selected, sensitive]);
 
   const runSingle = useCallback(
     (accountId: string) => {
-      if (needsPick || !isAccountActive(accountId)) {
+      if (!isAccountActive(accountId)) {
         promptLocked();
         return;
       }
@@ -481,7 +461,7 @@ export function ApplyScreen() {
         ],
       );
     },
-    [accounts, alreadyApplied, isAccountActive, kitta, needsPick, promptLocked, selected, sensitive],
+    [accounts, alreadyApplied, isAccountActive, kitta, promptLocked, selected, sensitive],
   );
 
   const openingLabel = useMemo(() => {

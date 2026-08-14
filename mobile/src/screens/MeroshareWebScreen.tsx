@@ -51,7 +51,7 @@ export function MeroshareWebScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { accounts, loadSecrets } = useAccounts();
-  const { isAccountActive, needsPick, canEditSelection } = useActiveAccounts();
+  const { isAccountActive, overQuota } = useActiveAccounts();
   const sensitive = useSensitiveAction();
   const webRef = useRef<WebView>(null);
   const loginGenRef = useRef(0);
@@ -150,13 +150,8 @@ export function MeroshareWebScreen() {
   );
 
   const promptLocked = useCallback(() => {
-    showLockedAccountAlert(
-      canEditSelection
-        ? () => navigation.navigate('ChooseActiveAccounts')
-        : null,
-      () => navigation.navigate('Subscription'),
-    );
-  }, [canEditSelection, navigation]);
+    showLockedAccountAlert(() => navigation.navigate('Subscription'));
+  }, [navigation]);
 
   const retryLogin = useCallback(() => {
     if (!selected) return;
@@ -187,11 +182,7 @@ export function MeroshareWebScreen() {
     if (!isAccountActive(account.id)) {
       setSessionToken(null);
       setLoading(false);
-      setLoginError(
-        needsPick
-          ? 'Choose which accounts stay active before opening MeroShare.'
-          : 'This account is locked because it is over your plan limit.',
-      );
+      setLoginError('This account is locked because it is over your plan limit.');
       return;
     }
     if (attemptedRef.current === account.id) return;
@@ -200,7 +191,7 @@ export function MeroshareWebScreen() {
       await signInAccount(account, idx);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, isAccountActive, needsPick, selectedIdx, signInAccount]);
+  }, [accounts, isAccountActive, overQuota, selectedIdx, signInAccount]);
 
   const onSelectAccount = (index: number) => {
     const account = accounts[index];

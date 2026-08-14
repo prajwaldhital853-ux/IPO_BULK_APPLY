@@ -1,4 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  UNLIMITED_ACCOUNT_LIMIT,
+  isUnlimitedAccountLimit,
+} from '../utils/activeSlotsRules';
 
 export type SubscriptionPlan = 'free' | 'premium';
 
@@ -131,12 +135,7 @@ export async function clearPremiumCache(): Promise<void> {
 /** Free plan account cap. Paid plans unlock more (default 50; admin can raise). */
 export const FREE_ACCOUNT_LIMIT = 10;
 export const PREMIUM_ACCOUNT_LIMIT = 50;
-/** Admin can set this value (= unlimited accounts). */
-export const UNLIMITED_ACCOUNT_LIMIT = 999_999;
-
-export function isUnlimitedAccountLimit(n: number | null | undefined): boolean {
-  return n != null && n >= UNLIMITED_ACCOUNT_LIMIT;
-}
+export { UNLIMITED_ACCOUNT_LIMIT, isUnlimitedAccountLimit };
 
 export function formatAccountLimit(n: number | null | undefined): string {
   if (isUnlimitedAccountLimit(n)) return 'Unlimited';

@@ -1,199 +1,44 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { scopedAsyncKey } from './userScope';
-import { isUnlimitedAccountLimit } from './subscriptionStorage';
-import type { AccountMeta } from '../types/account';
-import {
-  accountFingerprintList,
-  idsMatchingFingerprints,
-} from '../utils/accountFingerprint';
+import type { ActiveSlotsStored } from '../utils/activeSlotsRules';
 
 export const ACTIVE_SLOTS_BASE = 'active_account_slots_v1';
 
-export type ActiveSlotsStored = {
-  /** Local account ids (device-specific). */
-  ids: string[];
-  /**
-   * Cross-device fingerprints (`d:…` / `u:…`) shared via the server
-   * for the same Google account.
-   */
-  keys?: string[];
-  /** Plan cap this selection was confirmed for. */
-  confirmedForMax: number;
-};
+export {
+  resolveActiveSlots,
+  type ActiveSlotsResolved,
+  type ActiveSlotsStored,
+} from '../utils/activeSlotsRules';
 
 export async function loadActiveSlots(): Promise<ActiveSlotsStored | null> {
   try {
     const raw = await AsyncStorage.getItem(scopedAsyncKey(ACTIVE_SLOTS_BASE));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as ActiveSlotsStored;
-    if (!Array.isArray(parsed.ids) || !Number.isFinite(parsed.confirmedForMax)) {
-      return null;
-    }
+    const parsed = JSON.parse(raw) as Partial<ActiveSlotsStored> & {
+      confirmedForMax?: number;
+    };
     const keys = Array.isArray(parsed.keys)
       ? parsed.keys.map(String).filter(Boolean)
-      : undefined;
+      : [];
+    const max = Number(parsed.maxAccounts ?? parsed.confirmedForMax ?? 0);
+    if (!keys.length || !Number.isFinite(max) || max <= 0) return null;
     return {
-      ids: parsed.ids.map(String),
-      ...(keys?.length ? { keys } : {}),
-      confirmedForMax: Math.floor(parsed.confirmedForMax),
+      keys,
+      maxAccounts: Math.floor(max),
+      total: Math.max(keys.length, Math.floor(Number(parsed.total ?? 0))),
     };
   } catch {
     return null;
   }
 }
 
-export async function saveActiveSlots(
-  ids: string[],
-  confirmedForMax: number,
-  keys?: string[],
-): Promise<void> {
-  const next: ActiveSlotsStored = {
-    ids,
-    confirmedForMax: Math.floor(confirmedForMax),
-    ...(keys?.length ? { keys } : {}),
-  };
+export async function saveActiveSlots(value: ActiveSlotsStored): Promise<void> {
   await AsyncStorage.setItem(
     scopedAsyncKey(ACTIVE_SLOTS_BASE),
-    JSON.stringify(next),
+    JSON.stringify(value),
   );
 }
 
 export async function clearActiveSlots(): Promise<void> {
   await AsyncStorage.removeItem(scopedAsyncKey(ACTIVE_SLOTS_BASE));
-}
-
-export type ActiveSlotsResolved = {
-  overQuota: boolean;
-  needsPick: boolean;
-  activeIds: Set<string>;
-  suggestedIds: string[];
-  /** Full shared key list (may include keys not on this phone). */
-  lockedKeys: string[];
-};
-
-/**
- * @param claimedTotal Accounts claimed across all phones for this Google login.
- *   When the admin drops the plan limit, even a phone with few local demats
- *   must re-pick if the household total exceeds the new cap.
- */
-export function resolveActiveSlots(
-  accounts: AccountMeta[],
-  maxAccounts: number,
-  stored: ActiveSlotsStored | null,
-  claimedTotal = 0,
-): ActiveSlotsResolved {
-  const accountIds = accounts.map((a) => a.id);
-  const claimed = Math.max(claimedTotal, accountIds.length);
-
-  if (isUnlimitedAccountLimit(maxAccounts)) {
-    return {
-      overQuota: false,
-      needsPick: false,
-      activeIds: new Set(accountIds),
-      suggestedIds: accountIds,
-      lockedKeys: [],
-    };
-  }
-
-  const keys = (stored?.keys ?? [])
-    .map((k) => k.trim().toLowerCase())
-    .filter(Boolean);
-
-  // Only lock when the shared set matches the LIVE plan cap.
-  const sharedLock =
-    stored != null &&
-    keys.length > 0 &&
-    stored.confirmedForMax === maxAccounts &&
-    keys.length <= maxAccounts;
-
-  if (sharedLock) {
-    const keptIds = idsMatchingFingerprints(accounts, keys).slice(
-      0,
-      maxAccounts,
-    );
-    const kept = new Set(keptIds);
-    const hasExtras = accountIds.some((id) => !kept.has(id));
-    // Claimed sum can double-count the same demats on two phones.
-    // Once this phone's demats are all in the shared active set, treat as OK.
-    const localOver = accountIds.length > maxAccounts;
-    return {
-      overQuota: hasExtras || localOver,
-      needsPick: false,
-      activeIds: new Set(keptIds),
-      suggestedIds: keptIds,
-      lockedKeys: keys,
-    };
-  }
-
-  // No valid lock yet: over if THIS phone has too many, OR household
-  // claimed total exceeds the plan (admin dropped the limit, etc.).
-  const overQuota =
-    accountIds.length > maxAccounts || claimed > maxAccounts;
-
-  if (!overQuota) {
-    return {
-      overQuota: false,
-      needsPick: false,
-      activeIds: new Set(accountIds),
-      suggestedIds: accountIds,
-      lockedKeys: [],
-    };
-  }
-
-  const exist = new Set(accountIds);
-  const keptIds = (stored?.ids ?? []).filter((id) => exist.has(id)).slice(
-    0,
-    maxAccounts,
-  );
-
-  // Stale confirmation for an old plan cap → force a fresh pick.
-  const confirmed =
-    stored != null &&
-    stored.confirmedForMax === maxAccounts &&
-    keptIds.length > 0 &&
-    (stored.keys?.length ?? keptIds.length) <= maxAccounts;
-
-  return {
-    overQuota: true,
-    needsPick: !confirmed,
-    activeIds: confirmed ? new Set(keptIds) : new Set(),
-    suggestedIds: keptIds,
-    lockedKeys: [],
-  };
-}
-
-/** Build fingerprint list for ids, preserving already-locked keys first. */
-export function mergeActiveKeys(
-  accounts: AccountMeta[],
-  selectedIds: string[],
-  lockedKeys: string[],
-  maxAccounts: number,
-): string[] {
-  const byId = new Map(accounts.map((a) => [a.id, a]));
-  const out: string[] = [];
-  const seen = new Set<string>();
-
-  for (const key of lockedKeys) {
-    const k = key.trim().toLowerCase();
-    if (!k || seen.has(k)) continue;
-    const aliases = k.split(';').map((p) => p.trim()).filter(Boolean);
-    if (aliases.some((a) => seen.has(a))) continue;
-    seen.add(k);
-    for (const a of aliases) seen.add(a);
-    out.push(k);
-  }
-
-  for (const id of selectedIds) {
-    const a = byId.get(id);
-    if (!a) continue;
-    const aliases = accountFingerprintList(a);
-    if (!aliases.length) continue;
-    if (aliases.some((k) => seen.has(k))) continue;
-    const packed = aliases.join(';');
-    seen.add(packed);
-    for (const k of aliases) seen.add(k);
-    out.push(packed);
-  }
-
-  return out.slice(0, maxAccounts);
 }

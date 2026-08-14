@@ -474,11 +474,39 @@ class UserDeviceSlot(Base):
     )
 
 
-class UserActiveAccounts(Base):
-    """Shared active MeroShare set for one Google user across all phones.
+class UserDematSlot(Base):
+    """One MeroShare demat claimed by a Google user, shared across phones.
 
-    Keys are stable fingerprints (demat or dp+username) — never passwords.
+    `key` holds stable fingerprints (demat and/or dp+username), never secrets.
+    Registration order decides which demats stay active when the plan cap is
+    smaller than the number of saved demats — the user cannot choose.
     """
+
+    __tablename__ = 'user_demat_slots'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'key', name='uq_user_demat_slot'),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey('users.id', ondelete='CASCADE'),
+        index=True,
+    )
+    key: Mapped[str] = mapped_column(String(200), index=True)
+    devices_json: Mapped[str] = mapped_column(Text, default='[]')
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
+class UserActiveAccounts(Base):
+    """Legacy: user-chosen active set. Kept for old rows; no longer written."""
 
     __tablename__ = 'user_active_accounts'
 

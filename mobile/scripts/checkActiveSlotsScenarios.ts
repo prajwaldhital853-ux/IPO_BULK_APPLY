@@ -1,14 +1,15 @@
 /**
  * Pure scenario checks for multi-device active-account resolution.
+ * The active set is derived (oldest demats first) — users never choose it.
  * Run: npx --yes tsx mobile/scripts/checkActiveSlotsScenarios.ts
  */
 import {
   resolveActiveSlots,
   type ActiveSlotsStored,
-} from '../src/storage/activeAccountSlots';
+} from '../src/utils/activeSlotsRules';
 import type { AccountMeta } from '../src/types/account';
 
-function acc(id: string, demat: string): AccountMeta {
+function acc(id: string, demat: string, addedAt?: string): AccountMeta {
   return {
     id,
     name: id,
@@ -16,165 +17,113 @@ function acc(id: string, demat: string): AccountMeta {
     dpName: 'Test',
     username: demat.slice(-8) || id,
     demat,
+    ...(addedAt ? { addedAt } : {}),
   };
+}
+
+function dematKeys(prefix: string, count: number): string[] {
+  return Array.from(
+    { length: count },
+    (_, i) => `d:${prefix}${String(i).padStart(8, '0')}`,
+  );
+}
+
+function phone(prefix: string, count: number): AccountMeta[] {
+  return Array.from({ length: count }, (_, i) =>
+    acc(
+      `${prefix}${i}`,
+      `${prefix}${String(i).padStart(8, '0')}`,
+      new Date(2026, 0, 1 + i).toISOString(),
+    ),
+  );
 }
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(msg);
 }
 
+function server(keys: string[], max: number, total: number): ActiveSlotsStored {
+  return { keys, maxAccounts: max, total };
+}
+
 function run() {
-  const max = 50;
-
-  // --- 2 devices, under limit ---
+  // --- Both phones under the limit: nothing is locked. ---
   {
-    const a = Array.from({ length: 30 }, (_, i) =>
-      acc(`a${i}`, `13013700${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(a, max, null, 40); // 30 local + 10 other
-    assert(!r.overQuota && !r.needsPick, '2dev under limit should be normal');
-    assert(r.activeIds.size === 30, 'all local active under limit');
+    const a = phone('13013700', 12);
+    const keys = dematKeys('13013700', 12).concat(dematKeys('13013701', 8));
+    const r = resolveActiveSlots(a, 20, server(keys, 20, 20));
+    assert(!r.overQuota, 'under limit must not be over quota');
+    assert(r.activeIds.size === 12, 'all local accounts active');
   }
 
-  // --- 2 devices, admin drops limit (90+10 → max 50) ---
+  // --- Admin drops 20 → 10: the first 10 stay active on every phone. ---
   {
-    const a = Array.from({ length: 90 }, (_, i) =>
-      acc(`a${i}`, `13013700${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(a, 50, null, 100);
-    assert(r.overQuota && r.needsPick, 'phone with 90 must needsPick after drop');
-    assert(r.activeIds.size === 0, 'nothing usable until pick');
+    const a = phone('13013700', 10);
+    // Phone A registered first, so its demats own the 10 active slots.
+    const r = resolveActiveSlots(a, 10, server(dematKeys('13013700', 10), 10, 20));
+    assert(!r.overQuota, 'phone A keeps all 10 active');
+    assert(r.activeIds.size === 10, 'A has the 10 active demats');
   }
   {
-    const b = Array.from({ length: 10 }, (_, i) =>
-      acc(`b${i}`, `13013701${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(b, 50, null, 100);
-    assert(r.overQuota && r.needsPick, 'small phone also needsPick when claimed>max');
-  }
-
-  // --- 2 devices, after full pick on phone A ---
-  {
-    const keys = Array.from({ length: 50 }, (_, i) =>
-      `d:13013700${String(i).padStart(8, '0')}`,
-    );
-    const stored: ActiveSlotsStored = {
-      ids: [],
-      keys,
-      confirmedForMax: 50,
-    };
-    const a = Array.from({ length: 90 }, (_, i) =>
-      acc(`a${i}`, `13013700${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(a, 50, stored, 100);
-    assert(r.overQuota && !r.needsPick, 'extras locked, no re-pick');
-    assert(r.activeIds.size === 50, '50 active on big phone');
-    assert(r.lockedKeys.length === 50, 'shared lock present');
-  }
-  {
-    // Phone B only has demats outside the chosen 50
-    const keys = Array.from({ length: 50 }, (_, i) =>
-      `d:13013700${String(i).padStart(8, '0')}`,
-    );
-    const stored: ActiveSlotsStored = { ids: [], keys, confirmedForMax: 50 };
-    const b = Array.from({ length: 10 }, (_, i) =>
-      acc(`b${i}`, `13013799${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(b, 50, stored, 100);
-    assert(r.overQuota && !r.needsPick, 'non-matching phone locked');
+    const b = phone('13013701', 10);
+    const r = resolveActiveSlots(b, 10, server(dematKeys('13013700', 10), 10, 20));
+    assert(r.overQuota, 'phone B is fully locked out');
     assert(r.activeIds.size === 0, 'none of B demats are active');
-  }
-  {
-    // Same 50 demats on both phones — should be normal after lock
-    const keys = Array.from({ length: 50 }, (_, i) =>
-      `d:13013700${String(i).padStart(8, '0')}`,
-    );
-    const stored: ActiveSlotsStored = { ids: [], keys, confirmedForMax: 50 };
-    const b = Array.from({ length: 50 }, (_, i) =>
-      acc(`b${i}`, `13013700${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(b, 50, stored, 100);
-    assert(!r.overQuota && !r.needsPick, 'duplicate demats on 2 phones OK after pick');
-    assert(r.activeIds.size === 50, 'all matching active');
+    assert(r.lockedIds.length === 10, 'all 10 of B are locked');
   }
 
-  // --- 2 devices, partial fill (20/50) ---
+  // --- One phone holds more demats than the cap: oldest N active. ---
   {
-    const keys = Array.from({ length: 20 }, (_, i) =>
-      `d:13013700${String(i).padStart(8, '0')}`,
-    );
-    const stored: ActiveSlotsStored = { ids: [], keys, confirmedForMax: 50 };
-    const a = Array.from({ length: 90 }, (_, i) =>
-      acc(`a${i}`, `13013700${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(a, 50, stored, 100);
-    assert(r.overQuota && !r.needsPick, 'partial lock → fill mode');
-    assert(r.activeIds.size === 20, '20 active so far');
-    assert(r.lockedKeys.length === 20, '20 locked keys');
+    const a = phone('13013700', 30);
+    const r = resolveActiveSlots(a, 20, server(dematKeys('13013700', 20), 20, 30));
+    assert(r.overQuota, 'extra demats are locked');
+    assert(r.activeIds.size === 20, '20 active');
+    assert(r.lockedIds.length === 10, '10 locked');
   }
 
-  // --- 3 devices, under limit 20+15+10 ---
+  // --- An active demat is deleted → the queue promotes the next one. ---
   {
-    const a = Array.from({ length: 20 }, (_, i) =>
-      acc(`a${i}`, `13013700${String(i).padStart(8, '0')}`),
+    const a = phone('13013700', 30);
+    const promoted = dematKeys('13013700', 21).filter(
+      (k) => k !== 'd:1301370000000000',
     );
-    const r = resolveActiveSlots(a, 50, null, 45);
-    assert(!r.overQuota && !r.needsPick, '3dev under limit normal');
+    const r = resolveActiveSlots(a, 20, server(promoted, 20, 30));
+    assert(r.activeIds.size === 20, 'still 20 active after promotion');
+    assert(!r.activeIds.has('130137000'), 'deleted demat is gone');
   }
 
-  // --- 3 devices, over after drop 40+30+20 → max 50 ---
+  // --- Same demats on two phones count once, so both are fully active. ---
   {
-    const a = Array.from({ length: 40 }, (_, i) =>
-      acc(`a${i}`, `13013700${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(a, 50, null, 90);
-    assert(r.overQuota && r.needsPick, '3dev phone A needs pick');
-  }
-  {
-    const c = Array.from({ length: 20 }, (_, i) =>
-      acc(`c${i}`, `13013702${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(c, 50, null, 90);
-    assert(r.overQuota && r.needsPick, '3dev small phone needs pick too');
+    const b = phone('13013700', 20);
+    const r = resolveActiveSlots(b, 20, server(dematKeys('13013700', 20), 20, 20));
+    assert(!r.overQuota, 'mirrored phones are not over quota');
+    assert(r.activeIds.size === 20, 'all mirrored demats active');
   }
 
-  // --- 3 devices, after A locked 50, B and C extras ---
+  // --- Stale cache for an old cap is ignored; local rule applies instead. ---
   {
-    const keys = Array.from({ length: 50 }, (_, i) =>
-      `d:13013700${String(i).padStart(8, '0')}`,
-    );
-    const stored: ActiveSlotsStored = { ids: [], keys, confirmedForMax: 50 };
-    const b = Array.from({ length: 30 }, (_, i) =>
-      acc(`b${i}`, `13013701${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(b, 50, stored, 90);
-    assert(r.overQuota && !r.needsPick, 'B cannot start a new set');
-    assert(r.activeIds.size === 0, 'B demats not in A set → inactive');
+    const a = phone('13013700', 30);
+    const r = resolveActiveSlots(a, 10, server(dematKeys('13013700', 20), 20, 30));
+    assert(r.activeIds.size === 10, 'stale cache must not grant 20 slots');
   }
 
-  // --- stale lock for old cap ---
+  // --- Offline / guest: oldest-first locally, no server data. ---
   {
-    const keys = Array.from({ length: 50 }, (_, i) =>
-      `d:13013700${String(i).padStart(8, '0')}`,
-    );
-    const stored: ActiveSlotsStored = { ids: [], keys, confirmedForMax: 100 };
-    const a = Array.from({ length: 90 }, (_, i) =>
-      acc(`a${i}`, `13013700${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(a, 50, stored, 100);
-    assert(r.overQuota && r.needsPick, 'stale confirmedForMax=100 must re-pick');
+    const a = phone('13013700', 25);
+    const r = resolveActiveSlots(a, 20, null);
+    assert(r.overQuota && r.activeIds.size === 20, 'offline falls back to 20');
+    assert(r.activeIds.has('130137000'), 'oldest stays active offline');
+    assert(!r.activeIds.has('1301370024'), 'newest is locked offline');
   }
 
-  // --- unlimited ---
+  // --- Unlimited plan: everything active. ---
   {
-    const a = Array.from({ length: 200 }, (_, i) =>
-      acc(`a${i}`, `13013700${String(i).padStart(8, '0')}`),
-    );
-    const r = resolveActiveSlots(a, 999999, null, 500);
-    assert(!r.overQuota && !r.needsPick, 'unlimited ignores claimed');
+    const a = phone('13013700', 200);
+    const r = resolveActiveSlots(a, 999999, null);
+    assert(!r.overQuota && r.activeIds.size === 200, 'unlimited keeps all');
   }
 
-  console.log('All 2/3-device active-slot scenarios passed.');
+  console.log('All derived active-slot scenarios passed.');
 }
 
 run();

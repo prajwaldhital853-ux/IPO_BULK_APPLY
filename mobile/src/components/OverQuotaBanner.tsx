@@ -15,39 +15,30 @@ export function OverQuotaBanner() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { accounts } = useAccounts();
-  const { overQuota, needsPick, canFillSlots, canEditSelection, maxAccounts, activeIds } =
+  const { overQuota, maxAccounts, activeIds, lockedIds, claimedTotal } =
     useActiveAccounts();
 
   if (!overQuota) return null;
 
-  const title = needsPick
-    ? `Choose ${maxAccounts} active accounts`
-    : canFillSlots
-      ? `${activeIds.size} of ${maxAccounts} slots used`
-      : `${activeIds.size} of ${accounts.length} accounts active`;
-
-  const body = needsPick
-    ? `Your plan now allows ${maxAccounts} active accounts for this Google login (across all phones). You have more demats saved than that — pick which ${maxAccounts} stay active. The same set applies on every device.`
-    : canFillSlots
-      ? `You deleted an active account, so you can fill the empty slot. You cannot swap accounts that are already active on this Google login.`
-      : `Your active set is locked for this plan on every phone with this Google account. Extra accounts stay saved but cannot be swapped in. Upgrade or ask admin to raise the limit to change them.`;
-
   return (
     <View style={styles.box}>
-      <Text style={styles.title}>{title}</Text>
-      <Text style={[styles.body, !canEditSelection && { marginBottom: 0 }]}>
-        {body}
+      <Text style={styles.title}>
+        {activeIds.size} of {accounts.length} accounts active on this phone
       </Text>
-      {canEditSelection ? (
-        <Pressable
-          style={styles.btn}
-          onPress={() => navigation.navigate('ChooseActiveAccounts')}
-        >
-          <Text style={styles.btnText}>
-            {needsPick ? 'Choose now' : 'Fill empty slot'}
-          </Text>
-        </Pressable>
-      ) : null}
+      <Text style={styles.body}>
+        Your plan allows {maxAccounts} active accounts across every phone signed
+        in with this Google account, and {claimedTotal} are saved in total. The{' '}
+        {maxAccounts} oldest accounts stay active automatically —{' '}
+        {lockedIds.length} on this phone {lockedIds.length === 1 ? 'is' : 'are'}{' '}
+        locked. Delete an active account to free its slot, or ask admin to raise
+        your limit.
+      </Text>
+      <Pressable
+        style={styles.btn}
+        onPress={() => navigation.navigate('ChooseActiveAccounts')}
+      >
+        <Text style={styles.btnText}>See which are active</Text>
+      </Pressable>
     </View>
   );
 }

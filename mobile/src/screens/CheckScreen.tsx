@@ -21,7 +21,7 @@ export function CheckScreen() {
   const openDrawer = useOpenDrawer();
   const insets = useSafeAreaInsets();
   const { accounts } = useAccounts();
-  const { usableAccounts, needsPick } = useActiveAccounts();
+  const { usableAccounts } = useActiveAccounts();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -30,14 +30,14 @@ export function CheckScreen() {
       Alert.alert('No accounts', 'Add capital detail first from Apply.');
       return;
     }
-    if (needsPick || usableAccounts.length === 0) {
+    if (usableAccounts.length === 0) {
       Alert.alert(
-        'Choose active accounts',
-        'Your plan limit is smaller than the number of saved accounts. Pick which accounts stay active first.',
+        'No active accounts',
+        'Your plan limit is smaller than the number of saved accounts, and none of the accounts on this phone are in the active set. Delete an active account to free a slot, or ask admin to raise your limit.',
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: 'OK', style: 'cancel' },
           {
-            text: 'Choose now',
+            text: 'View active',
             onPress: () => navigation.navigate('ChooseActiveAccounts'),
           },
         ],
