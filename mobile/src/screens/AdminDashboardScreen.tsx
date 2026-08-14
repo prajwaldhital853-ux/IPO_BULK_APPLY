@@ -643,26 +643,40 @@ export function AdminDashboardScreen() {
               Premium default is 50. Raise after offline payment, or set Unlimited. Applies immediately.
             </Text>
             <View style={styles.limitChips}>
-              {limitPresets.map((n) => (
-                <Pressable
-                  key={n}
-                  style={[
-                    styles.limitChip,
-                    item.maxAccounts === n && styles.limitChipActive,
-                  ]}
-                  disabled={limitBusy}
-                  onPress={() => onSetMaxAccounts(item, n)}
-                >
-                  <Text
+              {limitPresets.map((n) => {
+                const active = item.maxAccounts === n;
+                return (
+                  <Pressable
+                    key={n}
                     style={[
-                      styles.limitChipText,
-                      item.maxAccounts === n && styles.limitChipTextActive,
+                      styles.limitChip,
+                      active && styles.limitChipActive,
+                      limitBusy && { opacity: 0.5 },
                     ]}
+                    disabled={limitBusy}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      n >= 999999
+                        ? 'Set unlimited accounts'
+                        : `Set account limit to ${n}`
+                    }
+                    onPress={() => {
+                      setCustomMaxAccounts(n >= 999999 ? '' : String(n));
+                      onSetMaxAccounts(item, n);
+                    }}
                   >
-                    {n >= 999999 ? 'Unlimited' : n}
-                  </Text>
-                </Pressable>
-              ))}
+                    <Text
+                      style={[
+                        styles.limitChipText,
+                        active && styles.limitChipTextActive,
+                      ]}
+                    >
+                      {n >= 999999 ? 'Unlimited' : n}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
             <View style={styles.limitCustomRow}>
               <TextInput
@@ -1130,30 +1144,36 @@ export function AdminDashboardScreen() {
       )}
 
       <Modal visible={detail != null} animationType="slide" transparent onRequestClose={closeDetail}>
-        <Pressable style={styles.modalBackdrop} onPress={closeDetail} />
-        <View
-          style={[
-            styles.modalSheet,
-            {
-              bottom: keyboardHeight,
-              paddingBottom: Math.max(insets.bottom, rs(16)),
-              maxHeight: keyboardHeight > 0 ? '88%' : '78%',
-            },
-          ]}
-        >
-          <View style={styles.modalGrab} />
-          <ScrollView
-            ref={detailScrollRef}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.modalScrollContent}
+        {/* Backdrop + sheet as siblings used to steal chip taps on Android.
+            Wrap so only the dimmed area closes; sheet owns its own presses. */}
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={closeDetail} />
+          <View
+            style={[
+              styles.modalSheet,
+              {
+                bottom: keyboardHeight,
+                paddingBottom: Math.max(insets.bottom, rs(16)),
+                maxHeight: keyboardHeight > 0 ? '88%' : '78%',
+              },
+            ]}
+            onStartShouldSetResponder={() => true}
           >
-            {renderDetailModal()}
-            <Pressable style={styles.modalClose} onPress={closeDetail}>
-              <Text style={styles.modalCloseText}>Close</Text>
-            </Pressable>
-          </ScrollView>
+            <View style={styles.modalGrab} />
+            <ScrollView
+              ref={detailScrollRef}
+              keyboardShouldPersistTaps="always"
+              keyboardDismissMode="on-drag"
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalScrollContent}
+            >
+              {renderDetailModal()}
+              <Pressable style={styles.modalClose} onPress={closeDetail}>
+                <Text style={styles.modalCloseText}>Close</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
         </View>
       </Modal>
     </View>
@@ -1383,6 +1403,10 @@ function makeStyles(c: ThemeColors) {
       marginTop: rs(24),
       fontSize: rs(13),
     },
+    modalRoot: {
+      flex: 1,
+      justifyContent: 'flex-end',
+    },
     modalBackdrop: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: c.overlay,
@@ -1398,6 +1422,9 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: rs(20),
       paddingTop: rs(8),
       maxHeight: '78%',
+      // Keep sheet above the full-screen backdrop so 50/100 chips receive taps.
+      zIndex: 2,
+      elevation: 8,
     },
     modalScrollContent: {
       paddingBottom: rs(8),
@@ -1461,13 +1488,15 @@ function makeStyles(c: ThemeColors) {
       gap: rs(8),
     },
     limitChip: {
-      minWidth: rs(48),
-      paddingVertical: rs(8),
-      paddingHorizontal: rs(12),
+      minWidth: rs(56),
+      minHeight: rs(40),
+      paddingVertical: rs(10),
+      paddingHorizontal: rs(14),
       borderRadius: rs(10),
       borderWidth: 1,
       borderColor: c.borderMuted,
       alignItems: 'center',
+      justifyContent: 'center',
       backgroundColor: c.bg,
     },
     limitChipActive: {
