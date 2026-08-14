@@ -138,6 +138,42 @@ async def reconcile_device_slots(db: AsyncSession, user_id: str) -> int:
     return fixed
 
 
+def stale_release_minutes() -> int:
+    return int(AGGRESSIVE_STALE.total_seconds() // 60)
+
+
+def estimate_stale_release_wait(
+    slots: list[UserDeviceSlot],
+    keep_device_id: str,
+    registry_device_ids: set[str],
+    *,
+    threshold: timedelta | None = None,
+) -> tuple[int, str]:
+    """Seconds until a silent other phone may auto-release its claimed slots."""
+    keep = (keep_device_id or '').strip()
+    if not registry_device_ids:
+        return 0, 'cap_full'
+    threshold = threshold or AGGRESSIVE_STALE
+    now = datetime.now(UTC)
+    next_release: datetime | None = None
+    for slot in slots:
+        if slot.device_id == keep:
+            continue
+        if slot.device_id not in registry_device_ids:
+            continue
+        count = max(0, int(slot.account_count or 0))
+        if count <= 0:
+            continue
+        release_at = _aware(slot.last_seen_at) + threshold
+        if release_at > now:
+            if next_release is None or release_at < next_release:
+                next_release = release_at
+    if next_release is None:
+        return 0, 'cap_full'
+    secs = int(max(0, (next_release - now).total_seconds()))
+    return secs, 'waiting_stale_release'
+
+
 async def release_stale_device_claims(
     db: AsyncSession,
     user_id: str,

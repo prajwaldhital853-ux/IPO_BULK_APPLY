@@ -26,6 +26,10 @@ export type SlotStatus = {
   activeKeys: string[];
   lockedKeys: string[];
   devices: SlotDevice[];
+  /** Seconds until a silent other phone may auto-release slots (0 if not waiting). */
+  retryAfterSeconds: number;
+  blockReason: 'none' | 'waiting_stale_release' | 'cap_full';
+  staleReleaseMinutes: number;
 };
 
 function deviceLabel(): string {
@@ -56,6 +60,11 @@ function strings(value: unknown): string[] {
 
 function mapStatus(json: Record<string, unknown>): SlotStatus {
   const devicesRaw = Array.isArray(json.devices) ? json.devices : [];
+  const blockReason = String(json.blockReason ?? 'none');
+  const parsedReason =
+    blockReason === 'waiting_stale_release' || blockReason === 'cap_full'
+      ? blockReason
+      : 'none';
   return {
     allowed: Boolean(json.allowed),
     maxAccounts: Number(json.maxAccounts ?? 0),
@@ -66,6 +75,9 @@ function mapStatus(json: Record<string, unknown>): SlotStatus {
     message: String(json.message ?? ''),
     activeKeys: strings(json.activeKeys),
     lockedKeys: strings(json.lockedKeys),
+    retryAfterSeconds: Math.max(0, Number(json.retryAfterSeconds ?? 0)),
+    blockReason: parsedReason,
+    staleReleaseMinutes: Math.max(1, Number(json.staleReleaseMinutes ?? 20)),
     devices: devicesRaw.map((d) => {
       const row = d as Record<string, unknown>;
       return {

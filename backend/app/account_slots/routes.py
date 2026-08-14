@@ -24,12 +24,14 @@ from .registry import (
 from .service import (
     AGGRESSIVE_STALE,
     EMPTY_STALE,
+    estimate_stale_release_wait,
     is_unlimited,
     iso,
     list_slots,
     prune_devices,
     reconcile_device_slots,
     release_stale_device_claims,
+    stale_release_minutes,
     upsert_slot,
 )
 
@@ -84,6 +86,12 @@ class SlotStatusOut(BaseModel):
     active_keys: list[str] = Field(default_factory=list, alias='activeKeys')
     locked_keys: list[str] = Field(default_factory=list, alias='lockedKeys')
     devices: list[DeviceOut] = Field(default_factory=list)
+    retry_after_seconds: int = Field(default=0, alias='retryAfterSeconds')
+    block_reason: str = Field(default='none', alias='blockReason')
+    stale_release_minutes: int = Field(
+        default=20,
+        alias='staleReleaseMinutes',
+    )
 
     model_config = {'populate_by_name': True}
 
@@ -135,14 +143,32 @@ def _out(
     total = cap_claimed(state, slots) if claimed is None else claimed
     others = max(0, total - this_count)
     message = ''
+    retry_after = 0
+    block_reason = 'none'
     if not allowed and not unlimited:
-        message = (
-            f'Your plan allows {state.max_accounts} MeroShare accounts in '
-            f'total across every phone signed in with this Google account.\n\n'
-            f'Already added: {total} / {state.max_accounts}\n\n'
-            'Delete an account you no longer need, or wait ~20 minutes if you '
-            'uninstalled on another phone — slots free automatically.'
+        retry_after, block_reason = estimate_stale_release_wait(
+            slots,
+            device_id,
+            state.device_ids,
         )
+        if block_reason == 'waiting_stale_release':
+            mins = stale_release_minutes()
+            message = (
+                f'Your Google account already has {total} of '
+                f'{state.max_accounts} MeroShare accounts saved across '
+                f'all phones.\n\n'
+                f'Another phone still holds some of those slots. If you '
+                f'uninstalled the app there, they free automatically after '
+                f'it has been offline for {mins} minutes.'
+            )
+        else:
+            message = (
+                f'Your plan allows {state.max_accounts} MeroShare accounts in '
+                f'total across every phone signed in with this Google account.\n\n'
+                f'Already added: {total} / {state.max_accounts}\n\n'
+                'Delete an account you no longer need on any phone, or upgrade '
+                'your plan.'
+            )
     return SlotStatusOut(
         allowed=allowed,
         maxAccounts=state.max_accounts,
@@ -155,6 +181,9 @@ def _out(
         activeKeys=state.active_keys,
         lockedKeys=state.locked_keys,
         devices=_devices_out(slots, device_id),
+        retryAfterSeconds=retry_after,
+        blockReason=block_reason,
+        staleReleaseMinutes=stale_release_minutes(),
     )
 
 

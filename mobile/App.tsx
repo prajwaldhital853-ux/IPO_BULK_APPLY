@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native';
+import { AccountLimitBlockedProvider } from './src/context/AccountLimitBlockedContext';
 import { AuthProvider } from './src/context/AuthContext';
 import { AppLockProvider } from './src/context/AppLockContext';
 import { AccountsProvider } from './src/context/AccountsContext';
@@ -30,20 +31,22 @@ function AppShell() {
     <GestureHandlerRootView style={[styles.root, { backgroundColor: colors.bg }]}>
       <SafeAreaProvider>
         <AppBrandingProvider>
-          <AuthProvider>
-            <AppLockProvider>
-              <AccountsProvider>
-                <SubscriptionProvider>
-                  <ActiveAccountsProvider>
-                    <StatusBar style={isDark ? 'light' : 'dark'} />
-                    <AppWarmup />
-                    <RootNavigator />
-                    <StartupNoticeModal />
-                  </ActiveAccountsProvider>
-                </SubscriptionProvider>
-              </AccountsProvider>
-            </AppLockProvider>
-          </AuthProvider>
+          <AccountLimitBlockedProvider>
+            <AuthProvider>
+              <AppLockProvider>
+                <AccountsProvider>
+                  <SubscriptionProvider>
+                    <ActiveAccountsProvider>
+                      <StatusBar style={isDark ? 'light' : 'dark'} />
+                      <AppWarmup />
+                      <RootNavigator />
+                      <StartupNoticeModal />
+                    </ActiveAccountsProvider>
+                  </SubscriptionProvider>
+                </AccountsProvider>
+              </AppLockProvider>
+            </AuthProvider>
+          </AccountLimitBlockedProvider>
         </AppBrandingProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

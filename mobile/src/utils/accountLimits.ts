@@ -1,4 +1,5 @@
 import { Alert } from 'react-native';
+import { showAccountLimitBlocked } from '../context/AccountLimitBlockedContext';
 import { checkCanAddAcrossDevices } from '../services/accountSlots';
 import { AUTH_ENABLED } from '../services/auth/config';
 import { getAccessToken } from '../services/auth/tokenStorage';
@@ -115,17 +116,10 @@ export async function guardAddAccountAsync(opts: {
       return false;
     }
     if (status.allowed) return true;
-    Alert.alert(
-      'Account limit reached',
-      status.message ||
-        `Your plan allows ${status.maxAccounts} accounts in total across every phone signed in with this Google account (already saved: ${status.claimedTotal}).\n\nIf you uninstalled the app on another phone, those slots usually free up automatically after about 20 minutes — you do not need to contact admin.`,
-      opts.onUpgrade
-        ? [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Upgrade', onPress: opts.onUpgrade },
-          ]
-        : [{ text: 'OK' }],
-    );
+    showAccountLimitBlocked({
+      status,
+      onUpgrade: opts.onUpgrade,
+    });
     return false;
   } catch {
     Alert.alert(
