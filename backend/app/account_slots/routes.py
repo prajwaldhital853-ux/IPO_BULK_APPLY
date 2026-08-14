@@ -18,6 +18,7 @@ from .service import (
     projected_total,
     upsert_slot,
 )
+from .active import clear_active_set, get_active_set, prune_active_keys, save_active_set
 
 router = APIRouter(prefix='/app/account-slots', tags=['account-slots'])
 
@@ -181,4 +182,115 @@ async def check_can_add(
         device_id=body.device_id,
         this_count=body.account_count,
         adding=True,
+    )
+
+
+class ActiveSetOut(BaseModel):
+    keys: list[str] = Field(default_factory=list)
+    confirmed_for_max: int = Field(default=0, alias='confirmedForMax')
+    max_accounts: int = Field(alias='maxAccounts')
+
+    model_config = {'populate_by_name': True}
+
+
+class ActiveSetIn(BaseModel):
+    keys: list[str] = Field(default_factory=list)
+    confirmed_for_max: int = Field(alias='confirmedForMax', ge=1)
+
+    model_config = {'populate_by_name': True}
+
+
+@router.get('/active', response_model=ActiveSetOut)
+async def get_shared_active_accounts(
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ActiveSetOut:
+    max_acc = await _max_for_user(db, user.id)
+    keys, confirmed = await get_active_set(db, user.id)
+    if is_unlimited(max_acc):
+        if keys or confirmed:
+            await clear_active_set(db, user.id)
+            await db.commit()
+        return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
+    # Plan cap changed → unlock so every phone must pick again for the new limit.
+    if confirmed and confirmed != max_acc:
+        await clear_active_set(db, user.id)
+        await db.commit()
+        keys, confirmed = [], 0
+    return ActiveSetOut(
+        keys=keys,
+        confirmedForMax=confirmed if confirmed == max_acc else 0,
+        maxAccounts=max_acc,
+    )
+
+
+@router.put('/active', response_model=ActiveSetOut)
+async def put_shared_active_accounts(
+    body: ActiveSetIn,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ActiveSetOut:
+    max_acc = await _max_for_user(db, user.id)
+    if is_unlimited(max_acc):
+        await clear_active_set(db, user.id)
+        await db.commit()
+        return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
+    try:
+        keys, confirmed = await save_active_set(
+            db,
+            user_id=user.id,
+            keys=body.keys,
+            confirmed_for_max=body.confirmed_for_max,
+            max_accounts=max_acc,
+        )
+        await db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return ActiveSetOut(
+        keys=keys,
+        confirmedForMax=confirmed,
+        maxAccounts=max_acc,
+    )
+
+
+@router.delete('/active', response_model=ActiveSetOut)
+async def delete_shared_active_accounts(
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ActiveSetOut:
+    max_acc = await _max_for_user(db, user.id)
+    await clear_active_set(db, user.id)
+    await db.commit()
+    return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
+
+
+class PruneActiveIn(BaseModel):
+    keys: list[str] = Field(default_factory=list)
+
+    model_config = {'populate_by_name': True}
+
+
+@router.post('/active/prune', response_model=ActiveSetOut)
+async def prune_shared_active_accounts(
+    body: PruneActiveIn,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ActiveSetOut:
+    """Free slots after deleting demats that were in the shared active set."""
+    max_acc = await _max_for_user(db, user.id)
+    if is_unlimited(max_acc):
+        await clear_active_set(db, user.id)
+        await db.commit()
+        return ActiveSetOut(keys=[], confirmedForMax=0, maxAccounts=max_acc)
+    keys, confirmed = await prune_active_keys(
+        db,
+        user_id=user.id,
+        remove_keys=body.keys,
+        max_accounts=max_acc,
+    )
+    await db.commit()
+    return ActiveSetOut(
+        keys=keys,
+        confirmedForMax=confirmed,
+        maxAccounts=max_acc,
     )

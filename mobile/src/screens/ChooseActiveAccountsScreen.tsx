@@ -101,8 +101,12 @@ export function ChooseActiveAccountsScreen() {
         }
       }
     }
-    await saveSelection([...picked]);
-    navigation.goBack();
+    try {
+      await saveSelection([...picked]);
+      navigation.goBack();
+    } catch {
+      // Alert already shown by saveSelection
+    }
   };
 
   return (
@@ -118,10 +122,10 @@ export function ChooseActiveAccountsScreen() {
         {!overQuota
           ? 'You are within your plan limit. All saved accounts are active.'
           : needsPick
-            ? `You have ${accounts.length} saved accounts, but your plan allows ${maxAccounts} active. Pick up to ${maxAccounts}. After you save, this set is locked for this plan — you cannot swap accounts later.`
+            ? `You have ${accounts.length} saved accounts, but your plan allows ${maxAccounts} active across all phones on this Google account. Pick up to ${maxAccounts}. After you save, the same set applies on every device — you cannot pick a different ${maxAccounts} on another phone.`
             : canFillSlots
-              ? `Your active set is locked. You have ${maxAccounts - activeIds.size} empty slot(s) because an active account was deleted. You can add replacements, but you cannot uncheck accounts that are already active.`
-              : `Your active set is locked for this plan. Upgrade or ask admin to raise the limit to change it.`}
+              ? `Your active set is locked across all phones. Empty slot(s) are available because an active account was removed. You can add replacements, but you cannot uncheck accounts that are already active.`
+              : `Your active set is locked for this plan on every phone signed in with this Google account. Upgrade or ask admin to raise the limit to change it.`}
       </Text>
       <Text style={styles.count}>
         Selected {picked.size} / {maxAccounts}

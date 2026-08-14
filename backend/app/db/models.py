@@ -473,3 +473,25 @@ class UserDeviceSlot(Base):
         server_default=func.now(),
     )
 
+
+class UserActiveAccounts(Base):
+    """Shared active MeroShare set for one Google user across all phones.
+
+    Keys are stable fingerprints (demat or dp+username) — never passwords.
+    """
+
+    __tablename__ = 'user_active_accounts'
+
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey('users.id', ondelete='CASCADE'),
+        primary_key=True,
+    )
+    keys_json: Mapped[str] = mapped_column(Text, default='[]')
+    confirmed_for_max: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+

@@ -27,10 +27,10 @@ export function OverQuotaBanner() {
       : `${activeIds.size} of ${accounts.length} accounts active`;
 
   const body = needsPick
-    ? `Your plan allows ${maxAccounts} active accounts. Extra accounts stay saved on this phone but cannot apply or open MeroShare until you pick an active set or upgrade.`
+    ? `Your plan allows ${maxAccounts} active accounts total for this Google login across all phones. Extra accounts stay saved but cannot apply until you pick (or upgrade). The same active set is used on every device.`
     : canFillSlots
-      ? `You deleted an active account, so you can fill the empty slot. You cannot swap accounts that are already active.`
-      : `Your active set is locked for this plan. Extra accounts stay saved but cannot be swapped in. Upgrade or ask admin to raise the limit to change them.`;
+      ? `You deleted an active account, so you can fill the empty slot. You cannot swap accounts that are already active on this Google login.`
+      : `Your active set is locked for this plan on every phone with this Google account. Extra accounts stay saved but cannot be swapped in. Upgrade or ask admin to raise the limit to change them.`;
 
   return (
     <View style={styles.box}>
