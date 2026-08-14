@@ -173,17 +173,14 @@ def build_state(
 
 
 def cap_claimed(state: RegistryState, slots) -> int:
-    """Unique demats, plus any phone that reported accounts without fingerprints.
+    """Unique demats, plus legacy phones that reported counts without fingerprints.
 
-    Phone A with 36 keyed demats + phone B with 36 unkeyed accounts → 72.
-    The same 36 demats on both phones stay 36 (both device ids are on the rows).
+    When the registry has fingerprinted demats, it is authoritative — stale
+    UserDeviceSlot rows must not inflate the cap (ghost installs after wipe).
     """
-    extra = 0
-    for s in slots:
-        if s.device_id in state.device_ids:
-            continue
-        extra += max(0, int(s.account_count or 0))
-    return state.total + extra
+    if state.total > 0:
+        return state.total
+    return sum(max(0, int(s.account_count or 0)) for s in slots)
 
 
 async def release_devices(

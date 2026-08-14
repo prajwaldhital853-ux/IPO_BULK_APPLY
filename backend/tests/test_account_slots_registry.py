@@ -232,6 +232,47 @@ async def scenarios() -> None:
         dead = await prune_devices(db, uid, keep_device_id='A')
         check('empty leftover install is pruned', 'ghost' in dead)
 
+        # --- Ghost install: phones empty but stale slot still claims 36. ---
+        uid3 = str(uuid.uuid4())
+        db.add(
+            User(
+                id=uid3,
+                google_sub='sub-3',
+                email='ghost@test',
+                name='Ghost',
+            ),
+        )
+        await db.commit()
+        ghost_id = 'ghost-ne2211'
+        await sync(db, uid3, ghost_id, demats('1501', 36), 51)
+        await sync(db, uid3, 'live-a', [], 51)
+        await sync(db, uid3, 'live-b', [], 51)
+        ghost_slot = next(s for s in await list_slots(db, uid3) if s.device_id == ghost_id)
+        ghost_slot.last_seen_at = datetime.now(UTC) - EMPTY_STALE - timedelta(minutes=1)
+        await db.commit()
+        from app.account_slots.service import (
+            reconcile_device_slots,
+            release_stale_device_claims,
+        )
+
+        await reconcile_device_slots(db, uid3)
+        await release_stale_device_claims(db, uid3, keep_device_id='live-a')
+        await db.commit()
+        state = build_state(
+            await list_registry(db, uid3),
+            max_accounts=51,
+            unlimited=False,
+        )
+        check('stale ghost install frees registry', state.total == 0)
+        allowed, _ = await can_add_key(
+            db,
+            user_id=uid3,
+            candidate_key='d:150399999999',
+            max_accounts=51,
+            unlimited=False,
+        )
+        check('limit freed after ghost cleanup', allowed is True)
+
         # --- B reinstalls: its demats keep their old queue position. ---
         state = await sync(db, uid, 'B2', demats('1302', 8), 20)
         check('reinstall re-registers demats', state.total == 19)

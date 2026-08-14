@@ -26,6 +26,7 @@ from ..account_slots.service import (
     iso as slot_iso,
     list_slots as list_device_slots,
     prune_devices,
+    reconcile_device_slots,
 )
 from ..account_slots.registry import (
     build_state,
@@ -181,6 +182,7 @@ async def _user_row(
     if devices is not None:
         slot_rows = devices
     else:
+        await reconcile_device_slots(db, user.id)
         dead = await prune_devices(db, user.id)
         if dead:
             await release_devices(db, user.id, dead)
@@ -1508,6 +1510,7 @@ async def admin_forget_user_device(
         raise HTTPException(status_code=404, detail='Device not found')
     await db.delete(row)
     await release_devices(db, user_id, [device_id])
+    await reconcile_device_slots(db, user_id)
     await db.commit()
     user = await load_user_with_premium(db, user_id)
     assert user is not None

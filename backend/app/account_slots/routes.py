@@ -26,6 +26,8 @@ from .service import (
     iso,
     list_slots,
     prune_devices,
+    reconcile_device_slots,
+    release_stale_device_claims,
     upsert_slot,
 )
 
@@ -198,6 +200,12 @@ async def _sync(
         )
         if dead:
             await release_devices(db, user_id, dead)
+        await reconcile_device_slots(db, user_id)
+        await release_stale_device_claims(
+            db,
+            user_id,
+            keep_device_id=body.device_id,
+        )
         await purge_unclaimed(db, user_id)
         rows = await list_registry(db, user_id)
         state = build_state(rows, max_accounts=max_acc, unlimited=unlimited)

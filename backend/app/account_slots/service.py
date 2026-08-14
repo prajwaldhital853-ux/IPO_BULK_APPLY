@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import UserDeviceSlot
 
+from .registry import list_registry, release_devices
+
 UNLIMITED = 999999
 
 # Forget installs that never heartbeated this long (lost / uninstalled).
@@ -96,6 +98,73 @@ async def upsert_slot(
 
 def is_unlimited(max_accounts: int) -> bool:
     return max_accounts >= UNLIMITED
+
+
+def _devices_on_row(row) -> list[str]:
+    import json
+
+    try:
+        data = json.loads(row.devices_json or '[]')
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[str] = []
+    for item in data:
+        did = str(item).strip()[:128]
+        if did and did not in out:
+            out.append(did)
+    return out
+
+
+async def reconcile_device_slots(db: AsyncSession, user_id: str) -> int:
+    """Drop inflated per-phone counts that no longer match registry demats."""
+    per_device: dict[str, int] = {}
+    for row in await list_registry(db, user_id):
+        for did in _devices_on_row(row):
+            per_device[did] = per_device.get(did, 0) + 1
+    fixed = 0
+    for slot in await list_slots(db, user_id):
+        actual = per_device.get(slot.device_id, 0)
+        current = max(0, int(slot.account_count or 0))
+        if current > actual:
+            slot.account_count = actual
+            fixed += 1
+    if fixed:
+        await db.flush()
+    return fixed
+
+
+async def release_stale_device_claims(
+    db: AsyncSession,
+    user_id: str,
+    *,
+    keep_device_id: str = '',
+) -> list[str]:
+    """Free registry slots held by phones that stopped heartbeating with accounts."""
+    keep = (keep_device_id or '').strip()
+    now = datetime.now(UTC)
+    registry_devices: set[str] = set()
+    for row in await list_registry(db, user_id):
+        registry_devices |= set(_devices_on_row(row))
+    released: list[str] = []
+    for slot in await list_slots(db, user_id):
+        if slot.device_id == keep:
+            continue
+        if slot.device_id not in registry_devices:
+            continue
+        count = max(0, int(slot.account_count or 0))
+        if count <= 0:
+            continue
+        if _age(slot.last_seen_at, now) >= EMPTY_STALE:
+            released.append(slot.device_id)
+    if released:
+        await release_devices(db, user_id, released)
+        for slot in await list_slots(db, user_id):
+            if slot.device_id in released:
+                slot.account_count = 0
+        await db.flush()
+    return released
 
 
 async def prune_devices(
