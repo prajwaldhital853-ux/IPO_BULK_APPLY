@@ -22,7 +22,11 @@ from ..auth.subscription import (
     plan_info,
     upsert_premium,
 )
-from ..account_slots.service import iso as slot_iso, list_slots as list_device_slots
+from ..account_slots.service import (
+    iso as slot_iso,
+    list_slots as list_device_slots,
+    cleanup_device_slots,
+)
 from ..account_slots.active import clear_active_set, get_active_set
 from ..db.models import (
     PremiumEntitlement,
@@ -167,7 +171,26 @@ async def _user_row(
         .limit(1),
     )
     premium = user.premium
-    slot_rows = devices if devices is not None else await list_device_slots(db, user.id)
+    if devices is not None:
+        slot_rows = devices
+    else:
+        max_acc = effective_max_accounts(user, premium_active=active)
+        existing = await list_device_slots(db, user.id)
+        if existing:
+            newest = max(
+                existing,
+                key=lambda s: s.last_seen_at or s.created_at,
+            )
+            slot_rows = await cleanup_device_slots(
+                db,
+                user.id,
+                keep_device_id=newest.device_id,
+                max_accounts=max_acc,
+                this_count=int(newest.account_count or 0),
+            )
+            await db.commit()
+        else:
+            slot_rows = []
     device_outs = [
         AdminUserDeviceRow(
             deviceId=s.device_id,

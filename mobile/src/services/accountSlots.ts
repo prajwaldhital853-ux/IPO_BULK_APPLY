@@ -21,6 +21,7 @@ export type SlotStatus = {
   otherDevicesTotal: number;
   deviceCount: number;
   message: string;
+  canReleaseOthers: boolean;
   devices: SlotDevice[];
 };
 
@@ -56,6 +57,7 @@ function mapStatus(json: Record<string, unknown>): SlotStatus {
     otherDevicesTotal: Number(json.otherDevicesTotal ?? 0),
     deviceCount: Number(json.deviceCount ?? 0),
     message: String(json.message ?? ''),
+    canReleaseOthers: Boolean(json.canReleaseOthers),
     devices: devicesRaw.map((d) => {
       const row = d as Record<string, unknown>;
       return {
@@ -111,6 +113,22 @@ export async function checkCanAddAcrossDevices(
     body: JSON.stringify(body),
   });
   if (res.status === 401) return null;
+  return await readStatus(res);
+}
+
+/**
+ * Immediately free claimed slots from every other install.
+ * Use after uninstalling the app on another phone.
+ */
+export async function releaseOtherDeviceSlots(
+  currentCount: number,
+): Promise<SlotStatus> {
+  const body = await payload(currentCount);
+  const res = await authFetch('/app/account-slots/release-others', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
   return await readStatus(res);
 }
 

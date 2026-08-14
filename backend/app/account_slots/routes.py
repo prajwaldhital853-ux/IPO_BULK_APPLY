@@ -12,10 +12,12 @@ from ..auth.subscription import (
 )
 from ..db.session import get_db
 from .service import (
+    cleanup_device_slots,
     iso,
     is_unlimited,
     list_slots,
     projected_total,
+    release_other_slots,
     upsert_slot,
 )
 from .active import clear_active_set, get_active_set, prune_active_keys, save_active_set
@@ -51,6 +53,7 @@ class SlotStatusOut(BaseModel):
     other_devices_total: int = Field(alias='otherDevicesTotal')
     device_count: int = Field(alias='deviceCount')
     message: str = ''
+    can_release_others: bool = Field(default=False, alias='canReleaseOthers')
     devices: list[DeviceOut] = Field(default_factory=list)
 
     model_config = {'populate_by_name': True}
@@ -111,6 +114,11 @@ def _status(
             f'Other phones: {others}\n'
             f'Total: {this_count + others} / {max_accounts}'
         )
+        if others > 0:
+            message += (
+                '\n\nIf you uninstalled the app on another phone, '
+                'you can free those slots now.'
+            )
     reported_total = projected_total(
         slots, device_id=device_id, this_count=this_count,
     )
@@ -122,6 +130,7 @@ def _status(
         otherDevicesTotal=others,
         deviceCount=len({s.device_id for s in slots} | {device_id}),
         message=message,
+        canReleaseOthers=(not allowed) and others > 0,
         devices=_devices_out(slots, device_id),
     )
 
@@ -144,8 +153,14 @@ async def report_slots(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    slots = await cleanup_device_slots(
+        db,
+        user.id,
+        keep_device_id=body.device_id,
+        max_accounts=max_acc,
+        this_count=body.account_count,
+    )
     await db.commit()
-    slots = await list_slots(db, user.id)
     return _status(
         max_accounts=max_acc,
         slots=slots,
@@ -174,6 +189,51 @@ async def check_can_add(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    slots = await cleanup_device_slots(
+        db,
+        user.id,
+        keep_device_id=body.device_id,
+        max_accounts=max_acc,
+        this_count=body.account_count,
+    )
+    await db.commit()
+    return _status(
+        max_accounts=max_acc,
+        slots=slots,
+        device_id=body.device_id,
+        this_count=body.account_count,
+        adding=True,
+    )
+
+
+@router.post('/release-others', response_model=SlotStatusOut)
+async def release_other_device_slots(
+    body: SlotIn,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SlotStatusOut:
+    """Drop every other install's claimed count for this Google user.
+
+    Use after uninstalling the app on another phone — the OS cannot notify us,
+    so the user confirms from the phone they still have.
+    """
+    max_acc = await _max_for_user(db, user.id)
+    try:
+        await upsert_slot(
+            db,
+            user_id=user.id,
+            device_id=body.device_id,
+            device_label=body.device_label,
+            platform=body.platform,
+            account_count=body.account_count,
+        )
+        await release_other_slots(
+            db,
+            user.id,
+            keep_device_id=body.device_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     await db.commit()
     slots = await list_slots(db, user.id)
     return _status(
@@ -181,7 +241,7 @@ async def check_can_add(
         slots=slots,
         device_id=body.device_id,
         this_count=body.account_count,
-        adding=True,
+        adding=False,
     )
 
 

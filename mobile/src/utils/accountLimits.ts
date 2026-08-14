@@ -1,5 +1,9 @@
 import { Alert } from 'react-native';
-import { checkCanAddAcrossDevices } from '../services/accountSlots';
+import {
+  checkCanAddAcrossDevices,
+  releaseOtherDeviceSlots,
+} from '../services/accountSlots';
+import { AUTH_ENABLED } from '../services/auth/config';
 import {
   FREE_ACCOUNT_LIMIT,
   PREMIUM_ACCOUNT_LIMIT,
@@ -41,6 +45,72 @@ export function guardAddAccount(opts: {
   return false;
 }
 
+function promptReleaseOthers(
+  opts: {
+    currentCount: number;
+    onUpgrade?: () => void;
+  },
+  statusMessage: string,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const buttons: {
+      text: string;
+      style?: 'cancel' | 'destructive' | 'default';
+      onPress?: () => void;
+    }[] = [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+        onPress: () => resolve(false),
+      },
+      {
+        text: 'Free other phones',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              const next = await releaseOtherDeviceSlots(opts.currentCount);
+              if (next.allowed || opts.currentCount < next.maxAccounts) {
+                Alert.alert(
+                  'Slots freed',
+                  'Claims from other installs were cleared. You can add accounts on this phone now.',
+                );
+                resolve(true);
+                return;
+              }
+              Alert.alert(
+                'Still at limit',
+                next.message || 'This phone already uses the full plan limit.',
+              );
+              resolve(false);
+            } catch (e) {
+              Alert.alert(
+                'Could not free slots',
+                e instanceof Error ? e.message : 'Try again.',
+              );
+              resolve(false);
+            }
+          })();
+        },
+      },
+    ];
+    if (opts.onUpgrade) {
+      buttons.splice(1, 0, {
+        text: 'Upgrade',
+        onPress: () => {
+          opts.onUpgrade?.();
+          resolve(false);
+        },
+      });
+    }
+    Alert.alert(
+      'Account limit reached',
+      `${statusMessage}\n\nUninstalled the app on another phone? Free those slots now so you can add accounts here.`,
+      buttons,
+    );
+  });
+}
+
 /**
  * Local cap + shared cap across phones signed in with the same Google account.
  * Does not upload MeroShare credentials — only a count per device.
@@ -52,14 +122,29 @@ export async function guardAddAccountAsync(opts: {
   onUpgrade?: () => void;
 }): Promise<boolean> {
   if (!guardAddAccount(opts)) return false;
+  // Auth off (dev) → local guard only.
+  if (!AUTH_ENABLED) return true;
   try {
     const status = await checkCanAddAcrossDevices(opts.currentCount);
-    if (!status) return true;
+    if (!status) {
+      Alert.alert(
+        'Sign in required',
+        'Sign in with Google to add accounts so your plan limit applies across all phones.',
+      );
+      return false;
+    }
     if (status.allowed) return true;
+    if (status.canReleaseOthers || status.otherDevicesTotal > 0) {
+      return promptReleaseOthers(
+        opts,
+        status.message ||
+          `Your plan allows ${status.maxAccounts} accounts across all phones.`,
+      );
+    }
     Alert.alert(
       'Account limit reached',
       status.message ||
-        `Your plan allows ${status.maxAccounts} accounts across all your phones (${status.claimedTotal - 1} already in use).`,
+        `Your plan allows ${status.maxAccounts} accounts across all your phones.`,
       opts.onUpgrade
         ? [
             { text: 'Cancel', style: 'cancel' },
@@ -69,6 +154,10 @@ export async function guardAddAccountAsync(opts: {
     );
     return false;
   } catch {
-    return true;
+    Alert.alert(
+      'Could not verify limit',
+      'Check your internet and try again.',
+    );
+    return false;
   }
 }

@@ -113,8 +113,11 @@ export function resolveActiveSlots(
     );
     const kept = new Set(keptIds);
     const hasExtras = accountIds.some((id) => !kept.has(id));
+    // Claimed sum can double-count the same demats on two phones.
+    // Once this phone's demats are all in the shared active set, treat as OK.
+    const localOver = accountIds.length > maxAccounts;
     return {
-      overQuota: hasExtras || accountIds.length > maxAccounts || claimed > maxAccounts,
+      overQuota: hasExtras || localOver,
       needsPick: false,
       activeIds: new Set(keptIds),
       suggestedIds: keptIds,
@@ -122,6 +125,8 @@ export function resolveActiveSlots(
     };
   }
 
+  // No valid lock yet: over if THIS phone has too many, OR household
+  // claimed total exceeds the plan (admin dropped the limit, etc.).
   const overQuota =
     accountIds.length > maxAccounts || claimed > maxAccounts;
 

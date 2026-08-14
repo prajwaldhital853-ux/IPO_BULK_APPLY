@@ -90,6 +90,20 @@ export function ChooseActiveAccountsScreen() {
       );
       return;
     }
+    if (needsPick) {
+      // If this phone has enough demats, require a full set so one phone
+      // cannot lock the Google account to a tiny active set by mistake.
+      const required = Math.min(maxAccounts, accounts.length);
+      if (picked.size < required) {
+        Alert.alert(
+          'Select more',
+          accounts.length >= maxAccounts
+            ? `Select exactly ${maxAccounts} accounts for this plan.`
+            : `Select all ${accounts.length} accounts on this phone (or open the phone that has more demats to choose the full ${maxAccounts}).`,
+        );
+        return;
+      }
+    }
     if (canFillSlots) {
       for (const id of activeIds) {
         if (!picked.has(id)) {
@@ -122,7 +136,11 @@ export function ChooseActiveAccountsScreen() {
         {!overQuota
           ? 'You are within your plan limit. All saved accounts are active.'
           : needsPick
-            ? `You have ${accounts.length} saved accounts, but your plan allows ${maxAccounts} active across all phones on this Google account. Pick up to ${maxAccounts}. After you save, the same set applies on every device — you cannot pick a different ${maxAccounts} on another phone.`
+            ? `You have ${accounts.length} saved accounts, but your plan allows ${maxAccounts} active across all phones on this Google account. ${
+                accounts.length >= maxAccounts
+                  ? `Select exactly ${maxAccounts}.`
+                  : `Select all ${accounts.length} on this phone (the other phone can fill the rest up to ${maxAccounts}).`
+              } After you save, the same set applies on every device.`
             : canFillSlots
               ? `Your active set is locked across all phones. Empty slot(s) are available because an active account was removed. You can add replacements, but you cannot uncheck accounts that are already active.`
               : `Your active set is locked for this plan on every phone signed in with this Google account. Upgrade or ask admin to raise the limit to change it.`}

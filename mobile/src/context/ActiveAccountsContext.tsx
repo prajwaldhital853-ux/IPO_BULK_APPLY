@@ -60,6 +60,7 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
   const [stored, setStored] = useState<ActiveSlotsStored | null>(null);
   const [syncReady, setSyncReady] = useState(false);
   const [claimedTotal, setClaimedTotal] = useState(0);
+  const [syncTick, setSyncTick] = useState(0);
   const signedIn = Boolean(AUTH_ENABLED && auth.user?.id && !auth.loading);
   const prevAccountsRef = useRef<AccountMeta[] | null>(null);
 
@@ -202,9 +203,9 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
       mounted = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.user?.id, auth.loading, maxAccounts, signedIn, accounts.length]);
+  }, [auth.user?.id, auth.loading, maxAccounts, signedIn, accounts.length, syncTick]);
 
-  // Re-check claimed total + subscription when app comes to foreground
+  // Re-check limit + shared active set when app comes to foreground
   // (admin may have just lowered the limit).
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -215,11 +216,11 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
         } catch {
           /* ignore */
         }
-        await refreshClaimed();
+        setSyncTick((n) => n + 1);
       })();
     });
     return () => sub.remove();
-  }, [refreshClaimed, refreshSubscription, signedIn]);
+  }, [refreshSubscription, signedIn]);
 
   const resolved = useMemo(
     () => resolveActiveSlots(accounts, maxAccounts, stored, claimedTotal),
@@ -358,12 +359,43 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
           await refreshClaimed();
           return;
         } catch (e) {
-          Alert.alert(
-            'Could not sync',
+          const msg =
             e instanceof Error
               ? e.message
-              : 'Failed to save active accounts for this Google login.',
-          );
+              : 'Failed to save active accounts for this Google login.';
+          // Another phone already locked the set — pull it and switch to fill mode.
+          if (/already chosen|cannot pick a different|locked/i.test(msg)) {
+            try {
+              const remote = await fetchSharedActiveAccounts();
+              if (
+                remote &&
+                remote.keys.length > 0 &&
+                remote.confirmedForMax === maxAccounts
+              ) {
+                const mapped = idsMatchingFingerprints(accounts, remote.keys);
+                await saveActiveSlots(
+                  mapped,
+                  remote.confirmedForMax,
+                  remote.keys,
+                );
+                setStored({
+                  ids: mapped,
+                  keys: remote.keys,
+                  confirmedForMax: remote.confirmedForMax,
+                });
+                Alert.alert(
+                  'Set already chosen on another phone',
+                  remote.keys.length >= maxAccounts
+                    ? `This Google account already has ${maxAccounts} active accounts chosen on another device. Extra demats on this phone stay saved but locked.`
+                    : `Another phone already started the active set (${remote.keys.length}/${maxAccounts}). You can only fill the remaining empty slots — you cannot replace their choices.`,
+                );
+                return;
+              }
+            } catch {
+              /* fall through */
+            }
+          }
+          Alert.alert('Could not sync', msg);
           throw e;
         }
       }
