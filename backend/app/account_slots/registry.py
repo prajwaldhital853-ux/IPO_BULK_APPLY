@@ -173,14 +173,13 @@ def build_state(
 
 
 def cap_claimed(state: RegistryState, slots) -> int:
-    """Unique demats, plus legacy phones that reported counts without fingerprints.
-
-    When the registry has fingerprinted demats, it is authoritative — stale
-    UserDeviceSlot rows must not inflate the cap (ghost installs after wipe).
-    """
-    if state.total > 0:
-        return state.total
-    return sum(max(0, int(s.account_count or 0)) for s in slots)
+    """Unique demats across phones — never let each device count only itself."""
+    keyed = state.total
+    slot_sum = sum(max(0, int(s.account_count or 0)) for s in slots)
+    if keyed > 0:
+        # Keyed registry is authoritative; slot_sum catches unreconciled inflation.
+        return max(keyed, slot_sum)
+    return slot_sum
 
 
 async def release_devices(

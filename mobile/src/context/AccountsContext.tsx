@@ -32,6 +32,7 @@ import type {
   DraftCapital,
   LinkedAccount,
 } from '../types/account';
+import { AUTH_ENABLED } from '../services/auth/config';
 import { useAuth } from './AuthContext';
 
 type AccountsContextValue = {
@@ -121,10 +122,24 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     await addAccountWithSecrets(meta, { password, crn, pin });
     setAccounts(await loadAccountMeta());
     setDraft(null);
+    if (AUTH_ENABLED) {
+      const { syncAccountSlots } = await import('../services/accountSlots');
+      const { keysForAccountIds } = await import('../utils/accountFingerprint');
+      const list = await loadAccountMeta();
+      const keys = keysForAccountIds(list, list.map((a) => a.id));
+      void syncAccountSlots(keys, list.length);
+    }
   }, [setDraft]);
 
   const removeAccount = useCallback(async (id: string) => {
     setAccounts(await removeAccountFully(id));
+    if (AUTH_ENABLED) {
+      const { syncAccountSlots } = await import('../services/accountSlots');
+      const { keysForAccountIds } = await import('../utils/accountFingerprint');
+      const list = await loadAccountMeta();
+      const keys = keysForAccountIds(list, list.map((a) => a.id));
+      void syncAccountSlots(keys, list.length);
+    }
   }, []);
 
   const seedMockAccounts = useCallback(async () => {

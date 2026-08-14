@@ -258,6 +258,16 @@ export function BankDetailScreen() {
             isPremium,
             maxAccounts,
             onUpgrade: () => navigation.navigate('Subscription'),
+            candidate: {
+              dpId: capital.dpId,
+              dpCode: capital.dpCode,
+              username: capital.username,
+              demat:
+                verify.demat?.trim() ||
+                (verify.boid && /^\d{16}$/.test(verify.boid.trim())
+                  ? verify.boid.trim()
+                  : undefined),
+            },
           }))
         ) {
           return;

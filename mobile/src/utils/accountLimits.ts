@@ -71,8 +71,8 @@ function candidateKey(candidate?: CandidateAccount): string | undefined {
 }
 
 /**
- * Local cap + shared cap across every phone signed in with the same Google
- * account. Only demat fingerprints are sent — never MeroShare credentials.
+ * Shared cap across every phone on this Google account. When signed in, the
+ * server decides — local per-phone counts are not trusted.
  */
 export async function guardAddAccountAsync(opts: {
   currentCount: number;
@@ -82,9 +82,9 @@ export async function guardAddAccountAsync(opts: {
   /** The account being added, when its DP + username are already known. */
   candidate?: CandidateAccount;
 }): Promise<boolean> {
-  if (!guardAddAccount(opts)) return false;
-  // Auth off (dev) → local guard only.
-  if (!AUTH_ENABLED) return true;
+  if (!AUTH_ENABLED) {
+    return guardAddAccount(opts);
+  }
   try {
     const accounts = await loadAccountMeta();
     const keys = keysForAccountIds(
@@ -107,7 +107,7 @@ export async function guardAddAccountAsync(opts: {
     Alert.alert(
       'Account limit reached',
       status.message ||
-        `Your plan allows ${status.maxAccounts} accounts across all your phones.`,
+        `Your plan allows ${status.maxAccounts} accounts in total across every phone signed in with this Google account (already saved: ${status.claimedTotal}).`,
       opts.onUpgrade
         ? [
             { text: 'Cancel', style: 'cancel' },
