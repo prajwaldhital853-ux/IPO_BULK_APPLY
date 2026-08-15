@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     cdsc_require_jwt: bool = True
 
     # Admin dashboard
-    admin_email: str = 'prajwaldhital851@gmail.com'
+    admin_email: str = 'uniquesumit969@gmail.com'
     admin_password: str = 'admin123'
     # When true (once), startup overwrites DB admin password from ADMIN_PASSWORD.
     # Leave false so Change password / forgot-password in the app stay permanent.
