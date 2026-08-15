@@ -36,6 +36,8 @@ type ModelInput = {
   onSearchPress?: () => void;
   chartRef?: React.Ref<NepseMarketChartHandle>;
   externalScrub?: boolean;
+  /** Live 1D ticks only while NEPSE is actually open. */
+  marketOpen?: boolean;
 };
 
 function indexSymbol(index: IndexQuote | null, fallback = 'NEPSE'): string {
@@ -55,6 +57,7 @@ export function useMarketChartModel({
   onSearchPress,
   chartRef,
   externalScrub = false,
+  marketOpen = false,
 }: ModelInput) {
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const [range, setRange] = useState<IndexChartRange>('1D');
@@ -78,12 +81,20 @@ export function useMarketChartModel({
       const pts = await loadIndexChartPoints(sym, range, intradayPoints, {
         current: indexQuote.current,
         change: indexQuote.change,
+        marketOpen,
       });
       setChartPoints(pts);
     } finally {
       if (showSpinner) setChartLoading(false);
     }
-  }, [sym, range, intradayPoints, indexQuote.current, indexQuote.change]);
+  }, [
+    sym,
+    range,
+    intradayPoints,
+    indexQuote.current,
+    indexQuote.change,
+    marketOpen,
+  ]);
 
   useEffect(() => {
     void loadChart();

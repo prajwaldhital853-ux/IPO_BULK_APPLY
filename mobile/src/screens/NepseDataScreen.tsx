@@ -434,6 +434,7 @@ export function NepseDataScreen() {
           intradayPoints={data.chartPoints}
           isDark={isDark}
           colors={colors}
+          marketOpen={data.status === 'open'}
         />
 
         <Text style={styles.sectionTitle}>Market Summary</Text>

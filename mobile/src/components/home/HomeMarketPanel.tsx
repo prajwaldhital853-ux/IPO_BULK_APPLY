@@ -401,6 +401,7 @@ export function HomeMarketPanel({ active }: Props) {
         tab: 'live',
         openSearch: true,
       }),
+    marketOpen: data?.status === 'open',
   });
 
   const advanced = data?.summary.advanced ?? 0;

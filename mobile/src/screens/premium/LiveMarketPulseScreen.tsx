@@ -478,6 +478,7 @@ export function LiveMarketPulseScreen() {
             intradayPoints={data.chartPoints}
             isDark={isDark}
             colors={colors}
+            marketOpen={data.status === 'open'}
             onSearchPress={() =>
               navigation.navigate('NepseData', {
                 tab: 'live',

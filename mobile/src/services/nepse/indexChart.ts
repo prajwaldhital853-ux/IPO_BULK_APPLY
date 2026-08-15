@@ -1,5 +1,6 @@
 import { loadCandles, loadNepseIndexHistory, type ChartRange } from './screener';
 import type { ChartPoint } from './types';
+import { sessionStatus } from './calendar';
 
 export type IndexChartRange = '1D' | '1W' | '1M' | '6M' | '1Y';
 
@@ -67,38 +68,44 @@ function sampleWave(t: number): number {
 /**
  * Dense NEPSE 1-day path: one point per minute (11:00–15:00 NPT),
  * with visible minute-to-minute up/down detail, ending on the live quote.
- * During session hours the series stops at the current Nepal clock time.
+ * While the market is actually open the series stops at the current Nepal
+ * clock. When closed (weekend, holiday, before/after hours) the full last
+ * session is drawn so it does not look like a live tick chart.
  */
 function syntheticIntraday(
   current: number | null,
   change: number | null,
+  marketOpen?: boolean,
 ): ChartPoint[] {
   if (current == null || change == null) return [];
   const end = current;
   const start = end - change;
   const sessionStart = 11 * 60; // 11:00
   const sessionEnd = 15 * 60; // 15:00
+  const live = marketOpen !== false && sessionStatus() === 'open';
 
-  // Cap at "now" in Asia/Kathmandu so the day chart grows minute-by-minute.
+  // Cap at "now" in Asia/Kathmandu only during a live session.
   let until = sessionEnd;
-  try {
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Kathmandu',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      hourCycle: 'h23',
-    }).formatToParts(new Date());
-    const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 15);
-    const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
-    const nowMin = hour * 60 + minute;
-    if (nowMin > sessionStart && nowMin < sessionEnd) {
-      until = nowMin;
-    } else if (nowMin <= sessionStart) {
-      until = sessionStart + 1;
+  if (live) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Kathmandu',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        hourCycle: 'h23',
+      }).formatToParts(new Date());
+      const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 15);
+      const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+      const nowMin = hour * 60 + minute;
+      if (nowMin > sessionStart && nowMin < sessionEnd) {
+        until = nowMin;
+      } else if (nowMin <= sessionStart) {
+        until = sessionStart + 1;
+      }
+    } catch {
+      // Keep full session if timezone formatting fails.
     }
-  } catch {
-    // Keep full session if timezone formatting fails.
   }
 
   const step = 1; // every minute — detailed SS look
@@ -158,11 +165,14 @@ function syntheticIntraday(
   return points;
 }
 
-function densifyIntraday(points: ChartPoint[]): ChartPoint[] {
+function densifyIntraday(
+  points: ChartPoint[],
+  marketOpen?: boolean,
+): ChartPoint[] {
   if (points.length < 2) return points;
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
-  return syntheticIntraday(last, last - first);
+  return syntheticIntraday(last, last - first, marketOpen);
 }
 
 /**
@@ -220,7 +230,7 @@ export async function loadIndexChartPoints(
   symbol: string,
   range: IndexChartRange,
   intradayFallback: ChartPoint[],
-  quote?: { current: number | null; change: number | null },
+  quote?: { current: number | null; change: number | null; marketOpen?: boolean },
 ): Promise<ChartPoint[]> {
   const sym = symbol.toUpperCase();
 
@@ -228,10 +238,14 @@ export async function loadIndexChartPoints(
     const fromQuote = syntheticIntraday(
       quote?.current ?? null,
       quote?.change ?? null,
+      quote?.marketOpen,
     );
     if (fromQuote.length >= 2) return fromQuote;
     if (intradayFallback.length >= 2) {
-      return densifyIntraday(ensureAmPmLabels(intradayFallback));
+      return densifyIntraday(
+        ensureAmPmLabels(intradayFallback),
+        quote?.marketOpen,
+      );
     }
     return [];
   }
