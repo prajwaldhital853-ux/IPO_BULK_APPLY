@@ -267,10 +267,13 @@ export class MeroshareClient {
     };
   }
 
-  async login(args: LoginArgs): Promise<MeroshareSession> {
+  async login(
+    args: LoginArgs,
+    opts?: { attempts?: number },
+  ): Promise<MeroshareSession> {
     return withMeroshareRetries(
       () => this.loginOnce(args),
-      { attempts: 3, label: 'login' },
+      { attempts: opts?.attempts ?? 3, label: 'login' },
     );
   }
 
@@ -403,18 +406,14 @@ export class MeroshareClient {
   }
 
   /**
-   * My Details (DOB, citizenship, father/mother). `{boid}` is 16-digit demat.
+   * My Details (DOB, citizenship, father/mother, bank with branch).
+   * `{boid}` is 16-digit demat.
    */
   async fetchMyDetailRaw(boid?: string): Promise<Record<string, unknown>> {
     if (!this.session) {
       throw new MeroshareError('AUTH', 'Not logged in');
     }
-    const id = (
-      boid ??
-      this.session.demat ??
-      this.session.boid ??
-      ''
-    ).trim();
+    const id = String(boid || this.resolveDematId()).trim();
     if (!id) return {};
     const data = await this.request<Record<string, unknown>>(
       PATHS.myDetail(id),
@@ -424,13 +423,17 @@ export class MeroshareClient {
   }
 
   /**
-   * ownDetail + My Details merged. My Details wins for DOB / guardian fields.
+   * ownDetail + My Details (SS2) merged. My Details wins for bank, DOB, guardian.
+   * Continues with a constructed 16-digit demat if ownDetail is flaky.
    */
   async fetchAccountProfileRaw(): Promise<Record<string, unknown>> {
-    const own = await this.fetchOwnDetailRaw();
-    const demat = String(
-      own.demat ?? own.boid ?? this.session?.demat ?? this.session?.boid ?? '',
-    ).trim();
+    let own: Record<string, unknown> = {};
+    try {
+      own = await this.fetchOwnDetailRaw();
+    } catch {
+      own = {};
+    }
+    const demat = this.resolveDematId(own);
     if (this.session) {
       if (typeof own.demat === 'string' && own.demat) {
         this.session.demat = own.demat;
@@ -440,14 +443,41 @@ export class MeroshareClient {
       } else if (demat) {
         this.session.boid = demat;
       }
+      if (demat && /^\d{16}$/.test(demat) && !this.session.demat) {
+        this.session.demat = demat;
+      }
     }
     let my: Record<string, unknown> = {};
     try {
       my = await this.fetchMyDetailRaw(demat || undefined);
     } catch {
-      // My Details is optional — ownDetail still usable
+      my = {};
     }
     return { ...own, ...my };
+  }
+
+  /** Prefer a 16-digit demat from profile / session, else `130` + DP + username. */
+  private resolveDematId(own: Record<string, unknown> = {}): string {
+    const candidates = [
+      own.demat,
+      own.boid,
+      own.accountNumber,
+      this.session?.demat,
+      this.session?.boid,
+    ];
+    for (const c of candidates) {
+      const s = String(c ?? '').trim();
+      if (/^\d{16}$/.test(s)) return s;
+    }
+    const dp = String(this.session?.dpCode ?? this.dpCode ?? '').trim();
+    const user = String(this.session?.username ?? '').trim();
+    if (dp && user) {
+      const built = `130${dp}${user}`;
+      if (/^\d{16}$/.test(built)) return built;
+    }
+    return String(
+      own.demat ?? own.boid ?? this.session?.demat ?? this.session?.boid ?? '',
+    ).trim();
   }
 
   /**
@@ -637,24 +667,10 @@ export class MeroshareClient {
   async listBanksWithRetry(
     attempts = 3,
   ): Promise<Array<{ id: number; name?: string }>> {
-    let lastError: unknown;
-    for (let i = 0; i < attempts; i++) {
-      try {
-        return await this.listBanks();
-      } catch (e) {
-        lastError = e;
-        const msg = e instanceof Error ? e.message : String(e);
-        const transient =
-          /unable to process|try again|temporarily|timeout|502|503|504|network/i.test(
-            msg,
-          );
-        if (!transient || i === attempts - 1) break;
-        await new Promise((r) => setTimeout(r, 700 * (i + 1)));
-      }
-    }
-    throw lastError instanceof Error
-      ? lastError
-      : new MeroshareError('UNKNOWN', 'Could not load bank list');
+    return withMeroshareRetries(() => this.listBanks(), {
+      attempts,
+      label: 'bank list',
+    });
   }
 
   async getBankBranchDetails(bankId: number): Promise<BankBranch> {

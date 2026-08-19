@@ -284,6 +284,95 @@ const GUARDIAN_KEY_ALIASES = new Set(
   ].map((s) => s.toLowerCase()),
 );
 
+const BANK_NAME_KEY_ALIASES = new Set(
+  [
+    'bankname',
+    'bank',
+    'accountbankname',
+    'banknameen',
+    'banknamenp',
+    'asbabankname',
+    'linkedbankname',
+  ].map((s) => s.toLowerCase()),
+);
+
+const BRANCH_NAME_KEY_ALIASES = new Set(
+  [
+    'branchname',
+    'accountbranchname',
+    'bankbranchname',
+    'branch',
+    'branchnameen',
+    'accountbranchnameen',
+    'bankaccountbranchname',
+  ].map((s) => s.toLowerCase()),
+);
+
+function cleanProfileName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const name = value.trim().replace(/\s+/g, ' ');
+  if (!name || name.toUpperCase() === 'N/A') return null;
+  return name;
+}
+
+function normalizedProfileKey(key: string): string {
+  return key.toLowerCase().replace(/[_\s-]/g, '');
+}
+
+/**
+ * Bank + branch from MeroShare My Details (SS2), e.g.
+ * `"NIC Asia Bank Ltd.-Tripureswor"`.
+ * Prefers `bankName` (already includes branch) over DP name / ASBA list.
+ */
+export function extractBankWithBranchFromProfile(
+  raw: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const recs = walkRecords(raw);
+  let bankName: string | null = null;
+  let branchName: string | null = null;
+
+  for (const rec of recs) {
+    const preferred =
+      cleanProfileName(rec.bankName) ||
+      cleanProfileName(rec.accountBankName) ||
+      cleanProfileName(rec.bankNameEn) ||
+      cleanProfileName(rec.asbaBankName);
+    if (preferred) {
+      bankName = preferred;
+      break;
+    }
+  }
+  if (!bankName) {
+    for (const rec of recs) {
+      for (const [key, value] of Object.entries(rec)) {
+        const k = normalizedProfileKey(key);
+        if (!BANK_NAME_KEY_ALIASES.has(k)) continue;
+        bankName = cleanProfileName(value);
+        if (bankName) break;
+      }
+      if (bankName) break;
+    }
+  }
+  for (const rec of recs) {
+    for (const [key, value] of Object.entries(rec)) {
+      const k = normalizedProfileKey(key);
+      if (!BRANCH_NAME_KEY_ALIASES.has(k)) continue;
+      branchName = cleanProfileName(value);
+      if (branchName) break;
+    }
+    if (branchName) break;
+  }
+  if (!bankName) return null;
+  if (
+    branchName &&
+    !bankName.toLowerCase().includes(branchName.toLowerCase())
+  ) {
+    return `${bankName}-${branchName}`;
+  }
+  return bankName;
+}
+
 /** Parent / guardian name from My Details when present. */
 export function extractGuardianFromProfile(
   raw: Record<string, unknown> | null | undefined,

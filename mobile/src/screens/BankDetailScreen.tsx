@@ -21,6 +21,8 @@ import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
 import {
   MeroshareClient,
+  MeroshareError,
+  isTransientMeroshareError,
   verifyAccountForSave,
   type VerifyField,
 } from '../services/meroshare';
@@ -28,6 +30,7 @@ import type { ThemeColors } from '../theme/colors';
 import { guardAddAccountAsync } from '../utils/accountLimits';
 import {
   buildMinorMetaFields,
+  extractBankWithBranchFromProfile,
   extractDobFromOwnDetail,
   extractGuardianFromProfile,
   isMinorFromDob,
@@ -36,6 +39,70 @@ import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
+import type { DraftCapital } from '../types/account';
+
+const BANK_LOAD_ATTEMPTS = 3;
+
+function delay(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function loadBankAndDobFromMeroshare(
+  draft: DraftCapital,
+  attempt: number,
+): Promise<{
+  bankName: string;
+  bankFromProfile: boolean;
+  dob: string | null;
+  guardianName: string | null;
+}> {
+  const client = new MeroshareClient();
+  try {
+    await client.login(
+      {
+        clientId: draft.dpId,
+        dpCode: draft.dpCode,
+        dpName: draft.dpName,
+        username: draft.username,
+        password: draft.password,
+      },
+      { attempts: attempt === 0 ? 3 : 1 },
+    );
+
+    const profile = await client.fetchAccountProfileRaw();
+    const dob = extractDobFromOwnDetail(profile);
+    const guardianName = extractGuardianFromProfile(profile);
+    const fromProfile = extractBankWithBranchFromProfile(profile);
+
+    let bankName = fromProfile || '';
+    if (!bankName) {
+      try {
+        const banks = await client.listBanksWithRetry();
+        if (banks.length) {
+          bankName = banks[0].name || `Bank #${banks[0].id}`;
+        }
+      } catch {
+        // My Details is the source of truth; bank list is only a fallback.
+      }
+    }
+
+    if (!bankName && !dob) {
+      throw new MeroshareError(
+        'NETWORK',
+        'Unable to process request at the moment',
+      );
+    }
+
+    return {
+      bankName,
+      bankFromProfile: Boolean(fromProfile),
+      dob,
+      guardianName,
+    };
+  } finally {
+    client.clearSession();
+  }
+}
 
 function fieldLabel(field: VerifyField | null): string {
   switch (field) {
@@ -127,61 +194,77 @@ export function BankDetailScreen() {
         setDateOfBirth('');
         setGuardianName('');
       }
-      const client = new MeroshareClient();
+
+      let lastError: unknown;
+      let bestBank = '';
+      let bestFromProfile = false;
+      let bestDob: string | null = null;
+      let bestGuardian: string | null = null;
+
       try {
-        await client.login({
-          clientId: draft.dpId,
-          dpCode: draft.dpCode,
-          dpName: draft.dpName,
-          username: draft.username,
-          password: draft.password,
-        });
-        try {
-          const banks = await client.listBanksWithRetry();
+        for (let attempt = 0; attempt < BANK_LOAD_ATTEMPTS; attempt++) {
           if (!mounted) return;
-          if (banks.length) {
-            setLinkedBank(banks[0].name || `Bank #${banks[0].id}`);
-          } else {
-            setLinkedBank(draft.dpName);
-            setBankError(
-              'No ASBA bank found on MeroShare. You can still enter CRN/PIN if your DP is correct.',
-            );
+          try {
+            const result = await loadBankAndDobFromMeroshare(draft, attempt);
+            if (!mounted) return;
+
+            if (result.bankName) {
+              bestBank = result.bankName;
+              bestFromProfile = result.bankFromProfile || bestFromProfile;
+            }
+            if (result.dob) {
+              bestDob = result.dob;
+              bestGuardian = result.guardianName;
+            }
+
+            if (bestFromProfile && bestDob) break;
+          } catch (e) {
+            lastError = e;
+            if (
+              e instanceof MeroshareError &&
+              (e.code === 'AUTH' || e.code === 'CAPTCHA')
+            ) {
+              break;
+            }
+            if (!isTransientMeroshareError(e)) break;
           }
-        } catch (e) {
-          if (!mounted) return;
+          if (
+            attempt < BANK_LOAD_ATTEMPTS - 1 &&
+            mounted &&
+            !(bestFromProfile && bestDob)
+          ) {
+            await delay(1500 * (attempt + 1));
+          }
+        }
+
+        if (!mounted) return;
+
+        if (bestBank) {
+          setLinkedBank(bestBank);
+        } else {
           setLinkedBank(draft.dpName);
+        }
+
+        if (bestDob && !dobTouchedRef.current) {
+          setDateOfBirth(bestDob);
+          setDobAutoFilled(true);
+          if (isMinorFromDob(bestDob) && bestGuardian) {
+            setGuardianName((prev) => prev.trim() || bestGuardian!);
+          }
+        }
+
+        if (bestBank || bestDob) {
+          setBankError('');
+        } else {
           const msg =
-            e instanceof Error ? e.message : 'MeroShare bank list failed';
+            lastError instanceof Error
+              ? lastError.message
+              : 'MeroShare login failed';
           setBankError(
-            /unable to process/i.test(msg)
-              ? 'MeroShare bank list is busy right now. Showing your DP name instead — you can still enter CRN/PIN and tap Verify & Save.'
-              : `Could not load linked bank (${msg}). You can still enter CRN/PIN and save.`,
+            `Could not sign in to MeroShare (${msg}). You can still enter CRN/PIN and DOB, then save.`,
           );
         }
-        // Auto-detect DOB from My Details (ownDetail usually has no DOB).
-        try {
-          const detail = await client.fetchAccountProfileRaw();
-          const dob = extractDobFromOwnDetail(detail);
-          if (dob && mounted && !dobTouchedRef.current) {
-            setDateOfBirth(dob);
-            setDobAutoFilled(true);
-            const guardian = extractGuardianFromProfile(detail);
-            if (isMinorFromDob(dob) && guardian) {
-              setGuardianName((prev) => prev.trim() || guardian);
-            }
-          }
-        } catch {
-          // My Details DOB is optional — keypad / Nepali calendar remain
-        }
-      } catch (e) {
-        if (!mounted) return;
-        setLinkedBank(draft.dpName);
-        const msg = e instanceof Error ? e.message : 'MeroShare login failed';
-        setBankError(
-          `Could not sign in to MeroShare (${msg}). You can still enter CRN/PIN and DOB, then save.`,
-        );
       } finally {
-        client.clearSession();
         if (mounted) {
           setLoadingBank(false);
           setDetectingDob(false);

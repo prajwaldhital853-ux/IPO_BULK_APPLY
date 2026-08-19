@@ -12,7 +12,7 @@ export class MeroshareError extends Error {
 
 /** Flaky CDSC / MeroShare responses that usually succeed on a short retry. */
 export function isTransientMeroshareMessage(message: string): boolean {
-  return /unable to (process|proceed)|try again|temporarily|at the moment|timeout|timed out|network request failed|502|503|504|ECONNRESET|ETIMEDOUT|HTML response|captive portal|rate.?limit|too many requests|please wait/i.test(
+  return /unable to (process|proceed)|try again|temporarily|at the moment|timeout|timed out|network request failed|502|503|504|ECONNRESET|ETIMEDOUT|HTML response|captive portal|rate.?limit|too many requests|please wait|no authorization token|retry once/i.test(
     message,
   );
 }

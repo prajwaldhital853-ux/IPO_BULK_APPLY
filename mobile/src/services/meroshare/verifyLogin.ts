@@ -1,5 +1,6 @@
 import { MeroshareClient } from './client';
 import { MeroshareError } from './errors';
+import { extractBankWithBranchFromProfile } from '../../utils/minorAccount';
 
 export type VerifyField =
   | 'dp'
@@ -216,39 +217,57 @@ export async function verifyAccountForSave(args: {
       };
     }
 
-    // Profile name from ownDetail (for display on Accounts list)
+    // Profile from My Details (SS2): bank-with-branch + holder name + DOB
     let accountHolderName: string | undefined;
+    let profile: Record<string, unknown> = {};
     try {
-      const me = await client.fetchOwnDetailRaw();
-      accountHolderName = pickAccountHolderName(me);
+      profile = await client.fetchAccountProfileRaw();
+      accountHolderName = pickAccountHolderName(profile);
     } catch {
-      // optional
+      try {
+        const me = await client.fetchOwnDetailRaw();
+        profile = me;
+        accountHolderName = pickAccountHolderName(me);
+      } catch {
+        // optional
+      }
     }
 
-    // 2) Profile / bank — MeroShare bank API is often flaky
-    let bankName: string | undefined;
+    const ss2Bank = extractBankWithBranchFromProfile(profile) ?? undefined;
+
+    // ASBA bank list is flaky — prefer My Details bankName (includes branch)
+    let bankName: string | undefined = ss2Bank;
     let accountNumber: string | undefined;
     let bankDeferred = false;
     try {
       const banks = await client.listBanksWithRetry();
       if (!banks.length) {
-        return {
-          ok: false,
-          field: 'bank',
-          message:
-            'Login OK, but no bank is linked on MeroShare. Link your bank in the official app first.',
-          stage: 'bank',
-          boid: session.boid,
-          demat: session.demat,
-          accountHolderName,
-        };
+        if (!ss2Bank) {
+          return {
+            ok: false,
+            field: 'bank',
+            message:
+              'Login OK, but no bank is linked on MeroShare. Link your bank in the official app first.',
+            stage: 'bank',
+            boid: session.boid,
+            demat: session.demat,
+            accountHolderName,
+          };
+        }
+      } else {
+        if (!bankName) bankName = banks[0].name;
+        try {
+          const branch = await client.getBankBranchDetails(banks[0].id);
+          accountNumber = branch.accountNumber;
+        } catch {
+          // account number is optional when My Details already has the bank
+        }
       }
-      bankName = banks[0].name;
-      const branch = await client.getBankBranchDetails(banks[0].id);
-      accountNumber = branch.accountNumber;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not load bank details';
-      if (!isTransientMeroShareError(msg)) {
+      if (ss2Bank) {
+        bankName = ss2Bank;
+      } else if (!isTransientMeroShareError(msg)) {
         return {
           ok: false,
           field: 'bank',
@@ -258,21 +277,15 @@ export async function verifyAccountForSave(args: {
           demat: session.demat,
           accountHolderName,
         };
-      }
-      // Transient CDSC outage — still allow save; confirm CRN/PIN on first live apply
-      bankDeferred = true;
-      try {
-        const me = await client.fetchOwnDetailRaw();
-        if (!accountHolderName) {
-          accountHolderName = pickAccountHolderName(me);
+      } else {
+        bankDeferred = true;
+        if (!bankName) {
+          const fromProfile =
+            (typeof profile.bankName === 'string' && profile.bankName) ||
+            (typeof profile.bank === 'string' && profile.bank) ||
+            null;
+          if (fromProfile) bankName = fromProfile;
         }
-        const fromProfile =
-          (typeof me.bankName === 'string' && me.bankName) ||
-          (typeof me.bank === 'string' && me.bank) ||
-          null;
-        if (fromProfile) bankName = fromProfile;
-      } catch {
-        // ignore
       }
     }
 

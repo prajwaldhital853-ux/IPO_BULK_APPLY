@@ -31,4 +31,8 @@ export type {
   PortfolioHoldingRow,
 } from './types';
 export type { CapitalDp } from './capital';
-export { MeroshareError, sanitizeMeroshareMessage } from './errors';
+export {
+  MeroshareError,
+  sanitizeMeroshareMessage,
+  isTransientMeroshareError,
+} from './errors';
