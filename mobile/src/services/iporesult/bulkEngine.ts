@@ -11,12 +11,37 @@ import {
   parseHomePayload,
 } from './parse';
 import { solvePublicCaptcha } from './solveCaptcha';
+import { isStandaloneNativeApp } from '../../utils/expoRuntime';
 
-const ACCOUNT_GAP_MS = 1800;
-const ACCOUNT_GAP_MAX_MS = 4500;
+/** Expo Go dev shell — natural ~3–4s/account from Metro/WebView overhead. */
+const EXPO_GO_ACCOUNT_GAP_MS = 1800;
+const EXPO_GO_ACCOUNT_GAP_MAX_MS = 4500;
+
+/** Release APK runs faster; pace like Expo Go to avoid CDSC WAF burst (~5 checks). */
+const STANDALONE_ACCOUNT_GAP_MS = 3400;
+const STANDALONE_ACCOUNT_GAP_MAX_MS = 6500;
+const STANDALONE_WEBVIEW_STEP_MS = 550;
+
 const ACCOUNT_PAUSE_MS = 12000;
 const WAF_RESET_PAUSE_MS = 25000;
 const CAPTCHA_ATTEMPTS = 5;
+
+function cdscBulkPacing() {
+  if (isStandaloneNativeApp()) {
+    return {
+      gapMs: STANDALONE_ACCOUNT_GAP_MS,
+      gapMaxMs: STANDALONE_ACCOUNT_GAP_MAX_MS,
+      webViewStepMs: STANDALONE_WEBVIEW_STEP_MS,
+      allowRelax: false,
+    };
+  }
+  return {
+    gapMs: EXPO_GO_ACCOUNT_GAP_MS,
+    gapMaxMs: EXPO_GO_ACCOUNT_GAP_MAX_MS,
+    webViewStepMs: 0,
+    allowRelax: true,
+  };
+}
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -42,8 +67,8 @@ type BulkThrottle = {
   relax: () => void;
 };
 
-function createBulkThrottle(): BulkThrottle {
-  let gapMs = ACCOUNT_GAP_MS;
+function createBulkThrottle(pacing = cdscBulkPacing()): BulkThrottle {
+  let gapMs = pacing.gapMs;
   let nextSlot = 0;
   let pauseUntil = 0;
 
@@ -60,7 +85,7 @@ function createBulkThrottle(): BulkThrottle {
     backoff(message: string) {
       const isWaf = isWafBlockError(message);
       gapMs = Math.min(
-        ACCOUNT_GAP_MAX_MS,
+        pacing.gapMaxMs,
         Math.round(gapMs * (isWaf ? 1.4 : 1.25)),
       );
       pauseUntil = Math.max(
@@ -69,7 +94,11 @@ function createBulkThrottle(): BulkThrottle {
       );
     },
     relax() {
-      gapMs = Math.max(ACCOUNT_GAP_MS, Math.round(gapMs * 0.95));
+      if (pacing.allowRelax) {
+        gapMs = Math.max(pacing.gapMs, Math.round(gapMs * 0.95));
+      } else {
+        gapMs = pacing.gapMs;
+      }
     },
   };
 }
@@ -130,6 +159,9 @@ async function prepareCaptcha(
   if (reload) {
     onProgress?.('Refreshing captcha…');
     c = await reloadPublicCaptchaViaBridge(bridge, captcha.captchaIdentifier);
+    if (isStandaloneNativeApp()) {
+      await sleep(STANDALONE_WEBVIEW_STEP_MS);
+    }
   }
   onProgress?.('Auto-solving captcha…');
   const digits = await solvePublicCaptcha(c, ocr, { bulkFast: true });
@@ -275,6 +307,9 @@ export async function runPublicBulkResultCheck(opts: {
         }, i);
         done = true;
         throttle.relax();
+        if (isStandaloneNativeApp()) {
+          await sleep(STANDALONE_WEBVIEW_STEP_MS);
+        }
       } catch (e) {
         lastMessage = e instanceof Error ? e.message : 'Check failed';
         throttle.backoff(lastMessage);

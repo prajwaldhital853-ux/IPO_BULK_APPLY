@@ -46,6 +46,7 @@ import {
   toggleCheckAccountId,
 } from '../utils/checkAccountSelection';
 import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
+import { isStandaloneNativeApp } from '../utils/expoRuntime';
 import { rs } from '../utils/responsive';
 import { useAfterInteractions } from '../utils/useAfterInteractions';
 import type { RootStackParamList } from '../navigation/types';
@@ -1046,7 +1047,11 @@ export function PublicIpoResultScreen() {
           <CaptchaOcrBridge ref={ocrRef} />
           <IpoResultWebBridge
             ref={bridgeRef}
-            interactive={false}
+            interactive={
+              running &&
+              selected?.provider === 'cdsc' &&
+              isStandaloneNativeApp()
+            }
             onReadyChange={setBridgeReady}
             onPortalBlocked={(reason) => {
               setProgress(reason);
