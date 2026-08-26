@@ -1,4 +1,4 @@
-import type { AccountMeta } from '../types/account';
+import type { AccountMeta } from '../../types/account';
 import { getSecrets, patchAccountMeta } from '../storage/accountsStorage';
 import { MeroshareClient } from '../services/meroshare/client';
 import {
@@ -11,6 +11,26 @@ export type ResolveBoidResult = {
   boid: string;
   source: 'cached' | 'constructed' | 'fetched';
 };
+
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const idx = cursor++;
+        out[idx] = await fn(items[idx], idx);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return out;
+}
 
 /**
  * Resolve full 16-digit BOID for public IPO result checks.
@@ -79,8 +99,38 @@ export async function resolveBoid(
   }
 }
 
+async function resolveOneAccount(account: AccountMeta): Promise<{
+  account: AccountMeta;
+  boid?: string;
+  error?: string;
+}> {
+  try {
+    const sync = resolveBoidSync(account);
+    if (sync) {
+      if (!account.demat) {
+        await patchAccountMeta(account.id, {
+          demat: sync,
+          boidHint: sync.slice(-4),
+        });
+      }
+      return { account: { ...account, demat: sync }, boid: sync };
+    }
+    const resolved = await resolveBoid(account);
+    return {
+      account: { ...account, demat: resolved.boid },
+      boid: resolved.boid,
+    };
+  } catch (e) {
+    return {
+      account,
+      error: e instanceof Error ? e.message : 'Could not resolve BOID',
+    };
+  }
+}
+
 export async function resolveBoidsForAccounts(
   accounts: AccountMeta[],
+  opts?: { concurrency?: number },
 ): Promise<
   Array<{
     account: AccountMeta;
@@ -88,37 +138,6 @@ export async function resolveBoidsForAccounts(
     error?: string;
   }>
 > {
-  const out: Array<{
-    account: AccountMeta;
-    boid?: string;
-    error?: string;
-  }> = [];
-
-  for (const account of accounts) {
-    try {
-      const sync = resolveBoidSync(account);
-      if (sync) {
-        if (!account.demat) {
-          await patchAccountMeta(account.id, {
-            demat: sync,
-            boidHint: sync.slice(-4),
-          });
-        }
-        out.push({ account: { ...account, demat: sync }, boid: sync });
-        continue;
-      }
-      const resolved = await resolveBoid(account);
-      out.push({
-        account: { ...account, demat: resolved.boid },
-        boid: resolved.boid,
-      });
-    } catch (e) {
-      out.push({
-        account,
-        error: e instanceof Error ? e.message : 'Could not resolve BOID',
-      });
-    }
-  }
-
-  return out;
+  const concurrency = opts?.concurrency ?? 4;
+  return mapPool(accounts, concurrency, (account) => resolveOneAccount(account));
 }

@@ -35,6 +35,7 @@ import {
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
+import { DuplicateAccountError } from '../utils/duplicateAccount';
 import {
   fetchPublicAppSettings,
   type ContactSettings,
@@ -348,7 +349,15 @@ export function ProfileScreen() {
           continue;
         }
         setBusy(`Importing ${acc.name}…`);
-        await addAccount(toLinkedDraft(acc));
+        try {
+          await addAccount(toLinkedDraft(acc));
+        } catch (e) {
+          if (e instanceof DuplicateAccountError) {
+            skippedDup++;
+            continue;
+          }
+          throw e;
+        }
         existing.add(key);
         added++;
       }

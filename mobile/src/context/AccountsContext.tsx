@@ -8,15 +8,18 @@ import React, {
 } from 'react';
 import {
   isMockAccountId,
-  MOCK_ACCOUNT_SEEDS,
+  buildMockAccountSeeds,
+  DEFAULT_MOCK_ACCOUNT_COUNT,
 } from '../data/mockAccounts';
 import {
   addAccountWithSecrets,
+  addManyAccountsWithSecrets,
   clearAllAccounts,
   getSecrets,
   loadAccountMeta,
   patchAccountMeta,
   removeAccountFully,
+  removeAccountsFullyMany,
   reorderAccountMeta,
   saveAccountMeta,
   updateAccountSecrets,
@@ -33,6 +36,7 @@ import type {
   LinkedAccount,
 } from '../types/account';
 import { AUTH_ENABLED } from '../services/auth/config';
+import { DuplicateAccountError, findDuplicateAccountAsync } from '../utils/duplicateAccount';
 import { useAuth } from './AuthContext';
 
 type AccountsContextValue = {
@@ -64,7 +68,7 @@ type AccountsContextValue = {
     pin: string;
   } | null>;
   /** Seed realistic mock accounts for Expo Go / offline demos. */
-  seedMockAccounts: () => Promise<void>;
+  seedMockAccounts: (count?: number) => Promise<void>;
   /** Remove all mock_* accounts. */
   removeMockAccounts: () => Promise<void>;
 };
@@ -90,13 +94,8 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       const list = await loadAccountMeta();
-      const allowedMockIds = new Set(MOCK_ACCOUNT_SEEDS.map((s) => s.meta.id));
-      // Drop leftover demo_* and any mock_* beyond the current 30-seed set.
-      const cleaned = list.filter(
-        (a) =>
-          !a.id.startsWith('demo_') &&
-          (!isMockAccountId(a.id) || allowedMockIds.has(a.id)),
-      );
+      // Drop leftover demo_* ids from older builds. Keep all mock_* (36 or 200).
+      const cleaned = list.filter((a) => !a.id.startsWith('demo_'));
       const removed = list.filter((a) => !cleaned.some((c) => c.id === a.id));
       if (removed.length) {
         for (const a of removed) {
@@ -125,7 +124,9 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     if (AUTH_ENABLED) {
       const { syncAccountSlots } = await import('../services/accountSlots');
       const { keysForAccountIds } = await import('../utils/accountFingerprint');
-      const list = await loadAccountMeta();
+      const list = (await loadAccountMeta()).filter(
+        (a) => !isMockAccountId(a.id),
+      );
       const keys = keysForAccountIds(list, list.map((a) => a.id));
       void syncAccountSlots(keys, list.length);
     }
@@ -136,38 +137,58 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     if (AUTH_ENABLED) {
       const { syncAccountSlots } = await import('../services/accountSlots');
       const { keysForAccountIds } = await import('../utils/accountFingerprint');
-      const list = await loadAccountMeta();
+      const list = (await loadAccountMeta()).filter(
+        (a) => !isMockAccountId(a.id),
+      );
       const keys = keysForAccountIds(list, list.map((a) => a.id));
       void syncAccountSlots(keys, list.length);
     }
   }, []);
 
-  const seedMockAccounts = useCallback(async () => {
+  const seedMockAccounts = useCallback(async (count = DEFAULT_MOCK_ACCOUNT_COUNT) => {
     const list = await loadAccountMeta();
-    for (const m of list.filter((a) => isMockAccountId(a.id))) {
-      await removeAccountFully(m.id);
-    }
-    for (const seed of MOCK_ACCOUNT_SEEDS) {
-      await addAccountWithSecrets(
-        { ...seed.meta, id: seed.meta.id },
-        seed.secrets,
-      );
+    const existingMocks = list.filter((a) => isMockAccountId(a.id));
+    if (existingMocks.length) {
+      await removeAccountsFullyMany(existingMocks.map((a) => a.id));
     }
 
-    // Seed saved portfolios + bulk snapshot so Investment Summary / Portfolio
-    // work immediately in Expo Go without a live MeroShare login.
-    const { createPortfolioWithHoldings, listPortfolios, deletePortfolio } =
+    const seeds = buildMockAccountSeeds(count);
+    await addManyAccountsWithSecrets(
+      seeds.map((seed) => ({
+        meta: { ...seed.meta, id: seed.meta.id },
+        secrets: seed.secrets,
+      })),
+    );
+
+    const { createManyPortfoliosWithHoldings, listPortfolios, replaceAllPortfolios } =
       await import('../storage/portfolioStorage');
-    const {
-      saveBulkPortfolioSnapshot,
-    } = await import('../storage/bulkPortfolioStorage');
+    const { saveBulkPortfolioSnapshot } = await import(
+      '../storage/bulkPortfolioStorage'
+    );
 
     const existing = await listPortfolios();
-    for (const p of existing.filter((x) =>
-      x.name.includes('(MeroShare)') || x.name.includes('(Sample)'),
-    )) {
-      await deletePortfolio(p.id);
+    const kept = existing.filter(
+      (x) =>
+        !x.name.includes('(MeroShare)') &&
+        !x.name.includes('(Sample)') &&
+        !(x.sourceAccountId && isMockAccountId(x.sourceAccountId)),
+    );
+    if (kept.length !== existing.length) {
+      await replaceAllPortfolios(kept);
     }
+
+    await createManyPortfoliosWithHoldings(
+      seeds.map((seed) => ({
+        name: `${seed.meta.name} (Sample)`,
+        sourceAccountId: seed.meta.id,
+        holdings: seed.holdings.map((h) => ({
+          symbol: h.symbol,
+          name: h.name,
+          qty: h.qty,
+          wacc: h.wacc,
+        })),
+      })),
+    );
 
     const snapRows: Array<{
       accountId: string;
@@ -182,21 +203,10 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       dayChange: number;
     }> = [];
 
-    for (const seed of MOCK_ACCOUNT_SEEDS) {
-      await createPortfolioWithHoldings(
-        `${seed.meta.name} (Sample)`,
-        seed.holdings.map((h) => ({
-          symbol: h.symbol,
-          name: h.name,
-          qty: h.qty,
-          wacc: h.wacc,
-        })),
-        seed.meta.id,
-      );
+    for (const seed of seeds) {
       for (const h of seed.holdings) {
         const value =
-          h.qty *
-          (h.ltp ?? h.previousClosingPrice ?? h.wacc ?? 0);
+          h.qty * (h.ltp ?? h.previousClosingPrice ?? h.wacc ?? 0);
         const dayChange =
           h.ltp != null && h.previousClosingPrice != null
             ? h.qty * (h.ltp - h.previousClosingPrice)
@@ -220,7 +230,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       updatedAt: new Date().toISOString(),
       totalValue: snapRows.reduce((s, r) => s + r.value, 0),
       dayChange: snapRows.reduce((s, r) => s + r.dayChange, 0),
-      accounts: MOCK_ACCOUNT_SEEDS.length,
+      accounts: seeds.length,
       holdings: snapRows.length,
       rows: snapRows,
     });
@@ -231,10 +241,11 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
   const removeMockAccounts = useCallback(async () => {
     const list = await loadAccountMeta();
     const mocks = list.filter((a) => isMockAccountId(a.id));
-    for (const m of mocks) {
-      await removeAccountFully(m.id);
+    if (mocks.length) {
+      setAccounts(await removeAccountsFullyMany(mocks.map((a) => a.id)));
+    } else {
+      setAccounts(list);
     }
-    setAccounts(await loadAccountMeta());
   }, []);
 
   const clearAll = useCallback(async () => {
@@ -260,6 +271,23 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       patch: Partial<Omit<AccountMeta, 'id'>>,
       secrets?: Partial<AccountSecrets>,
     ) => {
+      const list = await loadAccountMeta();
+      const current = list.find((a) => a.id === id);
+      const crn =
+        secrets?.crn ?? (await getSecrets(id))?.crn ?? '';
+      const hit = await findDuplicateAccountAsync({
+        accounts: list,
+        excludeId: id,
+        candidate: {
+          username: patch.username ?? current?.username,
+          dpId: patch.dpId ?? current?.dpId,
+          dpCode: patch.dpCode ?? current?.dpCode,
+          demat: patch.demat ?? current?.demat,
+          crn,
+        },
+        loadCrn: async (accId) => (await getSecrets(accId))?.crn,
+      });
+      if (hit) throw new DuplicateAccountError(hit);
       if (secrets && Object.keys(secrets).length) {
         await updateAccountSecrets(id, secrets);
       }

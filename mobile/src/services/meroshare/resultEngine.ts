@@ -15,7 +15,12 @@ import type {
   ResultAccountStatus,
 } from './types';
 
-const ACCOUNT_GAP_MS = 2200;
+/** Parallel workers + adaptive gap between MeroShare session starts. */
+const BULK_RESULT_CONCURRENCY = 4;
+const BULK_RESULT_GAP_MS = 600;
+const BULK_RESULT_GAP_MAX_MS = 2800;
+const BULK_RESULT_PAUSE_MS = 2200;
+const DEMO_ACCOUNT_GAP_MS = 120;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -81,6 +86,182 @@ function makeDemoResult(
   };
 }
 
+function resultRowFromCheck(
+  account: AccountMeta,
+  issue: OpenIssue,
+  dryRun: boolean,
+  res: {
+    dryRun: boolean;
+    status: string;
+    message: string;
+    appliedKitta?: number;
+    allotmentStatus?: string;
+    remarks?: string;
+  },
+): ResultAccountStatus {
+  return {
+    accountId: account.id,
+    accountName: account.name,
+    username: account.username,
+    ok: true,
+    dryRun: res.dryRun,
+    status: res.status,
+    message: friendlyResultError(res.message),
+    companyName: issue.companyName,
+    appliedKitta: res.appliedKitta,
+    allotmentStatus: res.allotmentStatus,
+    remarks: res.remarks,
+  };
+}
+
+function resultRowFromError(
+  account: AccountMeta,
+  issue: OpenIssue,
+  dryRun: boolean,
+  e: unknown,
+): ResultAccountStatus {
+  const raw = e instanceof Error ? e.message : 'Unknown error';
+  const code = e instanceof MeroshareError ? e.code : 'UNKNOWN';
+  return {
+    accountId: account.id,
+    accountName: account.name,
+    username: account.username,
+    ok: false,
+    dryRun,
+    status: code,
+    message: friendlyResultError(raw),
+    companyName: issue.companyName,
+  };
+}
+
+type BulkThrottle = {
+  acquire: () => Promise<void>;
+  backoff: (e: unknown) => void;
+  relax: () => void;
+};
+
+function createBulkThrottle(): BulkThrottle {
+  let gapMs = BULK_RESULT_GAP_MS;
+  let nextSlot = 0;
+  let pauseUntil = 0;
+
+  return {
+    async acquire() {
+      const now = Date.now();
+      const pause = Math.max(0, pauseUntil - now);
+      if (pause > 0) await sleep(pause);
+      const slot = Math.max(Date.now(), nextSlot);
+      nextSlot = slot + gapMs;
+      const wait = slot - Date.now();
+      if (wait > 0) await sleep(wait);
+    },
+    backoff(e: unknown) {
+      const isRate =
+        e instanceof MeroshareError && e.code === 'RATE';
+      gapMs = Math.min(
+        BULK_RESULT_GAP_MAX_MS,
+        Math.round(gapMs * (isRate ? 1.8 : 1.4)),
+      );
+      pauseUntil = Math.max(
+        pauseUntil,
+        Date.now() + (isRate ? BULK_RESULT_PAUSE_MS : 1200),
+      );
+    },
+    relax() {
+      gapMs = Math.max(BULK_RESULT_GAP_MS, Math.round(gapMs * 0.92));
+    },
+  };
+}
+
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const idx = cursor++;
+        out[idx] = await fn(items[idx], idx);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return out;
+}
+
+async function checkOneAccountResult(
+  account: AccountMeta,
+  issue: OpenIssue,
+  dryRun: boolean,
+  simulateLogin: boolean,
+  throttle: BulkThrottle,
+): Promise<ResultAccountStatus> {
+  const secrets = await getSecrets(account.id);
+  if (!secrets?.password) {
+    return {
+      accountId: account.id,
+      accountName: account.name,
+      username: account.username,
+      ok: false,
+      dryRun,
+      status: 'MISSING_SECRETS',
+      message: 'Missing password in SecureStore',
+      companyName: issue.companyName,
+    };
+  }
+
+  const client = new MeroshareClient();
+  const loginArgs = {
+    clientId: account.dpId,
+    dpCode: account.dpCode,
+    username: account.username,
+    password: secrets.password,
+  };
+  const statusOpts = {
+    dryRun,
+    companyName: issue.companyName,
+    bulkFast: true,
+  };
+
+  const runCheck = async () => {
+    await throttle.acquire();
+    await client.loginOrSimulate(loginArgs, {
+      simulate: simulateLogin,
+      skipOwnDetail: true,
+    });
+    const res = await client.checkApplicationStatus(
+      issue.companyShareId,
+      statusOpts,
+    );
+    throttle.relax();
+    return resultRowFromCheck(account, issue, dryRun, res);
+  };
+
+  try {
+    return await runCheck();
+  } catch (e) {
+    if (!isTransientMeroshareError(e)) {
+      throttle.backoff(e);
+      return resultRowFromError(account, issue, dryRun, e);
+    }
+    try {
+      client.clearSession();
+      throttle.backoff(e);
+      await sleep(900);
+      return await runCheck();
+    } catch (e2) {
+      throttle.backoff(e2);
+      return resultRowFromError(account, issue, dryRun, e2);
+    }
+  } finally {
+    client.clearSession();
+  }
+}
+
 export type BulkResultOptions = {
   accounts: AccountMeta[];
   issue: OpenIssue;
@@ -97,180 +278,70 @@ export type BulkResultOptions = {
 };
 
 /**
- * Sequential bulk result / application-status check across local accounts.
- * Live by default (works with no currently open IPO — uses past reports).
+ * Parallel bulk result / application-status check across local accounts.
+ * Uses limited concurrency + adaptive throttling to stay fast without
+ * hammering CDSC rate limits.
  */
 export async function runBulkResultCheck(
   opts: BulkResultOptions,
 ): Promise<BulkResultSummary> {
   const dryRun = opts.dryRun === true;
   const simulateLogin = opts.simulateLogin ?? dryRun;
-  const results: ResultAccountStatus[] = [];
-  let stoppedEarly = false;
-
   const total = opts.accounts.length;
+  const throttle = createBulkThrottle();
+  let stoppedEarly = false;
+  let finished = 0;
+
   const emit = (row: ResultAccountStatus, i: number) => {
-    results.push(row);
+    finished += 1;
     opts.onAccountResult?.(row, i, total);
+    opts.onProgress?.(
+      `Checked ${finished}/${total} — ${row.accountName}`,
+      finished - 1,
+      total,
+    );
   };
 
-  for (let i = 0; i < opts.accounts.length; i++) {
+  const processAt = async (i: number): Promise<ResultAccountStatus | null> => {
+    if (stoppedEarly) return null;
     const account = opts.accounts[i];
-    opts.onProgress?.(
-      `Checking ${account.name}…`,
-      i,
-      opts.accounts.length,
-    );
 
-    // Demo accounts (added via the dev "dry run" tool) don't have real
-    // MeroShare logins — synthesize a realistic mix of outcomes so the UI can
-    // be exercised without live credentials.
     if (account.id.startsWith('demo_') || isMockAccountId(account.id)) {
-      await sleep(350);
-      emit(makeDemoResult(account, i, opts.issue), i);
-      continue;
+      await sleep(DEMO_ACCOUNT_GAP_MS);
+      const row = makeDemoResult(account, i, opts.issue);
+      emit(row, i);
+      return row;
     }
 
-    const secrets = await getSecrets(account.id);
-    if (!secrets?.password) {
-      emit(
-        {
-          accountId: account.id,
-          accountName: account.name,
-          username: account.username,
-          ok: false,
-          dryRun,
-          status: 'MISSING_SECRETS',
-          message: 'Missing password in SecureStore',
-          companyName: opts.issue.companyName,
-        },
-        i,
-      );
-      continue;
-    }
-
-    const client = new MeroshareClient();
-    try {
-      await client.loginOrSimulate(
-        {
-          clientId: account.dpId,
-          dpCode: account.dpCode,
-          username: account.username,
-          password: secrets.password,
-        },
-        { simulate: simulateLogin },
-      );
-
-      const res = await client.checkApplicationStatus(opts.issue.companyShareId, {
-        dryRun,
-        companyName: opts.issue.companyName,
-      });
-
-      emit(
-        {
-          accountId: account.id,
-          accountName: account.name,
-          username: account.username,
-          ok: true,
-          dryRun: res.dryRun,
-          status: res.status,
-          message: friendlyResultError(res.message),
-          companyName: opts.issue.companyName,
-          appliedKitta: res.appliedKitta,
-          allotmentStatus: res.allotmentStatus,
-          remarks: res.remarks,
-        },
-        i,
-      );
-    } catch (e) {
-      const raw = e instanceof Error ? e.message : 'Unknown error';
-      const code = e instanceof MeroshareError ? e.code : 'UNKNOWN';
-      // One more full-session retry for transient flakiness (fresh login).
-      if (isTransientMeroshareError(e)) {
-        try {
-          client.clearSession();
-          await sleep(1400);
-          await client.loginOrSimulate(
-            {
-              clientId: account.dpId,
-              dpCode: account.dpCode,
-              username: account.username,
-              password: secrets.password,
-            },
-            { simulate: simulateLogin },
-          );
-          const res = await client.checkApplicationStatus(
-            opts.issue.companyShareId,
-            {
-              dryRun,
-              companyName: opts.issue.companyName,
-            },
-          );
-          emit(
-            {
-              accountId: account.id,
-              accountName: account.name,
-              username: account.username,
-              ok: true,
-              dryRun: res.dryRun,
-              status: res.status,
-              message: friendlyResultError(res.message),
-              companyName: opts.issue.companyName,
-              appliedKitta: res.appliedKitta,
-              allotmentStatus: res.allotmentStatus,
-              remarks: res.remarks,
-            },
-            i,
-          );
-          continue;
-        } catch (e2) {
-          const raw2 = e2 instanceof Error ? e2.message : raw;
-          const code2 = e2 instanceof MeroshareError ? e2.code : code;
-          emit(
-            {
-              accountId: account.id,
-              accountName: account.name,
-              username: account.username,
-              ok: false,
-              dryRun,
-              status: code2,
-              message: friendlyResultError(raw2),
-              companyName: opts.issue.companyName,
-            },
-            i,
-          );
-          if (code2 === 'AUTH') {
-            stoppedEarly = true;
-            break;
-          }
-          continue;
-        }
-      }
-      emit(
-        {
-          accountId: account.id,
-          accountName: account.name,
-          username: account.username,
-          ok: false,
-          dryRun,
-          status: code,
-          message: friendlyResultError(raw),
-          companyName: opts.issue.companyName,
-        },
-        i,
-      );
-      if (code === 'AUTH') {
+    const row = await checkOneAccountResult(
+      account,
+      opts.issue,
+      dryRun,
+      simulateLogin,
+      throttle,
+    );
+    if (!stoppedEarly) {
+      emit(row, i);
+      if (
+        !row.ok &&
+        row.status === 'AUTH' &&
+        !isMockAccountId(account.id) &&
+        !account.id.startsWith('demo_')
+      ) {
         stoppedEarly = true;
-        break;
       }
-    } finally {
-      client.clearSession();
     }
+    return row;
+  };
 
-    if (i < opts.accounts.length - 1) {
-      await sleep(ACCOUNT_GAP_MS);
-    }
-  }
+  const slots = opts.accounts.map((_, i) => i);
+  const rows = await mapPool(slots, BULK_RESULT_CONCURRENCY, async (i) =>
+    processAt(i),
+  );
+
+  const results = rows.filter(
+    (r): r is ResultAccountStatus => r != null,
+  );
 
   return {
     dryRun,

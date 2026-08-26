@@ -63,8 +63,18 @@ export async function deletePortfolio(id: string): Promise<void> {
 export async function deletePortfoliosForAccount(
   accountId: string,
 ): Promise<number> {
+  return deletePortfoliosForAccounts([accountId]);
+}
+
+export async function deletePortfoliosForAccounts(
+  accountIds: string[],
+): Promise<number> {
+  if (!accountIds.length) return 0;
+  const idSet = new Set(accountIds);
   const list = await listPortfolios();
-  const next = list.filter((p) => p.sourceAccountId !== accountId);
+  const next = list.filter(
+    (p) => !p.sourceAccountId || !idSet.has(p.sourceAccountId),
+  );
   const removed = list.length - next.length;
   if (removed > 0) await saveAll(next);
   return removed;
@@ -165,15 +175,45 @@ export async function createPortfolioWithHoldings(
   const portfolio: Portfolio = {
     id: uid(),
     name: trimmed,
-    holdings: [],
+    holdings: holdings.map((h) => ({
+      symbol: h.symbol.toUpperCase(),
+      name: h.name?.trim() || h.symbol.toUpperCase(),
+      qty: h.qty,
+      wacc: h.wacc,
+    })),
     createdAt: new Date().toISOString(),
     sourceAccountId,
   };
   const list = await listPortfolios();
   list.unshift(portfolio);
   await saveAll(list);
-  await importHoldings(portfolio.id, holdings);
-  return (await listPortfolios()).find((p) => p.id === portfolio.id) ?? portfolio;
+  return portfolio;
+}
+
+export async function createManyPortfoliosWithHoldings(
+  rows: Array<{
+    name: string;
+    holdings: Array<Omit<PortfolioHolding, 'name'> & { name?: string }>;
+    sourceAccountId?: string;
+  }>,
+): Promise<number> {
+  if (!rows.length) return 0;
+  const createdAt = new Date().toISOString();
+  const added: Portfolio[] = rows.map((row) => ({
+    id: uid(),
+    name: row.name.trim(),
+    createdAt,
+    sourceAccountId: row.sourceAccountId,
+    holdings: row.holdings.map((h) => ({
+      symbol: h.symbol.toUpperCase(),
+      name: h.name?.trim() || h.symbol.toUpperCase(),
+      qty: h.qty,
+      wacc: h.wacc,
+    })),
+  }));
+  const list = await listPortfolios();
+  await saveAll([...added, ...list]);
+  return added.length;
 }
 
 /**

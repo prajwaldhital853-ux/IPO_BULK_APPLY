@@ -52,9 +52,17 @@ export async function clearBulkPortfolioSnapshot(): Promise<void> {
 export async function removeAccountFromBulkSnapshot(
   accountId: string,
 ): Promise<void> {
+  await removeAccountsFromBulkSnapshot([accountId]);
+}
+
+export async function removeAccountsFromBulkSnapshot(
+  accountIds: string[],
+): Promise<void> {
+  if (!accountIds.length) return;
   const snap = await loadBulkPortfolioSnapshot();
   if (!snap?.rows?.length) return;
-  const rows = snap.rows.filter((r) => r.accountId !== accountId);
+  const idSet = new Set(accountIds);
+  const rows = snap.rows.filter((r) => !idSet.has(r.accountId));
   if (rows.length === snap.rows.length) return;
   if (!rows.length) {
     await clearBulkPortfolioSnapshot();

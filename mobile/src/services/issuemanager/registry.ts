@@ -94,6 +94,8 @@ async function withTimeout<T>(
 export function normalizeCompanyLabel(value: string): string {
   return value
     .replace(/\s*\(via CDSC\)\s*$/i, '')
+    .replace(/\b(limited|ltd|pvt|private|company|co)\b/gi, ' ')
+    .replace(/\b(ipo|fpo|right|debenture|bond)\b/gi, ' ')
     .replace(/[^\w\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()

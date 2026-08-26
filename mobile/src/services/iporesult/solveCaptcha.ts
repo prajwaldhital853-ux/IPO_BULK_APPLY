@@ -1,5 +1,6 @@
 import type { PublicCaptcha } from './parse';
 import type { CaptchaOcrHandle } from '../../components/CaptchaOcrBridge';
+import { isCdscBackendConfigured } from '../issuemanager/backendConfig';
 
 const DIGIT_WORDS: Record<string, string> = {
   zero: '0',
@@ -221,17 +222,40 @@ export async function solveCaptchaViaAudioSpeech(
  * Auto-solve CDSC captcha without user typing.
  * Prefer backend ONNX / 2Captcha, then audioCaptcha, then OCR.space,
  * then local Tesseract.
+ *
+ * `bulkFast`: for bulk IPO result — backend ONNX first, then local OCR only
+ * (skips slow audio / OCR.space). Falls back to full chain when backend unset.
  */
 export async function solvePublicCaptcha(
   captcha: PublicCaptcha,
   ocr?: CaptchaOcrHandle | null,
+  opts?: { bulkFast?: boolean },
 ): Promise<string> {
   const errors: string[] = [];
+  const bulkFast = opts?.bulkFast === true;
 
   try {
     return await solveCaptchaViaBackend(captcha.captchaImageBase64);
   } catch (e) {
     errors.push(`backend: ${e instanceof Error ? e.message : 'failed'}`);
+    if (bulkFast && isCdscBackendConfigured()) {
+      if (ocr) {
+        try {
+          const digits = normalizeCaptchaDigits(
+            await ocr.solveDigits(captcha.captchaImageBase64),
+          );
+          if (digits.length >= 4) {
+            return digits.length === 5 ? digits : digits.slice(0, 5);
+          }
+          errors.push(`local-ocr: weak "${digits}"`);
+        } catch (e2) {
+          errors.push(
+            `local-ocr: ${e2 instanceof Error ? e2.message : 'failed'}`,
+          );
+        }
+      }
+      throw new Error(`Captcha auto-solve failed (${errors.join(' · ')})`);
+    }
   }
 
   if (captcha.audioCaptcha && ocr?.decodeAudioPcm16k) {

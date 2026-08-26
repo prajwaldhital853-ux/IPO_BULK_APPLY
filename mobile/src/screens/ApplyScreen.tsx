@@ -19,6 +19,10 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
+import {
+  ApplyModalAccountRow,
+  ApplySingleAccountRow,
+} from '../components/AccountListRows';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { useAccounts } from '../context/AccountsContext';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
@@ -56,6 +60,8 @@ import {
   parseIssueDate,
 } from '../utils/ipoIssues';
 import { rs } from '../utils/responsive';
+import { filterAccountsByQuery } from '../utils/filterAccounts';
+import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
 import type { RootStackParamList } from '../navigation/types';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
@@ -154,6 +160,7 @@ export function ApplyScreen() {
   const [mode, setMode] = useState<'Bulk' | 'Single'>('Bulk');
   const [hideValues, setHideValues] = useState(false);
   const [accountsModalOpen, setAccountsModalOpen] = useState(false);
+  const [accountModalFilter, setAccountModalFilter] = useState('');
   const [investment, setInvestment] = useState<InvestmentSummary | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [qty, setQty] = useState('10');
@@ -290,14 +297,22 @@ export function ApplyScreen() {
     showLockedAccountAlert(() => navigation.navigate('Subscription'));
   }, [navigation]);
 
-  const toggleAccount = (id: string) => {
-    if (alreadyApplied(id)) return;
-    if (!isAccountActive(id)) {
-      promptLocked();
-      return;
-    }
-    setSelectedIds((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
+  const filteredModalAccounts = useMemo(
+    () => filterAccountsByQuery(accounts, accountModalFilter),
+    [accounts, accountModalFilter],
+  );
+
+  const toggleAccount = useCallback(
+    (id: string) => {
+      if (alreadyApplied(id)) return;
+      if (!isAccountActive(id)) {
+        promptLocked();
+        return;
+      }
+      setSelectedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+    },
+    [alreadyApplied, isAccountActive, promptLocked],
+  );
 
   const selectAllEligible = () => {
     setSelectedIds((prev) => {
@@ -573,43 +588,26 @@ export function ApplyScreen() {
     setApplyProgress(null);
   }, []);
 
-  const renderSingleAccountRows = () =>
-    accounts.map((acc, idx) => {
-      const applied = alreadyApplied(acc.id);
-      const locked = !isAccountActive(acc.id);
-      const blocked = applied || locked;
-      return (
-        <View key={acc.id} style={styles.accountRow}>
-          <View style={styles.indexBadge}>
-            <Text style={styles.indexText}>{idx + 1}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.accName}>{acc.name}</Text>
-            <Text style={styles.accBank}>
-              {applied
-                ? 'Already applied for this IPO'
-                : locked
-                  ? 'Locked — over plan limit'
-                  : acc.bankName || acc.dpName}
-            </Text>
-          </View>
-          <Pressable
-            style={[styles.applyBtn, blocked && styles.applyBtnDisabled]}
-            onPress={() => runSingle(acc.id)}
-            disabled={running || applied}
-          >
-            <Text
-              style={[
-                styles.applyBtnText,
-                blocked && { color: colors.textMuted },
-              ]}
-            >
-              {applied ? 'Done' : locked ? 'Locked' : 'Apply'}
-            </Text>
-          </Pressable>
-        </View>
-      );
-    });
+  const renderSingleAccountRows = () => (
+    <FlatList
+      data={accounts}
+      keyExtractor={(item) => item.id}
+      scrollEnabled={false}
+      {...ACCOUNT_LIST_FLAT_PROPS}
+      renderItem={({ item, index }) => (
+        <ApplySingleAccountRow
+          account={item}
+          index={index}
+          applied={alreadyApplied(item.id)}
+          locked={!isAccountActive(item.id)}
+          running={running}
+          onApply={runSingle}
+          styles={styles}
+          colors={colors}
+        />
+      )}
+    />
+  );
 
   const renderUpdateCard = (r: ApplyAccountResult, index: number) => {
     const ok = r.ok;
@@ -941,7 +939,7 @@ export function ApplyScreen() {
   return (
     <ProtectedPersonalScreen
       title="Sign in to bulk apply"
-      subtitle="Google sign-in keeps your MeroShare accounts separate per user on this device."
+      subtitle="Sign in with Google to add accounts and sync them across your phones."
     >
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
       <AppHeader
@@ -1027,7 +1025,15 @@ export function ApplyScreen() {
         </ScrollView>
       )}
 
-      <Modal visible={accountsModalOpen} animationType="slide" transparent>
+      <Modal
+        visible={accountsModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          setAccountsModalOpen(false);
+          setAccountModalFilter('');
+        }}
+      >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalSheet, { backgroundColor: colors.surface }]}>
             <Text style={styles.modalTitle}>Select accounts to apply</Text>
@@ -1044,64 +1050,47 @@ export function ApplyScreen() {
               Over-limit accounts stay saved but cannot apply until you include
               them in the active set.
             </Text>
+            {accounts.length > 40 ? (
+              <TextInput
+                style={styles.modalSearch}
+                placeholder="Search accounts…"
+                placeholderTextColor={colors.textMuted}
+                value={accountModalFilter}
+                onChangeText={setAccountModalFilter}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+            ) : null}
             <FlatList
-              data={accounts}
+              data={filteredModalAccounts}
               keyExtractor={(item) => item.id}
               style={{ maxHeight: rs(360) }}
-              renderItem={({ item, index: idx }) => {
-                const applied = alreadyApplied(item.id);
-                const locked = !isAccountActive(item.id);
-                const checked = Boolean(selectedIds[item.id]) && !applied && !locked;
-                return (
-                  <Pressable
-                    style={[
-                      styles.accountRow,
-                      (applied || locked) && styles.accountRowDisabled,
-                    ]}
-                    onPress={() => toggleAccount(item.id)}
-                    disabled={applied}
-                  >
-                    <Ionicons
-                      name={
-                        applied
-                          ? 'checkmark-done-circle'
-                          : locked
-                            ? 'lock-closed'
-                            : checked
-                              ? 'checkbox'
-                              : 'square-outline'
-                      }
-                      size={rs(22)}
-                      color={
-                        applied
-                          ? colors.accentGreen
-                          : locked
-                            ? colors.minorAccent
-                            : checked
-                              ? colors.primary
-                              : colors.textMuted
-                      }
-                    />
-                    <View style={styles.indexBadge}>
-                      <Text style={styles.indexText}>{idx + 1}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.accName}>{item.name}</Text>
-                      <Text style={styles.accBank}>
-                        {applied
-                          ? 'Already applied for this IPO'
-                          : locked
-                            ? 'Locked — over plan limit'
-                            : item.bankName || item.dpName}
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              }}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              {...ACCOUNT_LIST_FLAT_PROPS}
+              renderItem={({ item, index: idx }) => (
+                <ApplyModalAccountRow
+                  account={item}
+                  index={idx}
+                  applied={alreadyApplied(item.id)}
+                  locked={!isAccountActive(item.id)}
+                  checked={
+                    Boolean(selectedIds[item.id]) &&
+                    !alreadyApplied(item.id) &&
+                    isAccountActive(item.id)
+                  }
+                  onToggle={toggleAccount}
+                  styles={styles}
+                  colors={colors}
+                />
+              )}
             />
             <Pressable
               style={styles.modalClose}
-              onPress={() => setAccountsModalOpen(false)}
+              onPress={() => {
+                setAccountsModalOpen(false);
+                setAccountModalFilter('');
+              }}
             >
               <Text style={styles.addDataText}>Done</Text>
             </Pressable>
@@ -1899,6 +1888,16 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontWeight: '800',
       fontSize: rs(16),
       marginBottom: rs(12),
+    },
+    modalSearch: {
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderRadius: rs(10),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(8),
+      marginBottom: rs(8),
+      color: c.text,
+      fontSize: rs(14),
     },
     modalRow: {
       paddingVertical: rs(12),

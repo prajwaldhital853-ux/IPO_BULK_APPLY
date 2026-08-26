@@ -1,7 +1,7 @@
 import { Alert } from 'react-native';
 import { showAccountLimitBlocked } from '../context/AccountLimitBlockedContext';
 import { checkCanAddAcrossDevices } from '../services/accountSlots';
-import { AUTH_ENABLED } from '../services/auth/config';
+import { AUTH_ENABLED, GUEST_CAN_ADD_ACCOUNTS } from '../services/auth/config';
 import { getAccessToken } from '../services/auth/tokenStorage';
 import { loadAccountMeta } from '../storage/accountsStorage';
 import {
@@ -11,6 +11,7 @@ import {
   isUnlimitedAccountLimit,
 } from '../storage/subscriptionStorage';
 import type { AccountMeta } from '../types/account';
+import { isMockAccountId } from '../data/mockAccounts';
 import {
   accountFingerprintList,
   keysForAccountIds,
@@ -72,12 +73,18 @@ function candidateKey(candidate?: CandidateAccount): string | undefined {
   return keys.length ? keys.join(';') : undefined;
 }
 
-/** Open Google sign-in when adding accounts as a guest. */
+/** Prompt Google sign-in when adding accounts without a session (skipped when guest add is allowed). */
 export async function ensureGoogleSignedInForAddAccount(
   isAuthenticated: boolean,
   signInWithGoogle: () => Promise<void>,
 ): Promise<boolean> {
-  if (!AUTH_ENABLED || isAuthenticated) return true;
+  if (
+    !AUTH_ENABLED ||
+    isAuthenticated ||
+    GUEST_CAN_ADD_ACCOUNTS
+  ) {
+    return true;
+  }
   await signInWithGoogle();
   return Boolean(getAccessToken());
 }
@@ -97,18 +104,34 @@ export async function guardAddAccountAsync(opts: {
   if (!AUTH_ENABLED) {
     return guardAddAccount(opts);
   }
+
+  const guestLocalOnly =
+    GUEST_CAN_ADD_ACCOUNTS && !getAccessToken();
+
+  if (guestLocalOnly) {
+    return guardAddAccount(opts);
+  }
+
   try {
-    const accounts = await loadAccountMeta();
+    const accounts = (await loadAccountMeta()).filter(
+      (a) => !isMockAccountId(a.id),
+    );
     const keys = keysForAccountIds(
       accounts,
       accounts.map((a) => a.id),
     );
     const status = await checkCanAddAcrossDevices(
       keys,
-      Math.max(opts.currentCount, accounts.length),
+      accounts.length,
       candidateKey(opts.candidate),
     );
     if (!status) {
+      if (GUEST_CAN_ADD_ACCOUNTS) {
+        return guardAddAccount({
+          ...opts,
+          currentCount: Math.max(opts.currentCount, accounts.length),
+        });
+      }
       Alert.alert(
         'Sign in required',
         'Sign in with Google to add accounts so your plan limit applies across all phones.',
@@ -122,6 +145,9 @@ export async function guardAddAccountAsync(opts: {
     });
     return false;
   } catch {
+    if (GUEST_CAN_ADD_ACCOUNTS) {
+      return guardAddAccount(opts);
+    }
     Alert.alert(
       'Could not verify limit',
       'Check your internet and try again.',

@@ -29,6 +29,11 @@ import {
 import type { ThemeColors } from '../theme/colors';
 import { guardAddAccountAsync } from '../utils/accountLimits';
 import {
+  DuplicateAccountError,
+  findDuplicateAccountAsync,
+  showDuplicateAccountAlert,
+} from '../utils/duplicateAccount';
+import {
   buildMinorMetaFields,
   extractBankWithBranchFromProfile,
   extractDobFromOwnDetail,
@@ -132,7 +137,7 @@ export function BankDetailScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { draft, addAccount, accounts } = useAccounts();
+  const { draft, addAccount, accounts, loadSecrets } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
   const sensitive = useSensitiveAction();
   const { colors } = useTheme();
@@ -335,6 +340,41 @@ export function BankDetailScreen() {
           return;
         }
 
+        const demat =
+          verify.demat?.trim() ||
+          (verify.boid && /^\d{16}$/.test(verify.boid.trim())
+            ? verify.boid.trim()
+            : capital.dpCode && capital.username
+              ? `130${capital.dpCode}${capital.username.trim()}`
+              : undefined);
+
+        const duplicate = await findDuplicateAccountAsync({
+          accounts,
+          candidate: {
+            username: capital.username,
+            dpId: capital.dpId,
+            dpCode: capital.dpCode,
+            demat,
+            boid: verify.boid,
+            crn: crn.trim(),
+          },
+          loadCrn: async (id) => (await loadSecrets(id))?.crn,
+        });
+        if (duplicate) {
+          setErrorField(
+            duplicate.reason === 'crn'
+              ? 'crn'
+              : duplicate.reason === 'username'
+                ? 'username'
+                : null,
+          );
+          setErrorMsg(
+            'This account is already saved. You cannot add it again.',
+          );
+          showDuplicateAccountAlert(duplicate);
+          return;
+        }
+
         if (
           !(await guardAddAccountAsync({
             currentCount: accounts.length,
@@ -358,7 +398,8 @@ export function BankDetailScreen() {
 
         savingDoneRef.current = true;
 
-        await addAccount({
+        try {
+          await addAccount({
           name: (verify.accountHolderName || capital.username)
             .trim()
             .toUpperCase(),
@@ -373,21 +414,10 @@ export function BankDetailScreen() {
           pin,
           verified: true,
           crnPinVerified: !verify.crnPinDeferred,
-          demat: (() => {
-            const raw =
-              verify.demat?.trim() ||
-              (verify.boid && /^\d{16}$/.test(verify.boid.trim())
-                ? verify.boid.trim()
-                : undefined);
-            if (raw) return raw;
-            if (capital.dpCode && capital.username) {
-              return `130${capital.dpCode}${capital.username.trim()}`;
-            }
-            return undefined;
-          })(),
+          demat,
           boidHint: (() => {
             const full =
-              verify.demat?.trim() ||
+              demat ||
               (verify.boid && /^\d{16}$/.test(verify.boid.trim())
                 ? verify.boid.trim()
                 : verify.boid);
@@ -395,6 +425,17 @@ export function BankDetailScreen() {
           })(),
           ...buildMinorMetaFields(dateOfBirth, guardianName),
         });
+        } catch (e) {
+          savingDoneRef.current = false;
+          if (e instanceof DuplicateAccountError) {
+            setErrorMsg(
+              'This account is already saved. You cannot add it again.',
+            );
+            showDuplicateAccountAlert(e.hit);
+            return;
+          }
+          throw e;
+        }
 
         // Go straight to Bulk IPO Apply — do not bounce to Add Capital.
         navigation.reset({

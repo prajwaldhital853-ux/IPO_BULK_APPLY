@@ -466,37 +466,85 @@ function buildExpandedPeople(targetCount: number): PersonSeed[] {
     const copy = Math.floor(index / PEOPLE.length);
     if (copy === 0) return base;
 
-    const suffix = `${copy + 1}`.padStart(2, '0');
-    const baseUser = Number(base.username) || 0;
-    const username = String(10_000_000 + ((baseUser + copy * 137 + index) % 89_999_999)).padStart(8, '0');
-    const accountSuffix = `${(copy * PEOPLE.length + index + 1) % 10000}`.padStart(4, '0');
+    const username = String(20_000_000 + index).padStart(8, '0');
+    const accountSuffix = `${(index + 1) % 10000}`.padStart(4, '0');
 
     return {
       ...base,
-      slug: `${base.slug}-${suffix}`,
-      name: `${base.name} ${suffix}`,
+      slug: `${base.slug}-${index + 1}`,
+      name: `${base.name} ${index + 1}`,
       username,
       accountNumber: `${base.accountNumber.slice(0, -4)}${accountSuffix}`,
     };
   });
 }
 
+const seedById = new Map<string, MockAccountSeed>();
+
+function registerSeeds(seeds: MockAccountSeed[]): void {
+  for (const seed of seeds) seedById.set(seed.meta.id, seed);
+}
+
+/** Default flask demo: 30 adults + 6 minors. */
+export const DEFAULT_MOCK_ACCOUNT_COUNT = 36;
+/** Performance-test size from the flask menu. */
+export const LOAD_TEST_MOCK_ACCOUNT_COUNT = 200;
+
 /**
- * 30 adult sample accounts + 6 under-18 minor demat samples for Expo Go demos.
+ * Build `count` unique demo accounts (adults + the 6 minor samples when count >= 36).
  */
-export const MOCK_ACCOUNT_SEEDS: MockAccountSeed[] = [
-  ...buildExpandedPeople(30).map(buildSeed),
-  ...MINOR_PEOPLE.map((p, i) => buildSeed(p, 30 + i)),
-];
+export function buildMockAccountSeeds(count: number): MockAccountSeed[] {
+  const n = Math.max(1, Math.floor(count));
+  const minorN =
+    n >= DEFAULT_MOCK_ACCOUNT_COUNT ? MINOR_PEOPLE.length : 0;
+  const adultN = Math.max(0, n - minorN);
+  const adults = buildExpandedPeople(adultN).map(buildSeed);
+  const minors = MINOR_PEOPLE.slice(0, Math.min(minorN, n - adultN)).map(
+    (p, i) => buildSeed(p, adultN + i),
+  );
+  const seeds = [...adults, ...minors];
+  registerSeeds(seeds);
+  return seeds;
+}
+
+/** Default flask demo: 30 adults + 6 minors. */
+export const MOCK_ACCOUNT_SEEDS: MockAccountSeed[] = buildMockAccountSeeds(
+  DEFAULT_MOCK_ACCOUNT_COUNT,
+);
+
+function synthesizeHoldings(accountId: string): ImportedHolding[] {
+  let h = 0;
+  for (let i = 0; i < accountId.length; i += 1) {
+    h = (h * 33 + accountId.charCodeAt(i)) >>> 0;
+  }
+  const n = 2 + (h % 3);
+  const out: ImportedHolding[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const q = QUOTES[(h + i * 5) % QUOTES.length]!;
+    const qty = 10 + ((h >> (i * 3)) % 200);
+    const wacc =
+      Math.round(q.ltp * (0.88 + ((h >> i) % 18) / 100) * 100) / 100;
+    out.push({
+      symbol: q.symbol,
+      name: q.name,
+      qty,
+      wacc,
+      ltp: q.ltp,
+      previousClosingPrice: q.previousClosingPrice,
+    });
+  }
+  return out;
+}
 
 export function mockHoldingsForAccount(
   accountId: string,
 ): ImportedHolding[] | null {
-  const seed = MOCK_ACCOUNT_SEEDS.find((s) => s.meta.id === accountId);
-  return seed ? seed.holdings.map((h) => ({ ...h })) : null;
+  if (!isMockAccountId(accountId)) return null;
+  const seed = seedById.get(accountId);
+  if (seed) return seed.holdings.map((h) => ({ ...h }));
+  return synthesizeHoldings(accountId);
 }
 
 export function mockExpiryForAccount(accountId: string): MockAccountSeed['expiry'] | null {
-  const seed = MOCK_ACCOUNT_SEEDS.find((s) => s.meta.id === accountId);
-  return seed?.expiry ?? null;
+  return seedById.get(accountId)?.expiry ?? null;
 }

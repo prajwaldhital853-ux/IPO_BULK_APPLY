@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   RefreshControl,
@@ -23,7 +24,11 @@ import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { HomeMarketPanel } from '../components/home/HomeMarketPanel';
 import { HOME_CARD_GAP, HOME_H_PAD } from '../components/home/homeLayout';
 import { SwipeTabGesture } from '../components/SwipeTabGesture';
-import { isMockAccountId } from '../data/mockAccounts';
+import {
+  DEFAULT_MOCK_ACCOUNT_COUNT,
+  LOAD_TEST_MOCK_ACCOUNT_COUNT,
+  isMockAccountId,
+} from '../data/mockAccounts';
 import { useAccounts } from '../context/AccountsContext';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useAppBranding } from '../context/AppBrandingContext';
@@ -249,6 +254,7 @@ export function HomeScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [demoBusy, setDemoBusy] = useState(false);
+  const [demoBusyLabel, setDemoBusyLabel] = useState('Working…');
 
   const filteredAccounts = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -269,35 +275,78 @@ export function HomeScreen() {
     () => accounts.some((a) => isMockAccountId(a.id)),
     [accounts],
   );
+  const mockCount = useMemo(
+    () => accounts.filter((a) => isMockAccountId(a.id)).length,
+    [accounts],
+  );
+
+  const runDemoJob = useCallback(
+    async (label: string, job: () => Promise<void>, done?: string) => {
+      setDemoBusyLabel(label);
+      setDemoBusy(true);
+      try {
+        await job();
+        if (done) Alert.alert('Demo accounts', done);
+      } catch (e) {
+        Alert.alert(
+          'Demo accounts',
+          e instanceof Error ? e.message : 'Could not update demo accounts.',
+        );
+      } finally {
+        setDemoBusy(false);
+      }
+    },
+    [],
+  );
 
   const toggleDemoAccounts = useCallback(() => {
+    const add36 = () =>
+      void runDemoJob(
+        `Adding ${DEFAULT_MOCK_ACCOUNT_COUNT} demo accounts…`,
+        () => seedMockAccounts(DEFAULT_MOCK_ACCOUNT_COUNT),
+        `Added ${DEFAULT_MOCK_ACCOUNT_COUNT} sample accounts.`,
+      );
+    const add200 = () =>
+      void runDemoJob(
+        `Adding ${LOAD_TEST_MOCK_ACCOUNT_COUNT} demo accounts…`,
+        () => seedMockAccounts(LOAD_TEST_MOCK_ACCOUNT_COUNT),
+        `Added ${LOAD_TEST_MOCK_ACCOUNT_COUNT} demo accounts. Scroll Accounts, Apply, and Result to test performance.`,
+      );
+
+    if (hasMockAccounts) {
+      Alert.alert(
+        'Demo accounts',
+        `You currently have ${mockCount} demo accounts.\n\nUse 200 to test how the app feels with a large list (scroll, apply, result, portfolio).`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: () =>
+              void runDemoJob('Removing demo accounts…', removeMockAccounts),
+          },
+          { text: 'Replace 200', onPress: add200 },
+        ],
+      );
+      return;
+    }
+
     Alert.alert(
-      hasMockAccounts ? 'Remove demo accounts?' : 'Add demo accounts?',
-      hasMockAccounts
-        ? 'This removes the sample/demo accounts from the app.'
-        : 'This adds sample/demo accounts for testing result, status and portfolio screens.',
+      'Add demo accounts?',
+      `${DEFAULT_MOCK_ACCOUNT_COUNT} is the normal sample set. ${LOAD_TEST_MOCK_ACCOUNT_COUNT} is for performance testing.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: hasMockAccounts ? 'Remove' : 'Add',
-          onPress: () => {
-            void (async () => {
-              setDemoBusy(true);
-              try {
-                if (hasMockAccounts) {
-                  await removeMockAccounts();
-                } else {
-                  await seedMockAccounts();
-                }
-              } finally {
-                setDemoBusy(false);
-              }
-            })();
-          },
-        },
+        { text: `Add ${DEFAULT_MOCK_ACCOUNT_COUNT}`, onPress: add36 },
+        { text: `Add ${LOAD_TEST_MOCK_ACCOUNT_COUNT}`, onPress: add200 },
       ],
     );
-  }, [hasMockAccounts, removeMockAccounts, seedMockAccounts]);
+  }, [
+    hasMockAccounts,
+    mockCount,
+    removeMockAccounts,
+    runDemoJob,
+    seedMockAccounts,
+  ]);
 
   const confirmDelete = (item: AccountMeta) => {
     Alert.alert(
@@ -679,6 +728,14 @@ export function HomeScreen() {
           />
       </View>
       </SwipeTabGesture>
+      {demoBusy ? (
+        <View style={styles.demoOverlay} pointerEvents="auto">
+          <View style={styles.demoOverlayCard}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={styles.demoOverlayText}>{demoBusyLabel}</Text>
+          </View>
+        </View>
+      ) : null}
     </GestureHandlerRootView>
   );
 }
@@ -692,6 +749,28 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
 
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
+    demoOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 50,
+    },
+    demoOverlayCard: {
+      backgroundColor: c.bgElevated,
+      borderRadius: rs(14),
+      paddingHorizontal: rs(22),
+      paddingVertical: rs(18),
+      alignItems: 'center',
+      maxWidth: '80%',
+    },
+    demoOverlayText: {
+      color: c.text,
+      marginTop: rs(12),
+      fontSize: rs(14),
+      fontWeight: '600',
+      textAlign: 'center',
+    },
     tabPane: { flex: 1 },
     tabPaneHidden: { display: 'none' },
     tabs: {

@@ -19,6 +19,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormField } from '../components/FormField';
 import { LocalDisclaimer } from '../components/LocalDisclaimer';
+import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { useAccounts } from '../context/AccountsContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
@@ -30,6 +31,8 @@ import {
 } from '../services/meroshare';
 import type { ThemeColors } from '../theme/colors';
 import { guardAddAccountAsync } from '../utils/accountLimits';
+import { buildDematFromParts, isValidBoid } from '../utils/boid';
+import { findDuplicateAccountAsync, showDuplicateAccountAlert } from '../utils/duplicateAccount';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -125,6 +128,23 @@ export function AddCapitalScreen() {
       return;
     }
     if (checkingLogin) return;
+    const builtDemat =
+      dp.code && username.trim()
+        ? buildDematFromParts(dp.code, username.trim())
+        : '';
+    const duplicate = await findDuplicateAccountAsync({
+      accounts,
+      candidate: {
+        username: username.trim(),
+        dpId: dp.id,
+        dpCode: dp.code,
+        demat: isValidBoid(builtDemat) ? builtDemat : undefined,
+      },
+    });
+    if (duplicate) {
+      showDuplicateAccountAlert(duplicate);
+      return;
+    }
     if (
       !(await guardAddAccountAsync({
         currentCount: accounts.length,
@@ -167,6 +187,20 @@ export function AddCapitalScreen() {
         );
         return;
       }
+      const duplicateAfterLogin = await findDuplicateAccountAsync({
+        accounts,
+        candidate: {
+          username: username.trim(),
+          dpId: dp.id,
+          dpCode: dp.code,
+          demat: isValidBoid(builtDemat) ? builtDemat : undefined,
+          boid: verify.boid,
+        },
+      });
+      if (duplicateAfterLogin) {
+        showDuplicateAccountAlert(duplicateAfterLogin);
+        return;
+      }
       setDraft({
         dpId: dp.id,
         dpCode: dp.code,
@@ -188,6 +222,11 @@ export function AddCapitalScreen() {
       : rs(40);
 
   return (
+    <ProtectedPersonalScreen
+      requireSignIn
+      title="Sign in to add accounts"
+      subtitle="Sign in with Google so your MeroShare accounts and plan limit apply on every phone you use."
+    >
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
@@ -333,6 +372,7 @@ export function AddCapitalScreen() {
         </KeyboardAvoidingView>
       </Modal>
     </View>
+    </ProtectedPersonalScreen>
   );
 }
 

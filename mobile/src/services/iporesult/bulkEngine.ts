@@ -12,7 +12,9 @@ import {
 } from './parse';
 import { solvePublicCaptcha } from './solveCaptcha';
 
-const ACCOUNT_GAP_MS = 1800;
+const ACCOUNT_GAP_MS = 650;
+const ACCOUNT_GAP_MAX_MS = 2800;
+const ACCOUNT_PAUSE_MS = 2200;
 const CAPTCHA_ATTEMPTS = 5;
 
 function sleep(ms: number) {
@@ -24,6 +26,57 @@ function isWafBlockError(message: string): boolean {
     message,
   );
 }
+
+/** Full session reset only for portal blocks — not wrong captcha. */
+function isHardWafBlock(message: string): boolean {
+  return (
+    isWafBlockError(message) &&
+    !/captcha|invalid\s*code|security\s*code/i.test(message)
+  );
+}
+
+type BulkThrottle = {
+  acquire: () => Promise<void>;
+  backoff: (message: string) => void;
+  relax: () => void;
+};
+
+function createBulkThrottle(): BulkThrottle {
+  let gapMs = ACCOUNT_GAP_MS;
+  let nextSlot = 0;
+  let pauseUntil = 0;
+
+  return {
+    async acquire() {
+      const now = Date.now();
+      const pause = Math.max(0, pauseUntil - now);
+      if (pause > 0) await sleep(pause);
+      const slot = Math.max(Date.now(), nextSlot);
+      nextSlot = slot + gapMs;
+      const wait = slot - Date.now();
+      if (wait > 0) await sleep(wait);
+    },
+    backoff(message: string) {
+      const isWaf = isWafBlockError(message);
+      gapMs = Math.min(
+        ACCOUNT_GAP_MAX_MS,
+        Math.round(gapMs * (isWaf ? 1.65 : 1.35)),
+      );
+      pauseUntil = Math.max(
+        pauseUntil,
+        Date.now() + (isWaf ? ACCOUNT_PAUSE_MS : 1200),
+      );
+    },
+    relax() {
+      gapMs = Math.max(ACCOUNT_GAP_MS, Math.round(gapMs * 0.92));
+    },
+  };
+}
+
+type CaptchaReady = {
+  captcha: PublicCaptcha;
+  digits: string;
+};
 
 export type PublicBulkResultRow = {
   accountId: string;
@@ -65,9 +118,26 @@ export async function reloadPublicCaptchaViaBridge(
   return parseCaptchaReload(res.text);
 }
 
+async function prepareCaptcha(
+  bridge: IpoResultWebBridgeHandle,
+  ocr: CaptchaOcrHandle,
+  captcha: PublicCaptcha,
+  reload: boolean,
+  onProgress?: (msg: string) => void,
+): Promise<CaptchaReady> {
+  let c = captcha;
+  if (reload) {
+    onProgress?.('Refreshing captcha…');
+    c = await reloadPublicCaptchaViaBridge(bridge, captcha.captchaIdentifier);
+  }
+  onProgress?.('Auto-solving captcha…');
+  const digits = await solvePublicCaptcha(c, ocr, { bulkFast: true });
+  return { captcha: c, digits };
+}
+
 /**
  * Bulk check = company + accounts only.
- * Captcha is solved automatically (audio → OCR) — never typed by user.
+ * Captcha is solved automatically — pipelined between accounts when possible.
  */
 export async function runPublicBulkResultCheck(opts: {
   bridge: IpoResultWebBridgeHandle;
@@ -76,6 +146,7 @@ export async function runPublicBulkResultCheck(opts: {
   company: PublicIpoCompany;
   captcha: PublicCaptcha;
   onProgress?: (msg: string, index: number, total: number) => void;
+  onAccountStart?: (accountId: string, index: number, total: number) => void;
   onAccountResult?: (
     row: PublicBulkResultRow,
     index: number,
@@ -84,23 +155,40 @@ export async function runPublicBulkResultCheck(opts: {
 }): Promise<PublicBulkResultSummary> {
   const resolved = await resolveBoidsForAccounts(opts.accounts);
   const results: PublicBulkResultRow[] = [];
-  let captcha = opts.captcha;
+  let sessionCaptcha = opts.captcha;
   const total = resolved.length;
+  const throttle = createBulkThrottle();
+  let prefetch: Promise<CaptchaReady> | null = null;
 
   const emit = (row: PublicBulkResultRow, i: number) => {
     results.push(row);
     opts.onAccountResult?.(row, i, total);
   };
 
+  const progress = (msg: string, i: number) => {
+    opts.onProgress?.(msg, i, total);
+  };
+
+  const startPrefetch = (fromCaptcha: PublicCaptcha) => {
+    prefetch = prepareCaptcha(
+      opts.bridge,
+      opts.ocr,
+      fromCaptcha,
+      true,
+      (m) => progress(m, -1),
+    );
+  };
+
+  const cancelPrefetch = () => {
+    prefetch = null;
+  };
+
   for (let i = 0; i < resolved.length; i++) {
     const row = resolved[i];
-    opts.onProgress?.(
-      `Checking ${row.account.name} (${i + 1}/${resolved.length})…`,
-      i,
-      resolved.length,
-    );
+    progress(`Checking ${row.account.name} (${i + 1}/${total})…`, i);
 
     if (!row.boid) {
+      cancelPrefetch();
       emit({
         accountId: row.account.id,
         accountName: row.account.name,
@@ -112,36 +200,78 @@ export async function runPublicBulkResultCheck(opts: {
       continue;
     }
 
+    opts.onAccountStart?.(row.account.id, i, total);
+    await throttle.acquire();
+
     const masked = maskBoid(row.boid);
     let done = false;
     let lastMessage = 'Captcha solve failed';
+    let ready: CaptchaReady | null = null;
+
+    try {
+      if (prefetch) {
+        ready = await prefetch;
+        prefetch = null;
+      } else if (i === 0) {
+        ready = await prepareCaptcha(
+          opts.bridge,
+          opts.ocr,
+          sessionCaptcha,
+          false,
+          (m) => progress(m, i),
+        );
+      } else {
+        ready = await prepareCaptcha(
+          opts.bridge,
+          opts.ocr,
+          sessionCaptcha,
+          true,
+          (m) => progress(m, i),
+        );
+      }
+    } catch (e) {
+      lastMessage = e instanceof Error ? e.message : 'Captcha prepare failed';
+      throttle.backoff(lastMessage);
+      emit({
+        accountId: row.account.id,
+        accountName: row.account.name,
+        username: row.account.username,
+        boidMasked: masked,
+        ok: false,
+        allotted: false,
+        message: lastMessage,
+      }, i);
+      continue;
+    }
 
     for (let attempt = 0; attempt < CAPTCHA_ATTEMPTS && !done; attempt++) {
-      try {
-        if (i > 0 || attempt > 0) {
-          opts.onProgress?.(
-            `Refreshing captcha for ${row.account.name}…`,
+      if (attempt > 0) {
+        cancelPrefetch();
+        try {
+          progress(
+            `Retry captcha (${attempt + 1}/${CAPTCHA_ATTEMPTS})…`,
             i,
-            resolved.length,
           );
-          captcha = await reloadPublicCaptchaViaBridge(
+          ready = await prepareCaptcha(
             opts.bridge,
-            captcha.captchaIdentifier,
+            opts.ocr,
+            ready!.captcha,
+            true,
+            (m) => progress(m, i),
           );
+        } catch (e) {
+          lastMessage = e instanceof Error ? e.message : 'Captcha failed';
+          throttle.backoff(lastMessage);
+          continue;
         }
+      }
 
-        opts.onProgress?.(
-          `Auto-solving captcha (${attempt + 1}/${CAPTCHA_ATTEMPTS})…`,
-          i,
-          resolved.length,
-        );
-        const userCaptcha = await solvePublicCaptcha(captcha, opts.ocr);
-
+      try {
         const res = await opts.bridge.checkResult({
           companyShareId: String(opts.company.id),
           boid: row.boid,
-          userCaptcha,
-          captchaIdentifier: captcha.captchaIdentifier,
+          userCaptcha: ready!.digits,
+          captchaIdentifier: ready!.captcha.captchaIdentifier,
         });
         assertBridgeOk(res, 'Result check');
         const check = parseCheckPayload(res.text);
@@ -151,6 +281,7 @@ export async function runPublicBulkResultCheck(opts: {
           continue;
         }
 
+        sessionCaptcha = ready!.captcha;
         emit({
           accountId: row.account.id,
           accountName: row.account.name,
@@ -162,29 +293,45 @@ export async function runPublicBulkResultCheck(opts: {
           message: check.message,
         }, i);
         done = true;
+        throttle.relax();
+
+        if (i < resolved.length - 1) {
+          startPrefetch(sessionCaptcha);
+        }
       } catch (e) {
         lastMessage = e instanceof Error ? e.message : 'Check failed';
+        throttle.backoff(lastMessage);
         if (
           attempt < CAPTCHA_ATTEMPTS - 1 &&
-          isWafBlockError(lastMessage) &&
+          isHardWafBlock(lastMessage) &&
           opts.bridge.resetSession
         ) {
-          opts.onProgress?.(
-            `Refreshing CDSC session for ${row.account.name}…`,
-            i,
-            resolved.length,
-          );
+          cancelPrefetch();
+          progress(`Refreshing CDSC session for ${row.account.name}…`, i);
           await opts.bridge.resetSession(90000);
-          await sleep(1500);
+          await sleep(1200);
           const home = await loadPublicHomeViaBridge(opts.bridge);
-          captcha = home.captcha;
+          sessionCaptcha = home.captcha;
           lastMessage = 'CDSC session refreshed';
+          try {
+            ready = await prepareCaptcha(
+              opts.bridge,
+              opts.ocr,
+              sessionCaptcha,
+              false,
+              (m) => progress(m, i),
+            );
+          } catch (prepErr) {
+            lastMessage =
+              prepErr instanceof Error ? prepErr.message : lastMessage;
+          }
           continue;
         }
       }
     }
 
     if (!done) {
+      cancelPrefetch();
       emit({
         accountId: row.account.id,
         accountName: row.account.name,
@@ -194,10 +341,6 @@ export async function runPublicBulkResultCheck(opts: {
         allotted: false,
         message: lastMessage,
       }, i);
-    }
-
-    if (i < resolved.length - 1) {
-      await sleep(ACCOUNT_GAP_MS);
     }
   }
 

@@ -269,15 +269,18 @@ export class MeroshareClient {
 
   async login(
     args: LoginArgs,
-    opts?: { attempts?: number },
+    opts?: { attempts?: number; skipOwnDetail?: boolean },
   ): Promise<MeroshareSession> {
     return withMeroshareRetries(
-      () => this.loginOnce(args),
+      () => this.loginOnce(args, opts),
       { attempts: opts?.attempts ?? 3, label: 'login' },
     );
   }
 
-  private async loginOnce(args: LoginArgs): Promise<MeroshareSession> {
+  private async loginOnce(
+    args: LoginArgs,
+    opts?: { skipOwnDetail?: boolean },
+  ): Promise<MeroshareSession> {
     const resolved = await resolveClientId(args.clientId, {
       clientId: args.dpCode ? Number(args.clientId) : undefined,
       dpCode: args.dpCode,
@@ -375,19 +378,21 @@ export class MeroshareClient {
       /* keep default */
     }
 
-    try {
-      const me = await this.requestOnce<{
-        demat?: string;
-        boid?: string;
-        accountNumber?: string;
-        name?: string;
-        clientCode?: string;
-      }>(PATHS.me, { method: 'GET', auth: true });
-      this.session.boid = me.boid ?? me.demat ?? me.accountNumber;
-      this.session.demat = me.demat;
-      this.session.clientCode = me.clientCode;
-    } catch {
-      // optional — ownDetail failure should not fail login
+    if (!opts?.skipOwnDetail) {
+      try {
+        const me = await this.requestOnce<{
+          demat?: string;
+          boid?: string;
+          accountNumber?: string;
+          name?: string;
+          clientCode?: string;
+        }>(PATHS.me, { method: 'GET', auth: true });
+        this.session.boid = me.boid ?? me.demat ?? me.accountNumber;
+        this.session.demat = me.demat;
+        this.session.clientCode = me.clientCode;
+      } catch {
+        // optional — ownDetail failure should not fail login
+      }
     }
 
     return this.session;
@@ -531,7 +536,7 @@ export class MeroshareClient {
    */
   async loginOrSimulate(
     args: LoginArgs,
-    opts: { simulate?: boolean } = {},
+    opts: { simulate?: boolean; skipOwnDetail?: boolean } = {},
   ): Promise<MeroshareSession> {
     if (opts.simulate) {
       if (!args.username || !args.password) {
@@ -547,7 +552,7 @@ export class MeroshareClient {
       };
       return this.session;
     }
-    return this.login(args);
+    return this.login(args, { skipOwnDetail: opts.skipOwnDetail });
   }
 
   async listApplicableIssues(): Promise<OpenIssue[]> {
@@ -949,7 +954,12 @@ export class MeroshareClient {
    */
   async checkApplicationStatus(
     companyShareId: number,
-    opts: { dryRun?: boolean; companyName?: string } = {},
+    opts: {
+      dryRun?: boolean;
+      companyName?: string;
+      /** Skip report-detail GET when list row already shows allotted / not allotted. */
+      bulkFast?: boolean;
+    } = {},
   ): Promise<{
     status: string;
     message: string;
@@ -992,7 +1002,9 @@ export class MeroshareClient {
     let remarks: string | undefined;
 
     const formId = match.applicantFormId ?? match.id;
-    if (formId != null) {
+    const skipDetail =
+      opts.bulkFast === true && isClearAllotmentFromListStatus(statusName);
+    if (formId != null && !skipDetail) {
       try {
         const detail = await this.request<Record<string, unknown>>(
           PATHS.reportDetail(Number(formId)),
@@ -1022,6 +1034,8 @@ export class MeroshareClient {
       } catch {
         // detail optional
       }
+    } else if (skipDetail) {
+      allotmentStatus = statusName.trim() || undefined;
     }
 
     const label = humanizeApplicationStatus(
@@ -1481,6 +1495,14 @@ function normalizeReportDetail(
       'reasonName',
     ),
   };
+}
+
+/** List-row status is enough for bulk checks (allotted / not allotted). */
+function isClearAllotmentFromListStatus(statusName: string): boolean {
+  const s = statusName.toUpperCase();
+  if (/NOT.?ALLOT|UNALLOT/.test(s)) return true;
+  if (/ALLOT/.test(s) && !/NOT/.test(s)) return true;
+  return false;
 }
 
 /** Map CDSC status codes to short UI labels */

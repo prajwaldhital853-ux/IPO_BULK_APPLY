@@ -87,11 +87,18 @@ export function isAppliedInMap(
 export async function clearApplyHistoryForAccount(
   accountId: string,
 ): Promise<void> {
+  await clearApplyHistoryForAccounts([accountId]);
+}
+
+export async function clearApplyHistoryForAccounts(
+  accountIds: string[],
+): Promise<void> {
+  if (!accountIds.length) return;
+  const prefixes = accountIds.map((id) => `${id}:`);
   const map = await loadMap();
-  const prefix = `${accountId}:`;
   let changed = false;
   for (const key of Object.keys(map)) {
-    if (key.startsWith(prefix)) {
+    if (prefixes.some((prefix) => key.startsWith(prefix))) {
       delete map[key];
       changed = true;
     }

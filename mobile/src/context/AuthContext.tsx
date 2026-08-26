@@ -10,6 +10,7 @@ import { Alert, Platform } from 'react-native';
 import {
   AUTH_API_BASE,
   AUTH_ENABLED,
+  GUEST_CAN_ADD_ACCOUNTS,
 } from '../services/auth/config';
 import {
   authGoogle,
@@ -183,7 +184,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       Alert.alert(
         blocked ? 'Temporarily blocked' : 'Sign in failed',
         blocked
-          ? `${message}\n\nYou can still use the app as a guest without signing in.`
+          ? GUEST_CAN_ADD_ACCOUNTS
+            ? `${message}\n\nYou can still browse market data without signing in.`
+            : message
           : message,
       );
       throw e;

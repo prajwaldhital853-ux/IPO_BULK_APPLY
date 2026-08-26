@@ -19,6 +19,7 @@ import {
   type ActiveSlotsStored,
 } from '../storage/activeAccountSlots';
 import { keysForAccountIds } from '../utils/accountFingerprint';
+import { isMockAccountId } from '../data/mockAccounts';
 import { AUTH_ENABLED } from '../services/auth/config';
 import { isUnlimitedAccountLimit } from '../storage/subscriptionStorage';
 import { syncAccountSlots } from '../services/accountSlots';
@@ -54,9 +55,13 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
   const [syncTick, setSyncTick] = useState(0);
   const signedIn = Boolean(AUTH_ENABLED && auth.user?.id && !auth.loading);
 
-  const keys = useMemo(
-    () => keysForAccountIds(accounts, accounts.map((a) => a.id)),
+  const realAccounts = useMemo(
+    () => accounts.filter((a) => !isMockAccountId(a.id)),
     [accounts],
+  );
+  const keys = useMemo(
+    () => keysForAccountIds(realAccounts, realAccounts.map((a) => a.id)),
+    [realAccounts],
   );
   const keySig = keys.join('|');
 
@@ -82,7 +87,7 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
         // keep going with the cached cap
       }
 
-      const status = await syncAccountSlots(keys, accounts.length);
+      const status = await syncAccountSlots(keys, realAccounts.length);
       if (!mounted) return;
       if (!status) {
         const cached = await loadActiveSlots();
@@ -133,20 +138,24 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
   const effectiveMax = serverMax != null && serverMax > 0 ? serverMax : maxAccounts;
 
   const resolved = useMemo(
-    () => resolveActiveSlots(accounts, effectiveMax, stored),
-    [accounts, effectiveMax, stored],
+    () => resolveActiveSlots(realAccounts, effectiveMax, stored),
+    [realAccounts, effectiveMax, stored],
   );
 
   const isAccountActive = useCallback(
-    (id: string) => !resolved.overQuota || resolved.activeIds.has(id),
+    (id: string) =>
+      isMockAccountId(id) || !resolved.overQuota || resolved.activeIds.has(id),
     [resolved.activeIds, resolved.overQuota],
   );
 
   const usableAccounts = useMemo(
     () =>
-      resolved.overQuota
-        ? accounts.filter((a) => resolved.activeIds.has(a.id))
-        : accounts,
+      accounts.filter(
+        (a) =>
+          isMockAccountId(a.id) ||
+          !resolved.overQuota ||
+          resolved.activeIds.has(a.id),
+      ),
     [accounts, resolved.activeIds, resolved.overQuota],
   );
 

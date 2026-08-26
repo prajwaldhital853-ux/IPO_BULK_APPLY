@@ -25,7 +25,7 @@ export function useAuthGate() {
 export function AuthGateSheet({
   visible,
   title = 'Sign in to continue',
-  subtitle = 'Sign in with Google for premium, bulk apply, and IPO result checks across devices. You can still add MeroShare accounts on this phone without signing in. Market data stays free.',
+  subtitle = 'Sign in with Google to add MeroShare accounts on every phone under one plan, use bulk apply, and check IPO results. Market data stays free without signing in.',
   onDismiss,
 }: {
   visible: boolean;

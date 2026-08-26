@@ -33,6 +33,11 @@ import {
 } from '../services/meroshare';
 import type { ThemeColors } from '../theme/colors';
 import { buildMinorMetaFields } from '../utils/minorAccount';
+import {
+  DuplicateAccountError,
+  findDuplicateAccountAsync,
+  showDuplicateAccountAlert,
+} from '../utils/duplicateAccount';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -255,7 +260,36 @@ export function EditAccountScreen() {
               ? `130${dp.code}${username.trim()}`
               : account.demat);
 
-        await updateAccount(
+        const duplicate = await findDuplicateAccountAsync({
+          accounts,
+          excludeId: account.id,
+          candidate: {
+            username: username.trim(),
+            dpId: dp.id,
+            dpCode: dp.code,
+            demat,
+            boid: verify.boid,
+            crn: crn.trim(),
+          },
+          loadCrn: async (id) => (await loadSecrets(id))?.crn,
+        });
+        if (duplicate) {
+          setErrorField(
+            duplicate.reason === 'crn'
+              ? 'crn'
+              : duplicate.reason === 'username'
+                ? 'username'
+                : 'dp',
+          );
+          setErrorMsg(
+            'This account is already saved. You cannot add it again.',
+          );
+          showDuplicateAccountAlert(duplicate);
+          return;
+        }
+
+        try {
+          await updateAccount(
           account.id,
           {
             name: (name.trim() || verify.accountHolderName || username)
@@ -283,6 +317,16 @@ export function EditAccountScreen() {
             : `${verify.message}\n\nChanges stay on this device only.`,
           [{ text: 'OK', onPress: () => navigation.goBack() }],
         );
+        } catch (e) {
+          if (e instanceof DuplicateAccountError) {
+            setErrorMsg(
+              'This account is already saved. You cannot add it again.',
+            );
+            showDuplicateAccountAlert(e.hit);
+            return;
+          }
+          throw e;
+        }
       } finally {
         setSaving(false);
       }

@@ -7,6 +7,13 @@ import type {
 
 const PAGE = 'https://result.nabilinvest.com.np/search/ipo-share';
 const ORIGIN = 'https://result.nabilinvest.com.np';
+const SESSION_TTL_MS = 45_000;
+
+let sessionCache: { token: string; at: number } | null = null;
+
+function clearSessionCache() {
+  sessionCache = null;
+}
 
 function extractToken(html: string): string | null {
   const m =
@@ -47,7 +54,27 @@ async function loadPage(): Promise<string> {
   return res.text;
 }
 
+async function getCsrfToken(forceRefresh = false): Promise<string | null> {
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    sessionCache &&
+    now - sessionCache.at < SESSION_TTL_MS
+  ) {
+    return sessionCache.token;
+  }
+  const html = await loadPage();
+  const token = extractToken(html);
+  if (token) {
+    sessionCache = { token, at: now };
+  } else {
+    clearSessionCache();
+  }
+  return token;
+}
+
 async function listCompanies(): Promise<IssueManagerCompany[]> {
+  clearSessionCache();
   const html = await loadPage();
   const rows = extractCompanies(html);
   if (!rows.length) {
@@ -66,44 +93,56 @@ async function checkBoid(
   company: IssueManagerCompany,
   boid: string,
 ): Promise<IssueManagerCheckResult> {
-  // Fresh GET so Laravel session + CSRF cookie stay valid for POST
-  const html = await loadPage();
-  const token = extractToken(html);
-  if (!token) {
-    return {
-      ok: false,
-      allotted: false,
-      message: 'Nabil Invest: CSRF token missing',
-    };
+  const runPost = async (forceToken: boolean): Promise<
+    | IssueManagerCheckResult
+    | { res: { status: number; text: string }; token: string }
+  > => {
+    const token = await getCsrfToken(forceToken);
+    if (!token) {
+      return {
+        ok: false,
+        allotted: false,
+        message: 'Nabil Invest: CSRF token missing',
+      };
+    }
+
+    const body = new URLSearchParams({
+      _token: token,
+      company: company.rawId,
+      boid,
+    }).toString();
+
+    const res = await imFetch(PAGE, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'text/html,application/xhtml+xml',
+        Origin: ORIGIN,
+        Referer: PAGE,
+      },
+      body,
+    });
+
+    return { res, token };
+  };
+
+  let postResult = await runPost(false);
+  if (!('res' in postResult)) {
+    return postResult;
+  }
+  let { res } = postResult;
+  let text = res.text || '';
+  if (text.toLowerCase().includes('csrf token mismatch')) {
+    clearSessionCache();
+    postResult = await runPost(true);
+    if (!('res' in postResult)) {
+      return postResult;
+    }
+    res = postResult.res;
+    text = res.text || '';
   }
 
-  const body = new URLSearchParams({
-    _token: token,
-    company: company.rawId,
-    boid,
-  }).toString();
-
-  const res = await imFetch(PAGE, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'text/html,application/xhtml+xml',
-      Origin: ORIGIN,
-      Referer: PAGE,
-    },
-    body,
-  });
-
-  const text = res.text || '';
   const lower = text.toLowerCase();
-
-  if (lower.includes('csrf token mismatch')) {
-    return {
-      ok: false,
-      allotted: false,
-      message: 'Nabil Invest: session/CSRF failed — retry',
-    };
-  }
 
   if (
     lower.includes('you have not been allotted') ||

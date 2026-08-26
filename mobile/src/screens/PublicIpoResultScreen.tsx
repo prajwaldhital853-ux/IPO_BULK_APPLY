@@ -3,12 +3,14 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import Svg, { Line, Path } from 'react-native-svg';
@@ -36,6 +38,14 @@ import {
   type IssueManagerCompany,
 } from '../services/issuemanager';
 import { maskBoid, resolveBoidSync } from '../utils/boid';
+import {
+  buildCheckAccountIdSet,
+  isAllAccountsSelected,
+  isCheckAccountSelected,
+  resolveCheckAccounts,
+  toggleCheckAccountId,
+} from '../utils/checkAccountSelection';
+import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
 import { rs } from '../utils/responsive';
 import { useAfterInteractions } from '../utils/useAfterInteractions';
 import type { RootStackParamList } from '../navigation/types';
@@ -90,6 +100,141 @@ function PendingHourglass({
   );
 }
 
+type ResultCardStyles = ReturnType<typeof makeStyles>;
+
+type AccountResultRowProps = {
+  account: AccountMeta;
+  index: number;
+  result?: ResultRow;
+  isChecking: boolean;
+  hideBoids: boolean;
+  running: boolean;
+  hasSelected: boolean;
+  onCheckOne: (account: AccountMeta) => void;
+  styles: ResultCardStyles;
+  colors: ThemeColors;
+};
+
+const AccountResultRow = React.memo(function AccountResultRow({
+  account,
+  index,
+  result,
+  isChecking,
+  hideBoids,
+  running,
+  hasSelected,
+  onCheckOne,
+  styles,
+  colors,
+}: AccountResultRowProps) {
+  const boidRaw =
+    result?.boidMasked ?? resolveBoidSync(account) ?? account.demat;
+  const boidText = hideBoids
+    ? '••••••••••••••••'
+    : boidRaw
+      ? maskBoid(boidRaw)
+      : 'BOID missing';
+  const isAllotted = Boolean(result?.ok && result.allotted);
+  const isError = Boolean(result && !result.ok);
+  const isNotAllotted = Boolean(result?.ok && !result.allotted);
+  const statusColor = isChecking
+    ? colors.primary
+    : isAllotted
+      ? '#66BB6A'
+      : isError
+        ? '#FB8C00'
+        : isNotAllotted
+          ? '#E57373'
+          : colors.textMuted;
+  const statusMessage = isChecking
+    ? 'Checking…'
+    : result
+      ? result.message
+      : null;
+  const showHourglass =
+    !isChecking && !result && !isAllotted && !isError && !isNotAllotted;
+  const showStatusLine = Boolean(statusMessage);
+
+  return (
+    <View style={styles.resultCard}>
+      <View style={styles.resultIconWrap}>
+        {isChecking ? (
+          <ActivityIndicator size="small" color="#9E9E9E" />
+        ) : isAllotted ? (
+          <Ionicons name="checkmark-circle" size={rs(18)} color="#4CAF50" />
+        ) : isError ? (
+          <Ionicons name="warning" size={rs(18)} color="#FB8C00" />
+        ) : isNotAllotted ? (
+          <Ionicons name="close-circle" size={rs(18)} color="#E57373" />
+        ) : showHourglass ? (
+          <PendingHourglass size={rs(18)} color="#5A5A5A" />
+        ) : null}
+      </View>
+      <View style={styles.resultBody}>
+        <Text style={styles.resultName} numberOfLines={1}>
+          {index}. {account.name.toUpperCase()}
+        </Text>
+        <Text style={styles.resultBoid} numberOfLines={1}>
+          {boidText}
+        </Text>
+        {showStatusLine && statusMessage ? (
+          <Text
+            style={[
+              styles.resultMsg,
+              {
+                color: isChecking ? colors.textMuted : statusColor,
+              },
+            ]}
+            numberOfLines={2}
+          >
+            {statusMessage}
+          </Text>
+        ) : null}
+      </View>
+      <Pressable
+        style={styles.resultCheckBtn}
+        onPress={() => onCheckOne(account)}
+        disabled={running || !hasSelected}
+      >
+        <Text style={styles.resultCheckText}>Check</Text>
+      </Pressable>
+    </View>
+  );
+});
+
+type AccountPickerRowProps = {
+  account: AccountMeta;
+  selected: boolean;
+  onToggle: (account: AccountMeta) => void;
+  styles: ResultCardStyles;
+  colors: ThemeColors;
+};
+
+const AccountPickerRow = React.memo(function AccountPickerRow({
+  account,
+  selected,
+  onToggle,
+  styles,
+  colors,
+}: AccountPickerRowProps) {
+  const boid = resolveBoidSync(account) ?? account.demat;
+  return (
+    <Pressable style={styles.modalRow} onPress={() => onToggle(account)}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.modalRowTitle}>{account.name.toUpperCase()}</Text>
+        <Text style={styles.modalRowSub}>
+          {boid ? maskBoid(boid) : account.username}
+        </Text>
+      </View>
+      <Ionicons
+        name={selected ? 'checkbox' : 'square-outline'}
+        size={rs(22)}
+        color={selected ? colors.primary : colors.textMuted}
+      />
+    </Pressable>
+  );
+});
+
 export function PublicIpoResultScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -112,7 +257,7 @@ export function PublicIpoResultScreen() {
   const [loadingCdsc, setLoadingCdsc] = useState(false);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
-  const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [checkingIds, setCheckingIds] = useState<Set<string>>(() => new Set());
   const [checkComplete, setCheckComplete] = useState(false);
   const [summary, setSummary] = useState<BulkSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -123,13 +268,60 @@ export function PublicIpoResultScreen() {
   const [resultModalOpen, setResultModalOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [bridgeReady, setBridgeReady] = useState(false);
+  const [mountBridge, setMountBridge] = useState(false);
+  const [accountPickerFilter, setAccountPickerFilter] = useState('');
 
-  const checkAccounts = useMemo(() => {
-    const selectedSet = new Set(
-      checkAccountIds.length ? checkAccountIds : accounts.map((a) => a.id),
+  const addChecking = useCallback((id: string) => {
+    setCheckingIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const removeChecking = useCallback((id: string) => {
+    setCheckingIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const checkAccounts = useMemo(
+    () => resolveCheckAccounts(accounts, checkAccountIds),
+    [accounts, checkAccountIds],
+  );
+
+  const checkAccountIdSet = useMemo(
+    () => buildCheckAccountIdSet(accounts, checkAccountIds),
+    [accounts, checkAccountIds],
+  );
+
+  const allAccountsSelected = useMemo(
+    () => isAllAccountsSelected(accounts, checkAccountIds),
+    [accounts, checkAccountIds],
+  );
+
+  const filteredPickerAccounts = useMemo(() => {
+    const q = accountPickerFilter.trim().toLowerCase();
+    if (!q) return accounts;
+    return accounts.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        a.username.toLowerCase().includes(q) ||
+        (a.demat && a.demat.includes(q)),
     );
-    return accounts.filter((a) => selectedSet.has(a.id));
-  }, [accounts, checkAccountIds]);
+  }, [accounts, accountPickerFilter]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      setMountBridge(true);
+    });
+    return () => task.cancel();
+  }, [ready]);
   const hasCdscCompanies = useMemo(
     () => companies.some((c) => c.provider === 'cdsc'),
     [companies],
@@ -163,7 +355,7 @@ export function PublicIpoResultScreen() {
     }
     setCheckAccountIds((prev) => {
       const valid = prev.filter((id) => accounts.some((a) => a.id === id));
-      return valid.length ? valid : accounts.map((a) => a.id);
+      return valid.length ? valid : [];
     });
   }, [accounts]);
 
@@ -297,7 +489,7 @@ export function PublicIpoResultScreen() {
     setSummary(null);
     setResultModalOpen(false);
     setCheckComplete(false);
-    setCheckingId(null);
+    setCheckingIds(new Set());
   }, [selected?.key]);
 
   const runCdscBridgeCheck = useCallback(
@@ -328,29 +520,29 @@ export function PublicIpoResultScreen() {
         accounts: queue,
         company: liveCompany,
         captcha: home.captcha,
-        onProgress: (msg, index) => {
+        onProgress: (msg) => {
           setProgress(msg);
-          setCheckingId(queue[index]?.id ?? null);
         },
-        onAccountResult: (row, index) => {
+        onAccountStart: (accountId) => {
+          addChecking(accountId);
+        },
+        onAccountResult: (row) => {
+          removeChecking(row.accountId);
           setResultsMap((prev) => ({ ...prev, [row.accountId]: row }));
-          setCheckingId(queue[index + 1]?.id ?? null);
         },
       });
     },
-    [selected],
+    [selected, addChecking, removeChecking],
   );
 
-  const toggleCheckAccount = (account: AccountMeta) => {
-    setCheckAccountIds((prev) => {
-      const base = prev.length ? prev : accounts.map((a) => a.id);
-      if (base.includes(account.id)) {
-        const next = base.filter((id) => id !== account.id);
-        return next.length ? next : base;
-      }
-      return [...base, account.id];
-    });
-  };
+  const toggleCheckAccount = useCallback(
+    (account: AccountMeta) => {
+      setCheckAccountIds((prev) =>
+        toggleCheckAccountId(accounts, prev, account.id),
+      );
+    },
+    [accounts],
+  );
 
   const runCheck = useCallback(
     (targets: AccountMeta[], openModal: boolean) => {
@@ -372,7 +564,7 @@ export function PublicIpoResultScreen() {
           setRunning(true);
           setCheckComplete(false);
           setProgress('Starting…');
-          setCheckingId(queue[0]?.id ?? null);
+          setCheckingIds(new Set());
           // Clear only the accounts we're about to re-check.
           setResultsMap((prev) => {
             const next = { ...prev };
@@ -380,15 +572,17 @@ export function PublicIpoResultScreen() {
             return next;
           });
           try {
-            for (const a of queue) {
-              const built = resolveBoidSync(a);
-              if (built && a.demat !== built) {
-                await updateAccountMeta(a.id, {
-                  demat: built,
-                  boidHint: built.slice(-4),
-                });
-              }
-            }
+            void Promise.all(
+              queue.map(async (a) => {
+                const built = resolveBoidSync(a);
+                if (built && a.demat !== built) {
+                  await updateAccountMeta(a.id, {
+                    demat: built,
+                    boidHint: built.slice(-4),
+                  });
+                }
+              }),
+            );
 
             const result =
               selected.provider === 'cdsc'
@@ -396,13 +590,18 @@ export function PublicIpoResultScreen() {
                 : await runIssueManagerBulkCheck({
                     accounts: queue,
                     company: selected,
-                    onProgress: (msg, index) => {
+                    onProgress: (msg) => {
                       setProgress(msg);
-                      setCheckingId(queue[index]?.id ?? null);
                     },
-                    onAccountResult: (row, index) => {
-                      setResultsMap((prev) => ({ ...prev, [row.accountId]: row }));
-                      setCheckingId(queue[index + 1]?.id ?? null);
+                    onAccountStart: (accountId) => {
+                      addChecking(accountId);
+                    },
+                    onAccountResult: (row) => {
+                      removeChecking(row.accountId);
+                      setResultsMap((prev) => ({
+                        ...prev,
+                        [row.accountId]: row,
+                      }));
                     },
                   });
             setSummary(result);
@@ -416,13 +615,13 @@ export function PublicIpoResultScreen() {
           } finally {
             setRunning(false);
             setProgress('');
-            setCheckingId(null);
+            setCheckingIds(new Set());
           }
         },
         { pinPolicy: 'skipIfUnlocked' },
       );
     },
-    [loadError, selected, sensitive, updateAccountMeta],
+    [loadError, selected, sensitive, updateAccountMeta, addChecking, removeChecking],
   );
 
   const onCheckAll = useCallback(() => {
@@ -531,7 +730,7 @@ export function PublicIpoResultScreen() {
         : 'Unfortunately, you were not alloted in any of your accounts.';
 
   const checkLabel =
-    checkAccounts.length === accounts.length
+    allAccountsSelected
       ? 'Select Category (All Accounts)'
       : checkAccounts.length === 1
         ? `${checkAccounts[0].name.toUpperCase()} - ${checkAccounts[0].username}`
@@ -575,7 +774,7 @@ export function PublicIpoResultScreen() {
           disabled={loadingCompanies || companies.length === 0 || running}
         >
           <Text style={styles.companyPickerText} numberOfLines={1}>
-            {selected?.name ?? 'Select IPO / FPO / Debenture'}
+            {selected ? selected.name : 'Select IPO / FPO / Debenture'}
           </Text>
           {loadingCompanies || loadingCdsc ? (
             <ActivityIndicator size="small" color={colors.primary} />
@@ -688,6 +887,8 @@ export function PublicIpoResultScreen() {
         contentContainerStyle={styles.accountListContent}
         data={displayRows}
         keyExtractor={(item) => item.account.id}
+        {...ACCOUNT_LIST_FLAT_PROPS}
+        extraData={checkingIds}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -695,84 +896,20 @@ export function PublicIpoResultScreen() {
             tintColor={colors.primary}
           />
         }
-        renderItem={({ item: { account, index, result } }) => {
-          const isChecking = checkingId === account.id;
-          const boidRaw =
-            result?.boidMasked ?? resolveBoidSync(account) ?? account.demat;
-          const boidText = hideBoids
-            ? '••••••••••••••••'
-            : boidRaw
-              ? maskBoid(boidRaw)
-              : 'BOID missing';
-          const isAllotted = Boolean(result?.ok && result.allotted);
-          const isError = Boolean(result && !result.ok);
-          const isNotAllotted = Boolean(result?.ok && !result.allotted);
-          const statusColor = isChecking
-            ? colors.primary
-            : isAllotted
-              ? '#66BB6A'
-              : isError
-                ? '#FB8C00'
-                : isNotAllotted
-                  ? '#E57373'
-                  : colors.textMuted;
-          const statusMessage = isChecking
-            ? 'Checking…'
-            : result
-              ? result.message
-              : null;
-          const showHourglass =
-            !isChecking && !result && !isAllotted && !isError && !isNotAllotted;
-          const showStatusLine = Boolean(statusMessage);
-
-          return (
-            <View style={styles.resultCard}>
-              <View style={styles.resultIconWrap}>
-                {isChecking ? (
-                  <ActivityIndicator size="small" color="#9E9E9E" />
-                ) : isAllotted ? (
-                  <Ionicons name="checkmark-circle" size={rs(18)} color="#4CAF50" />
-                ) : isError ? (
-                  <Ionicons name="warning" size={rs(18)} color="#FB8C00" />
-                ) : isNotAllotted ? (
-                  <Ionicons name="close-circle" size={rs(18)} color="#E57373" />
-                ) : showHourglass ? (
-                  <PendingHourglass size={rs(18)} color="#5A5A5A" />
-                ) : null}
-              </View>
-              <View style={styles.resultBody}>
-                <Text style={styles.resultName} numberOfLines={1}>
-                  {index}. {account.name.toUpperCase()}
-                </Text>
-                <Text style={styles.resultBoid} numberOfLines={1}>
-                  {boidText}
-                </Text>
-                {showStatusLine && statusMessage ? (
-                  <Text
-                    style={[
-                      styles.resultMsg,
-                      {
-                        color: isChecking
-                          ? colors.textMuted
-                          : statusColor,
-                      },
-                    ]}
-                    numberOfLines={2}
-                  >
-                    {statusMessage}
-                  </Text>
-                ) : null}
-              </View>
-              <Pressable
-                style={styles.resultCheckBtn}
-                onPress={() => onCheckOne(account)}
-                disabled={running || !selected}
-              >
-                <Text style={styles.resultCheckText}>Check</Text>
-              </Pressable>
-            </View>
-          );
-        }}
+        renderItem={({ item: { account, index, result } }) => (
+          <AccountResultRow
+            account={account}
+            index={index}
+            result={result}
+            isChecking={checkingIds.has(account.id)}
+            hideBoids={hideBoids}
+            running={running}
+            hasSelected={Boolean(selected)}
+            onCheckOne={onCheckOne}
+            styles={styles}
+            colors={colors}
+          />
+        )}
       />
 
       <Modal
@@ -799,6 +936,8 @@ export function PublicIpoResultScreen() {
               keyExtractor={(item) => item.key}
               keyboardShouldPersistTaps="handled"
               nestedScrollEnabled
+              initialNumToRender={16}
+              maxToRenderPerBatch={12}
               renderItem={({ item }) => (
                 <Pressable
                   style={styles.modalRow}
@@ -828,12 +967,18 @@ export function PublicIpoResultScreen() {
         visible={checkPickerOpen}
         animationType="slide"
         transparent
-        onRequestClose={() => setCheckPickerOpen(false)}
+        onRequestClose={() => {
+          setCheckPickerOpen(false);
+          setAccountPickerFilter('');
+        }}
       >
         <View style={styles.modalBackdrop}>
           <Pressable
             style={StyleSheet.absoluteFill}
-            onPress={() => setCheckPickerOpen(false)}
+            onPress={() => {
+              setCheckPickerOpen(false);
+              setAccountPickerFilter('');
+            }}
           />
           <View
             style={[
@@ -842,52 +987,53 @@ export function PublicIpoResultScreen() {
             ]}
           >
             <Text style={styles.modalTitle}>Select Category</Text>
+            {accounts.length > 40 ? (
+              <TextInput
+                style={styles.modalSearch}
+                placeholder="Search accounts…"
+                placeholderTextColor={colors.textMuted}
+                value={accountPickerFilter}
+                onChangeText={setAccountPickerFilter}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+            ) : null}
             <Pressable
               style={styles.modalRow}
               onPress={() => {
-                setCheckAccountIds(accounts.map((a) => a.id));
+                setCheckAccountIds([]);
                 setCheckPickerOpen(false);
+                setAccountPickerFilter('');
               }}
             >
               <Text style={styles.modalRowTitle}>All Accounts</Text>
-              {checkAccounts.length === accounts.length ? (
+              {allAccountsSelected ? (
                 <Ionicons name="checkmark" size={rs(20)} color={colors.primary} />
               ) : null}
             </Pressable>
             <FlatList
               style={styles.modalList}
-              data={accounts}
+              data={filteredPickerAccounts}
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
               nestedScrollEnabled
-              renderItem={({ item }) => {
-                const on = checkAccounts.some((a) => a.id === item.id);
-                const boid = resolveBoidSync(item) ?? item.demat;
-                return (
-                  <Pressable
-                    style={styles.modalRow}
-                    onPress={() => toggleCheckAccount(item)}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.modalRowTitle}>
-                        {item.name.toUpperCase()}
-                      </Text>
-                      <Text style={styles.modalRowSub}>
-                        {boid ? maskBoid(boid) : item.username}
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name={on ? 'checkbox' : 'square-outline'}
-                      size={rs(22)}
-                      color={on ? colors.primary : colors.textMuted}
-                    />
-                  </Pressable>
-                );
-              }}
+              {...ACCOUNT_LIST_FLAT_PROPS}
+              renderItem={({ item }) => (
+                <AccountPickerRow
+                  account={item}
+                  selected={isCheckAccountSelected(item.id, checkAccountIdSet)}
+                  onToggle={toggleCheckAccount}
+                  styles={styles}
+                  colors={colors}
+                />
+              )}
             />
             <Pressable
               style={styles.modalDone}
-              onPress={() => setCheckPickerOpen(false)}
+              onPress={() => {
+                setCheckPickerOpen(false);
+                setAccountPickerFilter('');
+              }}
             >
               <Text style={styles.modalDoneText}>Done</Text>
             </Pressable>
@@ -895,15 +1041,19 @@ export function PublicIpoResultScreen() {
         </View>
       </Modal>
       <SensitiveActionModals action={sensitive} />
-      <CaptchaOcrBridge ref={ocrRef} />
-      <IpoResultWebBridge
-        ref={bridgeRef}
-        interactive={false}
-        onReadyChange={setBridgeReady}
-        onPortalBlocked={(reason) => {
-          setProgress(reason);
-        }}
-      />
+      {mountBridge ? (
+        <>
+          <CaptchaOcrBridge ref={ocrRef} />
+          <IpoResultWebBridge
+            ref={bridgeRef}
+            interactive={false}
+            onReadyChange={setBridgeReady}
+            onPortalBlocked={(reason) => {
+              setProgress(reason);
+            }}
+          />
+        </>
+      ) : null}
 
       <Modal
         visible={resultModalOpen}
@@ -1343,6 +1493,16 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontSize: rs(16),
       marginBottom: rs(10),
     },
+    modalSearch: {
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderRadius: rs(10),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(8),
+      marginBottom: rs(8),
+      color: c.text,
+      fontSize: rs(14),
+    },
     modalRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1352,11 +1512,11 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       gap: rs(10),
     },
     modalRowTitle: {
-      flex: 1,
       color: c.text,
       fontWeight: '600',
       fontSize: rs(14),
     },
+    modalRowBody: { flex: 1 },
     modalRowSub: { color: c.textMuted, fontSize: rs(12), marginTop: rs(2) },
     modalDone: {
       marginTop: rs(8),

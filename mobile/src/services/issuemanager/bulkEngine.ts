@@ -4,10 +4,63 @@ import { resolveBoidsForAccounts } from '../../utils/resolveBoid';
 import { checkViaIssueManager } from './registry';
 import type { IssueManagerCheckResult, IssueManagerCompany } from './types';
 
-const ACCOUNT_GAP_MS = 350;
+const BULK_CONCURRENCY = 3;
+const ACCOUNT_GAP_MS = 400;
+const ACCOUNT_GAP_MAX_MS = 2000;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+type BulkThrottle = {
+  acquire: () => Promise<void>;
+  backoff: () => void;
+  relax: () => void;
+};
+
+function createBulkThrottle(): BulkThrottle {
+  let gapMs = ACCOUNT_GAP_MS;
+  let nextSlot = 0;
+  let pauseUntil = 0;
+
+  return {
+    async acquire() {
+      const now = Date.now();
+      const pause = Math.max(0, pauseUntil - now);
+      if (pause > 0) await sleep(pause);
+      const slot = Math.max(Date.now(), nextSlot);
+      nextSlot = slot + gapMs;
+      const wait = slot - Date.now();
+      if (wait > 0) await sleep(wait);
+    },
+    backoff() {
+      gapMs = Math.min(ACCOUNT_GAP_MAX_MS, Math.round(gapMs * 1.35));
+      pauseUntil = Math.max(pauseUntil, Date.now() + 1000);
+    },
+    relax() {
+      gapMs = Math.max(ACCOUNT_GAP_MS, Math.round(gapMs * 0.92));
+    },
+  };
+}
+
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const idx = cursor++;
+        out[idx] = await fn(items[idx], idx);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return out;
 }
 
 /** Clear Alloted / Not Alloted text — never raw "scheme fetched" API noise. */
@@ -59,11 +112,13 @@ export type IssueManagerBulkSummary = {
 
 /**
  * Bulk BOID check via the IPO’s issue manager (no captcha).
+ * Limited parallelism with adaptive throttling.
  */
 export async function runIssueManagerBulkCheck(opts: {
   accounts: AccountMeta[];
   company: IssueManagerCompany;
   onProgress?: (msg: string, index: number, total: number) => void;
+  onAccountStart?: (accountId: string, index: number, total: number) => void;
   /** Fires as soon as each account finishes — for live card updates. */
   onAccountResult?: (
     row: IssueManagerBulkRow,
@@ -72,78 +127,81 @@ export async function runIssueManagerBulkCheck(opts: {
   ) => void;
 }): Promise<IssueManagerBulkSummary> {
   const resolved = await resolveBoidsForAccounts(opts.accounts);
-  const results: IssueManagerBulkRow[] = [];
   const total = resolved.length;
+  const throttle = createBulkThrottle();
+  let finished = 0;
 
-  const emit = (row: IssueManagerBulkRow, i: number) => {
-    results.push(row);
-    opts.onAccountResult?.(row, i, total);
-  };
+  const slots = resolved.map((_, i) => i);
 
-  for (let i = 0; i < resolved.length; i++) {
+  const rows = await mapPool(slots, BULK_CONCURRENCY, async (i) => {
     const row = resolved[i];
+    opts.onAccountStart?.(row.account.id, i, total);
     opts.onProgress?.(
-      `Checking ${row.account.name} (${i + 1}/${resolved.length})…`,
+      `Checking ${row.account.name} (${i + 1}/${total})…`,
       i,
-      resolved.length,
+      total,
     );
 
     if (!row.boid) {
-      emit(
-        {
-          accountId: row.account.id,
-          accountName: row.account.name,
-          username: row.account.username,
-          ok: false,
-          allotted: false,
-          message: row.error ?? 'Missing BOID',
-        },
-        i,
-      );
-      continue;
+      const resultRow: IssueManagerBulkRow = {
+        accountId: row.account.id,
+        accountName: row.account.name,
+        username: row.account.username,
+        ok: false,
+        allotted: false,
+        message: row.error ?? 'Missing BOID',
+      };
+      finished += 1;
+      opts.onAccountResult?.(resultRow, i, total);
+      return resultRow;
     }
+
+    await throttle.acquire();
 
     const masked = maskBoid(row.boid);
     try {
       const check = await checkViaIssueManager(opts.company, row.boid);
-      emit(
-        {
-          accountId: row.account.id,
-          accountName: row.account.name,
-          username: row.account.username,
-          boidMasked: masked,
-          ok: check.ok,
-          allotted: check.allotted,
-          quantity: check.quantity,
-          message: formatAllotmentMessage(check),
-        },
-        i,
+      throttle.relax();
+      const resultRow: IssueManagerBulkRow = {
+        accountId: row.account.id,
+        accountName: row.account.name,
+        username: row.account.username,
+        boidMasked: masked,
+        ok: check.ok,
+        allotted: check.allotted,
+        quantity: check.quantity,
+        message: formatAllotmentMessage(check),
+      };
+      finished += 1;
+      opts.onProgress?.(
+        `Checked ${finished}/${total} — ${row.account.name}`,
+        finished - 1,
+        total,
       );
+      opts.onAccountResult?.(resultRow, i, total);
+      return resultRow;
     } catch (e) {
-      emit(
-        {
-          accountId: row.account.id,
-          accountName: row.account.name,
-          username: row.account.username,
-          boidMasked: masked,
-          ok: false,
-          allotted: false,
-          message: e instanceof Error ? e.message : 'Check failed',
-        },
-        i,
-      );
+      throttle.backoff();
+      const resultRow: IssueManagerBulkRow = {
+        accountId: row.account.id,
+        accountName: row.account.name,
+        username: row.account.username,
+        boidMasked: masked,
+        ok: false,
+        allotted: false,
+        message: e instanceof Error ? e.message : 'Check failed',
+      };
+      finished += 1;
+      opts.onAccountResult?.(resultRow, i, total);
+      return resultRow;
     }
-
-    if (i < resolved.length - 1) {
-      await sleep(ACCOUNT_GAP_MS);
-    }
-  }
+  });
 
   return {
     companyKey: opts.company.key,
     companyName: opts.company.name,
     providerLabel: opts.company.providerLabel,
     source: 'issue-manager',
-    results,
+    results: rows,
   };
 }

@@ -9,8 +9,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
+import { AccountCheckboxPickerRow } from '../components/AccountListRows';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -28,6 +30,15 @@ import {
   type ResultAccountStatus,
 } from '../services/meroshare';
 import { rs } from '../utils/responsive';
+import {
+  buildCheckAccountIdSet,
+  isAllAccountsSelected,
+  isCheckAccountSelected,
+  resolveCheckAccounts,
+  toggleCheckAccountId,
+} from '../utils/checkAccountSelection';
+import { filterAccountsByQuery } from '../utils/filterAccounts';
+import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
 import { useAfterInteractions } from '../utils/useAfterInteractions';
 import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
@@ -147,6 +158,7 @@ export function CurrentIpoStatusScreen() {
   const ready = useAfterInteractions();
 
   const [checkAccountIds, setCheckAccountIds] = useState<string[]>([]);
+  const [accountPickerFilter, setAccountPickerFilter] = useState('');
   const [checkPickerOpen, setCheckPickerOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [issues, setIssues] = useState<OpenIssue[]>([]);
@@ -196,12 +208,31 @@ export function CurrentIpoStatusScreen() {
     [filter, results],
   );
 
-  const checkAccounts = useMemo(() => {
-    const set = new Set(
-      checkAccountIds.length ? checkAccountIds : accounts.map((a) => a.id),
-    );
-    return accounts.filter((a) => set.has(a.id));
-  }, [accounts, checkAccountIds]);
+  const checkAccounts = useMemo(
+    () => resolveCheckAccounts(accounts, checkAccountIds),
+    [accounts, checkAccountIds],
+  );
+
+  const checkAccountIdSet = useMemo(
+    () => buildCheckAccountIdSet(accounts, checkAccountIds),
+    [accounts, checkAccountIds],
+  );
+
+  const allAccountsSelected = useMemo(
+    () => isAllAccountsSelected(accounts, checkAccountIds),
+    [accounts, checkAccountIds],
+  );
+
+  const filteredPickerAccounts = useMemo(
+    () => filterAccountsByQuery(accounts, accountPickerFilter),
+    [accounts, accountPickerFilter],
+  );
+
+  const resultIndexByAccountId = useMemo(() => {
+    const m = new Map<string, number>();
+    results.forEach((r, i) => m.set(r.accountId, i));
+    return m;
+  }, [results]);
 
   useEffect(() => {
     if (!accounts.length) {
@@ -210,9 +241,18 @@ export function CurrentIpoStatusScreen() {
     }
     setCheckAccountIds((prev) => {
       const valid = prev.filter((id) => accounts.some((a) => a.id === id));
-      return valid.length ? valid : accounts.map((a) => a.id);
+      return valid.length ? valid : [];
     });
   }, [accounts]);
+
+  const toggleAccount = useCallback(
+    (account: AccountMeta) => {
+      setCheckAccountIds((prev) =>
+        toggleCheckAccountId(accounts, prev, account.id),
+      );
+    },
+    [accounts],
+  );
 
   const refreshIssues = useCallback(async () => {
     setLoading(true);
@@ -254,19 +294,8 @@ export function CurrentIpoStatusScreen() {
     setProgress(null);
   }, [selected?.companyShareId]);
 
-  const toggleAccount = (account: AccountMeta) => {
-    setCheckAccountIds((prev) => {
-      const base = prev.length ? prev : accounts.map((a) => a.id);
-      if (base.includes(account.id)) {
-        const next = base.filter((id) => id !== account.id);
-        return next.length ? next : base;
-      }
-      return [...base, account.id];
-    });
-  };
-
   const checkLabel =
-    checkAccounts.length === accounts.length
+    allAccountsSelected
       ? 'Select Category (All Accounts)'
       : checkAccounts.length === 1
         ? `${checkAccounts[0].name.toUpperCase()} - ${checkAccounts[0].username}`
@@ -484,14 +513,15 @@ export function CurrentIpoStatusScreen() {
             <FlatList
               style={styles.resultsList}
               data={visibleResults}
-              keyExtractor={(row, index) => `${row.accountId}-${index}`}
+              keyExtractor={(row) => row.accountId}
               contentContainerStyle={styles.resultsListBody}
               refreshControl={refreshControl}
+              {...ACCOUNT_LIST_FLAT_PROPS}
               ListEmptyComponent={
                 <Text style={styles.empty}>No accounts in this category.</Text>
               }
               renderItem={({ item: row }) => {
-                const idx = results.indexOf(row);
+                const idx = resultIndexByAccountId.get(row.accountId) ?? 0;
                 const kind = classify(row);
                 const color = kindColor(kind);
                 const reason =
@@ -596,7 +626,15 @@ export function CurrentIpoStatusScreen() {
         </ScrollView>
       )}
 
-      <Modal visible={checkPickerOpen} animationType="slide" transparent>
+      <Modal
+        visible={checkPickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          setCheckPickerOpen(false);
+          setAccountPickerFilter('');
+        }}
+      >
         <View style={styles.modalBackdrop}>
           <View
             style={[
@@ -605,40 +643,55 @@ export function CurrentIpoStatusScreen() {
             ]}
           >
             <Text style={styles.modalTitle}>Select Category</Text>
+            {accounts.length > 40 ? (
+              <TextInput
+                style={styles.modalSearch}
+                placeholder="Search accounts…"
+                placeholderTextColor={colors.textMuted}
+                value={accountPickerFilter}
+                onChangeText={setAccountPickerFilter}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+            ) : null}
             <Pressable
               style={styles.modalRow}
               onPress={() => {
-                setCheckAccountIds(accounts.map((a) => a.id));
+                setCheckAccountIds([]);
                 setCheckPickerOpen(false);
+                setAccountPickerFilter('');
               }}
             >
               <Text style={styles.modalRowTitle}>All Accounts</Text>
+              {allAccountsSelected ? (
+                <Ionicons name="checkmark" size={rs(20)} color={ACCENT} />
+              ) : null}
             </Pressable>
             <FlatList
-              data={accounts}
-              keyExtractor={(item, index) => `${item.id}-${index}`}
-              renderItem={({ item }) => {
-                const on = checkAccounts.some((a) => a.id === item.id);
-                return (
-                  <Pressable
-                    style={styles.modalRow}
-                    onPress={() => toggleAccount(item)}
-                  >
-                    <Text style={styles.modalRowTitle}>
-                      {item.name.toUpperCase()}
-                    </Text>
-                    <Ionicons
-                      name={on ? 'checkbox' : 'square-outline'}
-                      size={rs(22)}
-                      color={on ? ACCENT : colors.textMuted}
-                    />
-                  </Pressable>
-                );
-              }}
+              style={styles.modalList}
+              data={filteredPickerAccounts}
+              keyExtractor={(item) => item.id}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              {...ACCOUNT_LIST_FLAT_PROPS}
+              renderItem={({ item }) => (
+                <AccountCheckboxPickerRow
+                  account={item}
+                  selected={isCheckAccountSelected(item.id, checkAccountIdSet)}
+                  onPress={() => toggleAccount(item)}
+                  accentColor={ACCENT}
+                  mutedColor={colors.textMuted}
+                  rowStyle={styles.modalRow}
+                  titleStyle={styles.modalRowTitle}
+                />
+              )}
             />
             <Pressable
               style={[styles.modalDone, styles.actionBtn]}
-              onPress={() => setCheckPickerOpen(false)}
+              onPress={() => {
+                setCheckPickerOpen(false);
+                setAccountPickerFilter('');
+              }}
             >
               <Text style={styles.actionText}>Done</Text>
             </Pressable>
@@ -885,6 +938,17 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontWeight: '800',
       fontSize: rs(16),
       marginBottom: rs(10),
+    },
+    modalList: { flex: 1 },
+    modalSearch: {
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderRadius: rs(10),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(8),
+      marginBottom: rs(8),
+      color: c.text,
+      fontSize: rs(14),
     },
     modalRow: {
       flexDirection: 'row',

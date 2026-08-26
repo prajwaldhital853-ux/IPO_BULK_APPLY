@@ -5,7 +5,6 @@ import {
   FlatList,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -20,6 +19,7 @@ import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 import { MinorDobFields } from '../components/MinorDobFields';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
+import { AccountUserSelectRow } from '../components/AccountListRows';
 import { useAccounts } from '../context/AccountsContext';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
@@ -40,6 +40,8 @@ import {
   parseDobInput,
 } from '../utils/minorAccount';
 import { rs } from '../utils/responsive';
+import { filterAccountsByQuery, pruneAccountIdSet } from '../utils/filterAccounts';
+import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
 import type { RootStackParamList } from '../navigation/types';
 
 type TabId = 'users' | 'minors';
@@ -109,25 +111,13 @@ export function MinorAccountsScreen() {
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
-    setSelected((prev) => {
-      const ids = new Set(accounts.map((a) => a.id));
-      const next = new Set([...prev].filter((id) => ids.has(id)));
-      if (next.size === prev.size && [...next].every((id) => prev.has(id))) {
-        return prev;
-      }
-      return next;
-    });
+    setSelected((prev) => pruneAccountIdSet(accounts, prev));
   }, [accounts]);
 
-  const filteredAccounts = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return accounts;
-    return accounts.filter(
-      (a) =>
-        a.name.toLowerCase().includes(q) ||
-        a.username.toLowerCase().includes(q),
-    );
-  }, [accounts, query]);
+  const filteredAccounts = useMemo(
+    () => filterAccountsByQuery(accounts, query),
+    [accounts, query],
+  );
 
   const visibleMinors = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -245,14 +235,14 @@ export function MinorAccountsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  const toggleUser = (id: string) => {
+  const toggleUser = useCallback((id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
+  }, []);
 
   const openEdit = (accountId: string) => {
     const account = accounts.find((a) => a.id === accountId) ?? null;
@@ -575,45 +565,28 @@ export function MinorAccountsScreen() {
             </View>
           </View>
 
-          <ScrollView contentContainerStyle={styles.list}>
-            {filteredAccounts.map((a, idx) => {
-              const on = selected.has(a.id);
-              return (
-                <Pressable
-                  key={a.id}
-                  style={styles.userCard}
-                  onPress={() => toggleUser(a.id)}
-                >
-                  <View style={styles.avatar}>
-                    <Ionicons
-                      name="person"
-                      size={rs(15)}
-                      color={colors.textMuted}
-                    />
-                  </View>
-                  <View style={styles.flex}>
-                    <Text style={styles.userName} numberOfLines={1}>
-                      {idx + 1}. {a.name.toUpperCase()}
-                    </Text>
-                    <Text style={styles.userMeta}>USERNAME : {a.username}</Text>
-                    <Text style={styles.userMeta} numberOfLines={1}>
-                      BANK : {(a.bankName || a.dpName || '—').toUpperCase()}
-                    </Text>
-                  </View>
-                  <Ionicons
-                    name={on ? 'checkbox' : 'square-outline'}
-                    size={rs(22)}
-                    color={on ? colors.accentGreen : colors.textMuted}
-                  />
-                </Pressable>
-              );
-            })}
-            {!accounts.length ? (
+          <FlatList
+            style={styles.flex}
+            data={filteredAccounts}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.list}
+            {...ACCOUNT_LIST_FLAT_PROPS}
+            ListEmptyComponent={
               <Text style={styles.empty}>
                 No accounts saved. Tap + to add a MeroShare account.
               </Text>
-            ) : null}
-          </ScrollView>
+            }
+            renderItem={({ item, index }) => (
+              <AccountUserSelectRow
+                account={item}
+                index={index}
+                selected={selected.has(item.id)}
+                onPress={() => toggleUser(item.id)}
+                styles={styles}
+                colors={colors}
+              />
+            )}
+          />
 
           <View
             style={[
@@ -662,6 +635,7 @@ export function MinorAccountsScreen() {
               data={visibleMinors}
               keyExtractor={(item) => item.accountId}
               contentContainerStyle={styles.list}
+              {...ACCOUNT_LIST_FLAT_PROPS}
               ListHeaderComponent={
                 statusLine ? (
                   <Text style={[styles.topStatus, { color: statusColor }]}>

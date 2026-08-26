@@ -16,6 +16,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
+import { BankTrackerAccountRow } from '../components/AccountListRows';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
@@ -26,6 +27,8 @@ import {
   type BankTrackerAccount,
 } from '../storage/bankTrackerStorage';
 import { rs } from '../utils/responsive';
+import { filterAccountsByQuery } from '../utils/filterAccounts';
+import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
 import type { RootStackParamList } from '../navigation/types';
 
 export function formatRs(n: number): string {
@@ -100,16 +103,10 @@ export function BankTrackerScreen() {
     }, []),
   );
 
-  const data = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return accounts;
-    return accounts.filter(
-      (a) =>
-        a.name.toLowerCase().includes(q) ||
-        (a.bankName ?? '').toLowerCase().includes(q) ||
-        (a.accountNumber ?? '').toLowerCase().includes(q),
-    );
-  }, [accounts, query]);
+  const data = useMemo(
+    () => filterAccountsByQuery(accounts, query),
+    [accounts, query],
+  );
 
   const summary = useMemo(() => {
     let tracked = 0;
@@ -309,62 +306,26 @@ export function BankTrackerScreen() {
           styles.list,
           { paddingBottom: Math.max(insets.bottom, rs(30)) },
         ]}
+        {...ACCOUNT_LIST_FLAT_PROPS}
         ListEmptyComponent={
           <Text style={styles.empty}>
             No MeroShare accounts saved yet. Add one from Apply → Add capital.
           </Text>
         }
-        renderItem={({ item }) => {
-          const tracker = trackers[item.id];
-          const tracking = tracker?.tracking ?? false;
-          const balances = tracker ? computeBalances(tracker) : null;
-          return (
-            <Pressable
-              style={styles.card}
-              onPress={() =>
-                navigation.navigate('BankTrackerDetail', {
-                  accountId: item.id,
-                })
-              }
-            >
-              <View style={styles.bankIcon}>
-                <Ionicons name="business" size={rs(18)} color={colors.primary} />
-              </View>
-              <View style={styles.cardBody}>
-                <Text style={styles.cardName} numberOfLines={1}>
-                  {item.name.toUpperCase()}
-                </Text>
-                <Text style={styles.cardMeta} numberOfLines={1}>
-                  {(item.bankName || item.dpName || '—').toUpperCase()}
-                  {item.accountNumber
-                    ? ` • ${maskAccount(item.accountNumber)}`
-                    : ''}
-                </Text>
-              </View>
-              {tracking && balances ? (
-                <View style={styles.balanceCol}>
-                  <Text style={styles.balanceVal}>
-                    {formatRs(balances.available)}
-                  </Text>
-                  <Text style={styles.balanceLabel}>Available</Text>
-                </View>
-              ) : (
-                <View style={styles.setupBtn}>
-                  <Text style={styles.setupText}>Set up</Text>
-                </View>
-              )}
-            </Pressable>
-          );
-        }}
+        renderItem={({ item }) => (
+          <BankTrackerAccountRow
+            account={item}
+            tracker={trackers[item.id]}
+            onPress={() =>
+              navigation.navigate('BankTrackerDetail', { accountId: item.id })
+            }
+            styles={styles}
+            colors={colors}
+          />
+        )}
       />
     </View>
   );
-}
-
-function maskAccount(n: string): string {
-  const s = n.trim();
-  if (s.length <= 6) return s;
-  return `${s.slice(0, 3)}…${s.slice(-4)}`;
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {

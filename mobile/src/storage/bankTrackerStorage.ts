@@ -129,10 +129,22 @@ export async function stopTracking(
 
 /** Fully remove bank-tracker data for a deleted MeroShare account. */
 export async function removeTrackerForAccount(accountId: string): Promise<void> {
+  await removeTrackersForAccounts([accountId]);
+}
+
+export async function removeTrackersForAccounts(
+  accountIds: string[],
+): Promise<void> {
+  if (!accountIds.length) return;
   const store = await loadStore();
-  if (!(accountId in store)) return;
-  delete store[accountId];
-  await saveStore(store);
+  let changed = false;
+  for (const id of accountIds) {
+    if (id in store) {
+      delete store[id];
+      changed = true;
+    }
+  }
+  if (changed) await saveStore(store);
 }
 
 export async function setOpeningBalance(

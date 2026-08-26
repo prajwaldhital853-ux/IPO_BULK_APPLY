@@ -1,14 +1,22 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import type { AccountMeta, AccountSecrets, LinkedAccount } from '../types/account';
+import {
+  DuplicateAccountError,
+  findDuplicateAccountAsync,
+} from '../utils/duplicateAccount';
 import { holderTypeFromDob } from '../utils/minorAccount';
-import { clearApplyHistoryForAccount } from './applyHistory';
+import { clearApplyHistoryForAccount, clearApplyHistoryForAccounts } from './applyHistory';
 import {
   clearBulkPortfolioSnapshot,
   removeAccountFromBulkSnapshot,
+  removeAccountsFromBulkSnapshot,
 } from './bulkPortfolioStorage';
-import { removeTrackerForAccount } from './bankTrackerStorage';
-import { deletePortfoliosForAccount } from './portfolioStorage';
+import { removeTrackerForAccount, removeTrackersForAccounts } from './bankTrackerStorage';
+import {
+  deletePortfoliosForAccount,
+  deletePortfoliosForAccounts,
+} from './portfolioStorage';
 import {
   LEGACY_META_KEY,
   META_BASE,
@@ -105,13 +113,11 @@ export async function reorderAccountMeta(
   return next;
 }
 
-export async function addAccountWithSecrets(
+function toAccountMeta(
   meta: Omit<AccountMeta, 'id'> & { id?: string },
-  secrets: AccountSecrets,
-): Promise<AccountMeta> {
-  const list = await loadAccountMeta();
-  const id = meta.id ?? `acc_${Date.now()}`;
-  const next: AccountMeta = {
+  id: string,
+): AccountMeta {
+  return {
     id,
     name: meta.name,
     dpId: meta.dpId,
@@ -136,9 +142,79 @@ export async function addAccountWithSecrets(
         ? meta.guardianName?.trim() || undefined
         : undefined,
   };
+}
+
+export async function addAccountWithSecrets(
+  meta: Omit<AccountMeta, 'id'> & { id?: string },
+  secrets: AccountSecrets,
+  opts?: { skipDuplicateCheck?: boolean },
+): Promise<AccountMeta> {
+  const list = await loadAccountMeta();
+  if (!opts?.skipDuplicateCheck) {
+    const hit = await findDuplicateAccountAsync({
+      accounts: list,
+      candidate: {
+        username: meta.username,
+        dpId: meta.dpId,
+        dpCode: meta.dpCode,
+        demat: meta.demat,
+        crn: secrets.crn,
+      },
+      loadCrn: async (id) => (await getSecrets(id))?.crn,
+    });
+    if (hit) throw new DuplicateAccountError(hit);
+  }
+  const id = meta.id ?? `acc_${Date.now()}`;
+  const next = toAccountMeta(meta, id);
   await saveSecrets(id, secrets);
   // Oldest accounts stay first; newly added accounts go to the end.
   await saveAccountMeta([...list, next]);
+  return next;
+}
+
+/** Fast path for demo / load-test seeding. Does not run duplicate checks. */
+export async function addManyAccountsWithSecrets(
+  rows: Array<{
+    meta: Omit<AccountMeta, 'id'> & { id?: string };
+    secrets: AccountSecrets;
+  }>,
+): Promise<AccountMeta[]> {
+  if (!rows.length) return loadAccountMeta();
+  const list = await loadAccountMeta();
+  const added: AccountMeta[] = [];
+  const now = new Date().toISOString();
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i]!;
+    const id = row.meta.id ?? `acc_${Date.now()}_${i}`;
+    added.push(toAccountMeta({ ...row.meta, addedAt: row.meta.addedAt ?? now }, id));
+  }
+  for (let i = 0; i < rows.length; i += 15) {
+    const chunk = rows.slice(i, i + 15);
+    await Promise.all(
+      chunk.map((row, j) => saveSecrets(added[i + j]!.id, row.secrets)),
+    );
+  }
+  await saveAccountMeta([...list, ...added]);
+  return added;
+}
+
+export async function removeAccountsFullyMany(
+  ids: string[],
+): Promise<AccountMeta[]> {
+  if (!ids.length) return loadAccountMeta();
+  const idSet = new Set(ids);
+  const list = await loadAccountMeta();
+  const next = list.filter((a) => !idSet.has(a.id));
+  for (let i = 0; i < ids.length; i += 15) {
+    await Promise.all(ids.slice(i, i + 15).map((id) => deleteSecrets(id)));
+  }
+  await Promise.all([
+    clearApplyHistoryForAccounts(ids),
+    deletePortfoliosForAccounts(ids),
+    removeAccountsFromBulkSnapshot(ids),
+    removeTrackersForAccounts(ids),
+  ]);
+  await saveAccountMeta(next);
   return next;
 }
 
