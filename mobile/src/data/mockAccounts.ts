@@ -488,7 +488,7 @@ function registerSeeds(seeds: MockAccountSeed[]): void {
 /** Default flask demo: 30 adults + 6 minors. */
 export const DEFAULT_MOCK_ACCOUNT_COUNT = 36;
 /** Performance-test size from the flask menu. */
-export const LOAD_TEST_MOCK_ACCOUNT_COUNT = 200;
+export const LOAD_TEST_MOCK_ACCOUNT_COUNT = 400;
 
 /**
  * Build `count` unique demo accounts (adults + the 6 minor samples when count >= 36).

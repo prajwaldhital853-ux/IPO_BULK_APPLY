@@ -12,9 +12,10 @@ import {
 } from './parse';
 import { solvePublicCaptcha } from './solveCaptcha';
 
-const ACCOUNT_GAP_MS = 650;
-const ACCOUNT_GAP_MAX_MS = 2800;
-const ACCOUNT_PAUSE_MS = 2200;
+const ACCOUNT_GAP_MS = 1800;
+const ACCOUNT_GAP_MAX_MS = 4500;
+const ACCOUNT_PAUSE_MS = 12000;
+const WAF_RESET_PAUSE_MS = 25000;
 const CAPTCHA_ATTEMPTS = 5;
 
 function sleep(ms: number) {
@@ -60,15 +61,15 @@ function createBulkThrottle(): BulkThrottle {
       const isWaf = isWafBlockError(message);
       gapMs = Math.min(
         ACCOUNT_GAP_MAX_MS,
-        Math.round(gapMs * (isWaf ? 1.65 : 1.35)),
+        Math.round(gapMs * (isWaf ? 1.4 : 1.25)),
       );
       pauseUntil = Math.max(
         pauseUntil,
-        Date.now() + (isWaf ? ACCOUNT_PAUSE_MS : 1200),
+        Date.now() + (isWaf ? ACCOUNT_PAUSE_MS : 1500),
       );
     },
     relax() {
-      gapMs = Math.max(ACCOUNT_GAP_MS, Math.round(gapMs * 0.92));
+      gapMs = Math.max(ACCOUNT_GAP_MS, Math.round(gapMs * 0.95));
     },
   };
 }
@@ -137,7 +138,7 @@ async function prepareCaptcha(
 
 /**
  * Bulk check = company + accounts only.
- * Captcha is solved automatically — pipelined between accounts when possible.
+ * Captcha is solved automatically with adaptive throttling.
  */
 export async function runPublicBulkResultCheck(opts: {
   bridge: IpoResultWebBridgeHandle;
@@ -158,7 +159,6 @@ export async function runPublicBulkResultCheck(opts: {
   let sessionCaptcha = opts.captcha;
   const total = resolved.length;
   const throttle = createBulkThrottle();
-  let prefetch: Promise<CaptchaReady> | null = null;
 
   const emit = (row: PublicBulkResultRow, i: number) => {
     results.push(row);
@@ -169,26 +169,11 @@ export async function runPublicBulkResultCheck(opts: {
     opts.onProgress?.(msg, i, total);
   };
 
-  const startPrefetch = (fromCaptcha: PublicCaptcha) => {
-    prefetch = prepareCaptcha(
-      opts.bridge,
-      opts.ocr,
-      fromCaptcha,
-      true,
-      (m) => progress(m, -1),
-    );
-  };
-
-  const cancelPrefetch = () => {
-    prefetch = null;
-  };
-
   for (let i = 0; i < resolved.length; i++) {
     const row = resolved[i];
     progress(`Checking ${row.account.name} (${i + 1}/${total})…`, i);
 
     if (!row.boid) {
-      cancelPrefetch();
       emit({
         accountId: row.account.id,
         accountName: row.account.name,
@@ -209,10 +194,7 @@ export async function runPublicBulkResultCheck(opts: {
     let ready: CaptchaReady | null = null;
 
     try {
-      if (prefetch) {
-        ready = await prefetch;
-        prefetch = null;
-      } else if (i === 0) {
+      if (i === 0) {
         ready = await prepareCaptcha(
           opts.bridge,
           opts.ocr,
@@ -246,7 +228,6 @@ export async function runPublicBulkResultCheck(opts: {
 
     for (let attempt = 0; attempt < CAPTCHA_ATTEMPTS && !done; attempt++) {
       if (attempt > 0) {
-        cancelPrefetch();
         try {
           progress(
             `Retry captcha (${attempt + 1}/${CAPTCHA_ATTEMPTS})…`,
@@ -294,10 +275,6 @@ export async function runPublicBulkResultCheck(opts: {
         }, i);
         done = true;
         throttle.relax();
-
-        if (i < resolved.length - 1) {
-          startPrefetch(sessionCaptcha);
-        }
       } catch (e) {
         lastMessage = e instanceof Error ? e.message : 'Check failed';
         throttle.backoff(lastMessage);
@@ -306,10 +283,10 @@ export async function runPublicBulkResultCheck(opts: {
           isHardWafBlock(lastMessage) &&
           opts.bridge.resetSession
         ) {
-          cancelPrefetch();
-          progress(`Refreshing CDSC session for ${row.account.name}…`, i);
+          progress(`Refreshing CDSC session…`, i);
+          await sleep(WAF_RESET_PAUSE_MS);
           await opts.bridge.resetSession(90000);
-          await sleep(1200);
+          await sleep(2000);
           const home = await loadPublicHomeViaBridge(opts.bridge);
           sessionCaptcha = home.captcha;
           lastMessage = 'CDSC session refreshed';
@@ -331,7 +308,6 @@ export async function runPublicBulkResultCheck(opts: {
     }
 
     if (!done) {
-      cancelPrefetch();
       emit({
         accountId: row.account.id,
         accountName: row.account.name,

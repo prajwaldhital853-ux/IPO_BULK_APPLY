@@ -316,7 +316,7 @@ export function HomeScreen() {
     if (hasMockAccounts) {
       Alert.alert(
         'Demo accounts',
-        `You currently have ${mockCount} demo accounts.\n\nUse 200 to test how the app feels with a large list (scroll, apply, result, portfolio).`,
+        `You currently have ${mockCount} demo accounts.\n\nUse ${LOAD_TEST_MOCK_ACCOUNT_COUNT} to test how the app feels with a large list (scroll, apply, result, portfolio).`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -325,7 +325,7 @@ export function HomeScreen() {
             onPress: () =>
               void runDemoJob('Removing demo accounts…', removeMockAccounts),
           },
-          { text: 'Replace 200', onPress: add200 },
+          { text: `Replace ${LOAD_TEST_MOCK_ACCOUNT_COUNT}`, onPress: add200 },
         ],
       );
       return;

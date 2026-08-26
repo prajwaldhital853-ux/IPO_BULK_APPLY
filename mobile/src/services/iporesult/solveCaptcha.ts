@@ -2,6 +2,16 @@ import type { PublicCaptcha } from './parse';
 import type { CaptchaOcrHandle } from '../../components/CaptchaOcrBridge';
 import { isCdscBackendConfigured } from '../issuemanager/backendConfig';
 
+const TWOCAPTCHA_API_KEY = (
+  process.env.EXPO_PUBLIC_TWOCAPTCHA_API_KEY ?? ''
+).trim();
+const TWOCAPTCHA_ENABLED =
+  process.env.EXPO_PUBLIC_TWOCAPTCHA_ENABLED !== 'false';
+
+function is2CaptchaConfigured(): boolean {
+  return TWOCAPTCHA_ENABLED && TWOCAPTCHA_API_KEY.length > 0;
+}
+
 const DIGIT_WORDS: Record<string, string> = {
   zero: '0',
   one: '1',
@@ -31,6 +41,60 @@ export function digitsFromSpokenTranscript(transcript: string): string {
   }
   // Extract every numeral (handles "953", "9 5 3", "nine 5 three" alike)
   return s.replace(/\D/g, '');
+}
+
+/**
+ * Paid 2Captcha — only call after every free solver has failed.
+ */
+export async function solveCaptchaVia2Captcha(
+  imageBase64: string,
+  digits: number = 5,
+): Promise<string> {
+  if (!is2CaptchaConfigured()) {
+    throw new Error('2Captcha not configured');
+  }
+
+  const clean = imageBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
+
+  const submitRes = await fetch('https://2captcha.com/in.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      key: TWOCAPTCHA_API_KEY,
+      method: 'base64',
+      body: clean,
+      numeric: '1',
+      min_len: String(digits),
+      max_len: String(digits),
+      json: '1',
+    }).toString(),
+  });
+
+  const submitData = (await submitRes.json()) as {
+    status?: number;
+    request?: string;
+  };
+  if (submitData.status !== 1 || !submitData.request) {
+    throw new Error(`2Captcha submit failed: ${submitData.request}`);
+  }
+  const captchaId = submitData.request;
+
+  for (let i = 0; i < 24; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const res = await fetch(
+      `https://2captcha.com/res.php?key=${encodeURIComponent(
+        TWOCAPTCHA_API_KEY,
+      )}&action=get&id=${encodeURIComponent(captchaId)}&json=1`,
+    );
+    const data = (await res.json()) as { status?: number; request?: string };
+    if (data.status === 1 && data.request) {
+      return String(data.request);
+    }
+    if (data.request !== 'CAPCHA_NOT_READY') {
+      throw new Error(`2Captcha solve failed: ${data.request}`);
+    }
+  }
+  throw new Error('2Captcha timed out');
 }
 
 /** Pick the best 5-digit candidate from a Google speech-api response. */
@@ -220,11 +284,14 @@ export async function solveCaptchaViaAudioSpeech(
 
 /**
  * Auto-solve CDSC captcha without user typing.
- * Prefer backend ONNX / 2Captcha, then audioCaptcha, then OCR.space,
- * then local Tesseract.
  *
- * `bulkFast`: for bulk IPO result — backend ONNX first, then local OCR only
- * (skips slow audio / OCR.space). Falls back to full chain when backend unset.
+ * Free chain first (backend ONNX may use server 2Captcha internally when weak):
+ *   backend → audio → OCR.space → local OCR
+ * Paid last resort only:
+ *   mobile 2Captcha (when EXPO_PUBLIC_TWOCAPTCHA_API_KEY is set)
+ *
+ * `bulkFast`: skips audio before OCR.space for speed, but still tries audio
+ * before the paid 2Captcha step.
  */
 export async function solvePublicCaptcha(
   captcha: PublicCaptcha,
@@ -233,32 +300,18 @@ export async function solvePublicCaptcha(
 ): Promise<string> {
   const errors: string[] = [];
   const bulkFast = opts?.bulkFast === true;
+  const image = captcha.captchaImageBase64;
 
-  try {
-    return await solveCaptchaViaBackend(captcha.captchaImageBase64);
-  } catch (e) {
-    errors.push(`backend: ${e instanceof Error ? e.message : 'failed'}`);
-    if (bulkFast && isCdscBackendConfigured()) {
-      if (ocr) {
-        try {
-          const digits = normalizeCaptchaDigits(
-            await ocr.solveDigits(captcha.captchaImageBase64),
-          );
-          if (digits.length >= 4) {
-            return digits.length === 5 ? digits : digits.slice(0, 5);
-          }
-          errors.push(`local-ocr: weak "${digits}"`);
-        } catch (e2) {
-          errors.push(
-            `local-ocr: ${e2 instanceof Error ? e2.message : 'failed'}`,
-          );
-        }
-      }
-      throw new Error(`Captcha auto-solve failed (${errors.join(' · ')})`);
+  if (isCdscBackendConfigured()) {
+    try {
+      return await solveCaptchaViaBackend(image);
+    } catch (e) {
+      errors.push(`backend: ${e instanceof Error ? e.message : 'failed'}`);
     }
   }
 
-  if (captcha.audioCaptcha && ocr?.decodeAudioPcm16k) {
+  const tryAudio = async (): Promise<string | null> => {
+    if (!captcha.audioCaptcha || !ocr?.decodeAudioPcm16k) return null;
     try {
       return await solveCaptchaViaAudioSpeech(
         captcha.audioCaptcha,
@@ -266,20 +319,23 @@ export async function solvePublicCaptcha(
       );
     } catch (e) {
       errors.push(`audio: ${e instanceof Error ? e.message : 'failed'}`);
+      return null;
     }
-  }
+  };
 
-  try {
-    return await solveCaptchaViaOcrSpace(captcha.captchaImageBase64);
-  } catch (e) {
-    errors.push(`ocr.space: ${e instanceof Error ? e.message : 'failed'}`);
-  }
-
-  if (ocr) {
+  const tryOcrSpace = async (): Promise<string | null> => {
     try {
-      const digits = normalizeCaptchaDigits(
-        await ocr.solveDigits(captcha.captchaImageBase64),
-      );
+      return await solveCaptchaViaOcrSpace(image);
+    } catch (e) {
+      errors.push(`ocr.space: ${e instanceof Error ? e.message : 'failed'}`);
+      return null;
+    }
+  };
+
+  const tryLocalOcr = async (): Promise<string | null> => {
+    if (!ocr) return null;
+    try {
+      const digits = normalizeCaptchaDigits(await ocr.solveDigits(image));
       if (digits.length >= 4) {
         return digits.length === 5 ? digits : digits.slice(0, 5);
       }
@@ -287,6 +343,38 @@ export async function solvePublicCaptcha(
     } catch (e) {
       errors.push(`local-ocr: ${e instanceof Error ? e.message : 'failed'}`);
     }
+    return null;
+  };
+
+  if (!bulkFast) {
+    const audio = await tryAudio();
+    if (audio) return audio;
+  }
+
+  if (bulkFast) {
+    const localFirst = await tryLocalOcr();
+    if (localFirst) return localFirst;
+  }
+
+  const ocrSpace = await tryOcrSpace();
+  if (ocrSpace) return ocrSpace;
+
+  if (!bulkFast) {
+    const local = await tryLocalOcr();
+    if (local) return local;
+  } else {
+    const audio = await tryAudio();
+    if (audio) return audio;
+  }
+
+  if (is2CaptchaConfigured()) {
+    try {
+      return await solveCaptchaVia2Captcha(image, 5);
+    } catch (e) {
+      errors.push(`2captcha: ${e instanceof Error ? e.message : 'failed'}`);
+    }
+  } else {
+    errors.push('2captcha: not configured');
   }
 
   throw new Error(`Captcha auto-solve failed (${errors.join(' · ')})`);
