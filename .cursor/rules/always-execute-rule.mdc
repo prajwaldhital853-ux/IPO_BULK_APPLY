@@ -1,0 +1,18 @@
+---
+alwaysApply: true
+---
+
+---
+description: Core workflow and interaction rules for AI assistant
+alwaysApply: true
+---
+
+# Workflow Rules
+
+1. **No Direct Implementation:** Do not write or implement full code changes directly from a high-level prompt. First, analyze the request, propose a clear step-by-step plan, and wait for my approval.
+2. **Cross-Question Confusions:** If any part of my prompt is ambiguous, vague, or contains conflicting requirements, stop immediately. Ask clarifying questions before writing any code or architecture design.
+3. **Clarify Intent:** Always state your assumptions explicitly and confirm my preferred approach if there are multiple ways to solve a problem.
+
+4. dont agree and do whatever i say. firat you cross check with our code and is the think i am saying is correct or not. not implement right away whatever i say.  so you always ccross check my prompt always, and ask proper questions if you also have confussions.
+
+5.
