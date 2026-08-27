@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
@@ -46,7 +45,6 @@ import {
   toggleCheckAccountId,
 } from '../utils/checkAccountSelection';
 import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
-import { isStandaloneNativeApp } from '../utils/expoRuntime';
 import { rs } from '../utils/responsive';
 import { useAfterInteractions } from '../utils/useAfterInteractions';
 import type { RootStackParamList } from '../navigation/types';
@@ -66,11 +64,6 @@ import {
   type PublicBulkResultRow,
   type PublicBulkResultSummary,
 } from '../services/iporesult/bulkEngine';
-import {
-  CdscBackendUnavailableError,
-  canUseCdscBackendBulk,
-  runCdscBackendBulkCheck,
-} from '../services/iporesult/backendBulk';
 
 type ProviderLoadError = { provider: string; label: string; message: string };
 type ResultRow = IssueManagerBulkRow | PublicBulkResultRow;
@@ -274,9 +267,6 @@ export function PublicIpoResultScreen() {
   const [resultModalOpen, setResultModalOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [bridgeReady, setBridgeReady] = useState(false);
-  const [mountBridge, setMountBridge] = useState(false);
-  // True only while the on-phone CDSC WebView is doing the checking.
-  const [webBridgeChecking, setWebBridgeChecking] = useState(false);
   const [accountPickerFilter, setAccountPickerFilter] = useState('');
 
   const addChecking = useCallback((id: string) => {
@@ -323,13 +313,6 @@ export function PublicIpoResultScreen() {
     );
   }, [accounts, accountPickerFilter]);
 
-  useEffect(() => {
-    if (!ready) return;
-    const task = InteractionManager.runAfterInteractions(() => {
-      setMountBridge(true);
-    });
-    return () => task.cancel();
-  }, [ready]);
   const hasCdscCompanies = useMemo(
     () => companies.some((c) => c.provider === 'cdsc'),
     [companies],
@@ -511,82 +494,36 @@ export function PublicIpoResultScreen() {
         throw new Error('CDSC in-app checker is not ready yet. Retry in a moment.');
       }
 
-      setWebBridgeChecking(true);
-      try {
-        setProgress('Preparing CDSC in-app session…');
-        const home = await loadPublicHomeViaBridge(bridge);
-        const liveCompany = home.companies.find(
-          (c) => String(c.id) === String(selected.rawId),
+      setProgress('Preparing CDSC in-app session…');
+      const home = await loadPublicHomeViaBridge(bridge);
+      const liveCompany = home.companies.find(
+        (c) => String(c.id) === String(selected.rawId),
+      );
+      if (!liveCompany) {
+        throw new Error(
+          'This CDSC company is not visible in the current phone session yet. Refresh and try again.',
         );
-        if (!liveCompany) {
-          throw new Error(
-            'This CDSC company is not visible in the current phone session yet. Refresh and try again.',
-          );
-        }
-
-        return await runPublicBulkResultCheck({
-          bridge,
-          ocr,
-          accounts: queue,
-          company: liveCompany,
-          captcha: home.captcha,
-          onProgress: (msg) => {
-            setProgress(msg);
-          },
-          onAccountStart: (accountId) => {
-            addChecking(accountId);
-          },
-          onAccountResult: (row) => {
-            removeChecking(row.accountId);
-            setResultsMap((prev) => ({ ...prev, [row.accountId]: row }));
-          },
-        });
-      } finally {
-        setWebBridgeChecking(false);
       }
+
+      return runPublicBulkResultCheck({
+        bridge,
+        ocr,
+        accounts: queue,
+        company: liveCompany,
+        captcha: home.captcha,
+        onProgress: (msg) => {
+          setProgress(msg);
+        },
+        onAccountStart: (accountId) => {
+          addChecking(accountId);
+        },
+        onAccountResult: (row) => {
+          removeChecking(row.accountId);
+          setResultsMap((prev) => ({ ...prev, [row.accountId]: row }));
+        },
+      });
     },
     [selected, addChecking, removeChecking],
-  );
-
-  /**
-   * CDSC checks run on the server whenever it is reachable: it keeps one warm
-   * Playwright session behind a proxy, so CDSC's WAF never sees a burst of
-   * in-app WebView submissions (which it blocks after a few accounts).
-   * The on-phone WebView stays as a fallback.
-   */
-  const runCdscCheck = useCallback(
-    async (queue: AccountMeta[]) => {
-      if (!selected) {
-        throw new Error('Select a CDSC company first.');
-      }
-
-      if (canUseCdscBackendBulk()) {
-        try {
-          setProgress('Checking with CDSC…');
-          return await runCdscBackendBulkCheck({
-            accounts: queue,
-            companyShareId: selected.rawId,
-            companyName: selected.name,
-            onProgress: (msg) => {
-              setProgress(msg);
-            },
-            onAccountStart: (accountId) => {
-              addChecking(accountId);
-            },
-            onAccountResult: (row) => {
-              removeChecking(row.accountId);
-              setResultsMap((prev) => ({ ...prev, [row.accountId]: row }));
-            },
-          });
-        } catch (e) {
-          if (!(e instanceof CdscBackendUnavailableError)) throw e;
-          setCheckingIds(new Set());
-        }
-      }
-
-      return runCdscBridgeCheck(queue);
-    },
-    [selected, addChecking, removeChecking, runCdscBridgeCheck],
   );
 
   const toggleCheckAccount = useCallback(
@@ -640,7 +577,7 @@ export function PublicIpoResultScreen() {
 
             const result =
               selected.provider === 'cdsc'
-                ? await runCdscCheck(queue)
+                ? await runCdscBridgeCheck(queue)
                 : await runIssueManagerBulkCheck({
                     accounts: queue,
                     company: selected,
@@ -682,7 +619,7 @@ export function PublicIpoResultScreen() {
       updateAccountMeta,
       addChecking,
       removeChecking,
-      runCdscCheck,
+      runCdscBridgeCheck,
     ],
   );
 
@@ -741,7 +678,6 @@ export function PublicIpoResultScreen() {
 
   const showSummary =
     checkComplete && !running && Object.keys(resultsMap).length > 0;
-
   const modalAllotted =
     summary?.results.filter((r) => r.ok && r.allotted).length ?? allottedCount;
   const modalTotal = summary?.results.length ?? checkAccounts.length;
@@ -1103,19 +1039,19 @@ export function PublicIpoResultScreen() {
         </View>
       </Modal>
       <SensitiveActionModals action={sensitive} />
-      {mountBridge ? (
-        <>
-          <CaptchaOcrBridge ref={ocrRef} />
-          <IpoResultWebBridge
-            ref={bridgeRef}
-            interactive={webBridgeChecking && isStandaloneNativeApp()}
-            onReadyChange={setBridgeReady}
-            onPortalBlocked={(reason) => {
-              setProgress(reason);
-            }}
-          />
-        </>
-      ) : null}
+      <CaptchaOcrBridge ref={ocrRef} />
+      {/*
+        Mounted as soon as the screen opens: the WebView needs this head start
+        to load CDSC and clear its WAF JS challenge before the first check.
+      */}
+      <IpoResultWebBridge
+        ref={bridgeRef}
+        interactive={false}
+        onReadyChange={setBridgeReady}
+        onPortalBlocked={(reason) => {
+          setProgress(reason);
+        }}
+      />
 
       <Modal
         visible={resultModalOpen}
