@@ -199,6 +199,7 @@ def utcnow() -> datetime:
 def _pending_out(row: SubscriptionRequest | None) -> PendingRequestOut | None:
     if row is None:
         return None
+    created = row.created_at.isoformat() if row.created_at else utcnow().isoformat()
     return PendingRequestOut(
         id=row.id,
         planId=row.plan_id,
@@ -206,7 +207,7 @@ def _pending_out(row: SubscriptionRequest | None) -> PendingRequestOut | None:
         amountNpr=row.amount_npr,
         status=row.status,
         paymentNote=row.payment_note,
-        createdAt=row.created_at.isoformat(),
+        createdAt=created,
     )
 
 

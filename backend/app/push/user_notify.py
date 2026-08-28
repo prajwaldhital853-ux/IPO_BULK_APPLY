@@ -35,10 +35,10 @@ async def notify_user(
     data: dict[str, Any] | None = None,
 ) -> int:
     """Send an account/subscription push to all enabled devices for this user."""
-    tokens = await _tokens_for_user(db, user_id)
-    if not tokens:
-        return 0
     try:
+        tokens = await _tokens_for_user(db, user_id)
+        if not tokens:
+            return 0
         result = await send_expo_push(
             tokens,
             title=title,
@@ -48,5 +48,11 @@ async def notify_user(
         )
         return int(result.get('sent') or 0)
     except Exception as exc:  # noqa: BLE001
+        # Postgres aborts the whole transaction on SQL errors — roll back so the
+        # caller can still read/write in the same request (e.g. subscription submit).
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
         log.warning('notify_user failed user=%s: %s', user_id, exc)
         return 0

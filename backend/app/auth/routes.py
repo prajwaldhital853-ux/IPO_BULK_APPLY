@@ -338,8 +338,10 @@ async def subscription_request(
     )
     db.add(req)
     await db.commit()
+    await db.refresh(req)
     row = await load_user_with_premium(db, user.id)
     assert row is not None
+    premium_out = await build_premium_out(db, row)
 
     try:
         from ..push.user_notify import notify_user
@@ -355,9 +357,9 @@ async def subscription_request(
             data={'type': 'subscription_submitted', 'requestId': req.id},
         )
     except Exception:  # noqa: BLE001
-        pass
+        await db.rollback()
 
-    return await build_premium_out(db, row)
+    return premium_out
 
 
 @router.post('/subscription/cancel-pending', response_model=PremiumOut)
