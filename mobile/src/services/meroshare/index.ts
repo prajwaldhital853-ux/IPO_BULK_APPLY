@@ -19,6 +19,8 @@ export {
 export { fetchCaptchaPayload, solveCaptchaInteractive } from './captcha';
 export { importPortfolioFromMeroshare } from './portfolioImport';
 export type { ImportedHolding, ImportResult } from './portfolioImport';
+export { runBulkPortfolioCheck } from './bulkPortfolioEngine';
+export type { BulkPortfolioAccountResult } from './bulkPortfolioEngine';
 export type {
   OpenIssue,
   ApplyAccountResult,

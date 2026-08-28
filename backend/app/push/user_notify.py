@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -12,6 +13,23 @@ from .expo_push import send_expo_push
 log = logging.getLogger('push.user_notify')
 
 ACCOUNT_CHANNEL = 'account'
+
+_EMAIL_RE = re.compile(r'[\w.+-]+@[\w.-]+\.\w+', re.IGNORECASE)
+_BLOCKED_BY_ADMIN_RE = re.compile(
+    r'blocked\s+by\s+admin(?:\s*\([^)]*\))?',
+    re.IGNORECASE,
+)
+
+
+def sanitize_user_notify_text(text: str | None) -> str | None:
+    """Strip admin emails and boilerplate from text shown in user push alerts."""
+    cleaned = (text or '').strip()
+    if not cleaned:
+        return None
+    cleaned = _EMAIL_RE.sub('', cleaned)
+    cleaned = _BLOCKED_BY_ADMIN_RE.sub('', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip(' .,;:-')
+    return cleaned or None
 
 
 async def _tokens_for_user(db: AsyncSession, user_id: str) -> list[str]:

@@ -1444,12 +1444,12 @@ async def admin_reject_subscription(
     access = await _access_level(db, user)
 
     try:
-        from ..push.user_notify import notify_user
+        from ..push.user_notify import notify_user, sanitize_user_notify_text
 
-        note = (row.admin_note or '').strip()
-        body_text = f'Your {row.plan_title} subscription request was rejected.'
+        note = sanitize_user_notify_text(body.admin_note)
+        body_text = f'Your {row.plan_title} subscription request was not approved.'
         if note:
-            body_text = f'{body_text} Note: {note}'
+            body_text = f'{body_text} {note}'
         await notify_user(
             db,
             row.user_id,
@@ -1484,7 +1484,7 @@ async def admin_deactivate_user(
         .order_by(SubscriptionRequest.created_at.desc()),
     )
     if latest is not None:
-        latest.admin_note = (body.admin_note or 'Premium deactivated by admin').strip()
+        latest.admin_note = (body.admin_note or 'Premium deactivated').strip()
         latest.reviewed_by = admin.email
         latest.reviewed_at = utcnow()
         if latest.status == 'pending':
@@ -1492,10 +1492,10 @@ async def admin_deactivate_user(
     await db.commit()
 
     try:
-        from ..push.user_notify import notify_user
+        from ..push.user_notify import notify_user, sanitize_user_notify_text
 
-        note = (body.admin_note or '').strip()
-        body_text = 'Your premium subscription was deactivated by admin.'
+        note = sanitize_user_notify_text(body.admin_note)
+        body_text = 'Your premium subscription was deactivated.'
         if note:
             body_text = f'{body_text} {note}'
         await notify_user(
@@ -1570,7 +1570,7 @@ async def admin_block_user(
     user.is_blocked = True
     user.blocked_at = utcnow()
     note = (body.admin_note or '').strip()
-    user.blocked_reason = note or f'Blocked by admin ({admin.email})'
+    user.blocked_reason = note or 'Account blocked'
     # Kill existing signed-in sessions.
     await db.execute(
         update(RefreshToken)
@@ -1582,12 +1582,15 @@ async def admin_block_user(
     assert user is not None
 
     try:
-        from ..push.user_notify import notify_user
+        from ..push.user_notify import notify_user, sanitize_user_notify_text
 
-        reason = (user.blocked_reason or '').strip()
-        body_text = 'Your account has been blocked. Sign in is disabled until an admin unblocks you.'
-        if reason:
-            body_text = f'{body_text} Reason: {reason}'
+        note = sanitize_user_notify_text(body.admin_note)
+        body_text = (
+            'Your account has been blocked. '
+            'Sign in is disabled until your account is restored.'
+        )
+        if note:
+            body_text = f'{body_text} {note}'
         await notify_user(
             db,
             user_id,
@@ -1599,6 +1602,9 @@ async def admin_block_user(
         log.warning('block: push failed user=%s: %s', user_id, exc)
 
     return await _user_row(db, user)
+
+
+@router.post('/users/{user_id}/unblock', response_model=AdminUserRow)
 async def admin_unblock_user(
     user_id: str,
     _: AdminUser = Depends(get_admin_user),

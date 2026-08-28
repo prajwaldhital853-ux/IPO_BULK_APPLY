@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -13,10 +13,10 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
-import { useActiveAccounts } from '../context/ActiveAccountsContext';
+import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import { type ThemeColors } from '../theme/colors';
-import { importPortfolioFromMeroshare } from '../services/meroshare';
+import { runBulkPortfolioCheck } from '../services/meroshare';
 import type { AccountMeta } from '../types/account';
 import {
   saveBulkPortfolioSnapshot,
@@ -30,6 +30,8 @@ type RowStatus = 'pending' | 'running' | 'done' | 'error';
 
 type PortfolioRow = {
   account: AccountMeta;
+  /** Stable 1-based index in the full account list (not filtered list position). */
+  stableIndex: number;
   status: RowStatus;
   value: number;
   change: number;
@@ -93,11 +95,14 @@ export function BulkPortfolioScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { usableAccounts: accounts } = useActiveAccounts();
+  const { accounts } = useAccounts();
+  const accountsRef = useRef(accounts);
+  accountsRef.current = accounts;
 
   const [rows, setRows] = useState<PortfolioRow[]>([]);
   const [running, setRunning] = useState(false);
-  const [fetched, setFetched] = useState(0);
+  const [completedCount, setCompletedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const [hidden, setHidden] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -113,18 +118,42 @@ export function BulkPortfolioScreen() {
     });
   }, []);
 
-  const fetchAll = useCallback(async (list: AccountMeta[]) => {
+  const runIdRef = useRef(0);
+  const runningRef = useRef(false);
+  const lastFetchSigRef = useRef('');
+
+  const accountSig = useMemo(
+    () => accounts.map((a) => a.id).join('|'),
+    [accounts],
+  );
+
+  const fetchAll = useCallback(async (list: AccountMeta[], force = false) => {
+    const sig = list.map((a) => a.id).join('|');
+    if (!force && runningRef.current && sig === lastFetchSigRef.current) {
+      return;
+    }
     if (!list.length) {
+      runIdRef.current += 1;
+      runningRef.current = false;
       setRows([]);
-      setFetched(0);
+      setCompletedCount(0);
+      setTotalCount(0);
       setRunning(false);
       return;
     }
+
+    const runId = runIdRef.current + 1;
+    runIdRef.current = runId;
+    lastFetchSigRef.current = sig;
+    runningRef.current = true;
+
     setRunning(true);
-    setFetched(0);
+    setCompletedCount(0);
+    setTotalCount(list.length);
     setRows(
-      list.map((account) => ({
+      list.map((account, index) => ({
         account,
+        stableIndex: index + 1,
         status: 'pending',
         value: 0,
         change: 0,
@@ -132,72 +161,83 @@ export function BulkPortfolioScreen() {
       })),
     );
 
-    let done = 0;
     const snapRows: BulkHoldingSnap[] = [];
-    for (const account of list) {
-      setRows((prev) =>
-        prev.map((r) =>
-          r.account.id === account.id ? { ...r, status: 'running' } : r,
-        ),
-      );
-      try {
-        const result = await importPortfolioFromMeroshare(account);
-        const value = result.holdings.reduce(
-          (sum, h) => sum + holdingValue(h),
-          0,
+
+    await runBulkPortfolioCheck({
+      accounts: list,
+      shouldContinue: () => runIdRef.current === runId,
+      onAccountStart: (account) => {
+        if (runIdRef.current !== runId) return;
+        setRows((prev) =>
+          prev.map((r) =>
+            r.account.id === account.id ? { ...r, status: 'running' } : r,
+          ),
         );
-        const change = result.holdings.reduce(
-          (sum, h) => sum + holdingChange(h),
-          0,
-        );
-        for (const h of result.holdings) {
-          snapRows.push({
-            accountId: account.id,
-            accountName: account.name,
-            symbol: h.symbol,
-            name: h.name,
-            qty: h.qty,
-            wacc: h.wacc,
-            ltp: h.ltp,
-            previousClosingPrice: h.previousClosingPrice ?? null,
-            value: holdingValue(h),
-            dayChange: holdingChange(h),
-          });
+      },
+      onAccountComplete: (row, completed, total) => {
+        if (runIdRef.current !== runId) return;
+        setCompletedCount(completed);
+        setTotalCount(total);
+
+        if (row.ok) {
+          const { result } = row;
+          const value = result.holdings.reduce(
+            (sum, h) => sum + holdingValue(h),
+            0,
+          );
+          const change = result.holdings.reduce(
+            (sum, h) => sum + holdingChange(h),
+            0,
+          );
+          for (const h of result.holdings) {
+            snapRows.push({
+              accountId: row.account.id,
+              accountName: row.account.name,
+              symbol: h.symbol,
+              name: h.name,
+              qty: h.qty,
+              wacc: h.wacc,
+              ltp: h.ltp,
+              previousClosingPrice: h.previousClosingPrice ?? null,
+              value: holdingValue(h),
+              dayChange: holdingChange(h),
+            });
+          }
+          setRows((prev) =>
+            prev.map((r) =>
+              r.account.id === row.account.id
+                ? {
+                    ...r,
+                    status: 'done',
+                    value,
+                    change,
+                    holdings: result.holdings.length,
+                    message: undefined,
+                  }
+                : r,
+            ),
+          );
+        } else {
+          setRows((prev) =>
+            prev.map((r) =>
+              r.account.id === row.account.id
+                ? {
+                    ...r,
+                    status: 'error',
+                    value: 0,
+                    change: 0,
+                    holdings: 0,
+                    message: row.message,
+                  }
+                : r,
+            ),
+          );
         }
-        setRows((prev) =>
-          prev.map((r) =>
-            r.account.id === account.id
-              ? {
-                  ...r,
-                  status: 'done',
-                  value,
-                  change,
-                  holdings: result.holdings.length,
-                  message: undefined,
-                }
-              : r,
-          ),
-        );
-      } catch (e) {
-        setRows((prev) =>
-          prev.map((r) =>
-            r.account.id === account.id
-              ? {
-                  ...r,
-                  status: 'error',
-                  value: 0,
-                  change: 0,
-                  holdings: 0,
-                  message:
-                    e instanceof Error ? e.message : 'Could not fetch portfolio',
-                }
-              : r,
-          ),
-        );
-      }
-      done += 1;
-      setFetched(done);
-    }
+      },
+    });
+
+    if (runIdRef.current !== runId) return;
+
     const totalValue = snapRows.reduce((s, r) => s + r.value, 0);
     const dayChange = snapRows.reduce((s, r) => s + r.dayChange, 0);
     await saveBulkPortfolioSnapshot({
@@ -208,13 +248,19 @@ export function BulkPortfolioScreen() {
       holdings: snapRows.length,
       rows: snapRows,
     });
+    runningRef.current = false;
     setRunning(false);
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      void fetchAll(accounts);
-    }, [accounts, fetchAll]),
+      const list = accountsRef.current;
+      const sig = list.map((a) => a.id).join('|');
+      if (runningRef.current) return;
+      if (sig !== lastFetchSigRef.current || rows.length === 0) {
+        void fetchAll(list);
+      }
+    }, [accountSig, fetchAll, rows.length]),
   );
 
   const counts = useMemo(() => {
@@ -249,7 +295,7 @@ export function BulkPortfolioScreen() {
   }, [rows]);
 
   const progress =
-    rows.length === 0 ? 0 : Math.min(1, fetched / Math.max(rows.length, 1));
+    totalCount === 0 ? 0 : Math.min(1, completedCount / totalCount);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -261,7 +307,7 @@ export function BulkPortfolioScreen() {
           Bulk Portfolio Check
         </Text>
         <Pressable
-          onPress={() => void fetchAll(accounts)}
+          onPress={() => void fetchAll(accounts, true)}
           hitSlop={10}
           style={styles.iconBtn}
           disabled={running}
@@ -303,7 +349,7 @@ export function BulkPortfolioScreen() {
         </View>
       ) : null}
 
-      {(running || fetched > 0) && rows.length > 0 ? (
+      {(running || completedCount > 0) && totalCount > 0 ? (
         <View style={styles.progressBlock}>
           <View style={styles.progressTrack}>
             <View
@@ -315,8 +361,8 @@ export function BulkPortfolioScreen() {
           </View>
           <Text style={styles.progressText}>
             {running
-              ? `Fetching portfolios… ${fetched} fetched`
-              : `Fetched ${fetched} of ${rows.length}`}
+              ? `Fetching portfolios… ${completedCount} of ${totalCount}`
+              : `Fetched ${completedCount} of ${totalCount}`}
           </Text>
         </View>
       ) : null}
@@ -439,7 +485,7 @@ export function BulkPortfolioScreen() {
                 : 'No matching accounts.'}
           </Text>
         }
-        renderItem={({ item, index }) => {
+        renderItem={({ item }) => {
           const isBusy = item.status === 'running' || item.status === 'pending';
           const isOpen = expanded.has(item.account.id);
           const tint = changeTint(item.change);
@@ -450,7 +496,7 @@ export function BulkPortfolioScreen() {
             >
               <View style={styles.cardTop}>
                 <View style={styles.indexBadge}>
-                  <Text style={styles.indexText}>{index + 1}</Text>
+                  <Text style={styles.indexText}>{item.stableIndex}</Text>
                 </View>
                 <Text style={styles.cardName} numberOfLines={1}>
                   {item.account.name.toUpperCase()}
