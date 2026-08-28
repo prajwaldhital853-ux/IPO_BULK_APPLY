@@ -536,7 +536,11 @@ export class MeroshareClient {
    */
   async loginOrSimulate(
     args: LoginArgs,
-    opts: { simulate?: boolean; skipOwnDetail?: boolean } = {},
+    opts: {
+      simulate?: boolean;
+      skipOwnDetail?: boolean;
+      attempts?: number;
+    } = {},
   ): Promise<MeroshareSession> {
     if (opts.simulate) {
       if (!args.username || !args.password) {
@@ -552,7 +556,40 @@ export class MeroshareClient {
       };
       return this.session;
     }
-    return this.login(args, { skipOwnDetail: opts.skipOwnDetail });
+    return this.login(args, {
+      skipOwnDetail: opts.skipOwnDetail,
+      attempts: opts.attempts,
+    });
+  }
+
+  /** Inject cached profile fields after a fast login (bulk portfolio). */
+  applyCachedProfile(hints: { clientCode?: string; demat?: string }): void {
+    if (!this.session) return;
+    if (hints.clientCode) this.session.clientCode = hints.clientCode;
+    if (hints.demat) this.session.demat = hints.demat;
+  }
+
+  /** Single-shot ownDetail fetch — used when clientCode was not cached. */
+  async ensureClientCodeForPortfolio(): Promise<void> {
+    if (!this.session) {
+      throw new MeroshareError('AUTH', 'Not logged in');
+    }
+    if (this.session.clientCode) return;
+    const me = await this.requestOnce<{
+      demat?: string;
+      boid?: string;
+      accountNumber?: string;
+      clientCode?: string;
+    }>(PATHS.me, { method: 'GET', auth: true });
+    this.session.boid = me.boid ?? me.demat ?? me.accountNumber;
+    this.session.demat = me.demat ?? this.session.demat;
+    this.session.clientCode = me.clientCode;
+    if (!this.session.clientCode) {
+      throw new MeroshareError(
+        'UNKNOWN',
+        'MeroShare did not return a client code (ownDetail). Try again.',
+      );
+    }
   }
 
   async listApplicableIssues(): Promise<OpenIssue[]> {
@@ -583,10 +620,13 @@ export class MeroshareClient {
    * Returns current balance per scrip + last transaction / previous close price.
    * MeroShare does NOT expose a purchase/WACC price here.
    */
-  async fetchMyPortfolio(args: {
-    username: string;
-    dpCode?: string;
-  }): Promise<PortfolioHoldingRow[]> {
+  async fetchMyPortfolio(
+    args: {
+      username: string;
+      dpCode?: string;
+    },
+    opts?: { bulkFast?: boolean },
+  ): Promise<PortfolioHoldingRow[]> {
     if (!this.session) {
       throw new MeroshareError('AUTH', 'Not logged in');
     }
@@ -616,15 +656,21 @@ export class MeroshareClient {
       demat: [demat],
       clientCode,
       page: 1,
-      size: 200,
+      size: 500,
       sortAsc: true,
     };
 
-    const data = await this.request<PortfolioApi>(PATHS.myPortfolio, {
-      method: 'POST',
-      auth: true,
-      body: JSON.stringify(body),
-    });
+    const data = opts?.bulkFast
+      ? await this.requestOnce<PortfolioApi>(PATHS.myPortfolio, {
+          method: 'POST',
+          auth: true,
+          body: JSON.stringify(body),
+        })
+      : await this.request<PortfolioApi>(PATHS.myPortfolio, {
+          method: 'POST',
+          auth: true,
+          body: JSON.stringify(body),
+        });
 
     const rows =
       data.meroShareMyPortfolio ??

@@ -19,6 +19,16 @@ export type ImportResult = {
   accountId: string;
   accountName: string;
   holdings: ImportedHolding[];
+  /** Set after live fetch — persist on account to speed up the next bulk run. */
+  meroClientCode?: string;
+  demat?: string;
+};
+
+export type ImportPortfolioOpts = {
+  /** Preloaded password — avoids per-account SecureStore reads in bulk. */
+  password?: string;
+  /** Bulk mode: fewer login retries + single-shot portfolio request. */
+  bulkFast?: boolean;
 };
 
 /**
@@ -32,11 +42,13 @@ export type ImportResult = {
  */
 export async function importPortfolioFromMeroshare(
   account: AccountMeta,
+  opts?: ImportPortfolioOpts,
 ): Promise<ImportResult> {
   if (isMockAccountId(account.id)) {
     const holdings = mockHoldingsForAccount(account.id) ?? [];
-    // Tiny delay so the UI progress state is visible during bulk import.
-    await new Promise((r) => setTimeout(r, 350));
+    if (!opts?.bulkFast) {
+      await new Promise((r) => setTimeout(r, 350));
+    }
     return {
       accountId: account.id,
       accountName: account.name,
@@ -44,48 +56,97 @@ export async function importPortfolioFromMeroshare(
     };
   }
 
-  const secrets = await getSecrets(account.id);
-  if (!secrets?.password) {
+  const password = opts?.password ?? (await getSecrets(account.id))?.password;
+  if (!password) {
     throw new MeroshareError(
       'AUTH',
       `No saved password for ${account.name}. Re-add the account to enable import.`,
     );
   }
 
-  const client = new MeroshareClient();
-  await client.login({
-    clientId: account.dpId,
-    username: account.username,
-    password: secrets.password,
-    dpCode: account.dpCode,
-    dpName: account.dpName,
-  });
+  const bulkFast = opts?.bulkFast === true;
 
-  let rows: PortfolioHoldingRow[];
-  try {
-    rows = await client.fetchMyPortfolio({
-      username: account.username,
-      dpCode: account.dpCode,
+  const runLiveImport = async (
+    useCachedClientCode: boolean,
+  ): Promise<ImportResult> => {
+    const cachedClientCode = useCachedClientCode
+      ? account.meroClientCode?.trim()
+      : undefined;
+    const cachedDemat = account.demat?.trim();
+    const canSkipOwnDetail = Boolean(cachedClientCode);
+
+    const client = new MeroshareClient();
+    await client.login(
+      {
+        clientId: account.dpId,
+        username: account.username,
+        password,
+        dpCode: account.dpCode,
+        dpName: account.dpName,
+      },
+      {
+        skipOwnDetail: canSkipOwnDetail,
+        attempts: bulkFast ? 2 : 3,
+      },
+    );
+
+    if (canSkipOwnDetail || cachedDemat) {
+      client.applyCachedProfile({
+        clientCode: cachedClientCode,
+        demat: cachedDemat,
+      });
+    }
+
+    let rows: PortfolioHoldingRow[];
+    let meroClientCode: string | undefined;
+    let demat: string | undefined;
+    try {
+      if (!canSkipOwnDetail) {
+        await client.ensureClientCodeForPortfolio();
+      }
+      rows = await client.fetchMyPortfolio(
+        {
+          username: account.username,
+          dpCode: account.dpCode,
+        },
+        { bulkFast },
+      );
+      const session = client.getSession();
+      meroClientCode = session?.clientCode ?? cachedClientCode;
+      demat = session?.demat ?? cachedDemat;
+    } finally {
+      client.clearSession();
+    }
+
+    const holdings: ImportedHolding[] = rows.map((r) => {
+      const price = r.lastTransactionPrice ?? r.previousClosingPrice ?? 0;
+      return {
+        symbol: r.script,
+        name: r.scriptDesc,
+        qty: r.quantity,
+        wacc: price,
+        ltp: r.lastTransactionPrice,
+        previousClosingPrice: r.previousClosingPrice,
+      };
     });
-  } finally {
-    client.clearSession();
+
+    return {
+      accountId: account.id,
+      accountName: account.name,
+      holdings,
+      meroClientCode,
+      demat,
+    };
+  };
+
+  if (account.meroClientCode?.trim()) {
+    try {
+      return await runLiveImport(true);
+    } catch (e) {
+      if (!bulkFast) throw e;
+      return await runLiveImport(false);
+    }
   }
 
-  const holdings: ImportedHolding[] = rows.map((r) => {
-    const price = r.lastTransactionPrice ?? r.previousClosingPrice ?? 0;
-    return {
-      symbol: r.script,
-      name: r.scriptDesc,
-      qty: r.quantity,
-      wacc: price,
-      ltp: r.lastTransactionPrice,
-      previousClosingPrice: r.previousClosingPrice,
-    };
-  });
-
-  return {
-    accountId: account.id,
-    accountName: account.name,
-    holdings,
-  };
+  return await runLiveImport(false);
 }

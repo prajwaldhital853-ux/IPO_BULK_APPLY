@@ -27,6 +27,11 @@ export type AccountMeta = {
   boidHint?: string;
   /** Full 16-digit demat / BOID (130 + DP code + username) for public IPO result */
   demat?: string;
+  /**
+   * MeroShare ownDetail.clientCode — cached after first portfolio fetch
+   * so bulk checks can skip an extra API round-trip per account.
+   */
+  meroClientCode?: string;
   /** ISO date when the account was added on this device */
   addedAt?: string;
   /**

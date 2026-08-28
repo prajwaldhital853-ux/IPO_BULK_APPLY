@@ -1,14 +1,19 @@
 import type { AccountMeta } from '../../types/account';
 import { isMockAccountId } from '../../data/mockAccounts';
-import { importPortfolioFromMeroshare, type ImportResult } from './portfolioImport';
+import { getSecrets } from '../../storage/accountsStorage';
+import { patchAccountMeta } from '../../storage/accountsStorage';
+import {
+  importPortfolioFromMeroshare,
+  type ImportResult,
+} from './portfolioImport';
 import { isTransientMeroshareError, MeroshareError } from './errors';
 
-/** Parallel workers — 5 accounts at a time keeps bulk checks fast without hammering CDSC. */
-const BULK_PORTFOLIO_CONCURRENCY = 5;
-const BULK_PORTFOLIO_GAP_MS = 400;
-const BULK_PORTFOLIO_GAP_MAX_MS = 3000;
-const BULK_PORTFOLIO_PAUSE_MS = 2500;
-const DEMO_ACCOUNT_GAP_MS = 150;
+/** More workers + shorter gap — throttling still backs off on rate limits. */
+const BULK_PORTFOLIO_CONCURRENCY = 8;
+const BULK_PORTFOLIO_GAP_MS = 180;
+const BULK_PORTFOLIO_GAP_MAX_MS = 2800;
+const BULK_PORTFOLIO_PAUSE_MS = 2200;
+const DEMO_ACCOUNT_GAP_MS = 80;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -105,11 +110,12 @@ async function fetchOnePortfolio(
   account: AccountMeta,
   index: number,
   throttle: BulkThrottle,
+  password?: string,
 ): Promise<BulkPortfolioAccountResult> {
   if (isMockAccountId(account.id)) {
     await sleep(DEMO_ACCOUNT_GAP_MS);
     try {
-      const result = await importPortfolioFromMeroshare(account);
+      const result = await importPortfolioFromMeroshare(account, { bulkFast: true });
       return { ok: true, account, index, result };
     } catch (e) {
       return {
@@ -123,13 +129,25 @@ async function fetchOnePortfolio(
 
   const run = async (): Promise<ImportResult> => {
     await throttle.acquire();
-    const result = await importPortfolioFromMeroshare(account);
+    const result = await importPortfolioFromMeroshare(account, {
+      bulkFast: true,
+      password,
+    });
     throttle.relax();
     return result;
   };
 
+  const persistCacheHints = (result: ImportResult) => {
+    if (!result.meroClientCode && !result.demat) return;
+    const patch: Partial<AccountMeta> = {};
+    if (result.meroClientCode) patch.meroClientCode = result.meroClientCode;
+    if (result.demat) patch.demat = result.demat;
+    void patchAccountMeta(account.id, patch).catch(() => undefined);
+  };
+
   try {
     const result = await run();
+    persistCacheHints(result);
     return { ok: true, account, index, result };
   } catch (e) {
     if (!isTransientMeroshareError(e)) {
@@ -143,8 +161,9 @@ async function fetchOnePortfolio(
     }
     try {
       throttle.backoff(e);
-      await sleep(900);
+      await sleep(700);
       const result = await run();
+      persistCacheHints(result);
       return { ok: true, account, index, result };
     } catch (e2) {
       throttle.backoff(e2);
@@ -170,6 +189,17 @@ export async function runBulkPortfolioCheck(
   const throttle = createBulkThrottle();
   let completed = 0;
 
+  const passwordById = new Map<string, string>();
+  await Promise.all(
+    opts.accounts.map(async (account) => {
+      if (isMockAccountId(account.id)) return;
+      const secrets = await getSecrets(account.id);
+      if (secrets?.password) {
+        passwordById.set(account.id, secrets.password);
+      }
+    }),
+  );
+
   const slots = opts.accounts.map((_, i) => i);
   const rows = await mapPool(slots, BULK_PORTFOLIO_CONCURRENCY, async (i) => {
     if (opts.shouldContinue && !opts.shouldContinue()) {
@@ -184,7 +214,12 @@ export async function runBulkPortfolioCheck(
     const account = opts.accounts[i];
     opts.onAccountStart?.(account, i, total);
 
-    const row = await fetchOnePortfolio(account, i, throttle);
+    const row = await fetchOnePortfolio(
+      account,
+      i,
+      throttle,
+      passwordById.get(account.id),
+    );
     completed += 1;
     opts.onAccountComplete?.(row, completed, total);
     return row;
