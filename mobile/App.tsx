@@ -1,5 +1,5 @@
 import 'react-native-gesture-handler';
-import React, { useEffect } from 'react';
+import React from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -13,19 +13,12 @@ import { SubscriptionProvider } from './src/context/SubscriptionContext';
 import { AppBrandingProvider } from './src/context/AppBrandingContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { AppWarmup } from './src/components/AppWarmup';
+import { PushRegistrationSync } from './src/components/PushRegistrationSync';
 import { StartupNoticeModal } from './src/components/StartupNoticeModal';
 import { RootNavigator } from './src/navigation/RootNavigator';
-import { loadNotificationsEnabled } from './src/storage/appPreferencesStorage';
-import { registerPushTokenOnServer } from './src/services/push/notifications';
 
 function AppShell() {
   const { colors, isDark } = useTheme();
-
-  useEffect(() => {
-    void loadNotificationsEnabled().then((enabled) => {
-      if (enabled) void registerPushTokenOnServer(true);
-    });
-  }, []);
 
   return (
     <GestureHandlerRootView style={[styles.root, { backgroundColor: colors.bg }]}>
@@ -33,6 +26,7 @@ function AppShell() {
         <AppBrandingProvider>
           <AccountLimitBlockedProvider>
             <AuthProvider>
+              <PushRegistrationSync />
               <AppLockProvider>
                 <AccountsProvider>
                   <SubscriptionProvider>

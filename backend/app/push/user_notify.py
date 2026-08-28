@@ -38,6 +38,7 @@ async def notify_user(
     try:
         tokens = await _tokens_for_user(db, user_id)
         if not tokens:
+            log.info('notify_user: no push tokens for user=%s', user_id)
             return 0
         result = await send_expo_push(
             tokens,
