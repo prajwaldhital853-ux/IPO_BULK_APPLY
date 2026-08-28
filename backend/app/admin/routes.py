@@ -31,7 +31,6 @@ from ..account_slots.service import (
 )
 from ..account_slots.registry import (
     build_state,
-    claimed_totals,
     list_registry,
     release_devices,
 )
@@ -46,6 +45,7 @@ from ..db.models import (
 from ..db.session import get_db
 from ..emailer import email_configured
 from .deps import AdminUser, get_admin_user
+from .list_queries import paginate_admin_subscriptions, paginate_admin_users
 from .schemas import (
     AdminActionIn,
     AdminDashboardStats,
@@ -54,6 +54,8 @@ from .schemas import (
     AdminLoginResponse,
     AdminLoginVerifyRequest,
     AdminMaxAccountsIn,
+    AdminPaginatedSubscriptionsOut,
+    AdminPaginatedUsersOut,
     AdminPasswordChangeIn,
     AdminPendingBrief,
     AdminResetPasswordIn,
@@ -1197,71 +1199,60 @@ async def admin_stats(
     )
 
 
-@router.get('/users', response_model=list[AdminUserRow])
+@router.get('/users', response_model=AdminPaginatedUsersOut)
 async def admin_list_users(
     access: str | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=120),
+    cursor: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=50),
     _: AdminUser = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
-) -> list[AdminUserRow]:
-    stmt = (
-        select(User)
-        .options(selectinload(User.premium))
-        .order_by(User.created_at.desc())
+) -> AdminPaginatedUsersOut:
+    result = await paginate_admin_users(
+        db,
+        access=access,
+        q=q,
+        cursor=cursor,
+        page=page,
+        limit=limit,
     )
-    rows = (await db.scalars(stmt)).all()
-    all_slots = (await db.scalars(select(UserDeviceSlot))).all()
-    by_uid: dict[str, list[UserDeviceSlot]] = {}
-    for s in all_slots:
-        by_uid.setdefault(s.user_id, []).append(s)
-    claimed_by_uid = await claimed_totals(db)
-    out: list[AdminUserRow] = []
-    filter_key = (access or 'all').strip().lower()
-    for user in rows:
-        slots = sorted(
-            by_uid.get(user.id, []),
-            key=lambda x: x.last_seen_at or x.created_at,
-            reverse=True,
-        )
-        row = await _user_row(
-            db,
-            user,
-            slots,
-            claimed_total=claimed_by_uid.get(user.id, 0),
-        )
-        if filter_key == 'blocked':
-            if not row.is_blocked:
-                continue
-        elif filter_key == 'multi_device':
-            if row.device_count <= 1:
-                continue
-        elif filter_key not in {'', 'all'} and row.access_level != filter_key:
-            continue
-        out.append(row)
     await db.commit()
-    return out
+    return result
 
 
-@router.get('/subscriptions', response_model=list[AdminSubscriptionRow])
+@router.get('/users/{user_id}', response_model=AdminUserRow)
+async def admin_get_user(
+    user_id: str,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminUserRow:
+    user = await load_user_with_premium(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail='User not found')
+    row = await _user_row(db, user)
+    await db.commit()
+    return row
+
+
+@router.get('/subscriptions', response_model=AdminPaginatedSubscriptionsOut)
 async def admin_list_subscriptions(
     status: str | None = Query(default=None),
+    cursor: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=50),
     _: AdminUser = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
-) -> list[AdminSubscriptionRow]:
-    stmt = (
-        select(SubscriptionRequest, User)
-        .join(User, User.id == SubscriptionRequest.user_id)
-        .options(selectinload(User.premium))
-        .order_by(SubscriptionRequest.created_at.desc())
+) -> AdminPaginatedSubscriptionsOut:
+    result = await paginate_admin_subscriptions(
+        db,
+        status=status,
+        cursor=cursor,
+        page=page,
+        limit=limit,
     )
-    if status:
-        stmt = stmt.where(SubscriptionRequest.status == status)
-    rows = await db.execute(stmt)
-    out: list[AdminSubscriptionRow] = []
-    for req, user in rows.all():
-        access = await _access_level(db, user)
-        out.append(_row_out(req, user, access))
     await db.commit()
-    return out
+    return result
 
 
 @router.post('/subscriptions/{request_id}/approve', response_model=AdminSubscriptionRow)
@@ -1376,6 +1367,27 @@ async def admin_approve_subscription(
             exc,
         )
 
+    try:
+        from ..push.user_notify import notify_user
+
+        max_acc = effective_max_accounts(user, premium_active=True)
+        await notify_user(
+            db,
+            row.user_id,
+            title='Premium approved',
+            body=(
+                f'Your {row.plan_title} subscription is active. '
+                f'Account limit: {max_acc}. Open the app to use premium features.'
+            ),
+            data={'type': 'subscription_approved', 'requestId': row.id},
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            'subscription approve: push failed user=%s: %s',
+            row.user_id,
+            exc,
+        )
+
     return _row_out(row, user, access)
 
 
@@ -1403,6 +1415,28 @@ async def admin_reject_subscription(
     user = await load_user_with_premium(db, row.user_id)
     assert user is not None
     access = await _access_level(db, user)
+
+    try:
+        from ..push.user_notify import notify_user
+
+        note = (row.admin_note or '').strip()
+        body_text = f'Your {row.plan_title} subscription request was rejected.'
+        if note:
+            body_text = f'{body_text} Note: {note}'
+        await notify_user(
+            db,
+            row.user_id,
+            title='Premium request rejected',
+            body=body_text,
+            data={'type': 'subscription_rejected', 'requestId': row.id},
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            'subscription reject: push failed user=%s: %s',
+            row.user_id,
+            exc,
+        )
+
     return _row_out(row, user, access)
 
 
@@ -1429,6 +1463,24 @@ async def admin_deactivate_user(
         if latest.status == 'pending':
             latest.status = 'rejected'
     await db.commit()
+
+    try:
+        from ..push.user_notify import notify_user
+
+        note = (body.admin_note or '').strip()
+        body_text = 'Your premium subscription was deactivated by admin.'
+        if note:
+            body_text = f'{body_text} {note}'
+        await notify_user(
+            db,
+            user_id,
+            title='Premium deactivated',
+            body=body_text,
+            data={'type': 'premium_deactivated'},
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning('deactivate: push failed user=%s: %s', user_id, exc)
+
     return {'ok': True}
 
 
@@ -1455,9 +1507,25 @@ async def admin_set_user_max_accounts(
     # The active set is derived from the new cap (first N demats by the order
     # they were added), so phones pick it up on their next sync automatically.
     user.max_accounts = int(body.max_accounts)
+    new_max = user.max_accounts
     await db.commit()
     user = await load_user_with_premium(db, user_id)
     assert user is not None
+
+    try:
+        from ..push.user_notify import notify_user
+
+        label = 'unlimited' if new_max >= 999999 else str(new_max)
+        await notify_user(
+            db,
+            user_id,
+            title='Account limit updated',
+            body=f'Your MeroShare account limit is now {label}.',
+            data={'type': 'account_limit_updated', 'maxAccounts': new_max},
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning('max-accounts: push failed user=%s: %s', user_id, exc)
+
     return await _user_row(db, user)
 
 
@@ -1485,10 +1553,25 @@ async def admin_block_user(
     await db.commit()
     user = await load_user_with_premium(db, user_id)
     assert user is not None
+
+    try:
+        from ..push.user_notify import notify_user
+
+        reason = (user.blocked_reason or '').strip()
+        body_text = 'Your account has been blocked. Sign in is disabled until an admin unblocks you.'
+        if reason:
+            body_text = f'{body_text} Reason: {reason}'
+        await notify_user(
+            db,
+            user_id,
+            title='Account blocked',
+            body=body_text,
+            data={'type': 'account_blocked'},
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning('block: push failed user=%s: %s', user_id, exc)
+
     return await _user_row(db, user)
-
-
-@router.post('/users/{user_id}/unblock', response_model=AdminUserRow)
 async def admin_unblock_user(
     user_id: str,
     _: AdminUser = Depends(get_admin_user),

@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     redis_url: str = ""
     jwt_secret: str = "change-me-jwt-secret-min-32-chars!!"
     jwt_access_ttl: int = 900
-    jwt_refresh_days: int = 30
+    jwt_refresh_days: int = 365
     google_client_ids: str = ""
     cors_origins: str = "*"
     cdsc_require_jwt: bool = True

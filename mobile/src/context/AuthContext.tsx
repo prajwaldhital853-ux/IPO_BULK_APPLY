@@ -6,7 +6,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { Alert, Platform } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import {
   AUTH_API_BASE,
   AUTH_ENABLED,
@@ -30,17 +30,24 @@ import {
   clearAccessToken,
   clearAllTokens,
   getAccessToken,
+  hasStoredRefreshToken,
   loadRefreshToken,
   saveRefreshToken,
   setAccessToken,
 } from '../services/auth/tokenStorage';
 import { refreshSessionIfNeeded, fetchMe, deleteAccount as deleteAccountApi } from '../services/auth/http';
+import { isFatalAuthError } from '../services/auth/errors';
 import { migrateLocalDataToUser, clearGuestNamespace } from '../storage/dataMigration';
 import {
   clearLastSignedInUserId,
   loadLastSignedInUserId,
   saveLastSignedInUserId,
 } from '../storage/sessionStorage';
+import {
+  clearSessionProfile,
+  loadSessionProfile,
+  saveSessionProfile,
+} from '../storage/sessionProfileCache';
 import { clearAllUserLocalData } from '../storage/userDataCleanup';
 import { setActiveUserId } from '../storage/userScope';
 import {
@@ -86,38 +93,82 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const applySession = useCallback(
     async (session: Awaited<ReturnType<typeof authGoogle>>) => {
       setActiveUserId(session.user.id);
+      await saveRefreshToken(session.refreshToken, session.user.id);
       setAccessToken(session.accessToken, session.expiresIn);
       setSessionReady(true);
-      await saveRefreshToken(session.refreshToken, session.user.id);
       await saveLastSignedInUserId(session.user.id);
       await migrateLocalDataToUser(session.user.id);
       await clearGuestNamespace();
       setUser(session.user);
       setPremium(session.premium);
       await cachePremiumFromServer(session.premium);
+      await saveSessionProfile(session.user, session.premium);
     },
     [],
   );
 
+  const clearLocalSession = useCallback(async (userId?: string) => {
+    await clearAllTokens(userId);
+    await clearLastSignedInUserId();
+    await clearSessionProfile();
+    await clearPremiumCache();
+    setActiveUserId(null);
+    setUser(null);
+    setPremium(defaultPremium);
+    setSessionReady(false);
+    clearAccessToken();
+  }, []);
+
+  const restoreCachedSession = useCallback(async (userId?: string) => {
+    const cached = await loadSessionProfile();
+    const hasRefresh = await hasStoredRefreshToken(userId);
+    if (!cached || !hasRefresh) return false;
+    setActiveUserId(cached.user.id);
+    setUser(cached.user);
+    setPremium(cached.premium);
+    setSessionReady(true);
+    await cachePremiumFromServer(cached.premium);
+    return true;
+  }, []);
+
   const refreshProfile = useCallback(async () => {
     if (!AUTH_ENABLED) return null;
+    const lastUserId = await loadLastSignedInUserId();
+    if (lastUserId) setActiveUserId(lastUserId);
+
     const me = await fetchMe();
     if (me) {
       setActiveUserId(me.user.id);
       setUser(me.user);
       setPremium(me.premium);
       setSessionReady(true);
+      await saveLastSignedInUserId(me.user.id);
       await cachePremiumFromServer(me.premium);
-    } else {
-      const lastUserId = await loadLastSignedInUserId();
-      await clearAllTokens(lastUserId ?? undefined);
-      setActiveUserId(null);
-      setUser(null);
-      setPremium(defaultPremium);
-      setSessionReady(false);
+      await saveSessionProfile(me.user, me.premium);
+      return me;
     }
-    return me;
-  }, []);
+
+    const hasRefresh = await hasStoredRefreshToken(lastUserId ?? undefined);
+    if (!hasRefresh) {
+      await clearLocalSession(lastUserId ?? undefined);
+      return null;
+    }
+
+    const session = await refreshSessionIfNeeded();
+    if (session) {
+      setActiveUserId(session.user.id);
+      setUser(session.user);
+      setPremium(session.premium);
+      setSessionReady(true);
+      await saveLastSignedInUserId(session.user.id);
+      await cachePremiumFromServer(session.premium);
+      await saveSessionProfile(session.user, session.premium);
+      return { user: session.user, premium: session.premium };
+    }
+
+    await restoreCachedSession(lastUserId ?? undefined);
+    return null;
+  }, [clearLocalSession, restoreCachedSession]);
 
   useEffect(() => {
     if (!AUTH_ENABLED) {
@@ -129,30 +180,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const lastUserId = await loadLastSignedInUserId();
         if (lastUserId) setActiveUserId(lastUserId);
+        await restoreCachedSession(lastUserId ?? undefined);
+
         const session = await refreshSessionIfNeeded();
         if (!mounted) return;
-        if (session?.accessToken) {
-          const me = await fetchMe();
-          if (me && mounted) {
-            setActiveUserId(me.user.id);
-            await saveLastSignedInUserId(me.user.id);
-            setUser(me.user);
-            setPremium(me.premium);
-            setSessionReady(true);
-            await cachePremiumFromServer(me.premium);
+        if (session) {
+          setActiveUserId(session.user.id);
+          await saveLastSignedInUserId(session.user.id);
+          setUser(session.user);
+          setPremium(session.premium);
+          setSessionReady(true);
+          await cachePremiumFromServer(session.premium);
+          await saveSessionProfile(session.user, session.premium);
+        } else {
+          const stillHasRefresh = await hasStoredRefreshToken(
+            lastUserId ?? undefined,
+          );
+          if (!stillHasRefresh) {
+            if (mounted) {
+              await clearLocalSession(lastUserId ?? undefined);
+            }
           } else if (mounted) {
-            await clearAllTokens(lastUserId ?? undefined);
-            setActiveUserId(null);
-            setUser(null);
-            setPremium(defaultPremium);
-            setSessionReady(false);
+            await restoreCachedSession(lastUserId ?? undefined);
           }
-        } else if (mounted) {
-          setSessionReady(false);
         }
       } finally {
         if (mounted) {
-          setSessionReady(Boolean(getAccessToken()));
           setLoading(false);
         }
       }
@@ -160,6 +213,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
+  }, [clearLocalSession, restoreCachedSession]);
+
+  useEffect(() => {
+    if (!AUTH_ENABLED) return;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') return;
+      void refreshSessionIfNeeded().then(async (session) => {
+        if (!session) return;
+        setActiveUserId(session.user.id);
+        setUser(session.user);
+        setPremium(session.premium);
+        setSessionReady(true);
+        await saveSessionProfile(session.user, session.premium);
+        await cachePremiumFromServer(session.premium);
+      });
+    });
+    return () => sub.remove();
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
@@ -204,30 +274,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     await signOutGoogleNative();
-    await clearAllTokens(user?.id);
-    await clearLastSignedInUserId();
-    await clearPremiumCache();
-    setActiveUserId(null);
-    setUser(null);
-    setPremium(defaultPremium);
-    setSessionReady(false);
-    clearAccessToken();
-  }, [user?.id]);
+    await clearLocalSession(user?.id);
+  }, [clearLocalSession, user?.id]);
 
   const deleteAccount = useCallback(async () => {
     const uid = user?.id;
     if (!uid) return;
-    await deleteAccountApi();
+    try {
+      await deleteAccountApi();
+    } catch (e) {
+      if (!isFatalAuthError(e)) throw e;
+    }
     await clearAllUserLocalData(uid);
     await signOutGoogleNative();
-    await clearAllTokens(uid);
-    await clearPremiumCache();
-    setActiveUserId(null);
-    setUser(null);
-    setPremium(defaultPremium);
-    setSessionReady(false);
-    clearAccessToken();
-  }, [user?.id]);
+    await clearLocalSession(uid);
+  }, [clearLocalSession, user?.id]);
 
   const value = useMemo(
     () => ({
@@ -236,9 +297,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       premium,
       loading,
       isAuthenticated:
-        AUTH_ENABLED
-          ? sessionReady && Boolean(user) && Boolean(getAccessToken())
-          : true,
+        AUTH_ENABLED ? sessionReady && Boolean(user) : true,
       signInWithGoogle,
       signOut,
       deleteAccount,

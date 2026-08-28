@@ -139,6 +139,30 @@ class AdminUserRow(BaseModel):
     model_config = {'populate_by_name': True}
 
 
+class AdminPaginatedUsersOut(BaseModel):
+    items: list[AdminUserRow]
+    page: int
+    page_size: int = Field(alias='pageSize')
+    total_count: int = Field(alias='totalCount')
+    total_pages: int = Field(alias='totalPages')
+    has_more: bool = Field(alias='hasMore')
+    next_cursor: str | None = Field(default=None, alias='nextCursor')
+
+    model_config = {'populate_by_name': True}
+
+
+class AdminPaginatedSubscriptionsOut(BaseModel):
+    items: list[AdminSubscriptionRow]
+    page: int
+    page_size: int = Field(alias='pageSize')
+    total_count: int = Field(alias='totalCount')
+    total_pages: int = Field(alias='totalPages')
+    has_more: bool = Field(alias='hasMore')
+    next_cursor: str | None = Field(default=None, alias='nextCursor')
+
+    model_config = {'populate_by_name': True}
+
+
 class AdminMaxAccountsIn(BaseModel):
     # 999999 = unlimited (admin-controlled). No hard 500 cap.
     max_accounts: int = Field(alias='maxAccounts', ge=1, le=999999)

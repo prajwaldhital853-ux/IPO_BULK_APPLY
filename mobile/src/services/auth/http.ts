@@ -14,6 +14,7 @@ import {
   clearRefreshToken,
 } from './tokenStorage';
 import { saveLastSignedInUserId, loadLastSignedInUserId } from '../../storage/sessionStorage';
+import { isFatalAuthError } from './errors';
 import { setActiveUserId } from '../../storage/userScope';
 
 export const SESSION_EXPIRED_MESSAGE =
@@ -68,9 +69,11 @@ export async function refreshSessionIfNeeded(): Promise<AuthSession | null> {
       setAccessToken(session.accessToken, session.expiresIn);
       await saveRefreshToken(session.refreshToken, session.user.id);
       return session;
-    } catch {
+    } catch (error) {
       clearAccessToken();
-      await clearRefreshToken(lastUserId ?? undefined);
+      if (isFatalAuthError(error)) {
+        await clearRefreshToken(lastUserId ?? undefined);
+      }
       return null;
     } finally {
       refreshPromise = null;

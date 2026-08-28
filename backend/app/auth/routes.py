@@ -340,6 +340,23 @@ async def subscription_request(
     await db.commit()
     row = await load_user_with_premium(db, user.id)
     assert row is not None
+
+    try:
+        from ..push.user_notify import notify_user
+
+        await notify_user(
+            db,
+            user.id,
+            title='Premium request submitted',
+            body=(
+                f'Your {req.plan_title} request (Rs {req.amount_npr}) was received. '
+                'We will verify payment and notify you when it is approved.'
+            ),
+            data={'type': 'subscription_submitted', 'requestId': req.id},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     return await build_premium_out(db, row)
 
 

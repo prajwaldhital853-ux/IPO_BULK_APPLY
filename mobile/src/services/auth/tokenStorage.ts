@@ -49,6 +49,10 @@ export async function clearRefreshToken(userId?: string): Promise<void> {
   }
 }
 
+export async function hasStoredRefreshToken(userId?: string): Promise<boolean> {
+  return Boolean(await loadRefreshToken(userId));
+}
+
 export async function clearAllTokens(userId?: string): Promise<void> {
   clearAccessToken();
   await clearRefreshToken(userId);

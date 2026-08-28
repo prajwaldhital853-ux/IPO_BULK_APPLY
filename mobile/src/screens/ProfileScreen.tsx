@@ -27,18 +27,19 @@ import { useAccounts } from '../context/AccountsContext';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import {
-  accountMetaToFullExportRow,
-  exportFullAccountsBackup,
+  backupFolderHint,
+  exportFullAccountsCsv,
   exportFullAccountsExcel,
   importIncludesSecrets,
+  loadFullExportRows,
   parseImportedAccounts,
   pickAccountsFile,
   toLinkedDraft,
 } from '../services/accounts/backup';
+import { loadAccountMeta } from '../storage/accountsStorage';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
-import { DuplicateAccountError } from '../utils/duplicateAccount';
 import {
   fetchPublicAppSettings,
   type ContactSettings,
@@ -189,7 +190,7 @@ export function ProfileScreen() {
     state,
     refresh: refreshSubscription,
   } = useSubscription();
-  const { accounts, addAccount, loadSecrets } = useAccounts();
+  const { accounts, bulkImportAccounts } = useAccounts();
   const auth = useAuth();
   const { colors, isDark, toggle } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -343,6 +344,7 @@ export function ProfileScreen() {
 
       const hasSecrets = importIncludesSecrets(parsed);
       let restoredSecrets = 0;
+      const toImport: ReturnType<typeof toLinkedDraft>[] = [];
 
       for (const acc of parsed) {
         const key = `${(acc.dpCode ?? acc.dpId).trim()}:${acc.username.trim().toLowerCase()}`;
@@ -354,21 +356,17 @@ export function ProfileScreen() {
           skippedLimit++;
           continue;
         }
-        setBusy(`Importing ${acc.name}…`);
-        try {
-          await addAccount(toLinkedDraft(acc));
-        } catch (e) {
-          if (e instanceof DuplicateAccountError) {
-            skippedDup++;
-            continue;
-          }
-          throw e;
-        }
+        toImport.push(toLinkedDraft(acc));
         existing.add(key);
         added++;
         if (acc.password?.trim() || acc.crn?.trim() || acc.pin?.trim()) {
           restoredSecrets += 1;
         }
+      }
+
+      if (toImport.length) {
+        setBusy(`Saving ${toImport.length} account${toImport.length === 1 ? '' : 's'}…`);
+        await bulkImportAccounts(toImport);
       }
 
       setBusy(null);
@@ -397,6 +395,31 @@ export function ProfileScreen() {
     }
   };
 
+  const runExport = async (kind: 'excel' | 'csv') => {
+    try {
+      const list = await loadAccountMeta();
+      const rows = await loadFullExportRows(list, (done, total) => {
+        setBusy(`Loading secrets ${done}/${total}…`);
+      });
+      setBusy(kind === 'excel' ? 'Saving Excel file…' : 'Saving CSV file…');
+      const saved =
+        kind === 'excel'
+          ? await exportFullAccountsExcel(rows)
+          : await exportFullAccountsCsv(rows);
+      Alert.alert(
+        'Saved',
+        `${rows.length} account${rows.length === 1 ? '' : 's'} saved to:\n${saved.savedPath}\n\nUse Import backup on another phone to restore.`,
+      );
+    } catch (e) {
+      Alert.alert(
+        'Export failed',
+        e instanceof Error ? e.message : 'Could not export accounts.',
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const handleExport = async () => {
     setOptionsOpen(false);
     if (!accounts.length) {
@@ -405,53 +428,19 @@ export function ProfileScreen() {
     }
     Alert.alert(
       'Export backup',
-      `Save all ${accounts.length} account(s) with password, CRN and PIN.\n\nKeep this file private — anyone with it can access your MeroShare logins.`,
+      `Save all ${accounts.length} account(s) to ${backupFolderHint()}.\n\nFirst time on Android: allow Downloads access when asked.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'JSON backup',
+          text: 'Excel (.xlsx)',
           onPress: () => {
-            void (async () => {
-              try {
-                setBusy('Preparing backup…');
-                const rows = await Promise.all(
-                  accounts.map(async (a, i) =>
-                    accountMetaToFullExportRow(a, i, await loadSecrets(a.id)),
-                  ),
-                );
-                await exportFullAccountsBackup(rows);
-              } catch (e) {
-                Alert.alert(
-                  'Export failed',
-                  e instanceof Error ? e.message : 'Could not export accounts.',
-                );
-              } finally {
-                setBusy(null);
-              }
-            })();
+            void runExport('excel');
           },
         },
         {
-          text: 'Excel / CSV',
+          text: 'CSV',
           onPress: () => {
-            void (async () => {
-              try {
-                setBusy('Preparing Excel file…');
-                const rows = await Promise.all(
-                  accounts.map(async (a, i) =>
-                    accountMetaToFullExportRow(a, i, await loadSecrets(a.id)),
-                  ),
-                );
-                await exportFullAccountsExcel(rows);
-              } catch (e) {
-                Alert.alert(
-                  'Export failed',
-                  e instanceof Error ? e.message : 'Could not export accounts.',
-                );
-              } finally {
-                setBusy(null);
-              }
-            })();
+            void runExport('csv');
           },
         },
       ],
@@ -466,22 +455,15 @@ export function ProfileScreen() {
     onPress: () => void;
   }[] = [
     {
-      label: 'Import from Excel',
-      hint: 'Restore accounts + password from .csv / Excel export',
-      icon: 'grid-outline',
-      color: '#2E7D32',
-      onPress: () => void handleImport(),
-    },
-    {
-      label: 'Import',
-      hint: 'Restore full backup (.json or .csv) on a new phone',
+      label: 'Import backup',
+      hint: `Pick a file from ${backupFolderHint()}`,
       icon: 'download-outline',
       color: '#1565C0',
       onPress: () => void handleImport(),
     },
     {
-      label: 'Export',
-      hint: 'Backup all accounts with password, CRN and PIN',
+      label: 'Export backup',
+      hint: `Save to ${backupFolderHint()} as Excel or CSV`,
       icon: 'share-outline',
       color: '#EF6C00',
       onPress: () => void handleExport(),

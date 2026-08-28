@@ -1,3 +1,5 @@
+import { AuthHttpError } from './errors';
+
 export type PendingPremiumInfo = {
   id: string;
   planId: string;
@@ -132,7 +134,7 @@ export async function authGoogle(idToken: string, baseUrl: string): Promise<Auth
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ idToken }),
   });
-  if (!res.ok) throw new Error(await parseError(res));
+  if (!res.ok) throw new AuthHttpError(await parseError(res), res.status);
   return mapSession((await res.json()) as Record<string, unknown>);
 }
 
@@ -145,7 +147,7 @@ export async function authRefresh(
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ refreshToken }),
   });
-  if (!res.ok) throw new Error(await parseError(res));
+  if (!res.ok) throw new AuthHttpError(await parseError(res), res.status);
   return mapSession((await res.json()) as Record<string, unknown>);
 }
 
@@ -173,7 +175,7 @@ export async function authMe(accessToken: string, baseUrl: string): Promise<MeRe
       Authorization: `Bearer ${accessToken}`,
     },
   });
-  if (!res.ok) throw new Error(await parseError(res));
+  if (!res.ok) throw new AuthHttpError(await parseError(res), res.status);
   const json = (await res.json()) as Record<string, unknown>;
   return {
     user: mapUser(json.user as Record<string, unknown>),

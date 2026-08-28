@@ -36,7 +36,11 @@ import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTheme } from '../context/ThemeContext';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
-import { exportFullAccountsExcel } from '../services/accounts/backup';
+import {
+  backupFolderHint,
+  exportFullAccountsExcel,
+  loadFullExportRows,
+} from '../services/accounts/backup';
 import { loadAccountMeta } from '../storage/accountsStorage';
 import type { ThemeColors } from '../theme/colors';
 import {
@@ -186,7 +190,6 @@ export function HomeScreen() {
     accounts,
     removeAccount,
     reorderAccounts,
-    loadSecrets,
     reloadAccounts,
     seedMockAccounts,
     removeMockAccounts,
@@ -381,8 +384,8 @@ export function HomeScreen() {
         return;
       }
       Alert.alert(
-        'Export to Excel?',
-        `Save all ${list.length} account(s) with S.N., Name, DP, Client, Password, CRN and PIN.\n\nKeep this file private — it contains login secrets.`,
+        'Export Excel?',
+        `Save all ${list.length} account(s) to ${backupFolderHint()}.\n\nKeep this file private — it contains login secrets.`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -391,33 +394,11 @@ export function HomeScreen() {
               void (async () => {
                 setExporting(true);
                 try {
-                  const rows = await Promise.all(
-                    list.map(async (a, i) => {
-                      let secrets: Awaited<ReturnType<typeof loadSecrets>> =
-                        null;
-                      try {
-                        secrets = await loadSecrets(a.id);
-                      } catch {
-                        secrets = null;
-                      }
-                      return {
-                        sn: i + 1,
-                        name: a.name ?? '',
-                        dp: a.dpCode ?? a.dpId ?? '',
-                        client: a.username ?? '',
-                        password: secrets?.password ?? '',
-                        crn: secrets?.crn ?? '',
-                        pin: secrets?.pin ?? '',
-                        dpName: a.dpName,
-                        bankName: a.bankName,
-                        demat: a.demat,
-                      };
-                    }),
-                  );
-                  await exportFullAccountsExcel(rows);
+                  const rows = await loadFullExportRows(list);
+                  const saved = await exportFullAccountsExcel(rows);
                   Alert.alert(
-                    'Exported',
-                    `${rows.length} account${rows.length === 1 ? '' : 's'} saved to Excel/CSV.`,
+                    'Saved',
+                    `${rows.length} account${rows.length === 1 ? '' : 's'} saved to:\n${saved.savedPath}`,
                   );
                 } catch (e: unknown) {
                   Alert.alert(
@@ -435,7 +416,7 @@ export function HomeScreen() {
         ],
       );
     })();
-  }, [loadSecrets]);
+  }, []);
 
   const promptLocked = useCallback(() => {
     showLockedAccountAlert(() => navigation.navigate('Subscription'));

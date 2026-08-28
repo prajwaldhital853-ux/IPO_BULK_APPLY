@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +25,7 @@ import {
   fetchAdminFeedback,
   fetchAdminStats,
   fetchAdminSubscriptions,
+  fetchAdminUserDetail,
   fetchAdminUsers,
   rejectSubscription,
   setAdminUserMaxAccounts,
@@ -78,6 +79,22 @@ type DetailItem =
   | { kind: 'subscription'; data: AdminSubscriptionRow }
   | { kind: 'feedback'; data: AdminFeedbackRow };
 
+type ListMeta = {
+  page: number;
+  totalPages: number;
+  totalCount: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+const EMPTY_META: ListMeta = {
+  page: 1,
+  totalPages: 1,
+  totalCount: 0,
+  hasMore: false,
+  nextCursor: null,
+};
+
 export function AdminDashboardScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -95,50 +112,154 @@ export function AdminDashboardScreen() {
   const [feedbackFilter, setFeedbackFilter] = useState<FeedbackFilter>('new');
   const [feedbackKind, setFeedbackKind] = useState<FeedbackKindFilter>('all');
   const [loading, setLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailItem | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [customMaxAccounts, setCustomMaxAccounts] = useState('');
+  const [userSearch, setUserSearch] = useState('');
+  const [userSearchDebounced, setUserSearchDebounced] = useState('');
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersMeta, setUsersMeta] = useState<ListMeta>(EMPTY_META);
+  const userCursorsRef = useRef<(string | null)[]>([null]);
+  const [subsPage, setSubsPage] = useState(1);
+  const [subsMeta, setSubsMeta] = useState<ListMeta>(EMPTY_META);
+  const subCursorsRef = useRef<(string | null)[]>([null]);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const load = useCallback(
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      setUserSearchDebounced(userSearch.trim());
+    }, 350);
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
+  }, [userSearch]);
+
+  const loadStats = useCallback(async (adminToken: string) => {
+    const s = await fetchAdminStats(adminToken);
+    setStats(s);
+  }, []);
+
+  const loadUsersList = useCallback(
     async (
       adminToken: string,
-      nextTab: Tab,
-      nextSubFilter: SubFilter,
+      page: number,
       nextUserFilter: UserFilter,
-      nextFeedbackFilter: FeedbackFilter,
-      nextFeedbackKind: FeedbackKindFilter,
+      search: string,
     ) => {
-      setLoading(true);
+      setListLoading(true);
       try {
-        const s = await fetchAdminStats(adminToken);
-        setStats(s);
-        if (nextTab === 'users') {
-          const list = await fetchAdminUsers(
-            adminToken,
-            nextUserFilter === 'all' ? undefined : nextUserFilter,
-          );
-          setUsers(list);
-        } else if (nextTab === 'subscriptions') {
-          const list = await fetchAdminSubscriptions(
-            adminToken,
-            nextSubFilter === 'all' ? undefined : nextSubFilter,
-          );
-          setRows(list);
-        } else {
-          const list = await fetchAdminFeedback(adminToken, {
-            status: nextFeedbackFilter,
-            kind: nextFeedbackKind,
-          });
-          setFeedbackRows(list);
+        const cursor = userCursorsRef.current[page - 1] ?? null;
+        const result = await fetchAdminUsers(adminToken, {
+          access: nextUserFilter === 'all' ? undefined : nextUserFilter,
+          q: search || undefined,
+          page,
+          cursor,
+        });
+        setUsers(result.items);
+        setUsersMeta({
+          page: result.page,
+          totalPages: result.totalPages,
+          totalCount: result.totalCount,
+          hasMore: result.hasMore,
+          nextCursor: result.nextCursor,
+        });
+        if (result.nextCursor) {
+          userCursorsRef.current[page] = result.nextCursor;
         }
       } catch (e) {
-        Alert.alert('Error', e instanceof Error ? e.message : 'Could not load dashboard');
+        Alert.alert('Error', e instanceof Error ? e.message : 'Could not load users');
       } finally {
-        setLoading(false);
+        setListLoading(false);
       }
     },
     [],
   );
+
+  const loadSubsList = useCallback(
+    async (
+      adminToken: string,
+      page: number,
+      nextSubFilter: SubFilter,
+    ) => {
+      setListLoading(true);
+      try {
+        const cursor = subCursorsRef.current[page - 1] ?? null;
+        const result = await fetchAdminSubscriptions(adminToken, {
+          status: nextSubFilter === 'all' ? undefined : nextSubFilter,
+          page,
+          cursor,
+        });
+        setRows(result.items);
+        setSubsMeta({
+          page: result.page,
+          totalPages: result.totalPages,
+          totalCount: result.totalCount,
+          hasMore: result.hasMore,
+          nextCursor: result.nextCursor,
+        });
+        if (result.nextCursor) {
+          subCursorsRef.current[page] = result.nextCursor;
+        }
+      } catch (e) {
+        Alert.alert(
+          'Error',
+          e instanceof Error ? e.message : 'Could not load subscriptions',
+        );
+      } finally {
+        setListLoading(false);
+      }
+    },
+    [],
+  );
+
+  const loadFeedbackList = useCallback(
+    async (
+      adminToken: string,
+      nextFeedbackFilter: FeedbackFilter,
+      nextFeedbackKind: FeedbackKindFilter,
+    ) => {
+      setListLoading(true);
+      try {
+        const list = await fetchAdminFeedback(adminToken, {
+          status: nextFeedbackFilter,
+          kind: nextFeedbackKind,
+        });
+        setFeedbackRows(list);
+      } catch (e) {
+        Alert.alert('Error', e instanceof Error ? e.message : 'Could not load feedback');
+      } finally {
+        setListLoading(false);
+      }
+    },
+    [],
+  );
+
+  const reloadCurrentList = useCallback(async () => {
+    if (!token) return;
+    if (tab === 'users') {
+      await loadUsersList(token, usersPage, userFilter, userSearchDebounced);
+    } else if (tab === 'subscriptions') {
+      await loadSubsList(token, subsPage, subFilter);
+    } else {
+      await loadFeedbackList(token, feedbackFilter, feedbackKind);
+    }
+  }, [
+    token,
+    tab,
+    usersPage,
+    userFilter,
+    userSearchDebounced,
+    subsPage,
+    subFilter,
+    feedbackFilter,
+    feedbackKind,
+    loadUsersList,
+    loadSubsList,
+    loadFeedbackList,
+  ]);
 
   useEffect(() => {
     void (async () => {
@@ -148,18 +269,85 @@ export function AdminDashboardScreen() {
         return;
       }
       setToken(t);
-      await load(t, tab, subFilter, userFilter, feedbackFilter, feedbackKind);
+      setLoading(true);
+      try {
+        await loadStats(t);
+      } finally {
+        setLoading(false);
+      }
     })();
-  }, [tab, subFilter, userFilter, feedbackFilter, feedbackKind, load, navigation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial auth bootstrap only
+  }, [navigation]);
+
+  useEffect(() => {
+    setUsersPage(1);
+    userCursorsRef.current = [null];
+  }, [userSearchDebounced]);
+
+  useEffect(() => {
+    if (!token || tab !== 'users') return;
+    void loadUsersList(token, usersPage, userFilter, userSearchDebounced);
+  }, [token, tab, usersPage, userFilter, userSearchDebounced, loadUsersList]);
+
+  useEffect(() => {
+    if (!token || tab !== 'subscriptions') return;
+    void loadSubsList(token, subsPage, subFilter);
+  }, [token, tab, subsPage, subFilter, loadSubsList]);
+
+  useEffect(() => {
+    if (!token || tab !== 'feedback') return;
+    void loadFeedbackList(token, feedbackFilter, feedbackKind);
+  }, [token, tab, feedbackFilter, feedbackKind, loadFeedbackList]);
 
   const onLogout = async () => {
     await clearAdminToken();
     navigation.replace('AdminLogin');
   };
 
-  const refresh = () =>
-    token &&
-    void load(token, tab, subFilter, userFilter, feedbackFilter, feedbackKind);
+  const refresh = () => {
+    if (!token) return;
+    void (async () => {
+      setLoading(true);
+      try {
+        await loadStats(token);
+        await reloadCurrentList();
+      } finally {
+        setLoading(false);
+      }
+    })();
+  };
+
+  const openUserDetail = (item: AdminUserRow) => {
+    setCustomMaxAccounts(
+      item.maxAccounts >= 999999 ? '' : String(item.maxAccounts),
+    );
+    setDetail({ kind: 'user', data: item });
+    if (!token) return;
+    setDetailLoading(true);
+    void (async () => {
+      try {
+        const full = await fetchAdminUserDetail(token, item.id);
+        setDetail({ kind: 'user', data: full });
+      } catch (e) {
+        Alert.alert(
+          'Could not load full profile',
+          e instanceof Error ? e.message : 'Try again.',
+        );
+      } finally {
+        setDetailLoading(false);
+      }
+    })();
+  };
+
+  const goUsersPage = (nextPage: number) => {
+    if (nextPage < 1 || nextPage > usersMeta.totalPages) return;
+    setUsersPage(nextPage);
+  };
+
+  const goSubsPage = (nextPage: number) => {
+    if (nextPage < 1 || nextPage > subsMeta.totalPages) return;
+    setSubsPage(nextPage);
+  };
 
   const closeDetail = () => {
     setDetail(null);
@@ -323,7 +511,10 @@ export function AdminDashboardScreen() {
         Alert.alert('Deleted', 'Subscription data cleared.');
       }
       closeDetail();
-      await load(token, tab, subFilter, userFilter, feedbackFilter, feedbackKind);
+      if (token) {
+        await loadStats(token);
+        await reloadCurrentList();
+      }
     } catch (e) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Action failed');
     } finally {
@@ -417,7 +608,10 @@ export function AdminDashboardScreen() {
         Alert.alert('Deleted', 'Subscription data cleared.');
       }
       closeDetail();
-      await load(token, tab, subFilter, userFilter, feedbackFilter, feedbackKind);
+      if (token) {
+        await loadStats(token);
+        await reloadCurrentList();
+      }
     } catch (e) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Action failed');
     } finally {
@@ -434,7 +628,10 @@ export function AdminDashboardScreen() {
     try {
       await updateAdminFeedbackStatus(token, row.id, status);
       closeDetail();
-      await load(token, tab, subFilter, userFilter, feedbackFilter, feedbackKind);
+      if (token) {
+        await loadStats(token);
+        await reloadCurrentList();
+      }
     } catch (e) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Could not update');
     } finally {
@@ -485,12 +682,7 @@ export function AdminDashboardScreen() {
     return (
       <Pressable
         style={styles.compactRow}
-        onPress={() => {
-          setCustomMaxAccounts(
-            item.maxAccounts >= 999999 ? '' : String(item.maxAccounts),
-          );
-          setDetail({ kind: 'user', data: item });
-        }}
+        onPress={() => openUserDetail(item)}
       >
         <View style={[styles.avatar, { backgroundColor: `${tint}22` }]}>
           <Text style={[styles.avatarText, { color: tint }]}>
@@ -911,10 +1103,10 @@ export function AdminDashboardScreen() {
 
       {stats ? (
         <View style={styles.statsGrid}>
-          <StatTile label="Users" value={stats.totalUsers} colors={colors} />
-          <StatTile label="Pending" value={stats.pendingCount} colors={colors} accent="#F9A825" />
-          <StatTile label="Premium" value={stats.activeCount} colors={colors} accent={colors.accentGreen} />
-          <StatTile label="Feedback" value={stats.newFeedbackCount} colors={colors} accent="#7B1FA2" />
+          <StatTile label="Users" value={stats.totalUsers} colors={colors} styles={styles} />
+          <StatTile label="Pending" value={stats.pendingCount} colors={colors} styles={styles} accent="#F9A825" />
+          <StatTile label="Premium" value={stats.activeCount} colors={colors} styles={styles} accent={colors.accentGreen} />
+          <StatTile label="Feedback" value={stats.newFeedbackCount} colors={colors} styles={styles} accent="#7B1FA2" />
         </View>
       ) : null}
 
@@ -984,6 +1176,22 @@ export function AdminDashboardScreen() {
         ))}
       </View>
 
+      {tab === 'users' ? (
+        <View style={styles.searchWrap}>
+          <Ionicons name="search" size={rs(16)} color={colors.textMuted} />
+          <TextInput
+            style={styles.searchInput}
+            value={userSearch}
+            onChangeText={setUserSearch}
+            placeholder="Search by email or name"
+            placeholderTextColor={colors.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+          />
+        </View>
+      ) : null}
+
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -1022,7 +1230,11 @@ export function AdminDashboardScreen() {
               <Pressable
                 key={f.id}
                 style={[styles.chip, userFilter === f.id && styles.chipActive]}
-                onPress={() => setUserFilter(f.id)}
+                onPress={() => {
+                  userCursorsRef.current = [null];
+                  setUsersPage(1);
+                  setUserFilter(f.id);
+                }}
               >
                 <Text
                   style={[styles.chipText, userFilter === f.id && styles.chipTextActive]}
@@ -1056,7 +1268,11 @@ export function AdminDashboardScreen() {
                 <Pressable
                   key={f.id}
                   style={[styles.chip, subFilter === f.id && styles.chipActive]}
-                  onPress={() => setSubFilter(f.id)}
+                  onPress={() => {
+                    subCursorsRef.current = [null];
+                    setSubsPage(1);
+                    setSubFilter(f.id);
+                  }}
                 >
                   <Text
                     style={[styles.chipText, subFilter === f.id && styles.chipTextActive]}
@@ -1119,34 +1335,72 @@ export function AdminDashboardScreen() {
             )}
       </ScrollView>
 
-      {loading ? (
+      {loading && !users.length && !rows.length && !feedbackRows.length ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: rs(24) }} />
       ) : tab === 'users' ? (
-        <FlatList
-          style={styles.listFlex}
-          data={users}
-          keyExtractor={(item) => item.id}
-          renderItem={renderUser}
-          contentContainerStyle={styles.list}
-          ListEmptyComponent={
-            <Text style={styles.empty}>No users match this filter.</Text>
-          }
-          refreshing={loading}
-          onRefresh={refresh}
-        />
+        <>
+          <FlatList
+            style={styles.listFlex}
+            data={users}
+            keyExtractor={(item) => item.id}
+            renderItem={renderUser}
+            contentContainerStyle={styles.list}
+            ListEmptyComponent={
+              listLoading ? null : (
+                <Text style={styles.empty}>No users match this filter.</Text>
+              )
+            }
+            refreshing={listLoading}
+            onRefresh={refresh}
+            initialNumToRender={12}
+            maxToRenderPerBatch={16}
+            windowSize={7}
+            removeClippedSubviews={Platform.OS === 'android'}
+          />
+          <PaginationBar
+            page={usersMeta.page}
+            totalPages={usersMeta.totalPages}
+            totalCount={usersMeta.totalCount}
+            hasMore={usersMeta.hasMore}
+            disabled={listLoading}
+            onPrev={() => goUsersPage(usersMeta.page - 1)}
+            onNext={() => goUsersPage(usersMeta.page + 1)}
+            colors={colors}
+            styles={styles}
+          />
+        </>
       ) : tab === 'subscriptions' ? (
-        <FlatList
-          style={styles.listFlex}
-          data={rows}
-          keyExtractor={(item) => item.id}
-          renderItem={renderSub}
-          contentContainerStyle={styles.list}
-          ListEmptyComponent={
-            <Text style={styles.empty}>No requests in this filter.</Text>
-          }
-          refreshing={loading}
-          onRefresh={refresh}
-        />
+        <>
+          <FlatList
+            style={styles.listFlex}
+            data={rows}
+            keyExtractor={(item) => item.id}
+            renderItem={renderSub}
+            contentContainerStyle={styles.list}
+            ListEmptyComponent={
+              listLoading ? null : (
+                <Text style={styles.empty}>No requests in this filter.</Text>
+              )
+            }
+            refreshing={listLoading}
+            onRefresh={refresh}
+            initialNumToRender={12}
+            maxToRenderPerBatch={16}
+            windowSize={7}
+            removeClippedSubviews={Platform.OS === 'android'}
+          />
+          <PaginationBar
+            page={subsMeta.page}
+            totalPages={subsMeta.totalPages}
+            totalCount={subsMeta.totalCount}
+            hasMore={subsMeta.hasMore}
+            disabled={listLoading}
+            onPrev={() => goSubsPage(subsMeta.page - 1)}
+            onNext={() => goSubsPage(subsMeta.page + 1)}
+            colors={colors}
+            styles={styles}
+          />
+        </>
       ) : (
         <FlatList
           style={styles.listFlex}
@@ -1155,9 +1409,11 @@ export function AdminDashboardScreen() {
           renderItem={renderFeedback}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <Text style={styles.empty}>No feedback in this filter.</Text>
+            listLoading ? null : (
+              <Text style={styles.empty}>No feedback in this filter.</Text>
+            )
           }
-          refreshing={loading}
+          refreshing={listLoading}
           onRefresh={refresh}
         />
       )}
@@ -1182,6 +1438,9 @@ export function AdminDashboardScreen() {
         }
       >
         {renderDetailModal()}
+        {detailLoading ? (
+          <ActivityIndicator color={colors.primary} style={{ marginTop: rs(12) }} />
+        ) : null}
       </KeyboardSheetModal>
     </View>
   );
@@ -1191,17 +1450,76 @@ function StatTile({
   label,
   value,
   colors,
+  styles,
   accent,
 }: {
   label: string;
   value: number;
   colors: ThemeColors;
+  styles: ReturnType<typeof makeStyles>;
   accent?: string;
 }) {
   return (
-    <View style={{ flex: 1, minWidth: '46%', backgroundColor: colors.surface, borderRadius: rs(12), borderWidth: 1, borderColor: colors.borderMuted, padding: rs(12) }}>
-      <Text style={{ color: accent ?? colors.primary, fontWeight: '800', fontSize: rs(20) }}>{value}</Text>
-      <Text style={{ color: colors.textSecondary, fontSize: rs(11), marginTop: rs(2) }}>{label}</Text>
+    <View style={styles.statTile}>
+      <Text style={[styles.statValue, { color: accent ?? colors.primary }]}>
+        {value}
+      </Text>
+      <Text style={styles.statLabel} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function PaginationBar({
+  page,
+  totalPages,
+  totalCount,
+  hasMore,
+  disabled,
+  onPrev,
+  onNext,
+  colors,
+  styles,
+}: {
+  page: number;
+  totalPages: number;
+  totalCount: number;
+  hasMore: boolean;
+  disabled?: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+  colors: ThemeColors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const canPrev = page > 1 && !disabled;
+  const canNext = (hasMore || page < totalPages) && !disabled;
+  return (
+    <View style={styles.pagination}>
+      <Pressable
+        style={[styles.pageBtn, !canPrev && styles.pageBtnDisabled]}
+        disabled={!canPrev}
+        onPress={onPrev}
+      >
+        <Text style={[styles.pageBtnText, !canPrev && styles.pageBtnTextDisabled]}>
+          Previous
+        </Text>
+      </Pressable>
+      <View style={styles.pageMeta}>
+        <Text style={styles.pageLabel}>
+          Page {page} of {totalPages}
+        </Text>
+        <Text style={styles.pageCount}>{totalCount} total</Text>
+      </View>
+      <Pressable
+        style={[styles.pageBtn, !canNext && styles.pageBtnDisabled]}
+        disabled={!canNext}
+        onPress={onNext}
+      >
+        <Text style={[styles.pageBtnText, !canNext && styles.pageBtnTextDisabled]}>
+          Next
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -1267,11 +1585,73 @@ function makeStyles(c: ThemeColors) {
     title: { color: c.text, fontWeight: '800', fontSize: rs(17) },
     statsGrid: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: rs(10),
+      gap: rs(8),
       paddingHorizontal: rs(16),
       marginBottom: rs(8),
     },
+    statTile: {
+      flex: 1,
+      aspectRatio: 1,
+      maxHeight: rs(72),
+      backgroundColor: c.surface,
+      borderRadius: rs(10),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      padding: rs(8),
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    statValue: { fontWeight: '800', fontSize: rs(16) },
+    statLabel: {
+      color: c.textSecondary,
+      fontSize: rs(9),
+      marginTop: rs(2),
+      textAlign: 'center',
+    },
+    searchWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      marginHorizontal: rs(16),
+      marginBottom: rs(8),
+      paddingHorizontal: rs(12),
+      paddingVertical: Platform.OS === 'ios' ? rs(10) : rs(6),
+      borderRadius: rs(10),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
+    },
+    searchInput: {
+      flex: 1,
+      color: c.text,
+      fontSize: rs(13),
+      padding: 0,
+    },
+    pagination: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: rs(8),
+      paddingHorizontal: rs(16),
+      paddingVertical: rs(10),
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.borderMuted,
+      backgroundColor: c.bg,
+    },
+    pageBtn: {
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(8),
+      borderRadius: rs(8),
+      backgroundColor: c.primarySoft,
+      minWidth: rs(78),
+      alignItems: 'center',
+    },
+    pageBtnDisabled: { opacity: 0.45 },
+    pageBtnText: { color: c.primary, fontWeight: '800', fontSize: rs(11) },
+    pageBtnTextDisabled: { color: c.textMuted },
+    pageMeta: { alignItems: 'center', flex: 1 },
+    pageLabel: { color: c.text, fontWeight: '700', fontSize: rs(12) },
+    pageCount: { color: c.textSecondary, fontSize: rs(10), marginTop: rs(2) },
     toolsRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',

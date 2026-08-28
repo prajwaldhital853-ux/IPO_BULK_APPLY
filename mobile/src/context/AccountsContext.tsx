@@ -67,6 +67,8 @@ type AccountsContextValue = {
     crn: string;
     pin: string;
   } | null>;
+  /** Import many accounts in one batch (faster and safer than repeated addAccount). */
+  bulkImportAccounts: (accounts: Omit<LinkedAccount, 'id'>[]) => Promise<void>;
   /** Seed realistic mock accounts for Expo Go / offline demos. */
   seedMockAccounts: (count?: number) => Promise<void>;
   /** Remove all mock_* accounts. */
@@ -300,6 +302,32 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     return getSecrets(id);
   }, []);
 
+  const bulkImportAccounts = useCallback(
+    async (items: Omit<LinkedAccount, 'id'>[]) => {
+      if (!items.length) return;
+      const rows = items.map((account) => {
+        const { password = '', crn = '', pin = '', ...meta } = account;
+        return {
+          meta,
+          secrets: { password, crn, pin },
+        };
+      });
+      await addManyAccountsWithSecrets(rows);
+      setAccounts(await loadAccountMeta());
+      setDraft(null);
+      if (AUTH_ENABLED) {
+        const { syncAccountSlots } = await import('../services/accountSlots');
+        const { keysForAccountIds } = await import('../utils/accountFingerprint');
+        const list = (await loadAccountMeta()).filter(
+          (a) => !isMockAccountId(a.id),
+        );
+        const keys = keysForAccountIds(list, list.map((a) => a.id));
+        void syncAccountSlots(keys, list.length);
+      }
+    },
+    [setDraft],
+  );
+
   const value = useMemo(
     () => ({
       accounts,
@@ -314,6 +342,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       updateAccountMeta,
       updateAccount,
       loadSecrets,
+      bulkImportAccounts,
       seedMockAccounts,
       removeMockAccounts,
     }),
@@ -329,6 +358,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       updateAccountMeta,
       updateAccount,
       loadSecrets,
+      bulkImportAccounts,
       seedMockAccounts,
       removeMockAccounts,
     ],

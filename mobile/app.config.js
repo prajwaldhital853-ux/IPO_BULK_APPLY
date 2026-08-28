@@ -25,6 +25,7 @@ module.exports = {
     },
     android: {
       package: 'com.nepse.ghar',
+      googleServicesFile: './google-services.json',
       versionCode: 94,
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',

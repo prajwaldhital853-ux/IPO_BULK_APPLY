@@ -32,6 +32,11 @@ const ANDROID_CHANNELS = [
     name: 'Price alerts',
     importance: Notifications.AndroidImportance.HIGH,
   },
+  {
+    id: 'account',
+    name: 'Account & subscription',
+    importance: Notifications.AndroidImportance.HIGH,
+  },
 ] as const;
 
 let cachedToken: string | null = null;

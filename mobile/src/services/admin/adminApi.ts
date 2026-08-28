@@ -407,15 +407,87 @@ function mapUserRow(json: Record<string, unknown>): AdminUserRow {
   };
 }
 
+export type AdminPaginated<T> = {
+  items: T[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+function mapPaginatedUsers(
+  json: Record<string, unknown>,
+): AdminPaginated<AdminUserRow> {
+  const items = Array.isArray(json.items)
+    ? (json.items as Record<string, unknown>[]).map((row) => mapUserRow(row))
+    : [];
+  return {
+    items,
+    page: Number(json.page ?? 1),
+    pageSize: Number(json.pageSize ?? json.page_size ?? 50),
+    totalCount: Number(json.totalCount ?? json.total_count ?? items.length),
+    totalPages: Number(json.totalPages ?? json.total_pages ?? 1),
+    hasMore: Boolean(json.hasMore ?? json.has_more),
+    nextCursor: json.nextCursor
+      ? String(json.nextCursor)
+      : json.next_cursor
+        ? String(json.next_cursor)
+        : null,
+  };
+}
+
+function mapPaginatedSubscriptions(
+  json: Record<string, unknown>,
+): AdminPaginated<AdminSubscriptionRow> {
+  const items = Array.isArray(json.items)
+    ? (json.items as Record<string, unknown>[]).map((row) => mapRow(row))
+    : [];
+  return {
+    items,
+    page: Number(json.page ?? 1),
+    pageSize: Number(json.pageSize ?? json.page_size ?? 50),
+    totalCount: Number(json.totalCount ?? json.total_count ?? items.length),
+    totalPages: Number(json.totalPages ?? json.total_pages ?? 1),
+    hasMore: Boolean(json.hasMore ?? json.has_more),
+    nextCursor: json.nextCursor
+      ? String(json.nextCursor)
+      : json.next_cursor
+        ? String(json.next_cursor)
+        : null,
+  };
+}
+
 export async function fetchAdminUsers(
   token: string,
-  access?: string,
-): Promise<AdminUserRow[]> {
-  const q = access && access !== 'all' ? `?access=${encodeURIComponent(access)}` : '';
-  const res = await adminFetch(`/admin/users${q}`, token);
+  opts?: {
+    access?: string;
+    q?: string;
+    cursor?: string | null;
+    page?: number;
+  },
+): Promise<AdminPaginated<AdminUserRow>> {
+  const params = new URLSearchParams();
+  if (opts?.access && opts.access !== 'all') {
+    params.set('access', opts.access);
+  }
+  if (opts?.q?.trim()) params.set('q', opts.q.trim());
+  if (opts?.cursor) params.set('cursor', opts.cursor);
+  if (opts?.page) params.set('page', String(opts.page));
+  const qs = params.toString();
+  const res = await adminFetch(`/admin/users${qs ? `?${qs}` : ''}`, token);
   if (!res.ok) throw new Error(await parseError(res));
-  const json = (await res.json()) as Record<string, unknown>[];
-  return json.map((row) => mapUserRow(row));
+  return mapPaginatedUsers((await res.json()) as Record<string, unknown>);
+}
+
+export async function fetchAdminUserDetail(
+  token: string,
+  userId: string,
+): Promise<AdminUserRow> {
+  const res = await adminFetch(`/admin/users/${userId}`, token);
+  if (!res.ok) throw new Error(await parseError(res));
+  return mapUserRow((await res.json()) as Record<string, unknown>);
 }
 
 function mapRow(json: Record<string, unknown>): AdminSubscriptionRow {
@@ -441,13 +513,22 @@ function mapRow(json: Record<string, unknown>): AdminSubscriptionRow {
 
 export async function fetchAdminSubscriptions(
   token: string,
-  status?: string,
-): Promise<AdminSubscriptionRow[]> {
-  const q = status ? `?status=${encodeURIComponent(status)}` : '';
-  const res = await adminFetch(`/admin/subscriptions${q}`, token);
+  opts?: {
+    status?: string;
+    cursor?: string | null;
+    page?: number;
+  },
+): Promise<AdminPaginated<AdminSubscriptionRow>> {
+  const params = new URLSearchParams();
+  if (opts?.status && opts.status !== 'all') {
+    params.set('status', opts.status);
+  }
+  if (opts?.cursor) params.set('cursor', opts.cursor);
+  if (opts?.page) params.set('page', String(opts.page));
+  const qs = params.toString();
+  const res = await adminFetch(`/admin/subscriptions${qs ? `?${qs}` : ''}`, token);
   if (!res.ok) throw new Error(await parseError(res));
-  const json = (await res.json()) as Record<string, unknown>[];
-  return json.map((row) => mapRow(row));
+  return mapPaginatedSubscriptions((await res.json()) as Record<string, unknown>);
 }
 
 export async function approveSubscription(

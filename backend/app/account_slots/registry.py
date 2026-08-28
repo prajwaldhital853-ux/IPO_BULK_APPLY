@@ -127,6 +127,25 @@ async def claimed_totals(db: AsyncSession) -> dict[str, int]:
     return out
 
 
+async def claimed_totals_for_users(
+    db: AsyncSession,
+    user_ids: list[str],
+) -> dict[str, int]:
+    """Claimed demat counts for a page of users only."""
+    if not user_ids:
+        return {}
+    rows = (
+        await db.scalars(
+            select(UserDematSlot).where(UserDematSlot.user_id.in_(user_ids)),
+        )
+    ).all()
+    out: dict[str, int] = {}
+    for row in rows:
+        if _devices(row):
+            out[row.user_id] = out.get(row.user_id, 0) + 1
+    return out
+
+
 async def purge_unclaimed(db: AsyncSession, user_id: str) -> int:
     """Drop long-unclaimed queue placeholders so the table cannot grow forever."""
     now = datetime.now(UTC)

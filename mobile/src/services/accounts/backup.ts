@@ -1,7 +1,21 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
+import * as XLSX from 'xlsx';
 import type { AccountMeta, LinkedAccount } from '../../types/account';
+import { getSecrets } from '../../storage/accountsStorage';
+import {
+  backupFolderHint,
+  pickBackupFileFromFolder,
+  saveBackupFile,
+  type SavedBackupResult,
+} from './backupStorage';
+
+export { backupFolderHint, type SavedBackupResult } from './backupStorage';
+
+/** Parallel SecureStore reads above this often crash the app on large lists. */
+const SECRET_LOAD_BATCH = 8;
+/** Parsed backup text larger than this is rejected (accounts CSV/JSON only). */
+const MAX_IMPORT_BYTES = 32 * 1024 * 1024;
 
 export type ImportedAccount = {
   name: string;
@@ -76,24 +90,33 @@ export function buildAccountsCsv(accounts: AccountMeta[]): string {
 
 /** Full Excel-friendly CSV with password / CRN / PIN. */
 export function buildFullAccountsCsv(rows: FullAccountExportRow[]): string {
-  const body = rows.map((r) => [
-    String(r.sn),
-    r.name ?? '',
-    r.dp ?? '',
-    r.client ?? '',
-    r.password ?? '',
-    r.crn ?? '',
-    r.pin ?? '',
-    r.dpName ?? '',
-    r.bankName ?? '',
-    r.demat ?? '',
-  ]);
+  const body = fullExportRowsToAoa(rows).slice(1);
   return (
     '\uFEFF' +
-    [FULL_CSV_HEADER, ...body]
+    [FULL_CSV_HEADER, ...body.map((r) => r.map((c) => String(c ?? '')))]
       .map((r) => r.map(csvCell).join(','))
       .join('\r\n')
   );
+}
+
+export function fullExportRowsToAoa(
+  rows: FullAccountExportRow[],
+): (string | number)[][] {
+  return [
+    FULL_CSV_HEADER,
+    ...rows.map((r) => [
+      r.sn,
+      r.name ?? '',
+      r.dp ?? '',
+      r.client ?? '',
+      r.password ?? '',
+      r.crn ?? '',
+      r.pin ?? '',
+      r.dpName ?? '',
+      r.bankName ?? '',
+      r.demat ?? '',
+    ]),
+  ];
 }
 
 export function buildFullAccountsBackup(
@@ -371,89 +394,126 @@ export function importIncludesSecrets(accounts: ImportedAccount[]): boolean {
   );
 }
 
-async function shareBackupFile(
-  fileUri: string,
-  mimeType: string,
-  dialogTitle: string,
-  uti: string,
-): Promise<void> {
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(fileUri, {
-      mimeType,
-      dialogTitle,
-      UTI: uti,
+async function readBackupFileContent(
+  uri: string,
+  fileName: string,
+): Promise<string> {
+  if (isSpreadsheetFile(fileName)) {
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
     });
+    const wb = XLSX.read(base64, { type: 'base64' });
+    const sheetName = wb.SheetNames[0];
+    if (!sheetName) return '';
+    const sheet = wb.Sheets[sheetName];
+    return sheet ? XLSX.utils.sheet_to_csv(sheet) : '';
   }
+  return FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
 }
 
-/** Write accounts to a file and open the system share sheet. */
+/** Write accounts to a file in Download/Nepse Ghar (or app backup folder on iOS). */
 export async function exportAccountsFile(
   accounts: AccountMeta[],
   kind: 'csv' | 'json',
-): Promise<void> {
+): Promise<SavedBackupResult> {
   const content =
     kind === 'csv' ? buildAccountsCsv(accounts) : buildAccountsBackup(accounts);
   const ext = kind === 'csv' ? 'csv' : 'json';
   const stamp = new Date().toISOString().slice(0, 10);
-  const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
-  const fileUri = `${dir}nepse-ghar-accounts-${stamp}.${ext}`;
-  await FileSystem.writeAsStringAsync(fileUri, content, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
-  await shareBackupFile(
-    fileUri,
-    kind === 'csv' ? 'text/csv' : 'application/json',
-    'Export NEPSE GHAR accounts',
-    kind === 'csv' ? 'public.comma-separated-values-text' : 'public.json',
-  );
+  const fileName = `NEPSE-GHAR-accounts-${stamp}.${ext}`;
+  return saveBackupFile(fileName, { kind: 'text', content });
 }
 
 /** Full JSON backup with passwords, CRN and PIN restored on import. */
 export async function exportFullAccountsBackup(
   rows: FullAccountExportRow[],
-): Promise<void> {
+): Promise<SavedBackupResult> {
   if (!rows.length) {
     throw new Error('No accounts to export');
   }
   const content = buildFullAccountsBackup(rows);
   const stamp = new Date().toISOString().slice(0, 10);
-  const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
-  const fileUri = `${dir}nepse-ghar-accounts-full-${stamp}-${rows.length}.json`;
-  await FileSystem.writeAsStringAsync(fileUri, content, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
-  await shareBackupFile(
-    fileUri,
-    'application/json',
-    `Save ${rows.length} accounts backup`,
-    'public.json',
-  );
+  const fileName = `NEPSE-GHAR-accounts-${stamp}-${rows.length}.json`;
+  return saveBackupFile(fileName, { kind: 'text', content });
 }
 
 /**
- * Export every saved account (incl. password, CRN, PIN) as a UTF-8 CSV
- * Excel can open without the “extension doesn’t match” warning.
+ * Export every saved account (incl. password, CRN, PIN) as a real .xlsx file.
  */
 export async function exportFullAccountsExcel(
   rows: FullAccountExportRow[],
-): Promise<string> {
+): Promise<SavedBackupResult> {
+  if (!rows.length) {
+    throw new Error('No accounts to export');
+  }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(fullExportRowsToAoa(rows));
+  ws['!cols'] = [
+    { wch: 6 },
+    { wch: 24 },
+    { wch: 10 },
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 12 },
+    { wch: 10 },
+    { wch: 20 },
+    { wch: 20 },
+    { wch: 18 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, 'Accounts');
+
+  const base64 = XLSX.write(wb, {
+    type: 'base64',
+    bookType: 'xlsx',
+  }) as string;
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const fileName = `NEPSE-GHAR-accounts-${stamp}-${rows.length}.xlsx`;
+  return saveBackupFile(fileName, { kind: 'base64', content: base64 });
+}
+
+/**
+ * Export every saved account (incl. password, CRN, PIN) as a UTF-8 .csv file.
+ */
+export async function exportFullAccountsCsv(
+  rows: FullAccountExportRow[],
+): Promise<SavedBackupResult> {
   if (!rows.length) {
     throw new Error('No accounts to export');
   }
   const content = buildFullAccountsCsv(rows);
   const stamp = new Date().toISOString().slice(0, 10);
-  const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
-  const fileUri = `${dir}nepse-ghar-accounts-full-${stamp}-${rows.length}.csv`;
-  await FileSystem.writeAsStringAsync(fileUri, content, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
-  await shareBackupFile(
-    fileUri,
-    'text/csv',
-    `Save ${rows.length} accounts Excel file`,
-    'public.comma-separated-values-text',
-  );
-  return fileUri;
+  const fileName = `NEPSE-GHAR-accounts-${stamp}-${rows.length}.csv`;
+  return saveBackupFile(fileName, { kind: 'text', content });
+}
+
+export async function loadFullExportRows(
+  accounts: AccountMeta[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<FullAccountExportRow[]> {
+  const rows: FullAccountExportRow[] = [];
+  const total = accounts.length;
+  for (let i = 0; i < total; i += SECRET_LOAD_BATCH) {
+    const chunk = accounts.slice(i, i + SECRET_LOAD_BATCH);
+    const chunkRows = await Promise.all(
+      chunk.map(async (account, j) => {
+        const index = i + j;
+        let secrets: { password?: string; crn?: string; pin?: string } | null =
+          null;
+        try {
+          secrets = await getSecrets(account.id);
+        } catch {
+          secrets = null;
+        }
+        return accountMetaToFullExportRow(account, index, secrets);
+      }),
+    );
+    rows.push(...chunkRows);
+    onProgress?.(Math.min(i + chunk.length, total), total);
+  }
+  return rows;
 }
 
 export function accountMetaToFullExportRow(
@@ -478,16 +538,65 @@ export function accountMetaToFullExportRow(
   };
 }
 
+function isSpreadsheetFile(name: string, mimeType?: string | null): boolean {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.csv') || lower.endsWith('.json') || lower.endsWith('.txt')) {
+    return false;
+  }
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) return true;
+  const mime = (mimeType ?? '').toLowerCase();
+  if (mime.includes('csv') || mime.includes('json') || mime === 'text/plain') {
+    return false;
+  }
+  return (
+    mime.includes('spreadsheetml') ||
+    mime.includes('openxmlformats-officedocument.spreadsheetml') ||
+    (mime.includes('ms-excel') && !mime.includes('csv'))
+  );
+}
+
+function parseAccountsWorkbook(wb: XLSX.WorkBook): ImportedAccount[] {
+  const sheetName = wb.SheetNames[0];
+  if (!sheetName) return [];
+  const sheet = wb.Sheets[sheetName];
+  if (!sheet) return [];
+  return parseAccountsCsv(XLSX.utils.sheet_to_csv(sheet));
+}
+
+async function readSpreadsheetWorkbook(uri: string): Promise<XLSX.WorkBook> {
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  return XLSX.read(base64, { type: 'base64' });
+}
+
 /** Open the document picker and return the selected file's text content. */
 export async function pickAccountsFile(): Promise<{
   name: string;
   content: string;
 } | null> {
+  const fromBackupFolder = await pickBackupFileFromFolder();
+  if (fromBackupFolder === 'canceled') return null;
+  if (fromBackupFolder) {
+    const content = await readBackupFileContent(
+      fromBackupFolder.uri,
+      fromBackupFolder.name,
+    );
+    if (!content.trim()) {
+      throw new Error('That backup file is empty or could not be read.');
+    }
+    if (content.length > MAX_IMPORT_BYTES) {
+      throw new Error('That backup file is too large to import.');
+    }
+    return { name: fromBackupFolder.name, content };
+  }
+
   const res = await DocumentPicker.getDocumentAsync({
     type: [
       'text/csv',
       'text/comma-separated-values',
       'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/json',
       'text/plain',
       '*/*',
@@ -497,10 +606,39 @@ export async function pickAccountsFile(): Promise<{
   });
   if (res.canceled || !res.assets?.length) return null;
   const asset = res.assets[0];
+  const name = asset.name ?? 'file';
+  const spreadsheet = isSpreadsheetFile(name, asset.mimeType);
+  if (spreadsheet) {
+    const wb = await readSpreadsheetWorkbook(asset.uri);
+    const accounts = parseAccountsWorkbook(wb);
+    if (!accounts.length) {
+      throw new Error(
+        'No accounts found in that Excel file. Use a NEPSE GHAR accounts export.',
+      );
+    }
+    const sheetName = wb.SheetNames[0];
+    const sheet = sheetName ? wb.Sheets[sheetName] : undefined;
+    const content = sheet ? XLSX.utils.sheet_to_csv(sheet) : '';
+    if (!content.trim()) {
+      throw new Error('That Excel file is empty or could not be read.');
+    }
+    if (content.length > MAX_IMPORT_BYTES) {
+      throw new Error('That Excel file is too large to import.');
+    }
+    return { name, content };
+  }
   const content = await FileSystem.readAsStringAsync(asset.uri, {
     encoding: FileSystem.EncodingType.UTF8,
   });
-  return { name: asset.name ?? 'file', content };
+  if (!content.trim()) {
+    throw new Error('That file is empty or could not be read.');
+  }
+  if (content.length > MAX_IMPORT_BYTES) {
+    throw new Error(
+      'That backup file is too large to import. Try exporting again from NEPSE GHAR.',
+    );
+  }
+  return { name, content };
 }
 
 export function toLinkedDraft(a: ImportedAccount): Omit<LinkedAccount, 'id'> {
