@@ -9,7 +9,12 @@ import type {
   IssueManagerProvider,
 } from '../types';
 
-type CompanyRow = { id: number; name: string; scrip?: string | null };
+type CompanyRow = {
+  id: number;
+  name: string;
+  scrip?: string | null;
+  firstSeenAt?: number | null;
+};
 type CheckRow = {
   boid: string;
   ok: boolean;
@@ -52,6 +57,10 @@ async function listCompanies(): Promise<IssueManagerCompany[]> {
     .map((r) => {
       const rawId = String(r.id);
       const scrip = r.scrip?.trim() || undefined;
+      const listedAt =
+        typeof r.firstSeenAt === 'number' && r.firstSeenAt > 0
+          ? r.firstSeenAt
+          : undefined;
       return {
         key: companyKey('cdsc', rawId),
         provider: 'cdsc',
@@ -59,6 +68,7 @@ async function listCompanies(): Promise<IssueManagerCompany[]> {
         name: r.name.trim(),
         providerLabel: 'CDSC portal (fallback)',
         scrip,
+        listedAt,
       };
     });
 }

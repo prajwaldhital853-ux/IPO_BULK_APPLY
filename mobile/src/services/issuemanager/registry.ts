@@ -172,7 +172,6 @@ async function loadFromProviders(
     }
   }
 
-  companies.sort((a, b) => a.name.localeCompare(b.name));
   return {
     companies,
     errors,
@@ -224,9 +223,7 @@ export async function loadAllIssueManagerCompanies(): Promise<CompanyLoadResult>
 
   const fallback = await loadCdscFallbackCompanies(primary.companies);
   return {
-    companies: [...primary.companies, ...fallback.companies].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    ),
+    companies: [...primary.companies, ...fallback.companies],
     errors: [...primary.errors, ...fallback.errors],
     liveProviderCount: ISSUE_MANAGERS.length + FALLBACK_PROVIDERS.length,
     catalogTotal: NEPAL_ISSUE_MANAGERS.length,

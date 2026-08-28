@@ -5,6 +5,8 @@ export type PublicIpoCompany = {
   id: number;
   name: string;
   scrip?: string;
+  /** Higher = newer; derived from CDSC API list order when no timestamp exists. */
+  listedAt?: number;
 };
 
 export type PublicCaptcha = {
@@ -104,7 +106,11 @@ export function parseHomePayload(text: string): PublicHomePayload {
         : null,
     )
     .filter((c): c is PublicIpoCompany => c != null)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .map((company, index, list) => ({
+      ...company,
+      // CDSC home payload is usually newest-first — preserve that order.
+      listedAt: list.length - index,
+    }));
 
   const captchaRaw =
     (body.captchaData as Record<string, unknown> | undefined) ??

@@ -8,6 +8,11 @@ export type IssueManagerCompany = {
   providerLabel: string;
   /** Stock symbol when known — used to skip CDSC duplicates of manager IPOs. */
   scrip?: string;
+  /**
+   * When this IPO result first appeared (unix seconds). Higher = newer.
+   * CDSC cache supplies firstSeenAt; phone WebView uses API list order.
+   */
+  listedAt?: number;
 };
 
 export type IssueManagerCheckResult = {

@@ -3,7 +3,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import type { AccountMeta, LinkedAccount } from '../../types/account';
 
-/** Account fields we back up / import (never includes secrets by design). */
 export type ImportedAccount = {
   name: string;
   dpId: string;
@@ -15,9 +14,12 @@ export type ImportedAccount = {
   dateOfBirth?: string;
   holderType?: 'major' | 'minor';
   guardianName?: string;
+  password?: string;
+  crn?: string;
+  pin?: string;
 };
 
-/** Full device backup row — includes secrets (local Excel export only). */
+/** Full device backup row — includes secrets (Excel / JSON export). */
 export type FullAccountExportRow = {
   sn: number;
   name: string;
@@ -29,6 +31,9 @@ export type FullAccountExportRow = {
   dpName?: string;
   bankName?: string;
   demat?: string;
+  dateOfBirth?: string;
+  holderType?: 'major' | 'minor';
+  guardianName?: string;
 };
 
 const CSV_HEADER = ['Name', 'DP', 'Username', 'DP Name', 'Bank', 'BOID'];
@@ -51,6 +56,10 @@ function csvCell(v: string): string {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+function stripBom(text: string): string {
+  return text.replace(/^\uFEFF/, '');
+}
+
 export function buildAccountsCsv(accounts: AccountMeta[]): string {
   const rows = accounts.map((a) => [
     a.name ?? '',
@@ -65,7 +74,7 @@ export function buildAccountsCsv(accounts: AccountMeta[]): string {
     .join('\r\n');
 }
 
-/** Full Excel-friendly CSV with password / CRN / PIN (Home share arrow). */
+/** Full Excel-friendly CSV with password / CRN / PIN. */
 export function buildFullAccountsCsv(rows: FullAccountExportRow[]): string {
   const body = rows.map((r) => [
     String(r.sn),
@@ -79,7 +88,6 @@ export function buildFullAccountsCsv(rows: FullAccountExportRow[]): string {
     r.bankName ?? '',
     r.demat ?? '',
   ]);
-  // BOM so Excel opens UTF-8 correctly on Windows/Android.
   return (
     '\uFEFF' +
     [FULL_CSV_HEADER, ...body]
@@ -88,13 +96,47 @@ export function buildFullAccountsCsv(rows: FullAccountExportRow[]): string {
   );
 }
 
+export function buildFullAccountsBackup(
+  rows: FullAccountExportRow[],
+): string {
+  return JSON.stringify(
+    {
+      app: 'NEPSE GHAR',
+      type: 'accounts-backup',
+      version: 2,
+      includesSecrets: true,
+      note: 'Contains passwords, CRN and PIN. Keep this file private.',
+      exportedAt: new Date().toISOString(),
+      accounts: rows.map((r) => ({
+        name: r.name,
+        dpId: r.dp,
+        dpCode: r.dp,
+        dpName: r.dpName ?? '',
+        username: r.client,
+        bankName: r.bankName,
+        demat: r.demat,
+        dateOfBirth: r.dateOfBirth,
+        holderType: r.holderType,
+        guardianName: r.guardianName,
+        password: r.password,
+        crn: r.crn,
+        pin: r.pin,
+      })),
+    },
+    null,
+    2,
+  );
+}
+
+/** Legacy JSON export without secrets (kept for compatibility). */
 export function buildAccountsBackup(accounts: AccountMeta[]): string {
   return JSON.stringify(
     {
       app: 'NEPSE GHAR',
       type: 'accounts-backup',
-      note: 'Passwords, CRN and PIN are NOT included. Re-enter them after import.',
       version: 1,
+      includesSecrets: false,
+      note: 'Passwords, CRN and PIN are NOT included. Re-enter them after import.',
       exportedAt: new Date().toISOString(),
       accounts: accounts.map((a) => ({
         name: a.name,
@@ -114,7 +156,6 @@ export function buildAccountsBackup(accounts: AccountMeta[]): string {
   );
 }
 
-/** Minimal CSV row parser supporting quoted cells and escaped quotes. */
 function parseCsvLine(line: string): string[] {
   const out: string[] = [];
   let cur = '';
@@ -165,6 +206,7 @@ function toAccount(
   holderType?: string,
   guardianName?: string,
   dateOfBirth?: string,
+  secrets?: { password?: string; crn?: string; pin?: string },
 ): ImportedAccount | null {
   const cleanName = name.trim();
   const cleanDp = dp.trim();
@@ -179,7 +221,6 @@ function toAccount(
         : undefined;
   return {
     name: cleanName || cleanUser,
-    // dpId resolves both the login clientId and the 5-digit code at runtime.
     dpId: cleanDp,
     dpCode: cleanDp,
     dpName: dpName.trim(),
@@ -190,11 +231,21 @@ function toAccount(
     holderType: ht,
     guardianName:
       ht === 'minor' ? guardianName?.trim() || undefined : undefined,
+    password: secrets?.password?.trim() || undefined,
+    crn: secrets?.crn?.trim() || undefined,
+    pin: secrets?.pin?.trim() || undefined,
   };
 }
 
+function isFullCsvHeaders(headers: string[]): boolean {
+  return (
+    findCol(headers, 'password') >= 0 ||
+    (findCol(headers, 'client') >= 0 && findCol(headers, 'username') < 0)
+  );
+}
+
 export function parseAccountsCsv(text: string): ImportedAccount[] {
-  const lines = text
+  const lines = stripBom(text)
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .split('\n')
@@ -202,17 +253,26 @@ export function parseAccountsCsv(text: string): ImportedAccount[] {
   if (!lines.length) return [];
 
   const first = parseCsvLine(lines[0]);
-  const looksLikeHeader = first.some((c) => /name|dp|user|bank|boid/i.test(c));
+  const looksLikeHeader = first.some((c) => /name|dp|user|bank|boid|client|password/i.test(c));
   const headers = looksLikeHeader
     ? first
     : ['Name', 'DP', 'Username', 'DP Name', 'Bank', 'BOID'];
+  const fullFormat = isFullCsvHeaders(headers);
 
   const iName = findCol(headers, 'name', 'account', 'holder');
   const iDp = findCol(headers, 'dp', 'dpcode', 'depository', 'clientid');
-  const iUser = findCol(headers, 'username', 'user', 'boid', 'login');
+  const iUser = fullFormat
+    ? findCol(headers, 'client', 'username', 'user', 'login')
+    : findCol(headers, 'username', 'user', 'client', 'login');
   const iDpName = findCol(headers, 'dpname', 'depositoryname');
   const iBank = findCol(headers, 'bank');
   const iDemat = findCol(headers, 'boid', 'demat');
+  const iPassword = findCol(headers, 'password', 'pass');
+  const iCrn = findCol(headers, 'crn');
+  const iPin = findCol(headers, 'pin', 'tpin');
+  const iDob = findCol(headers, 'dateofbirth', 'dob');
+  const iHolder = findCol(headers, 'holdertype', 'type');
+  const iGuardian = findCol(headers, 'guardian', 'guardianname');
 
   const dataLines = looksLikeHeader ? lines.slice(1) : lines;
   const out: ImportedAccount[] = [];
@@ -220,7 +280,28 @@ export function parseAccountsCsv(text: string): ImportedAccount[] {
     const cells = parseCsvLine(line);
     const get = (idx: number, fallback = '') =>
       idx >= 0 && idx < cells.length ? cells[idx] : fallback;
-    // Fallback to positional order: Name, DP, Username, DP Name, Bank, BOID
+
+    if (fullFormat) {
+      const acc = toAccount(
+        get(iName >= 0 ? iName : 1),
+        get(iDp >= 0 ? iDp : 2),
+        get(iUser >= 0 ? iUser : 3),
+        get(iDpName >= 0 ? iDpName : 7),
+        get(iBank >= 0 ? iBank : 8) || undefined,
+        get(iDemat >= 0 ? iDemat : 9) || undefined,
+        get(iHolder >= 0 ? iHolder : -1) || undefined,
+        get(iGuardian >= 0 ? iGuardian : -1) || undefined,
+        get(iDob >= 0 ? iDob : -1) || undefined,
+        {
+          password: get(iPassword >= 0 ? iPassword : 4),
+          crn: get(iCrn >= 0 ? iCrn : 5),
+          pin: get(iPin >= 0 ? iPin : 6),
+        },
+      );
+      if (acc) out.push(acc);
+      continue;
+    }
+
     const acc = toAccount(
       get(iName >= 0 ? iName : 0),
       get(iDp >= 0 ? iDp : 1),
@@ -228,38 +309,49 @@ export function parseAccountsCsv(text: string): ImportedAccount[] {
       get(iDpName >= 0 ? iDpName : 3),
       get(iBank >= 0 ? iBank : 4) || undefined,
       get(iDemat >= 0 ? iDemat : 5) || undefined,
+      get(iHolder >= 0 ? iHolder : -1) || undefined,
+      get(iGuardian >= 0 ? iGuardian : -1) || undefined,
+      get(iDob >= 0 ? iDob : -1) || undefined,
     );
     if (acc) out.push(acc);
   }
   return out;
 }
 
+function rowToImportedAccount(r: Record<string, unknown>): ImportedAccount | null {
+  return toAccount(
+    String(r.name ?? ''),
+    String(r.dpCode ?? r.dpId ?? r.dp ?? ''),
+    String(r.username ?? r.client ?? ''),
+    String(r.dpName ?? ''),
+    r.bankName ? String(r.bankName) : undefined,
+    r.demat ? String(r.demat) : undefined,
+    r.holderType ? String(r.holderType) : undefined,
+    r.guardianName ? String(r.guardianName) : undefined,
+    r.dateOfBirth ? String(r.dateOfBirth) : undefined,
+    {
+      password: r.password != null ? String(r.password) : undefined,
+      crn: r.crn != null ? String(r.crn) : undefined,
+      pin: r.pin != null ? String(r.pin) : undefined,
+    },
+  );
+}
+
 export function parseAccountsBackup(text: string): ImportedAccount[] {
-  const data = JSON.parse(text) as {
+  const data = JSON.parse(stripBom(text)) as {
     accounts?: Array<Record<string, unknown>>;
   };
   const rows = Array.isArray(data?.accounts) ? data.accounts : [];
   const out: ImportedAccount[] = [];
   for (const r of rows) {
-    const acc = toAccount(
-      String(r.name ?? ''),
-      String(r.dpCode ?? r.dpId ?? ''),
-      String(r.username ?? ''),
-      String(r.dpName ?? ''),
-      r.bankName ? String(r.bankName) : undefined,
-      r.demat ? String(r.demat) : undefined,
-      r.holderType ? String(r.holderType) : undefined,
-      r.guardianName ? String(r.guardianName) : undefined,
-      r.dateOfBirth ? String(r.dateOfBirth) : undefined,
-    );
+    const acc = rowToImportedAccount(r);
     if (acc) out.push(acc);
   }
   return out;
 }
 
-/** Auto-detect JSON backup vs CSV/Excel export and parse accordingly. */
 export function parseImportedAccounts(text: string): ImportedAccount[] {
-  const trimmed = text.trim();
+  const trimmed = stripBom(text).trim();
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
       return parseAccountsBackup(trimmed);
@@ -268,6 +360,30 @@ export function parseImportedAccounts(text: string): ImportedAccount[] {
     }
   }
   return parseAccountsCsv(trimmed);
+}
+
+export function importIncludesSecrets(accounts: ImportedAccount[]): boolean {
+  return accounts.some(
+    (a) =>
+      Boolean(a.password?.trim()) ||
+      Boolean(a.crn?.trim()) ||
+      Boolean(a.pin?.trim()),
+  );
+}
+
+async function shareBackupFile(
+  fileUri: string,
+  mimeType: string,
+  dialogTitle: string,
+  uti: string,
+): Promise<void> {
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(fileUri, {
+      mimeType,
+      dialogTitle,
+      UTI: uti,
+    });
+  }
 }
 
 /** Write accounts to a file and open the system share sheet. */
@@ -284,14 +400,34 @@ export async function exportAccountsFile(
   await FileSystem.writeAsStringAsync(fileUri, content, {
     encoding: FileSystem.EncodingType.UTF8,
   });
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(fileUri, {
-      mimeType: kind === 'csv' ? 'text/csv' : 'application/json',
-      dialogTitle: 'Export NEPSE GHAR accounts',
-      UTI:
-        kind === 'csv' ? 'public.comma-separated-values-text' : 'public.json',
-    });
+  await shareBackupFile(
+    fileUri,
+    kind === 'csv' ? 'text/csv' : 'application/json',
+    'Export NEPSE GHAR accounts',
+    kind === 'csv' ? 'public.comma-separated-values-text' : 'public.json',
+  );
+}
+
+/** Full JSON backup with passwords, CRN and PIN restored on import. */
+export async function exportFullAccountsBackup(
+  rows: FullAccountExportRow[],
+): Promise<void> {
+  if (!rows.length) {
+    throw new Error('No accounts to export');
   }
+  const content = buildFullAccountsBackup(rows);
+  const stamp = new Date().toISOString().slice(0, 10);
+  const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
+  const fileUri = `${dir}nepse-ghar-accounts-full-${stamp}-${rows.length}.json`;
+  await FileSystem.writeAsStringAsync(fileUri, content, {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+  await shareBackupFile(
+    fileUri,
+    'application/json',
+    `Save ${rows.length} accounts backup`,
+    'public.json',
+  );
 }
 
 /**
@@ -311,14 +447,35 @@ export async function exportFullAccountsExcel(
   await FileSystem.writeAsStringAsync(fileUri, content, {
     encoding: FileSystem.EncodingType.UTF8,
   });
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(fileUri, {
-      mimeType: 'text/csv',
-      dialogTitle: `Save ${rows.length} accounts Excel file`,
-      UTI: 'public.comma-separated-values-text',
-    });
-  }
+  await shareBackupFile(
+    fileUri,
+    'text/csv',
+    `Save ${rows.length} accounts Excel file`,
+    'public.comma-separated-values-text',
+  );
   return fileUri;
+}
+
+export function accountMetaToFullExportRow(
+  account: AccountMeta,
+  index: number,
+  secrets: { password?: string; crn?: string; pin?: string } | null,
+): FullAccountExportRow {
+  return {
+    sn: index + 1,
+    name: account.name ?? '',
+    dp: account.dpCode ?? account.dpId ?? '',
+    client: account.username ?? '',
+    password: secrets?.password ?? '',
+    crn: secrets?.crn ?? '',
+    pin: secrets?.pin ?? '',
+    dpName: account.dpName,
+    bankName: account.bankName,
+    demat: account.demat,
+    dateOfBirth: account.dateOfBirth,
+    holderType: account.holderType,
+    guardianName: account.guardianName,
+  };
 }
 
 /** Open the document picker and return the selected file's text content. */
@@ -346,8 +503,11 @@ export async function pickAccountsFile(): Promise<{
   return { name: asset.name ?? 'file', content };
 }
 
-/** Build the object addAccount() expects (secrets blank per design). */
 export function toLinkedDraft(a: ImportedAccount): Omit<LinkedAccount, 'id'> {
+  const password = a.password ?? '';
+  const crn = a.crn ?? '';
+  const pin = a.pin ?? '';
+  const hasCrnPin = Boolean(crn.trim() || pin.trim());
   return {
     name: a.name,
     dpId: a.dpId,
@@ -360,9 +520,9 @@ export function toLinkedDraft(a: ImportedAccount): Omit<LinkedAccount, 'id'> {
     holderType: a.holderType,
     guardianName: a.holderType === 'minor' ? a.guardianName : undefined,
     verified: false,
-    crnPinVerified: false,
-    password: '',
-    crn: '',
-    pin: '',
+    crnPinVerified: hasCrnPin,
+    password,
+    crn,
+    pin,
   };
 }

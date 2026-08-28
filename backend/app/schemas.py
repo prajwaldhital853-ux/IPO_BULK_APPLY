@@ -7,6 +7,10 @@ class CompanyOut(BaseModel):
     id: int
     name: str
     scrip: str | None = None
+    first_seen_at: int | None = Field(
+        default=None,
+        serialization_alias="firstSeenAt",
+    )
 
 
 class CompaniesResponse(BaseModel):

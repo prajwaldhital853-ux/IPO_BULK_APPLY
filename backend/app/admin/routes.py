@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..auth.deps import utcnow
+from ..auth.user_delete import delete_user_by_id
 from ..auth.jwt_tokens import create_admin_token
 from ..config import get_settings
 from ..auth.subscription import (
@@ -1531,6 +1532,20 @@ async def admin_forget_user_device(
     user = await load_user_with_premium(db, user_id)
     assert user is not None
     return await _user_row(db, user)
+
+
+@router.delete('/users/{user_id}')
+async def admin_delete_user(
+    user_id: str,
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    """Permanently delete a Google user and all server-side data (premium, slots, notes)."""
+    deleted = await delete_user_by_id(db, user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail='User not found')
+    await db.commit()
+    return {'ok': True}
 
 
 @router.delete('/users/{user_id}/subscription')

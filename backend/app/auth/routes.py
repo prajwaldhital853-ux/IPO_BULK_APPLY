@@ -4,24 +4,15 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..config import get_settings
-from ..db.models import (
-    PremiumEntitlement,
-    RefreshToken,
-    SubscriptionRequest,
-    User,
-    UserDeviceSlot,
-    UserActiveAccounts,
-    UserDematSlot,
-    UserNote,
-    UserPinOtp,
-)
+from ..db.models import RefreshToken, User
 from ..db.session import get_db
 from .blacklist import get_blacklist
+from .user_delete import delete_user_by_id
 from .deps import CurrentUser, get_current_user, raise_if_user_blocked, utcnow
 from .google import GoogleAuthError, verify_google_id_token
 from .jwt_tokens import (
@@ -214,29 +205,7 @@ async def delete_account(
     settings = get_settings()
     await get_blacklist().add_jti(user.jti, settings.jwt_access_ttl)
 
-    uid = user.id
-    row = await db.get(User, uid)
-    if row is None:
-        return {'ok': True}
-
-    # Explicit deletes — SQLite often lacks ORM/FK cascade at runtime.
-    await db.execute(delete(RefreshToken).where(RefreshToken.user_id == uid))
-    await db.execute(
-        delete(PremiumEntitlement).where(PremiumEntitlement.user_id == uid),
-    )
-    await db.execute(
-        delete(SubscriptionRequest).where(SubscriptionRequest.user_id == uid),
-    )
-    await db.execute(delete(UserPinOtp).where(UserPinOtp.user_id == uid))
-    await db.execute(delete(UserNote).where(UserNote.user_id == uid))
-    await db.execute(delete(UserDeviceSlot).where(UserDeviceSlot.user_id == uid))
-    await db.execute(
-        delete(UserDematSlot).where(UserDematSlot.user_id == uid),
-    )
-    await db.execute(
-        delete(UserActiveAccounts).where(UserActiveAccounts.user_id == uid),
-    )
-    await db.delete(row)
+    await delete_user_by_id(db, user.id)
     await db.commit()
     return {'ok': True}
 

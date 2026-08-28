@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # Serve list from cache; refresh from CDSC when older than this many seconds.
     cdsc_companies_cache_ttl: int = 21600  # 6 hours
     # Background poll interval (seconds). 0 disables the background loop.
-    cdsc_companies_refresh_seconds: int = 3600  # 1 hour
+    cdsc_companies_refresh_seconds: int = 900  # 15 minutes
     # On result/allotment-heavy days you can lower TTL via env without code change.
 
     # Auth

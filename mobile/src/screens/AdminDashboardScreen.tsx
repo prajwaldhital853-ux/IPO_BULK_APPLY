@@ -20,6 +20,7 @@ import {
   approveSubscription,
   blockAdminUser,
   deactivateUserPremium,
+  deleteAdminUser,
   deleteUserSubscription,
   fetchAdminFeedback,
   fetchAdminStats,
@@ -328,6 +329,62 @@ export function AdminDashboardScreen() {
     } finally {
       setBusyId(null);
     }
+  };
+
+  const onDeleteUserAccount = (user: AdminUserRow) => {
+    Alert.alert(
+      'Delete user account?',
+      `${user.email}\n\nThis permanently removes their Google profile, premium, device slots, and cloud notes from the server. MeroShare accounts on their phone are not wiped.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              if (!token) return;
+              setBusyId(user.id);
+              try {
+                await deleteAdminUser(token, user.id);
+                closeDetail();
+                setUsers((prev) => prev.filter((u) => u.id !== user.id));
+                setStats((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        totalUsers: Math.max(0, prev.totalUsers - 1),
+                        blockedUserCount: user.isBlocked
+                          ? Math.max(0, prev.blockedUserCount - 1)
+                          : prev.blockedUserCount,
+                        premiumUserCount:
+                          user.accessLevel === 'premium'
+                            ? Math.max(0, prev.premiumUserCount - 1)
+                            : prev.premiumUserCount,
+                        pendingUserCount:
+                          user.accessLevel === 'pending'
+                            ? Math.max(0, prev.pendingUserCount - 1)
+                            : prev.pendingUserCount,
+                        freeUserCount:
+                          user.accessLevel === 'free'
+                            ? Math.max(0, prev.freeUserCount - 1)
+                            : prev.freeUserCount,
+                      }
+                    : prev,
+                );
+                Alert.alert('Deleted', 'User account removed from the server.');
+              } catch (e) {
+                Alert.alert(
+                  'Failed',
+                  e instanceof Error ? e.message : 'Could not delete account.',
+                );
+              } finally {
+                setBusyId(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
   };
 
   const runUserAction = async (
@@ -680,19 +737,25 @@ export function AdminDashboardScreen() {
               onPress={() => onToggleBlockUser(item)}
             />
             <ActionBtn
-              label="Clear data"
+              label="Clear subscription"
               color={colors.danger}
               disabled={busy}
               onPress={() =>
                 Alert.alert('Clear subscription data?', item.email, [
                   { text: 'Cancel', style: 'cancel' },
                   {
-                    text: 'Delete',
+                    text: 'Clear',
                     style: 'destructive',
                     onPress: () => void runUserAction(item, 'delete'),
                   },
                 ])
               }
+            />
+            <ActionBtn
+              label="Delete account"
+              color={colors.danger}
+              disabled={busy}
+              onPress={() => onDeleteUserAccount(item)}
             />
           </View>
         </>

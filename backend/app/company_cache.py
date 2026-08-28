@@ -22,6 +22,7 @@ class CachedCompany:
     id: int
     name: str
     scrip: str | None = None
+    first_seen_at: int = 0
 
 
 @dataclass
@@ -81,8 +82,9 @@ class CompanyListCache:
                 "SELECT fetched_at FROM company_list_meta WHERE id = 1"
             ).fetchone()
             rows = self._conn.execute(
-                "SELECT company_share_id, name, scrip FROM company_list "
-                "WHERE active = 1 ORDER BY name COLLATE NOCASE"
+                "SELECT company_share_id, name, scrip, first_seen_at "
+                "FROM company_list WHERE active = 1 "
+                "ORDER BY first_seen_at DESC, name COLLATE NOCASE"
             ).fetchall()
         fetched_at = int(meta[0]) if meta else 0
         companies = [
@@ -90,6 +92,7 @@ class CompanyListCache:
                 id=int(r[0]),
                 name=str(r[1]),
                 scrip=(str(r[2]).strip() if r[2] else None) or None,
+                first_seen_at=int(r[3] or 0),
             )
             for r in rows
         ]

@@ -27,7 +27,10 @@ import { useAccounts } from '../context/AccountsContext';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import {
-  exportAccountsFile,
+  accountMetaToFullExportRow,
+  exportFullAccountsBackup,
+  exportFullAccountsExcel,
+  importIncludesSecrets,
   parseImportedAccounts,
   pickAccountsFile,
   toLinkedDraft,
@@ -186,7 +189,7 @@ export function ProfileScreen() {
     state,
     refresh: refreshSubscription,
   } = useSubscription();
-  const { accounts, addAccount } = useAccounts();
+  const { accounts, addAccount, loadSecrets } = useAccounts();
   const auth = useAuth();
   const { colors, isDark, toggle } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -338,6 +341,9 @@ export function ProfileScreen() {
       let skippedDup = 0;
       let skippedLimit = 0;
 
+      const hasSecrets = importIncludesSecrets(parsed);
+      let restoredSecrets = 0;
+
       for (const acc of parsed) {
         const key = `${(acc.dpCode ?? acc.dpId).trim()}:${acc.username.trim().toLowerCase()}`;
         if (existing.has(key)) {
@@ -360,6 +366,9 @@ export function ProfileScreen() {
         }
         existing.add(key);
         added++;
+        if (acc.password?.trim() || acc.crn?.trim() || acc.pin?.trim()) {
+          restoredSecrets += 1;
+        }
       }
 
       setBusy(null);
@@ -369,9 +378,15 @@ export function ProfileScreen() {
         parts.push(
           `${skippedLimit} skipped — plan limit of ${max} reached.`,
         );
-      parts.push(
-        '\nAdd the password, CRN and PIN for each account before applying.',
-      );
+      if (hasSecrets && restoredSecrets > 0) {
+        parts.push(
+          `\nPasswords, CRN and PIN were restored for ${restoredSecrets} account${restoredSecrets === 1 ? '' : 's'}.`,
+        );
+      } else if (added > 0) {
+        parts.push(
+          '\nThis file had no passwords — add password, CRN and PIN for each account before applying.',
+        );
+      }
       Alert.alert('Import complete', parts.join(' '));
     } catch (e) {
       setBusy(null);
@@ -388,17 +403,59 @@ export function ProfileScreen() {
       Alert.alert('Nothing to export', 'You have no saved accounts yet.');
       return;
     }
-    try {
-      setBusy('Preparing backup…');
-      await exportAccountsFile(accounts, 'json');
-    } catch (e) {
-      Alert.alert(
-        'Export failed',
-        e instanceof Error ? e.message : 'Could not export accounts.',
-      );
-    } finally {
-      setBusy(null);
-    }
+    Alert.alert(
+      'Export backup',
+      `Save all ${accounts.length} account(s) with password, CRN and PIN.\n\nKeep this file private — anyone with it can access your MeroShare logins.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'JSON backup',
+          onPress: () => {
+            void (async () => {
+              try {
+                setBusy('Preparing backup…');
+                const rows = await Promise.all(
+                  accounts.map(async (a, i) =>
+                    accountMetaToFullExportRow(a, i, await loadSecrets(a.id)),
+                  ),
+                );
+                await exportFullAccountsBackup(rows);
+              } catch (e) {
+                Alert.alert(
+                  'Export failed',
+                  e instanceof Error ? e.message : 'Could not export accounts.',
+                );
+              } finally {
+                setBusy(null);
+              }
+            })();
+          },
+        },
+        {
+          text: 'Excel / CSV',
+          onPress: () => {
+            void (async () => {
+              try {
+                setBusy('Preparing Excel file…');
+                const rows = await Promise.all(
+                  accounts.map(async (a, i) =>
+                    accountMetaToFullExportRow(a, i, await loadSecrets(a.id)),
+                  ),
+                );
+                await exportFullAccountsExcel(rows);
+              } catch (e) {
+                Alert.alert(
+                  'Export failed',
+                  e instanceof Error ? e.message : 'Could not export accounts.',
+                );
+              } finally {
+                setBusy(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
   };
 
   const optionItems: {
@@ -410,21 +467,21 @@ export function ProfileScreen() {
   }[] = [
     {
       label: 'Import from Excel',
-      hint: 'Add accounts from a .csv / Excel file',
+      hint: 'Restore accounts + password from .csv / Excel export',
       icon: 'grid-outline',
       color: '#2E7D32',
       onPress: () => void handleImport(),
     },
     {
       label: 'Import',
-      hint: 'Restore accounts from a backup file',
+      hint: 'Restore full backup (.json or .csv) on a new phone',
       icon: 'download-outline',
       color: '#1565C0',
       onPress: () => void handleImport(),
     },
     {
       label: 'Export',
-      hint: 'Save your accounts to a backup file',
+      hint: 'Backup all accounts with password, CRN and PIN',
       icon: 'share-outline',
       color: '#EF6C00',
       onPress: () => void handleExport(),

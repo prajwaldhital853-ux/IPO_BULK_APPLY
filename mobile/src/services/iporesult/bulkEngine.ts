@@ -14,6 +14,10 @@ import { solvePublicCaptcha } from './solveCaptcha';
 
 const ACCOUNT_GAP_MS = 1800;
 const CAPTCHA_ATTEMPTS = 5;
+/** CDSC sessions tend to weaken after ~200 checks — refresh captcha before that. */
+const SESSION_MAINTAIN_EVERY = 200;
+const SESSION_MAINTAIN_PAUSE_MS = 5000;
+const WAF_RECOVERY_PAUSE_MS = 5000;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -22,6 +26,16 @@ function sleep(ms: number) {
 function isWafBlockError(message: string): boolean {
   return /waf|request rejected|support id|blocked the request|cold webview/i.test(
     message,
+  );
+}
+
+/** Errors that often clear on a second pass after a fresh CDSC session. */
+export function isRetriableCdscError(message: string): boolean {
+  return (
+    isWafBlockError(message) ||
+    /invalid captcha|captcha auto-solve|rate limit|429|session reset|not ready|timed out|iporesult session/i.test(
+      message,
+    )
   );
 }
 
@@ -99,6 +113,7 @@ export async function runPublicBulkResultCheck(opts: {
 
   /** Only spaces out accounts that actually hit CDSC, never skipped ones. */
   let needsGap = false;
+  let cdscCheckCount = 0;
 
   for (let i = 0; i < resolved.length; i++) {
     const row = resolved[i];
@@ -127,6 +142,23 @@ export async function runPublicBulkResultCheck(opts: {
       await sleep(ACCOUNT_GAP_MS);
     }
     needsGap = true;
+
+    if (
+      cdscCheckCount > 0 &&
+      cdscCheckCount % SESSION_MAINTAIN_EVERY === 0
+    ) {
+      opts.onProgress?.(
+        `Keeping CDSC session fresh (${cdscCheckCount} checked)…`,
+        i,
+        total,
+      );
+      captcha = await reloadPublicCaptchaViaBridge(
+        opts.bridge,
+        captcha.captchaIdentifier,
+      );
+      await sleep(SESSION_MAINTAIN_PAUSE_MS);
+    }
+    cdscCheckCount += 1;
 
     const masked = maskBoid(row.boid);
     let done = false;
@@ -191,7 +223,7 @@ export async function runPublicBulkResultCheck(opts: {
             total,
           );
           await opts.bridge.resetSession(90000);
-          await sleep(1500);
+          await sleep(WAF_RECOVERY_PAUSE_MS);
           const home = await loadPublicHomeViaBridge(opts.bridge);
           captcha = home.captcha;
           lastMessage = 'CDSC session refreshed';

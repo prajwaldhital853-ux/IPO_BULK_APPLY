@@ -439,7 +439,13 @@ async def companies(
 
     return CompaniesResponse(
         companies=[
-            CompanyOut(id=c.id, name=c.name, scrip=c.scrip) for c in snap.companies
+            CompanyOut(
+                id=c.id,
+                name=c.name,
+                scrip=c.scrip,
+                first_seen_at=c.first_seen_at or None,
+            )
+            for c in snap.companies
         ],
         cached=served_from_cache,
         fetched_at=snap.fetched_at or None,

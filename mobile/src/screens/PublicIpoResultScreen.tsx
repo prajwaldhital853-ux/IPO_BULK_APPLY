@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import Svg, { Line, Path } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
@@ -36,6 +36,11 @@ import {
   type IssueManagerBulkSummary,
   type IssueManagerCompany,
 } from '../services/issuemanager';
+import {
+  detectNewlyPublishedCompanies,
+  mergeIpoCompanyLists,
+  pickNewestIpoCompany,
+} from '../services/issuemanager/companySort';
 import { maskBoid, resolveBoidSync } from '../utils/boid';
 import {
   buildCheckAccountIdSet,
@@ -59,6 +64,7 @@ import {
 } from '../components/IpoResultWebBridge';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 import {
+  isRetriableCdscError,
   loadPublicHomeViaBridge,
   runPublicBulkResultCheck,
   type PublicBulkResultRow,
@@ -268,6 +274,55 @@ export function PublicIpoResultScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [bridgeReady, setBridgeReady] = useState(false);
   const [accountPickerFilter, setAccountPickerFilter] = useState('');
+  const managerCompaniesRef = useRef<IssueManagerCompany[]>([]);
+  const companyKeysRef = useRef<Set<string>>(new Set());
+  const userPickedCompanyRef = useRef(false);
+  const lastCdscPollRef = useRef(0);
+
+  const resolvePickerSelection = useCallback(
+    (
+      merged: IssueManagerCompany[],
+      prev: IssueManagerCompany | null,
+      preferNewest: boolean,
+    ): IssueManagerCompany | null => {
+      if (!merged.length) return null;
+      const newest = pickNewestIpoCompany(merged);
+      if ((preferNewest || !userPickedCompanyRef.current) && newest) {
+        return newest;
+      }
+      if (prev) {
+        const still = merged.find((c) => c.key === prev.key);
+        if (still) return still;
+      }
+      return newest;
+    },
+    [],
+  );
+
+  const applyMergedCompanies = useCallback(
+    (
+      managers: IssueManagerCompany[],
+      cdscExtras: IssueManagerCompany[],
+      phoneExtras: IssueManagerCompany[],
+      preferNewest: boolean,
+    ) => {
+      const merged = mergeIpoCompanyLists(managers, cdscExtras, phoneExtras);
+      const newPublished = detectNewlyPublishedCompanies(
+        companyKeysRef.current,
+        merged,
+      );
+      const pickNew =
+        preferNewest ||
+        newPublished.length > 0 ||
+        !userPickedCompanyRef.current;
+
+      setCompanies(merged);
+      setSelected((prev) => resolvePickerSelection(merged, prev, pickNew));
+      companyKeysRef.current = new Set(merged.map((c) => c.key));
+      return merged;
+    },
+    [resolvePickerSelection],
+  );
 
   const addChecking = useCallback((id: string) => {
     setCheckingIds((prev) => {
@@ -325,14 +380,21 @@ export function PublicIpoResultScreen() {
         throw new Error('CDSC phone bridge is not ready yet.');
       }
       const home = await loadPublicHomeViaBridge(bridge);
-      const phoneCompanies: IssueManagerCompany[] = home.companies.map((c) => ({
-        key: `cdsc:${c.id}`,
-        provider: 'cdsc',
-        rawId: String(c.id),
-        name: c.name.trim(),
-        providerLabel: 'CDSC portal (this phone)',
-        scrip: c.scrip?.trim() || undefined,
-      }));
+      const phoneCompanies: IssueManagerCompany[] = home.companies.map((c) => {
+        const listedAt =
+          typeof c.listedAt === 'number'
+            ? Math.floor(Date.now() / 1000) + c.listedAt
+            : undefined;
+        return {
+          key: `cdsc:${c.id}`,
+          provider: 'cdsc',
+          rawId: String(c.id),
+          name: c.name.trim(),
+          providerLabel: 'CDSC portal (this phone)',
+          scrip: c.scrip?.trim() || undefined,
+          listedAt,
+        };
+      });
       const managerAliases = buildManagerAliasSet(managerCompanies);
       return filterCdscOnlyCompanies(phoneCompanies, managerAliases);
     },
@@ -361,28 +423,19 @@ export function PublicIpoResultScreen() {
     let primary: CompanyLoadResult | undefined;
     try {
       primary = await loadIssueManagerCompanies();
-      const loaded = primary;
-      setCompanies(loaded.companies);
-      setProviderErrors(loaded.errors);
-      setSelected((prev) => {
-        const still = prev
-          ? loaded.companies.find((c) => c.key === prev.key)
-          : null;
-        // Keep a previously selected CDSC-only company while fallback sources
-        // are still loading; otherwise the picker jumps back to the first
-        // issue-manager company during background refresh/recovery.
-        return still ?? prev ?? loaded.companies[0] ?? null;
-      });
+      managerCompaniesRef.current = primary.companies;
+      applyMergedCompanies(primary.companies, [], [], false);
+      setProviderErrors(primary.errors);
 
-      if (!loaded.companies.length) {
-        const detail = loaded.errors
+      if (!primary.companies.length) {
+        const detail = primary.errors
           .map((e) => `${e.label}: ${e.message}`)
           .join('\n');
         setLoadError(
           detail ||
             `No IPO results listed yet on the ${ISSUE_MANAGERS.length} live issue managers.`,
         );
-      } else if (loaded.errors.length) {
+      } else if (primary.errors.length) {
         setPartialWarn('Some issue-manager sources are temporarily offline.');
       }
     } catch (e) {
@@ -405,46 +458,35 @@ export function PublicIpoResultScreen() {
     }
 
     setLoadingCdsc(true);
-    setProgress('Checking CDSC for other IPOs…');
+    setProgress('Loading latest CDSC results from cache…');
+    let cdscExtras: IssueManagerCompany[] = [];
     try {
       const fallback = await loadCdscFallbackCompanies(primary!.companies);
       setProviderErrors((prev) => [...prev, ...fallback.errors]);
-
+      cdscExtras = fallback.companies;
       if (fallback.companies.length) {
-        setCompanies((prev) => {
-          const merged = [...prev, ...fallback.companies].sort((a, b) =>
-            a.name.localeCompare(b.name),
-          );
-          setSelected((sel) => sel ?? merged[0] ?? null);
-          return merged;
-        });
+        applyMergedCompanies(primary!.companies, fallback.companies, [], false);
         setPartialWarn(
-          `${fallback.companies.length} CDSC-only IPO(s) added from backend cache.`,
+          `${fallback.companies.length} CDSC IPO(s) merged (newest shown first).`,
         );
       } else if (fallback.errors.length) {
-        setPartialWarn('CDSC backend is unavailable, trying this phone instead.');
+        setPartialWarn('CDSC cache unavailable, trying this phone instead.');
       }
-    } catch (e) {
-      setPartialWarn('CDSC backend fallback failed, trying this phone instead.');
+    } catch {
+      setPartialWarn('CDSC cache unavailable, trying this phone instead.');
     }
 
-    if (bridgeReady) {
+    const tryPhoneCdsc = !cdscExtras.length && bridgeReady;
+    if (tryPhoneCdsc) {
       try {
         const phoneFallback = await loadCdscPhoneCompanies(primary!.companies);
         if (phoneFallback.length) {
-          setCompanies((prev) => {
-            const seen = new Set(prev.map((c) => c.key));
-            const merged = [...prev];
-            for (const company of phoneFallback) {
-              if (!seen.has(company.key)) {
-                seen.add(company.key);
-                merged.push(company);
-              }
-            }
-            merged.sort((a, b) => a.name.localeCompare(b.name));
-            setSelected((sel) => sel ?? merged[0] ?? null);
-            return merged;
-          });
+          applyMergedCompanies(
+            primary!.companies,
+            cdscExtras,
+            phoneFallback,
+            false,
+          );
           setPartialWarn(
             `${phoneFallback.length} CDSC-only IPO(s) loaded from this phone.`,
           );
@@ -458,7 +500,25 @@ export function PublicIpoResultScreen() {
 
     setLoadingCdsc(false);
     setProgress('');
-  }, [bridgeReady, loadCdscPhoneCompanies]);
+  }, [applyMergedCompanies, bridgeReady, loadCdscPhoneCompanies]);
+
+  /** Light poll: VPS cache only (no phone WebView) — picks up newly published CDSC results. */
+  const refreshCdscFromCache = useCallback(async () => {
+    if (!isCdscBackendConfigured() || running) return;
+    const managers = managerCompaniesRef.current;
+    if (!managers.length) return;
+
+    try {
+      const fallback = await loadCdscFallbackCompanies(managers);
+      if (!fallback.companies.length && !fallback.errors.length) return;
+      applyMergedCompanies(managers, fallback.companies, [], true);
+      if (fallback.companies.length) {
+        setPartialWarn('IPO list updated with the latest CDSC results.');
+      }
+    } catch {
+      // Keep current list — never force a phone CDSC pull from background poll.
+    }
+  }, [applyMergedCompanies, running]);
 
   // Shell paints first; issue-manager fan-out waits for the stack transition.
   useEffect(() => {
@@ -466,14 +526,43 @@ export function PublicIpoResultScreen() {
     void refreshCompanies();
   }, [ready, refreshCompanies]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!ready || running) return;
+      const now = Date.now();
+      if (now - lastCdscPollRef.current < 5 * 60 * 1000) return;
+      lastCdscPollRef.current = now;
+      void refreshCdscFromCache();
+    }, [ready, running, refreshCdscFromCache]),
+  );
+
   useEffect(() => {
-    if (!ready) return;
-    if (!bridgeReady) return;
-    if (!isCdscBackendConfigured()) return;
-    if (running) return;
+    if (!ready || !bridgeReady || running) return;
     if (hasCdscCompanies) return;
-    void refreshCompanies();
-  }, [ready, bridgeReady, hasCdscCompanies, refreshCompanies, running]);
+    const managers = managerCompaniesRef.current;
+    if (!managers.length) return;
+    void (async () => {
+      try {
+        const phoneFallback = await loadCdscPhoneCompanies(managers);
+        if (!phoneFallback.length) return;
+        applyMergedCompanies(managers, [], phoneFallback, true);
+        setPartialWarn(
+          `${phoneFallback.length} CDSC IPO(s) loaded from this phone.`,
+        );
+      } catch (e) {
+        setPartialWarn(
+          `CDSC on this phone is not ready yet: ${e instanceof Error ? e.message : 'unknown error'}.`,
+        );
+      }
+    })();
+  }, [
+    applyMergedCompanies,
+    bridgeReady,
+    hasCdscCompanies,
+    loadCdscPhoneCompanies,
+    ready,
+    running,
+  ]);
 
   useEffect(() => {
     setResultsMap({});
@@ -484,7 +573,10 @@ export function PublicIpoResultScreen() {
   }, [selected?.key]);
 
   const runCdscBridgeCheck = useCallback(
-    async (queue: AccountMeta[]) => {
+    async (
+      queue: AccountMeta[],
+      opts?: { resetSessionFirst?: boolean },
+    ) => {
       const bridge = bridgeRef.current;
       const ocr = ocrRef.current;
       if (!selected) {
@@ -492,6 +584,12 @@ export function PublicIpoResultScreen() {
       }
       if (!bridge || !ocr) {
         throw new Error('CDSC in-app checker is not ready yet. Retry in a moment.');
+      }
+
+      if (opts?.resetSessionFirst && bridge.resetSession) {
+        setProgress('Refreshing CDSC session before retry…');
+        await bridge.resetSession(90000);
+        await new Promise((r) => setTimeout(r, 3000));
       }
 
       setProgress('Preparing CDSC in-app session…');
@@ -536,7 +634,11 @@ export function PublicIpoResultScreen() {
   );
 
   const runCheck = useCallback(
-    (targets: AccountMeta[], openModal: boolean) => {
+    (
+      targets: AccountMeta[],
+      openModal: boolean,
+      opts?: { resetSessionFirst?: boolean },
+    ) => {
       if (!selected) {
         Alert.alert(
           'Not ready',
@@ -577,7 +679,9 @@ export function PublicIpoResultScreen() {
 
             const result =
               selected.provider === 'cdsc'
-                ? await runCdscBridgeCheck(queue)
+                ? await runCdscBridgeCheck(queue, {
+                    resetSessionFirst: opts?.resetSessionFirst,
+                  })
                 : await runIssueManagerBulkCheck({
                     accounts: queue,
                     company: selected,
@@ -633,6 +737,28 @@ export function PublicIpoResultScreen() {
     },
     [runCheck],
   );
+
+  const retriableFailedAccounts = useMemo(
+    () =>
+      checkAccounts.filter((account) => {
+        const row = resultsMap[account.id];
+        return row && !row.ok && isRetriableCdscError(row.message);
+      }),
+    [checkAccounts, resultsMap],
+  );
+
+  const onRecheckFailed = useCallback(() => {
+    if (retriableFailedAccounts.length === 0) {
+      Alert.alert(
+        'No retryable errors',
+        'Failed accounts need manual review, or errors are not from CDSC session limits.',
+      );
+      return;
+    }
+    runCheck(retriableFailedAccounts, false, {
+      resetSessionFirst: selected?.provider === 'cdsc',
+    });
+  }, [retriableFailedAccounts, runCheck, selected?.provider]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -876,6 +1002,33 @@ export function PublicIpoResultScreen() {
                 </Text>
               </View>
             </View>
+
+            {failedCount > 0 ? (
+              <View style={styles.retryBox}>
+                <Text style={styles.retryText}>
+                  {retriableFailedAccounts.length > 0
+                    ? `${retriableFailedAccounts.length} account${retriableFailedAccounts.length === 1 ? '' : 's'} failed (often a short CDSC pause after ~200 checks). Re-check only those errors — no need to run the full list again.`
+                    : `${failedCount} account${failedCount === 1 ? '' : 's'} failed with errors that may need manual review.`}
+                </Text>
+                {retriableFailedAccounts.length > 0 ? (
+                  <Pressable
+                    style={styles.retryBtn}
+                    onPress={onRecheckFailed}
+                    disabled={running}
+                  >
+                    <MaterialCommunityIcons
+                      name="refresh"
+                      size={rs(16)}
+                      color={isDark ? '#FFFFFF' : '#2D5A27'}
+                    />
+                    <Text style={styles.retryBtnText}>
+                      Re-check {retriableFailedAccounts.length} failed account
+                      {retriableFailedAccounts.length === 1 ? '' : 's'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -940,6 +1093,7 @@ export function PublicIpoResultScreen() {
                 <Pressable
                   style={styles.modalRow}
                   onPress={() => {
+                    userPickedCompanyRef.current = true;
                     setSelected(item);
                     setCompanyPickerOpen(false);
                   }}
@@ -1049,6 +1203,8 @@ export function PublicIpoResultScreen() {
         interactive={false}
         onReadyChange={setBridgeReady}
         onPortalBlocked={(reason) => {
+          // Bulk CDSC checks recover internally — don't flash WAF in the header.
+          if (running) return;
           setProgress(reason);
         }}
       />
@@ -1214,6 +1370,37 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     statErrors: { borderColor: 'rgba(251,140,0,0.45)' },
     statNum: { fontWeight: '800', fontSize: rs(15) },
     statLabel: { fontSize: rs(10), fontWeight: '600' },
+    retryBox: {
+      marginTop: rs(10),
+      padding: rs(10),
+      borderRadius: rs(8),
+      borderWidth: 1,
+      borderColor: 'rgba(251,140,0,0.35)',
+      backgroundColor: isDark ? c.surfaceAlt : '#FFF8E6',
+      gap: rs(8),
+    },
+    retryText: {
+      color: c.textSecondary,
+      fontSize: rs(11),
+      lineHeight: rs(16),
+    },
+    retryBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(6),
+      borderWidth: 1,
+      borderColor: checkBtnBorder,
+      borderRadius: rs(16),
+      paddingVertical: rs(8),
+      paddingHorizontal: rs(12),
+      backgroundColor: checkBtnBg,
+    },
+    retryBtnText: {
+      color: forestGreen,
+      fontWeight: '700',
+      fontSize: rs(12),
+    },
     checkNowBtn: {
       borderWidth: 1,
       borderColor: checkBtnBorder,

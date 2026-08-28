@@ -554,6 +554,16 @@ export async function deleteUserSubscription(
   if (!res.ok) throw new Error(await parseError(res));
 }
 
+export async function deleteAdminUser(
+  token: string,
+  userId: string,
+): Promise<void> {
+  const res = await adminFetch(`/admin/users/${userId}`, token, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
 function mapPaymentSettings(json: Record<string, unknown>): AdminPaymentSettings {
   const rawUrl = json.qrImageUrl ?? json.qr_image_url;
   return {
