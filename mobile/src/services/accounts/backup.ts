@@ -24,6 +24,8 @@ export type ImportedAccount = {
   dpName: string;
   username: string;
   bankName?: string;
+  /** Linked ASBA bank account number from MeroShare */
+  accountNumber?: string;
   demat?: string;
   dateOfBirth?: string;
   holderType?: 'major' | 'minor';
@@ -44,13 +46,14 @@ export type FullAccountExportRow = {
   pin: string;
   dpName?: string;
   bankName?: string;
+  accountNumber?: string;
   demat?: string;
   dateOfBirth?: string;
   holderType?: 'major' | 'minor';
   guardianName?: string;
 };
 
-const CSV_HEADER = ['Name', 'DP', 'Username', 'DP Name', 'Bank', 'BOID'];
+const CSV_HEADER = ['Name', 'DP', 'Username', 'DP Name', 'Bank', 'Account No', 'BOID'];
 
 const FULL_CSV_HEADER = [
   'S.N.',
@@ -62,6 +65,7 @@ const FULL_CSV_HEADER = [
   'PIN',
   'DP Name',
   'Bank',
+  'Account No',
   'BOID',
 ];
 
@@ -81,6 +85,7 @@ export function buildAccountsCsv(accounts: AccountMeta[]): string {
     a.username ?? '',
     a.dpName ?? '',
     a.bankName ?? '',
+    a.accountNumber ?? '',
     a.demat ?? '',
   ]);
   return [CSV_HEADER, ...rows]
@@ -137,6 +142,7 @@ export function buildFullAccountsBackup(
         dpName: r.dpName ?? '',
         username: r.client,
         bankName: r.bankName,
+        accountNumber: r.accountNumber,
         demat: r.demat,
         dateOfBirth: r.dateOfBirth,
         holderType: r.holderType,
@@ -168,6 +174,7 @@ export function buildAccountsBackup(accounts: AccountMeta[]): string {
         dpName: a.dpName,
         username: a.username,
         bankName: a.bankName,
+        accountNumber: a.accountNumber,
         demat: a.demat,
         dateOfBirth: a.dateOfBirth,
         holderType: a.holderType,
@@ -225,6 +232,7 @@ function toAccount(
   username: string,
   dpName: string,
   bankName?: string,
+  accountNumber?: string,
   demat?: string,
   holderType?: string,
   guardianName?: string,
@@ -249,6 +257,7 @@ function toAccount(
     dpName: dpName.trim(),
     username: cleanUser,
     bankName: bankName?.trim() || undefined,
+    accountNumber: accountNumber?.trim() || undefined,
     demat: demat?.trim() || undefined,
     dateOfBirth: dob,
     holderType: ht,
@@ -279,16 +288,23 @@ export function parseAccountsCsv(text: string): ImportedAccount[] {
   const looksLikeHeader = first.some((c) => /name|dp|user|bank|boid|client|password/i.test(c));
   const headers = looksLikeHeader
     ? first
-    : ['Name', 'DP', 'Username', 'DP Name', 'Bank', 'BOID'];
+    : ['Name', 'DP', 'Username', 'DP Name', 'Bank', 'Account No', 'BOID'];
   const fullFormat = isFullCsvHeaders(headers);
 
-  const iName = findCol(headers, 'name', 'account', 'holder');
+  const iName = findCol(headers, 'name', 'holder');
   const iDp = findCol(headers, 'dp', 'dpcode', 'depository', 'clientid');
   const iUser = fullFormat
     ? findCol(headers, 'client', 'username', 'user', 'login')
     : findCol(headers, 'username', 'user', 'client', 'login');
   const iDpName = findCol(headers, 'dpname', 'depositoryname');
   const iBank = findCol(headers, 'bank');
+  const iAccountNo = findCol(
+    headers,
+    'accountno',
+    'accountnumber',
+    'bankaccount',
+    'bankaccountno',
+  );
   const iDemat = findCol(headers, 'boid', 'demat');
   const iPassword = findCol(headers, 'password', 'pass');
   const iCrn = findCol(headers, 'crn');
@@ -305,13 +321,22 @@ export function parseAccountsCsv(text: string): ImportedAccount[] {
       idx >= 0 && idx < cells.length ? cells[idx] : fallback;
 
     if (fullFormat) {
+      const accountNo =
+        iAccountNo >= 0 ? get(iAccountNo) || undefined : undefined;
+      const dematVal =
+        iDemat >= 0
+          ? get(iDemat) || undefined
+          : iAccountNo >= 0
+            ? get(10) || undefined
+            : get(9) || undefined;
       const acc = toAccount(
         get(iName >= 0 ? iName : 1),
         get(iDp >= 0 ? iDp : 2),
         get(iUser >= 0 ? iUser : 3),
         get(iDpName >= 0 ? iDpName : 7),
         get(iBank >= 0 ? iBank : 8) || undefined,
-        get(iDemat >= 0 ? iDemat : 9) || undefined,
+        accountNo,
+        dematVal,
         get(iHolder >= 0 ? iHolder : -1) || undefined,
         get(iGuardian >= 0 ? iGuardian : -1) || undefined,
         get(iDob >= 0 ? iDob : -1) || undefined,
@@ -325,13 +350,22 @@ export function parseAccountsCsv(text: string): ImportedAccount[] {
       continue;
     }
 
+    const accountNo =
+      iAccountNo >= 0 ? get(iAccountNo) || undefined : undefined;
+    const dematVal =
+      iDemat >= 0
+        ? get(iDemat) || undefined
+        : iAccountNo >= 0
+          ? get(6) || undefined
+          : get(5) || undefined;
     const acc = toAccount(
       get(iName >= 0 ? iName : 0),
       get(iDp >= 0 ? iDp : 1),
       get(iUser >= 0 ? iUser : 2),
       get(iDpName >= 0 ? iDpName : 3),
       get(iBank >= 0 ? iBank : 4) || undefined,
-      get(iDemat >= 0 ? iDemat : 5) || undefined,
+      accountNo,
+      dematVal,
       get(iHolder >= 0 ? iHolder : -1) || undefined,
       get(iGuardian >= 0 ? iGuardian : -1) || undefined,
       get(iDob >= 0 ? iDob : -1) || undefined,
@@ -348,6 +382,7 @@ function rowToImportedAccount(r: Record<string, unknown>): ImportedAccount | nul
     String(r.username ?? r.client ?? ''),
     String(r.dpName ?? ''),
     r.bankName ? String(r.bankName) : undefined,
+    r.accountNumber != null ? String(r.accountNumber) : undefined,
     r.demat ? String(r.demat) : undefined,
     r.holderType ? String(r.holderType) : undefined,
     r.guardianName ? String(r.guardianName) : undefined,
@@ -461,6 +496,7 @@ export async function exportFullAccountsExcel(
     { wch: 20 },
     { wch: 20 },
     { wch: 18 },
+    { wch: 18 },
   ];
   XLSX.utils.book_append_sheet(wb, ws, 'Accounts');
 
@@ -531,6 +567,7 @@ export function accountMetaToFullExportRow(
     pin: secrets?.pin ?? '',
     dpName: account.dpName,
     bankName: account.bankName,
+    accountNumber: account.accountNumber,
     demat: account.demat,
     dateOfBirth: account.dateOfBirth,
     holderType: account.holderType,
@@ -646,6 +683,7 @@ export function toLinkedDraft(a: ImportedAccount): Omit<LinkedAccount, 'id'> {
   const crn = a.crn ?? '';
   const pin = a.pin ?? '';
   const hasCrnPin = Boolean(crn.trim() || pin.trim());
+  const hasPassword = Boolean(password.trim());
   return {
     name: a.name,
     dpId: a.dpId,
@@ -653,11 +691,12 @@ export function toLinkedDraft(a: ImportedAccount): Omit<LinkedAccount, 'id'> {
     dpName: a.dpName,
     username: a.username,
     bankName: a.bankName,
+    accountNumber: a.accountNumber,
     demat: a.demat,
     dateOfBirth: a.dateOfBirth,
     holderType: a.holderType,
     guardianName: a.holderType === 'minor' ? a.guardianName : undefined,
-    verified: false,
+    verified: hasPassword,
     crnPinVerified: hasCrnPin,
     password,
     crn,
