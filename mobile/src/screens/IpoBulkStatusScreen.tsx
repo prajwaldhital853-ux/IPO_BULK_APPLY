@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   FlatList,
   Modal,
   Pressable,
@@ -18,6 +19,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
+import { useAccounts } from '../context/AccountsContext';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
@@ -31,6 +33,7 @@ import {
   type OpenIssue,
   type ResultAccountStatus,
 } from '../services/meroshare';
+import { DEMO_OPENINGS } from '../services/meroshare/client';
 import { rs } from '../utils/responsive';
 import {
   buildCheckAccountIdSet,
@@ -135,11 +138,16 @@ export function IpoBulkStatusScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { usableAccounts: accounts } = useActiveAccounts();
+  const { accounts } = useAccounts();
+  const { overQuota } = useActiveAccounts();
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const ready = useAfterInteractions();
+  const modalListHeight = useMemo(
+    () => Math.max(rs(160), Dimensions.get('window').height * 0.38),
+    [],
+  );
 
   const [checkAccountIds, setCheckAccountIds] = useState<string[]>([]);
   const [accountPickerFilter, setAccountPickerFilter] = useState('');
@@ -234,36 +242,42 @@ export function IpoBulkStatusScreen() {
       const targets = (realAccounts.length ? realAccounts : queue).slice(0, 5);
       let lastError: string | null = null;
 
-      for (const acc of targets) {
-        if (acc.id.startsWith('demo_') || isMockAccountId(acc.id)) continue;
-        try {
-          const loaded = await loadCheckableIssuesForUi(acc);
-          if (gen !== loadGenRef.current) return;
+      const loadedSets = await Promise.all(
+        targets.map(async (acc) => {
+          if (acc.id.startsWith('demo_') || isMockAccountId(acc.id)) {
+            return null;
+          }
+          try {
+            return await loadCheckableIssuesForUi(acc);
+          } catch (e) {
+            lastError = e instanceof Error ? e.message : 'Failed to load';
+            return null;
+          }
+        }),
+      );
+      if (gen !== loadGenRef.current) return;
 
-          // Prefer application reports; also map open/applicable issues so the
-          // dropdown is not empty when reports are briefly unavailable.
-          for (const r of loaded.reports) {
-            if (r.companyShareId > 0 && !map.has(r.companyShareId)) {
-              map.set(r.companyShareId, r);
-            }
+      for (const loaded of loadedSets) {
+        if (!loaded) continue;
+        for (const r of loaded.reports) {
+          if (r.companyShareId > 0 && !map.has(r.companyShareId)) {
+            map.set(r.companyShareId, r);
           }
-          for (const issue of loaded.issues) {
-            if (issue.companyShareId <= 0 || map.has(issue.companyShareId)) {
-              continue;
-            }
-            map.set(issue.companyShareId, {
-              companyShareId: issue.companyShareId,
-              companyName: issue.companyName,
-              scrip: issue.scrip,
-              shareTypeName: issue.shareTypeName ?? 'IPO',
-              statusName: issue.alreadyApplied
-                ? 'TRANSACTION_SUCCESS'
-                : 'OPEN',
-              appliedDate: issue.issueOpenDate,
-            });
+        }
+        for (const issue of loaded.issues) {
+          if (issue.companyShareId <= 0 || map.has(issue.companyShareId)) {
+            continue;
           }
-        } catch (e) {
-          lastError = e instanceof Error ? e.message : 'Failed to load';
+          map.set(issue.companyShareId, {
+            companyShareId: issue.companyShareId,
+            companyName: issue.companyName,
+            scrip: issue.scrip,
+            shareTypeName: issue.shareTypeName ?? 'IPO',
+            statusName: issue.alreadyApplied
+              ? 'TRANSACTION_SUCCESS'
+              : 'OPEN',
+            appliedDate: issue.issueOpenDate,
+          });
         }
       }
 
@@ -278,12 +292,13 @@ export function IpoBulkStatusScreen() {
           (a) => a.id.startsWith('demo_') || isMockAccountId(a.id),
         )
       ) {
-        if (!list.some((c) => c.companyShareId === 999001)) {
+        const demo = DEMO_OPENINGS[0];
+        if (demo && !list.some((c) => c.companyShareId === demo.companyShareId)) {
           list.unshift({
-            companyShareId: 999001,
-            companyName: 'DEMO CEMENT INDUSTRIES LIMITED',
-            scrip: 'DEMO',
-            shareTypeName: 'IPO',
+            companyShareId: demo.companyShareId,
+            companyName: demo.companyName,
+            scrip: demo.scrip,
+            shareTypeName: demo.shareTypeName ?? 'IPO',
             statusName: 'CREATE_APPROVE',
           });
         }
@@ -485,6 +500,12 @@ export function IpoBulkStatusScreen() {
 
       <View style={{ paddingHorizontal: rs(16) }}>
         <OverQuotaBanner />
+        {overQuota && accounts.length > 0 ? (
+          <Text style={styles.quotaHint}>
+            Status checks use every saved account on this phone, including locked
+            ones.
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.controls}>
@@ -716,12 +737,19 @@ export function IpoBulkStatusScreen() {
               ) : null}
             </Pressable>
             <FlatList
-              style={styles.modalList}
+              style={[styles.modalList, { maxHeight: modalListHeight }]}
               data={filteredPickerAccounts}
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
               nestedScrollEnabled
               {...ACCOUNT_LIST_FLAT_PROPS}
+              ListEmptyComponent={
+                <Text style={styles.empty}>
+                  {accountPickerFilter.trim()
+                    ? 'No accounts match your search.'
+                    : 'No saved accounts yet. Add capital from Apply first.'}
+                </Text>
+              }
               renderItem={({ item }) => (
                 <AccountCheckboxPickerRow
                   account={item}
@@ -1025,7 +1053,13 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontSize: rs(16),
       marginBottom: rs(10),
     },
-    modalList: { flex: 1 },
+    modalList: { flexGrow: 0 },
+    quotaHint: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      marginBottom: rs(8),
+      lineHeight: rs(15),
+    },
     modalSearch: {
       borderWidth: 1,
       borderColor: c.borderMuted,

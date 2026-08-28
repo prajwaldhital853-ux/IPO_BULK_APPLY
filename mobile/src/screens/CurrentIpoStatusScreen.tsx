@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   FlatList,
   Modal,
   Pressable,
@@ -18,6 +19,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
+import { useAccounts } from '../context/AccountsContext';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
@@ -151,11 +153,16 @@ export function CurrentIpoStatusScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { usableAccounts: accounts } = useActiveAccounts();
+  const { accounts } = useAccounts();
+  const { overQuota } = useActiveAccounts();
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const ready = useAfterInteractions();
+  const modalListHeight = useMemo(
+    () => Math.max(rs(160), Dimensions.get('window').height * 0.38),
+    [],
+  );
 
   const [checkAccountIds, setCheckAccountIds] = useState<string[]>([]);
   const [accountPickerFilter, setAccountPickerFilter] = useState('');
@@ -381,6 +388,12 @@ export function CurrentIpoStatusScreen() {
 
       <View style={{ paddingHorizontal: rs(16) }}>
         <OverQuotaBanner />
+        {overQuota && accounts.length > 0 ? (
+          <Text style={styles.quotaHint}>
+            Status checks use every saved account on this phone, including locked
+            ones.
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.controls}>
@@ -668,12 +681,19 @@ export function CurrentIpoStatusScreen() {
               ) : null}
             </Pressable>
             <FlatList
-              style={styles.modalList}
+              style={[styles.modalList, { maxHeight: modalListHeight }]}
               data={filteredPickerAccounts}
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
               nestedScrollEnabled
               {...ACCOUNT_LIST_FLAT_PROPS}
+              ListEmptyComponent={
+                <Text style={styles.empty}>
+                  {accountPickerFilter.trim()
+                    ? 'No accounts match your search.'
+                    : 'No saved accounts yet. Add capital from Apply first.'}
+                </Text>
+              }
               renderItem={({ item }) => (
                 <AccountCheckboxPickerRow
                   account={item}
@@ -939,7 +959,13 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontSize: rs(16),
       marginBottom: rs(10),
     },
-    modalList: { flex: 1 },
+    modalList: { flexGrow: 0 },
+    quotaHint: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      marginBottom: rs(8),
+      lineHeight: rs(15),
+    },
     modalSearch: {
       borderWidth: 1,
       borderColor: c.borderMuted,

@@ -317,49 +317,64 @@ export async function loadCurrentOpenIssuesForUi(
   const real = accounts.filter(
     (a) => !a.id.startsWith('demo_') && !isMockAccountId(a.id),
   );
-  const targets = real.length ? real : [];
-  if (!targets.length) return [];
+  const hasMocks = accounts.some(
+    (a) => a.id.startsWith('demo_') || isMockAccountId(a.id),
+  );
+  const targets = real.slice(0, 5);
+  if (!targets.length) {
+    return hasMocks ? DEMO_OPENINGS.map((o) => ({ ...o })) : [];
+  }
 
   const byId = new Map<number, OpenIssue>();
   const appliedIds = new Set<number>();
 
-  for (const account of targets) {
-    const secrets = await getSecrets(account.id);
-    if (!secrets?.password) continue;
+  const loaded = await Promise.all(
+    targets.map(async (account) => {
+      const secrets = await getSecrets(account.id);
+      if (!secrets?.password) return null;
 
-    const client = new MeroshareClient();
-    try {
-      await client.login({
-        clientId: account.dpId,
-        dpCode: account.dpCode,
-        username: account.username,
-        password: secrets.password,
-      });
+      const client = new MeroshareClient();
+      try {
+        await client.login({
+          clientId: account.dpId,
+          dpCode: account.dpCode,
+          username: account.username,
+          password: secrets.password,
+        });
 
-      const [open, reports] = await Promise.all([
-        client.listApplicableIssues().catch(() => [] as OpenIssue[]),
-        client.listApplicationReports().catch(() => []),
-      ]);
+        const [open, reports] = await Promise.all([
+          client.listApplicableIssues().catch(() => [] as OpenIssue[]),
+          client.listApplicationReports().catch(() => []),
+        ]);
 
-      for (const r of reports) {
-        if (r.companyShareId > 0) appliedIds.add(r.companyShareId);
+        return { open, reports };
+      } catch {
+        return null;
+      } finally {
+        client.clearSession();
       }
+    }),
+  );
 
-      for (const o of open) {
-        if (o.companyShareId === 9001) continue;
-        const alreadyApplied = o.alreadyApplied || appliedIds.has(o.companyShareId);
-        byId.set(o.companyShareId, { ...o, alreadyApplied });
-      }
-    } catch {
-      // try next account
-    } finally {
-      client.clearSession();
+  for (const batch of loaded) {
+    if (!batch) continue;
+    for (const r of batch.reports) {
+      if (r.companyShareId > 0) appliedIds.add(r.companyShareId);
+    }
+    for (const o of batch.open) {
+      if (o.companyShareId === 9001) continue;
+      const alreadyApplied = o.alreadyApplied || appliedIds.has(o.companyShareId);
+      byId.set(o.companyShareId, { ...o, alreadyApplied });
     }
   }
 
-  return [...byId.values()].sort((a, b) =>
+  const list = [...byId.values()].sort((a, b) =>
     a.companyName.localeCompare(b.companyName),
   );
+  if (!list.length && hasMocks) {
+    return DEMO_OPENINGS.map((o) => ({ ...o }));
+  }
+  return list;
 }
 
 /** Merge open issues from every saved account (deduped by companyShareId). */

@@ -25,12 +25,12 @@ export function CheckScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const needAccounts = (go: () => void) => {
+  const needAccounts = (go: () => void, requireActive = true) => {
     if (accounts.length === 0) {
       Alert.alert('No accounts', 'Add capital detail first from Apply.');
       return;
     }
-    if (usableAccounts.length === 0) {
+    if (requireActive && usableAccounts.length === 0) {
       Alert.alert(
         'No active accounts',
         'Your plan limit is smaller than the number of saved accounts, and none of the accounts on this phone are in the active set. Delete an active account to free a slot, or ask admin to raise your limit.',
@@ -70,7 +70,7 @@ export function CheckScreen() {
       tint: '#1565C0',
       icon: 'clock-outline' as const,
       onPress: () =>
-        needAccounts(() => navigation.navigate('IpoBulkStatus')),
+        needAccounts(() => navigation.navigate('IpoBulkStatus'), false),
     },
     {
       title: 'Current IPO Status',
@@ -78,7 +78,7 @@ export function CheckScreen() {
       tint: '#6A1B9A',
       icon: 'chart-donut' as const,
       onPress: () =>
-        needAccounts(() => navigation.navigate('CurrentIpoStatus')),
+        needAccounts(() => navigation.navigate('CurrentIpoStatus'), false),
     },
   ];
 

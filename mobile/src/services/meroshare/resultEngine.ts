@@ -16,8 +16,8 @@ import type {
 } from './types';
 
 /** Parallel workers + adaptive gap between MeroShare session starts. */
-const BULK_RESULT_CONCURRENCY = 4;
-const BULK_RESULT_GAP_MS = 600;
+const BULK_RESULT_CONCURRENCY = 6;
+const BULK_RESULT_GAP_MS = 350;
 const BULK_RESULT_GAP_MAX_MS = 2800;
 const BULK_RESULT_PAUSE_MS = 2200;
 const DEMO_ACCOUNT_GAP_MS = 120;
@@ -289,7 +289,6 @@ export async function runBulkResultCheck(
   const simulateLogin = opts.simulateLogin ?? dryRun;
   const total = opts.accounts.length;
   const throttle = createBulkThrottle();
-  let stoppedEarly = false;
   let finished = 0;
 
   const emit = (row: ResultAccountStatus, i: number) => {
@@ -302,8 +301,7 @@ export async function runBulkResultCheck(
     );
   };
 
-  const processAt = async (i: number): Promise<ResultAccountStatus | null> => {
-    if (stoppedEarly) return null;
+  const processAt = async (i: number): Promise<ResultAccountStatus> => {
     const account = opts.accounts[i];
 
     if (account.id.startsWith('demo_') || isMockAccountId(account.id)) {
@@ -320,17 +318,7 @@ export async function runBulkResultCheck(
       simulateLogin,
       throttle,
     );
-    if (!stoppedEarly) {
-      emit(row, i);
-      if (
-        !row.ok &&
-        row.status === 'AUTH' &&
-        !isMockAccountId(account.id) &&
-        !account.id.startsWith('demo_')
-      ) {
-        stoppedEarly = true;
-      }
-    }
+    emit(row, i);
     return row;
   };
 
@@ -341,6 +329,14 @@ export async function runBulkResultCheck(
 
   const results = rows.filter(
     (r): r is ResultAccountStatus => r != null,
+  );
+
+  const stoppedEarly = results.some(
+    (r) =>
+      !r.ok &&
+      r.status === 'AUTH' &&
+      !isMockAccountId(r.accountId) &&
+      !r.accountId.startsWith('demo_'),
   );
 
   return {
