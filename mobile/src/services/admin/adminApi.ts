@@ -417,6 +417,45 @@ export type AdminPaginated<T> = {
   nextCursor: string | null;
 };
 
+const ADMIN_PAGE_SIZE = 50;
+
+let legacyUsersCache: { key: string; rows: AdminUserRow[] } | null = null;
+let legacySubsCache: { key: string; rows: AdminSubscriptionRow[] } | null = null;
+
+function legacyUsersKey(access?: string, q?: string): string {
+  return `${access ?? 'all'}|${(q ?? '').trim().toLowerCase()}`;
+}
+
+function legacySubsKey(status?: string): string {
+  return status ?? 'all';
+}
+
+function paginateLocal<T>(
+  all: T[],
+  page: number,
+  pageSize: number,
+): AdminPaginated<T> {
+  const totalCount = all.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const start = (safePage - 1) * pageSize;
+  const items = all.slice(start, start + pageSize);
+  return {
+    items,
+    page: safePage,
+    pageSize,
+    totalCount,
+    totalPages,
+    hasMore: safePage < totalPages,
+    nextCursor: null,
+  };
+}
+
+export function clearAdminListLegacyCache(): void {
+  legacyUsersCache = null;
+  legacySubsCache = null;
+}
+
 function mapPaginatedUsers(
   json: Record<string, unknown>,
 ): AdminPaginated<AdminUserRow> {
@@ -478,7 +517,23 @@ export async function fetchAdminUsers(
   const qs = params.toString();
   const res = await adminFetch(`/admin/users${qs ? `?${qs}` : ''}`, token);
   if (!res.ok) throw new Error(await parseError(res));
-  return mapPaginatedUsers((await res.json()) as Record<string, unknown>);
+  const raw: unknown = await res.json();
+  if (Array.isArray(raw)) {
+    const key = legacyUsersKey(opts?.access, opts?.q);
+    if (!legacyUsersCache || legacyUsersCache.key !== key) {
+      legacyUsersCache = {
+        key,
+        rows: raw.map((row) => mapUserRow(row as Record<string, unknown>)),
+      };
+    }
+    return paginateLocal(
+      legacyUsersCache.rows,
+      opts?.page ?? 1,
+      ADMIN_PAGE_SIZE,
+    );
+  }
+  legacyUsersCache = null;
+  return mapPaginatedUsers(raw as Record<string, unknown>);
 }
 
 export async function fetchAdminUserDetail(
@@ -528,7 +583,23 @@ export async function fetchAdminSubscriptions(
   const qs = params.toString();
   const res = await adminFetch(`/admin/subscriptions${qs ? `?${qs}` : ''}`, token);
   if (!res.ok) throw new Error(await parseError(res));
-  return mapPaginatedSubscriptions((await res.json()) as Record<string, unknown>);
+  const raw: unknown = await res.json();
+  if (Array.isArray(raw)) {
+    const key = legacySubsKey(opts?.status);
+    if (!legacySubsCache || legacySubsCache.key !== key) {
+      legacySubsCache = {
+        key,
+        rows: raw.map((row) => mapRow(row as Record<string, unknown>)),
+      };
+    }
+    return paginateLocal(
+      legacySubsCache.rows,
+      opts?.page ?? 1,
+      ADMIN_PAGE_SIZE,
+    );
+  }
+  legacySubsCache = null;
+  return mapPaginatedSubscriptions(raw as Record<string, unknown>);
 }
 
 export async function approveSubscription(

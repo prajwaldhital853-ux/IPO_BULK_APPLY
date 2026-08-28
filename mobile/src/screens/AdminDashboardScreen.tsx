@@ -27,6 +27,7 @@ import {
   fetchAdminSubscriptions,
   fetchAdminUserDetail,
   fetchAdminUsers,
+  clearAdminListLegacyCache,
   rejectSubscription,
   setAdminUserMaxAccounts,
   forgetAdminUserDevice,
@@ -280,9 +281,10 @@ export function AdminDashboardScreen() {
   }, [navigation]);
 
   useEffect(() => {
+    clearAdminListLegacyCache();
     setUsersPage(1);
     userCursorsRef.current = [null];
-  }, [userSearchDebounced]);
+  }, [userFilter, userSearchDebounced]);
 
   useEffect(() => {
     if (!token || tab !== 'users') return;
@@ -340,12 +342,26 @@ export function AdminDashboardScreen() {
   };
 
   const goUsersPage = (nextPage: number) => {
-    if (nextPage < 1 || nextPage > usersMeta.totalPages) return;
+    if (nextPage < 1) return;
+    if (
+      nextPage > usersMeta.page &&
+      !usersMeta.hasMore &&
+      nextPage > usersMeta.totalPages
+    ) {
+      return;
+    }
     setUsersPage(nextPage);
   };
 
   const goSubsPage = (nextPage: number) => {
-    if (nextPage < 1 || nextPage > subsMeta.totalPages) return;
+    if (nextPage < 1) return;
+    if (
+      nextPage > subsMeta.page &&
+      !subsMeta.hasMore &&
+      nextPage > subsMeta.totalPages
+    ) {
+      return;
+    }
     setSubsPage(nextPage);
   };
 
@@ -1231,6 +1247,7 @@ export function AdminDashboardScreen() {
                 key={f.id}
                 style={[styles.chip, userFilter === f.id && styles.chipActive]}
                 onPress={() => {
+                  clearAdminListLegacyCache();
                   userCursorsRef.current = [null];
                   setUsersPage(1);
                   setUserFilter(f.id);
@@ -1269,6 +1286,7 @@ export function AdminDashboardScreen() {
                   key={f.id}
                   style={[styles.chip, subFilter === f.id && styles.chipActive]}
                   onPress={() => {
+                    clearAdminListLegacyCache();
                     subCursorsRef.current = [null];
                     setSubsPage(1);
                     setSubFilter(f.id);
@@ -1338,7 +1356,7 @@ export function AdminDashboardScreen() {
       {loading && !users.length && !rows.length && !feedbackRows.length ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: rs(24) }} />
       ) : tab === 'users' ? (
-        <>
+        <View style={[styles.listSection, { paddingBottom: insets.bottom }]}>
           <FlatList
             style={styles.listFlex}
             data={users}
@@ -1368,9 +1386,9 @@ export function AdminDashboardScreen() {
             colors={colors}
             styles={styles}
           />
-        </>
+        </View>
       ) : tab === 'subscriptions' ? (
-        <>
+        <View style={[styles.listSection, { paddingBottom: insets.bottom }]}>
           <FlatList
             style={styles.listFlex}
             data={rows}
@@ -1400,7 +1418,7 @@ export function AdminDashboardScreen() {
             colors={colors}
             styles={styles}
           />
-        </>
+        </View>
       ) : (
         <FlatList
           style={styles.listFlex}
@@ -1497,12 +1515,18 @@ function PaginationBar({
   return (
     <View style={styles.pagination}>
       <Pressable
-        style={[styles.pageBtn, !canPrev && styles.pageBtnDisabled]}
+        style={[styles.pageBtn, canPrev && styles.pageBtnActive, !canPrev && styles.pageBtnDisabled]}
         disabled={!canPrev}
         onPress={onPrev}
+        accessibilityLabel="Previous page"
       >
+        <Ionicons
+          name="chevron-back"
+          size={rs(18)}
+          color={canPrev ? colors.primary : colors.textMuted}
+        />
         <Text style={[styles.pageBtnText, !canPrev && styles.pageBtnTextDisabled]}>
-          Previous
+          Prev
         </Text>
       </Pressable>
       <View style={styles.pageMeta}>
@@ -1512,13 +1536,19 @@ function PaginationBar({
         <Text style={styles.pageCount}>{totalCount} total</Text>
       </View>
       <Pressable
-        style={[styles.pageBtn, !canNext && styles.pageBtnDisabled]}
+        style={[styles.pageBtn, canNext && styles.pageBtnActive, !canNext && styles.pageBtnDisabled]}
         disabled={!canNext}
         onPress={onNext}
+        accessibilityLabel="Next page"
       >
         <Text style={[styles.pageBtnText, !canNext && styles.pageBtnTextDisabled]}>
           Next
         </Text>
+        <Ionicons
+          name="chevron-forward"
+          size={rs(18)}
+          color={canNext ? colors.primary : colors.textMuted}
+        />
       </Pressable>
     </View>
   );
@@ -1632,19 +1662,33 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: rs(8),
-      paddingHorizontal: rs(16),
-      paddingVertical: rs(10),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(12),
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: c.borderMuted,
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOpacity: 0.12,
+      shadowRadius: rs(6),
+      shadowOffset: { width: 0, height: -2 },
     },
     pageBtn: {
-      paddingHorizontal: rs(12),
-      paddingVertical: rs(8),
-      borderRadius: rs(8),
-      backgroundColor: c.primarySoft,
-      minWidth: rs(78),
+      flexDirection: 'row',
       alignItems: 'center',
+      gap: rs(4),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(10),
+      borderRadius: rs(10),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.bg,
+      minWidth: rs(72),
+      justifyContent: 'center',
+    },
+    pageBtnActive: {
+      borderColor: c.primary,
+      backgroundColor: c.primarySoft,
     },
     pageBtnDisabled: { opacity: 0.45 },
     pageBtnText: { color: c.primary, fontWeight: '800', fontSize: rs(11) },
@@ -1652,6 +1696,7 @@ function makeStyles(c: ThemeColors) {
     pageMeta: { alignItems: 'center', flex: 1 },
     pageLabel: { color: c.text, fontWeight: '700', fontSize: rs(12) },
     pageCount: { color: c.textSecondary, fontSize: rs(10), marginTop: rs(2) },
+    listSection: { flex: 1, minHeight: 0 },
     toolsRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',

@@ -1226,7 +1226,7 @@ async def admin_clear_demo_users(
     return {'removed': removed}
 
 
-@router.get('/users', response_model=AdminPaginatedUsersOut)
+@router.get('/users', response_model=AdminPaginatedUsersOut, response_model_by_alias=True)
 async def admin_list_users(
     access: str | None = Query(default=None),
     q: str | None = Query(default=None, max_length=120),
@@ -1262,7 +1262,7 @@ async def admin_get_user(
     return row
 
 
-@router.get('/subscriptions', response_model=AdminPaginatedSubscriptionsOut)
+@router.get('/subscriptions', response_model=AdminPaginatedSubscriptionsOut, response_model_by_alias=True)
 async def admin_list_subscriptions(
     status: str | None = Query(default=None),
     cursor: str | None = Query(default=None),
