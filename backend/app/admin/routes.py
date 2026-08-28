@@ -1199,6 +1199,33 @@ async def admin_stats(
     )
 
 
+@router.post('/demo-users/seed')
+async def admin_seed_demo_users(
+    count: int = Query(default=1000, ge=1, le=5000),
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, int]:
+    """Create demo users for admin-panel testing (clearly fake emails)."""
+    from .demo_users import ensure_demo_users
+
+    result = await ensure_demo_users(db, target=count)
+    await db.commit()
+    return result
+
+
+@router.delete('/demo-users/seed')
+async def admin_clear_demo_users(
+    _: AdminUser = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, int]:
+    """Remove all demo users created by the seed helper."""
+    from .demo_users import clear_demo_users
+
+    removed = await clear_demo_users(db)
+    await db.commit()
+    return {'removed': removed}
+
+
 @router.get('/users', response_model=AdminPaginatedUsersOut)
 async def admin_list_users(
     access: str | None = Query(default=None),
