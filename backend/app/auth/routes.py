@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..config import get_settings
-from ..db.models import RefreshToken, User
+from ..db.models import RefreshToken, SubscriptionRequest, User
 from ..db.session import get_db
 from .blacklist import get_blacklist
 from .user_delete import delete_user_by_id
