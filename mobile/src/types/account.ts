@@ -46,6 +46,12 @@ export type AccountMeta = {
   holderType?: AccountHolderType;
   /** Optional guardian / parent name when holder is a minor */
   guardianName?: string;
+  /** When true, opening IPO lists prefer this account on Apply. */
+  isPrimary?: boolean;
+  /**
+   * User opted out — account cannot bulk apply, check results, or run bulk status.
+   */
+  inactive?: boolean;
 };
 
 /** Sensitive fields — SecureStore only */

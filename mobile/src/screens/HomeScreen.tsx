@@ -83,6 +83,7 @@ function AccountCard({
   colors: ThemeColors;
 }) {
   const verified = item.verified !== false;
+  const userInactive = item.inactive === true;
   const isMinor = isMinorAccount(item);
   const indexLabel = String(index + 1).padStart(2, '0');
   const canDrag = !searching && Boolean(onDrag);
@@ -136,18 +137,18 @@ function AccountCard({
             <View
               style={[
                 styles.statusDot,
-                !verified && styles.statusDotInactive,
+                (!verified || userInactive) && styles.statusDotInactive,
                 locked && styles.statusDotLocked,
               ]}
             />
             <Text
               style={[
                 styles.statusText,
-                !verified && styles.statusTextInactive,
+                (!verified || userInactive) && styles.statusTextInactive,
                 locked && styles.statusTextLocked,
               ]}
             >
-              {locked ? 'Locked' : verified ? 'Active' : 'Inactive'}
+              {locked ? 'Locked' : userInactive ? 'Inactive' : verified ? 'Active' : 'Inactive'}
             </Text>
           </View>
         </View>

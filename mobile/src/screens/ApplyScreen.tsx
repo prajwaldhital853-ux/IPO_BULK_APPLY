@@ -41,6 +41,7 @@ import {
   guardAddAccountAsync,
 } from '../utils/accountLimits';
 import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
+import { isUserInactive } from '../utils/accountOperational';
 import {
   loadOpenIssuesForUi,
   runBulkApply,
@@ -120,7 +121,7 @@ export function ApplyScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const openDrawer = useOpenDrawer();
   const { accounts, updateAccountMeta } = useAccounts();
-  const { isAccountActive, usableAccounts } = useActiveAccounts();
+  const { isAccountActive, operationalAccounts } = useActiveAccounts();
   const { user, isAuthenticated, signInWithGoogle } = useAuth();
   const { isPremium, maxAccounts } = useSubscription();
   const { colors, isDark } = useTheme();
@@ -220,9 +221,9 @@ export function ApplyScreen() {
 
   const refreshInvestment = useCallback(async () => {
     setInvestment(
-      await loadInvestmentSummary(usableAccounts.map((a) => a.id)),
+      await loadInvestmentSummary(operationalAccounts.map((a) => a.id)),
     );
-  }, [usableAccounts]);
+  }, [operationalAccounts]);
 
   const refreshAll = useCallback(async () => {
     setRefreshing(true);
@@ -260,12 +261,12 @@ export function ApplyScreen() {
   useEffect(() => {
     setSelectedIds((prev) => {
       const next: Record<string, boolean> = {};
-      for (const a of accounts) {
+      for (const a of operationalAccounts) {
         next[a.id] = isAccountActive(a.id) ? (prev[a.id] ?? true) : false;
       }
       return next;
     });
-  }, [accounts, isAccountActive]);
+  }, [operationalAccounts, isAccountActive]);
 
   useEffect(() => {
     let mounted = true;
@@ -288,36 +289,37 @@ export function ApplyScreen() {
 
   const checkedEligible = useMemo(() => {
     if (!selected) return [];
-    return usableAccounts.filter(
+    return operationalAccounts.filter(
       (a) => selectedIds[a.id] && !alreadyApplied(a.id),
     );
-  }, [usableAccounts, selectedIds, selected, alreadyApplied]);
+  }, [operationalAccounts, selectedIds, selected, alreadyApplied]);
 
   const promptLocked = useCallback(() => {
     showLockedAccountAlert(() => navigation.navigate('Subscription'));
   }, [navigation]);
 
   const filteredModalAccounts = useMemo(
-    () => filterAccountsByQuery(accounts, accountModalFilter),
-    [accounts, accountModalFilter],
+    () => filterAccountsByQuery(operationalAccounts, accountModalFilter),
+    [operationalAccounts, accountModalFilter],
   );
 
   const toggleAccount = useCallback(
     (id: string) => {
       if (alreadyApplied(id)) return;
-      if (!isAccountActive(id)) {
+      const acc = accounts.find((a) => a.id === id);
+      if (!acc || !isAccountActive(id) || isUserInactive(acc)) {
         promptLocked();
         return;
       }
       setSelectedIds((prev) => ({ ...prev, [id]: !prev[id] }));
     },
-    [alreadyApplied, isAccountActive, promptLocked],
+    [accounts, alreadyApplied, isAccountActive, promptLocked],
   );
 
   const selectAllEligible = () => {
     setSelectedIds((prev) => {
       const next = { ...prev };
-      for (const a of usableAccounts) {
+      for (const a of operationalAccounts) {
         if (!alreadyApplied(a.id)) next[a.id] = true;
       }
       return next;
@@ -327,7 +329,7 @@ export function ApplyScreen() {
   const clearEligible = () => {
     setSelectedIds((prev) => {
       const next = { ...prev };
-      for (const a of usableAccounts) {
+      for (const a of operationalAccounts) {
         if (!alreadyApplied(a.id)) next[a.id] = false;
       }
       return next;
@@ -429,7 +431,8 @@ export function ApplyScreen() {
 
   const runSingle = useCallback(
     (accountId: string) => {
-      if (!isAccountActive(accountId)) {
+      const acc = accounts.find((a) => a.id === accountId);
+      if (!acc || !isAccountActive(accountId) || isUserInactive(acc)) {
         promptLocked();
         return;
       }
@@ -516,7 +519,7 @@ export function ApplyScreen() {
     ? '••••'
     : `${plValue >= 0 ? '+' : '-'} ${formatRs(Math.abs(plValue))}`;
 
-  const eligibleCount = usableAccounts.filter((a) => !alreadyApplied(a.id)).length;
+  const eligibleCount = operationalAccounts.filter((a) => !alreadyApplied(a.id)).length;
 
   const applyCounts = useMemo(() => {
     const counts = {
@@ -590,7 +593,7 @@ export function ApplyScreen() {
 
   const renderSingleAccountRows = () => (
     <FlatList
-      data={accounts}
+      data={operationalAccounts}
       keyExtractor={(item) => item.id}
       scrollEnabled={false}
       {...ACCOUNT_LIST_FLAT_PROPS}
@@ -599,7 +602,7 @@ export function ApplyScreen() {
           account={item}
           index={index}
           applied={alreadyApplied(item.id)}
-          locked={!isAccountActive(item.id)}
+          locked={!isAccountActive(item.id) || isUserInactive(item)}
           running={running}
           onApply={runSingle}
           styles={styles}
@@ -791,7 +794,7 @@ export function ApplyScreen() {
         onPress={() => setAccountsModalOpen(true)}
       >
         <Text style={styles.dropdownText} numberOfLines={1}>
-          {checkedEligible.length === usableAccounts.length ||
+          {checkedEligible.length === operationalAccounts.length ||
           checkedEligible.length === eligibleCount
             ? 'Select Category (All Accounts)'
             : checkedEligible.length === 1
@@ -1073,11 +1076,12 @@ export function ApplyScreen() {
                   account={item}
                   index={idx}
                   applied={alreadyApplied(item.id)}
-                  locked={!isAccountActive(item.id)}
+                  locked={!isAccountActive(item.id) || isUserInactive(item)}
                   checked={
                     Boolean(selectedIds[item.id]) &&
                     !alreadyApplied(item.id) &&
-                    isAccountActive(item.id)
+                    isAccountActive(item.id) &&
+                    !isUserInactive(item)
                   }
                   onToggle={toggleAccount}
                   styles={styles}

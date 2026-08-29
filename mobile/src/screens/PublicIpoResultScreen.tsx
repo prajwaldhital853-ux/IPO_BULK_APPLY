@@ -245,7 +245,7 @@ export function PublicIpoResultScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { updateAccountMeta } = useAccounts();
-  const { usableAccounts: accounts } = useActiveAccounts();
+  const { operationalAccounts: accounts } = useActiveAccounts();
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);

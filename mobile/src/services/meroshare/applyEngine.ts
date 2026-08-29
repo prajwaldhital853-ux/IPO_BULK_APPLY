@@ -2,6 +2,10 @@ import type { AccountMeta } from '../../types/account';
 import { isMockAccountId } from '../../data/mockAccounts';
 import { getSecrets } from '../../storage/accountsStorage';
 import { recordIpoApply } from '../../storage/bankTrackerStorage';
+import {
+  filterRealOperationalAccounts,
+  pickLeadAccount,
+} from '../../utils/accountOperational';
 import { MeroshareClient, DEMO_OPENINGS } from './client';
 import {
   isTransientMeroshareError,
@@ -281,11 +285,7 @@ export async function runBulkApply(
 export async function loadOpenIssuesForUi(
   accounts: AccountMeta[] = [],
 ): Promise<OpenIssue[]> {
-  const real = accounts.filter(
-    (a) => !a.id.startsWith('demo_') && !isMockAccountId(a.id),
-  );
-  const targets = real.length ? real : accounts;
-  const account = targets[0];
+  const account = pickLeadAccount(accounts);
   if (!account) return [];
 
   const secrets = await getSecrets(account.id);
@@ -314,9 +314,7 @@ export async function loadOpenIssuesForUi(
 export async function loadCurrentOpenIssuesForUi(
   accounts: AccountMeta[] = [],
 ): Promise<OpenIssue[]> {
-  const real = accounts.filter(
-    (a) => !a.id.startsWith('demo_') && !isMockAccountId(a.id),
-  );
+  const real = filterRealOperationalAccounts(accounts);
   const hasMocks = accounts.some(
     (a) => a.id.startsWith('demo_') || isMockAccountId(a.id),
   );
@@ -381,10 +379,10 @@ export async function loadCurrentOpenIssuesForUi(
 export async function loadAllOpenIssuesForUi(
   accounts: AccountMeta[] = [],
 ): Promise<OpenIssue[]> {
-  const real = accounts.filter(
+  const real = filterRealOperationalAccounts(accounts);
+  const targets = real.length ? real : accounts.filter(
     (a) => !a.id.startsWith('demo_') && !isMockAccountId(a.id),
   );
-  const targets = real.length ? real : accounts;
   const byId = new Map<number, OpenIssue>();
   for (const account of targets) {
     const rows = await loadOpenIssuesForUi([account]);

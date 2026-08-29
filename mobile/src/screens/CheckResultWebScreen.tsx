@@ -93,7 +93,7 @@ export function CheckResultWebScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { usableAccounts: accounts } = useActiveAccounts();
+  const { operationalAccounts: accounts } = useActiveAccounts();
 
   const bridgeRef = useRef<IpoResultWebBridgeHandle | null>(null);
   const ocrRef = useRef<CaptchaOcrHandle | null>(null);

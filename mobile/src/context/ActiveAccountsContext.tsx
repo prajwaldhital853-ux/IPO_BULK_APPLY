@@ -19,6 +19,7 @@ import {
   type ActiveSlotsStored,
 } from '../storage/activeAccountSlots';
 import { keysForAccountIds } from '../utils/accountFingerprint';
+import { filterOperationalAccounts } from '../utils/accountOperational';
 import { isMockAccountId } from '../data/mockAccounts';
 import { AUTH_ENABLED } from '../services/auth/config';
 import { isUnlimitedAccountLimit } from '../storage/subscriptionStorage';
@@ -41,6 +42,8 @@ type ActiveAccountsValue = {
   claimedTotal: number;
   isAccountActive: (id: string) => boolean;
   usableAccounts: AccountMeta[];
+  /** Plan-active accounts that are not user-inactive (bulk apply / results / status). */
+  operationalAccounts: AccountMeta[];
   refresh: () => Promise<void>;
 };
 
@@ -159,6 +162,11 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
     [accounts, resolved.activeIds, resolved.overQuota],
   );
 
+  const operationalAccounts = useMemo(
+    () => filterOperationalAccounts(usableAccounts),
+    [usableAccounts],
+  );
+
   const value = useMemo(
     () => ({
       overQuota: resolved.overQuota,
@@ -170,6 +178,7 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
       claimedTotal: resolved.total,
       isAccountActive,
       usableAccounts,
+      operationalAccounts,
       refresh,
     }),
     [
@@ -182,6 +191,7 @@ export function ActiveAccountsProvider({ children }: { children: React.ReactNode
       resolved.overQuota,
       resolved.total,
       usableAccounts,
+      operationalAccounts,
     ],
   );
 

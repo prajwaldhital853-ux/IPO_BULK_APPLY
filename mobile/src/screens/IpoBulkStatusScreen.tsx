@@ -19,7 +19,6 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
-import { useAccounts } from '../context/AccountsContext';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
@@ -138,8 +137,7 @@ export function IpoBulkStatusScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { accounts } = useAccounts();
-  const { overQuota } = useActiveAccounts();
+  const { operationalAccounts: accounts, overQuota } = useActiveAccounts();
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
