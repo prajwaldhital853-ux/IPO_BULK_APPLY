@@ -216,7 +216,7 @@ export function AdminNotificationsScreen() {
           >
             <Text style={styles.sectionLabel}>Compose</Text>
             <Text style={styles.hint}>
-              Sends a push with your app logo. Users tap to open the selected page.
+              Sends a push to user phones. Tapping opens the selected page.
             </Text>
 
             <Text style={styles.fieldLabel}>Title</Text>

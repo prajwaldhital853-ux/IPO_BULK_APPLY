@@ -9,7 +9,6 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.deps import utcnow
-from ..config import get_settings
 from ..db.models import AdminNotificationSend, PremiumEntitlement, PushDevice
 from .expo_push import send_expo_push
 
@@ -98,13 +97,6 @@ def build_push_data(
     return data
 
 
-def _logo_image_url() -> str | None:
-    base = get_settings().effective_public_base_url
-    if not base:
-        return None
-    return f'{base.rstrip("/")}/app/logo'
-
-
 async def send_admin_custom_notification(
     db: AsyncSession,
     *,
@@ -144,7 +136,6 @@ async def send_admin_custom_notification(
         body=body.strip(),
         data=push_data,
         channel_id='market',
-        image_url=_logo_image_url(),
     )
 
     row = AdminNotificationSend(
