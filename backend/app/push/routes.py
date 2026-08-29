@@ -8,6 +8,7 @@ from ..auth.deps import CurrentUser, get_optional_user
 from ..config import get_settings
 from ..db.session import get_db
 from .jobs import (
+    _enabled_tokens,
     run_market_close_job,
     run_market_open_job,
     run_premium_expiry_reminder_job,
@@ -15,6 +16,7 @@ from .jobs import (
     sync_price_alerts,
     upsert_push_device,
 )
+from .expo_push import send_expo_push
 from .ipo_jobs import run_ipo_reminder_job
 from .bulk_trade_jobs import run_bulk_trade_notification_job
 
@@ -45,6 +47,23 @@ class SyncAlertsIn(BaseModel):
     alerts: list[PriceAlertIn] = Field(default_factory=list)
 
     model_config = {'populate_by_name': True}
+
+
+class TestBroadcastIn(BaseModel):
+    title: str = 'Test — IPO Bulk Apply'
+    body: str = 'Push notifications are working.'
+    kind: str = 'ipo_open'
+
+    model_config = {'populate_by_name': True}
+
+
+_TEST_KINDS: dict[str, tuple[str, str]] = {
+    'ipo_open': ('ipo', 'ipo_open'),
+    'ipo_last_day': ('ipo', 'ipo_last_day'),
+    'ipo_closed': ('ipo', 'ipo_closed'),
+    'bulk_transaction': ('bulk_trades', 'bulk_transaction'),
+    'market': ('market', 'market_open'),
+}
 
 
 def _require_cron(x_cron_secret: str = Header(default='', alias='X-Cron-Secret')) -> None:
@@ -172,6 +191,42 @@ async def job_bulk_transactions(
     result = await run_bulk_trade_notification_job(db)
     await db.commit()
     return result
+
+
+@router.post('/test-broadcast')
+async def test_broadcast(
+    body: TestBroadcastIn,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_cron),
+) -> dict:
+    """Send one real push to all enabled devices (testing; bypasses dedup)."""
+    channel_id, event_type = _TEST_KINDS.get(
+        body.kind.strip().lower(),
+        ('ipo', 'ipo_open'),
+    )
+    tokens = await _enabled_tokens(db)
+    if not tokens:
+        return {
+            'ok': True,
+            'sent': 0,
+            'tokenCount': 0,
+            'warning': 'No devices registered.',
+        }
+    result = await send_expo_push(
+        tokens,
+        title=body.title.strip() or 'Test — IPO Bulk Apply',
+        body=body.body.strip() or 'Push notifications are working.',
+        data={'type': event_type, 'test': True},
+        channel_id=channel_id,
+    )
+    return {
+        'ok': True,
+        'kind': body.kind,
+        'eventType': event_type,
+        'channelId': channel_id,
+        'tokenCount': len(tokens),
+        **result,
+    }
 
 
 @router.post('/jobs/broker-flow-refresh')
