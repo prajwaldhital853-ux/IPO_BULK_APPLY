@@ -1102,7 +1102,7 @@ async def admin_delete_ipo_issue(
     return {'ok': True}
 
 
-@router.get('/stats', response_model=AdminDashboardStats)
+@router.get('/stats', response_model=AdminDashboardStats, response_model_by_alias=True)
 async def admin_stats(
     _: AdminUser = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),

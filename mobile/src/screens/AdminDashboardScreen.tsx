@@ -50,6 +50,9 @@ type UserFilter = 'all' | 'free' | 'pending' | 'premium' | 'blocked' | 'multi_de
 type FeedbackFilter = 'new' | 'read' | 'resolved' | 'all';
 type FeedbackKindFilter = 'all' | 'feedback' | 'feature_request';
 
+const ALERT_RED = '#E53935';
+const ALERT_RED_SOFT = '#FFEBEE';
+
 function accessLabel(level: string): string {
   if (level === 'premium') return 'Premium';
   if (level === 'pending') return 'Pending';
@@ -1120,7 +1123,14 @@ export function AdminDashboardScreen() {
       {stats ? (
         <View style={styles.statsGrid}>
           <StatTile label="Users" value={stats.totalUsers} colors={colors} styles={styles} />
-          <StatTile label="Pending" value={stats.pendingCount} colors={colors} styles={styles} accent="#F9A825" />
+          <StatTile
+            label="Pending"
+            value={stats.pendingCount}
+            colors={colors}
+            styles={styles}
+            accent={ALERT_RED}
+            highlightAlert
+          />
           <StatTile label="Premium" value={stats.activeCount} colors={colors} styles={styles} accent={colors.accentGreen} />
           <StatTile label="Feedback" value={stats.newFeedbackCount} colors={colors} styles={styles} accent="#7B1FA2" />
         </View>
@@ -1179,26 +1189,61 @@ export function AdminDashboardScreen() {
           {
             id: 'users' as const,
             label: `Users · ${stats?.totalUsers ?? 0}`,
+            alertCount: 0,
           },
           {
             id: 'subscriptions' as const,
             label: `Requests · ${stats?.totalRequests ?? 0}`,
+            alertCount: stats?.pendingCount ?? 0,
           },
           {
             id: 'feedback' as const,
             label: `Inbox · ${stats?.feedbackTotalCount ?? 0}`,
+            alertCount: 0,
           },
-        ]).map((t) => (
-          <Pressable
-            key={t.id}
-            style={[styles.tabBtn, tab === t.id && styles.tabBtnActive]}
-            onPress={() => setTab(t.id)}
-          >
-            <Text style={[styles.tabText, tab === t.id && styles.tabTextActive]}>
-              {t.label}
-            </Text>
-          </Pressable>
-        ))}
+        ]).map((t) => {
+          const showAlert = t.alertCount > 0;
+          const active = tab === t.id;
+          return (
+            <Pressable
+              key={t.id}
+              style={[
+                styles.tabBtn,
+                active && styles.tabBtnActive,
+                showAlert && styles.tabBtnAlert,
+                showAlert && active && styles.tabBtnAlertActive,
+              ]}
+              onPress={() => setTab(t.id)}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  active && styles.tabTextActive,
+                  showAlert && active && styles.tabTextOnAlert,
+                ]}
+              >
+                {t.label}
+              </Text>
+              {showAlert ? (
+                <View
+                  style={[
+                    styles.tabAlertBadge,
+                    active && styles.tabAlertBadgeOnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.tabAlertBadgeText,
+                      active && styles.tabAlertBadgeTextOnActive,
+                    ]}
+                  >
+                    {t.alertCount}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
       </View>
 
       {tab === 'users' ? (
@@ -1290,10 +1335,18 @@ export function AdminDashboardScreen() {
                   label: `All · ${stats?.totalRequests ?? 0}`,
                 },
               ]
-            ).map((f) => (
+            ).map((f) => {
+              const pendingAlerts = (stats?.pendingCount ?? 0) > 0;
+              const isPendingChip = f.id === 'pending';
+              return (
                 <Pressable
                   key={f.id}
-                  style={[styles.chip, subFilter === f.id && styles.chipActive]}
+                  style={[
+                    styles.chip,
+                    subFilter === f.id && styles.chipActive,
+                    isPendingChip && pendingAlerts && styles.chipAlert,
+                    isPendingChip && pendingAlerts && subFilter === f.id && styles.chipAlertActive,
+                  ]}
                   onPress={() => {
                     clearAdminListLegacyCache();
                     subCursorsRef.current = [null];
@@ -1302,13 +1355,22 @@ export function AdminDashboardScreen() {
                   }}
                 >
                   <Text
-                    style={[styles.chipText, subFilter === f.id && styles.chipTextActive]}
+                    style={[
+                      styles.chipText,
+                      subFilter === f.id && styles.chipTextActive,
+                      isPendingChip && pendingAlerts && styles.chipAlertText,
+                      isPendingChip &&
+                        pendingAlerts &&
+                        subFilter === f.id &&
+                        styles.chipAlertTextActive,
+                    ]}
                     numberOfLines={1}
                   >
                     {f.label}
                   </Text>
                 </Pressable>
-              ))
+              );
+            })
             : (
               <>
                 {(
@@ -1479,19 +1541,30 @@ function StatTile({
   colors,
   styles,
   accent,
+  highlightAlert = false,
 }: {
   label: string;
   value: number;
   colors: ThemeColors;
   styles: ReturnType<typeof makeStyles>;
   accent?: string;
+  highlightAlert?: boolean;
 }) {
+  const showAlert = highlightAlert && value > 0;
   return (
-    <View style={styles.statTile}>
-      <Text style={[styles.statValue, { color: accent ?? colors.primary }]}>
+    <View style={[styles.statTile, showAlert && styles.statTileAlert]}>
+      <Text
+        style={[
+          styles.statValue,
+          { color: showAlert ? ALERT_RED : accent ?? colors.primary },
+        ]}
+      >
         {value}
       </Text>
-      <Text style={styles.statLabel} numberOfLines={1}>
+      <Text
+        style={[styles.statLabel, showAlert && styles.statLabelAlert]}
+        numberOfLines={1}
+      >
         {label}
       </Text>
     </View>
@@ -1647,6 +1720,12 @@ function makeStyles(c: ThemeColors) {
       marginTop: rs(2),
       textAlign: 'center',
     },
+    statTileAlert: {
+      backgroundColor: ALERT_RED_SOFT,
+      borderColor: ALERT_RED,
+      borderWidth: 1.5,
+    },
+    statLabelAlert: { color: ALERT_RED, fontWeight: '700' },
     searchWrap: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1773,13 +1852,40 @@ function makeStyles(c: ThemeColors) {
     },
     tabBtn: {
       flex: 1,
+      flexDirection: 'row',
       paddingVertical: rs(10),
       alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(6),
       backgroundColor: c.surface,
     },
     tabBtnActive: { backgroundColor: c.fab },
+    tabBtnAlert: {
+      backgroundColor: ALERT_RED_SOFT,
+    },
+    tabBtnAlertActive: {
+      backgroundColor: ALERT_RED,
+    },
+    tabAlertBadge: {
+      minWidth: rs(18),
+      height: rs(18),
+      paddingHorizontal: rs(5),
+      borderRadius: rs(9),
+      backgroundColor: ALERT_RED,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    tabAlertBadgeText: {
+      color: '#fff',
+      fontSize: rs(10),
+      fontWeight: '800',
+      lineHeight: rs(12),
+    },
+    tabAlertBadgeOnActive: { backgroundColor: '#fff' },
+    tabAlertBadgeTextOnActive: { color: ALERT_RED },
     tabText: { color: c.textSecondary, fontWeight: '700', fontSize: rs(12) },
     tabTextActive: { color: c.fabIcon },
+    tabTextOnAlert: { color: '#fff' },
     filtersScroll: {
       flexGrow: 0,
       marginBottom: rs(8),
@@ -1800,8 +1906,18 @@ function makeStyles(c: ThemeColors) {
       flexShrink: 0,
     },
     chipActive: { backgroundColor: c.primarySoft, borderColor: c.primary },
+    chipAlert: {
+      backgroundColor: ALERT_RED_SOFT,
+      borderColor: ALERT_RED,
+    },
+    chipAlertActive: {
+      backgroundColor: ALERT_RED,
+      borderColor: ALERT_RED,
+    },
     chipText: { color: c.textSecondary, fontSize: rs(10), fontWeight: '600' },
     chipTextActive: { color: c.primary, fontWeight: '800' },
+    chipAlertText: { color: ALERT_RED, fontWeight: '800' },
+    chipAlertTextActive: { color: '#fff' },
     listFlex: { flex: 1 },
     list: { paddingHorizontal: rs(16), paddingBottom: rs(24) },
     compactRow: {

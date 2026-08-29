@@ -326,11 +326,11 @@ export async function fetchAdminStats(token: string): Promise<AdminStats> {
   if (!res.ok) throw new Error(await parseError(res));
   const json = (await res.json()) as Record<string, unknown>;
   return {
-    pendingCount: Number(json.pendingCount ?? 0),
-    activeCount: Number(json.activeCount ?? 0),
-    totalRequests: Number(json.totalRequests ?? 0),
-    totalUsers: Number(json.totalUsers ?? 0),
-    newFeedbackCount: Number(json.newFeedbackCount ?? 0),
+    pendingCount: Number(json.pendingCount ?? json.pending_count ?? 0),
+    activeCount: Number(json.activeCount ?? json.active_count ?? 0),
+    totalRequests: Number(json.totalRequests ?? json.total_requests ?? 0),
+    totalUsers: Number(json.totalUsers ?? json.total_users ?? 0),
+    newFeedbackCount: Number(json.newFeedbackCount ?? json.new_feedback_count ?? 0),
     blockedUserCount: Number(json.blockedUserCount ?? json.blocked_user_count ?? 0),
     multiDeviceUserCount: Number(
       json.multiDeviceUserCount ?? json.multi_device_user_count ?? 0,
