@@ -18,14 +18,16 @@ async def send_expo_push(
     data: dict[str, Any] | None = None,
     sound: str = 'default',
     channel_id: str = 'market',
+    image_url: str | None = None,
 ) -> dict[str, Any]:
     """Send Expo push notifications in chunks of 100."""
     unique = [t.strip() for t in tokens if t and t.strip()]
     if not unique:
         return {'sent': 0, 'tickets': []}
 
-    messages = [
-        {
+    messages: list[dict[str, Any]] = []
+    for token in unique:
+        msg: dict[str, Any] = {
             'to': token,
             'title': title,
             'body': body,
@@ -33,8 +35,9 @@ async def send_expo_push(
             'channelId': channel_id,
             'data': data or {},
         }
-        for token in unique
-    ]
+        if image_url:
+            msg['richContent'] = {'image': image_url}
+        messages.append(msg)
 
     tickets: list[Any] = []
     async with httpx.AsyncClient(timeout=30.0) as client:

@@ -61,6 +61,7 @@ import { AdminSettingsScreen } from '../screens/AdminSettingsScreen';
 import { AdminTeamScreen } from '../screens/AdminTeamScreen';
 import { AdminMarketClosuresScreen } from '../screens/AdminMarketClosuresScreen';
 import { AdminIpoIssuesScreen } from '../screens/AdminIpoIssuesScreen';
+import { AdminNotificationsScreen } from '../screens/AdminNotificationsScreen';
 import { AdminForgotPasswordScreen } from '../screens/AdminForgotPasswordScreen';
 import { AppSettingsScreen } from '../screens/AppSettingsScreen';
 import { FeedbackFormScreen } from '../screens/FeedbackFormScreen';
@@ -205,6 +206,10 @@ function RootStack() {
         component={AdminMarketClosuresScreen}
       />
       <Stack.Screen name="AdminIpoIssues" component={AdminIpoIssuesScreen} />
+      <Stack.Screen
+        name="AdminNotifications"
+        component={AdminNotificationsScreen}
+      />
       <Stack.Screen name="AdminForgotPassword" component={AdminForgotPasswordScreen} />
       <Stack.Screen name="AppSettings" component={AppSettingsScreen} />
       <Stack.Screen name="FeedbackForm" component={FeedbackFormScreen} />

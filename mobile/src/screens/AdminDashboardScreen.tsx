@@ -1156,6 +1156,15 @@ export function AdminDashboardScreen() {
         </Pressable>
         <Pressable
           style={styles.toolTile}
+          onPress={() => navigation.navigate('AdminNotifications')}
+        >
+          <Ionicons name="notifications-outline" size={rs(20)} color={colors.primary} />
+          <Text style={styles.toolTileText} numberOfLines={2}>
+            Notify
+          </Text>
+        </Pressable>
+        <Pressable
+          style={styles.toolTile}
           onPress={() => navigation.navigate('AdminIpoIssues')}
         >
           <Ionicons name="trending-up-outline" size={rs(20)} color={colors.primary} />

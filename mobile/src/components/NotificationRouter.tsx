@@ -8,6 +8,8 @@ type PushData = {
   offeringId?: string;
   matchKey?: string;
   companyName?: string;
+  screen?: string;
+  tabScreen?: string;
 };
 
 function routeForPush(data: PushData | undefined): void {
@@ -49,6 +51,22 @@ function routeForPush(data: PushData | undefined): void {
     case 'market_close':
       navigateFromNotification('MainTabs', { screen: 'Home' });
       break;
+    case 'admin_custom': {
+      const screen = String(data?.screen || '').trim();
+      const tabScreen = String(data?.tabScreen || '').trim();
+      if (screen === 'MainTabs' && tabScreen) {
+        navigateFromNotification('MainTabs', { screen: tabScreen as 'Home' });
+        break;
+      }
+      if (screen === 'StockDetail' && data?.symbol) {
+        navigateFromNotification('StockDetail', { symbol: String(data.symbol) });
+        break;
+      }
+      if (screen) {
+        navigateFromNotification(screen as 'Subscription', undefined);
+      }
+      break;
+    }
     default:
       navigateFromNotification('MainTabs', { screen: 'Home' });
       break;

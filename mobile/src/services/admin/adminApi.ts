@@ -1214,3 +1214,107 @@ export async function updateAdminFeedbackStatus(
   if (!res.ok) throw new Error(await parseError(res));
   return mapFeedbackRow((await res.json()) as Record<string, unknown>);
 }
+
+export type AdminNotificationRedirectScreen = {
+  id: string;
+  label: string;
+  needsSymbol: boolean;
+};
+
+export type AdminNotificationHistoryRow = {
+  id: string;
+  title: string;
+  body: string;
+  audience: 'free' | 'premium' | 'all';
+  redirectScreen: string;
+  redirectSymbol: string | null;
+  tokenCount: number;
+  sentCount: number;
+  sentBy: string;
+  createdAt: string | null;
+};
+
+export type AdminNotificationSendInput = {
+  title: string;
+  body: string;
+  audience: 'free' | 'premium' | 'all';
+  redirectScreen: string;
+  redirectSymbol?: string | null;
+};
+
+function mapNotificationHistoryRow(
+  raw: Record<string, unknown>,
+): AdminNotificationHistoryRow {
+  return {
+    id: String(raw.id ?? ''),
+    title: String(raw.title ?? ''),
+    body: String(raw.body ?? ''),
+    audience: (raw.audience as AdminNotificationHistoryRow['audience']) ?? 'all',
+    redirectScreen: String(raw.redirectScreen ?? ''),
+    redirectSymbol:
+      raw.redirectSymbol == null ? null : String(raw.redirectSymbol),
+    tokenCount: Number(raw.tokenCount ?? 0),
+    sentCount: Number(raw.sentCount ?? 0),
+    sentBy: String(raw.sentBy ?? ''),
+    createdAt: raw.createdAt == null ? null : String(raw.createdAt),
+  };
+}
+
+export async function fetchAdminNotificationScreens(
+  token: string,
+): Promise<AdminNotificationRedirectScreen[]> {
+  const res = await adminFetch('/admin/notifications/screens', token);
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { screens?: Record<string, unknown>[] };
+  return (json.screens ?? []).map((row) => ({
+    id: String(row.id ?? ''),
+    label: String(row.label ?? row.id ?? ''),
+    needsSymbol: Boolean(row.needsSymbol),
+  }));
+}
+
+export async function fetchAdminNotificationAudiencePreview(
+  token: string,
+  audience: 'free' | 'premium' | 'all',
+): Promise<{ deviceCount: number }> {
+  const res = await adminFetch(
+    `/admin/notifications/audience-preview?audience=${encodeURIComponent(audience)}`,
+    token,
+  );
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { deviceCount?: number };
+  return { deviceCount: Number(json.deviceCount ?? 0) };
+}
+
+export async function fetchAdminNotificationHistory(
+  token: string,
+): Promise<AdminNotificationHistoryRow[]> {
+  const res = await adminFetch('/admin/notifications/history', token);
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as Record<string, unknown>[];
+  return json.map((row) => mapNotificationHistoryRow(row));
+}
+
+export async function sendAdminNotification(
+  token: string,
+  input: AdminNotificationSendInput,
+): Promise<{ ok: boolean; tokenCount?: number; sentCount?: number }> {
+  const res = await adminFetch('/admin/notifications/send', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: input.title,
+      body: input.body,
+      audience: input.audience,
+      redirectScreen: input.redirectScreen,
+      redirectSymbol: input.redirectSymbol ?? null,
+    }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as Record<string, unknown>;
+  return {
+    ok: Boolean(json.ok ?? true),
+    tokenCount: Number(json.tokenCount ?? 0),
+    sentCount: Number(json.sent ?? json.sentCount ?? json.tokenCount ?? 0),
+  };
+}

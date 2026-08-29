@@ -362,6 +362,26 @@ class PushDevice(Base):
     )
 
 
+class AdminNotificationSend(Base):
+    """Last admin-composed push broadcasts (history capped server-side)."""
+
+    __tablename__ = 'admin_notification_sends'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(String(1000))
+    audience: Mapped[str] = mapped_column(String(16))
+    redirect_screen: Mapped[str] = mapped_column(String(64))
+    redirect_symbol: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    token_count: Mapped[int] = mapped_column(Integer, default=0)
+    sent_count: Mapped[int] = mapped_column(Integer, default=0)
+    sent_by: Mapped[str] = mapped_column(String(256), default='')
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class PushNotificationLog(Base):
     """Dedup log for broadcast push jobs (IPO reminders, bulk trades, etc.)."""
 

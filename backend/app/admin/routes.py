@@ -54,6 +54,8 @@ from .schemas import (
     AdminLoginResponse,
     AdminLoginVerifyRequest,
     AdminMaxAccountsIn,
+    AdminNotificationHistoryOut,
+    AdminNotificationSendIn,
     AdminPaginatedSubscriptionsOut,
     AdminPaginatedUsersOut,
     AdminPasswordChangeIn,
@@ -1690,3 +1692,70 @@ async def admin_delete_user_subscription(
 @router.get('/plans')
 async def admin_plans(_: AdminUser = Depends(get_admin_user)) -> dict[str, object]:
     return PLAN_CATALOG
+
+
+@router.get('/notifications/screens')
+async def admin_notification_screens(
+    _: AdminUser = Depends(get_admin_user),
+) -> dict[str, object]:
+    from ..push.admin_notify import REDIRECT_SCREEN_OPTIONS
+
+    return {
+        'ok': True,
+        'screens': [
+            {
+                'id': opt['id'],
+                'label': opt['label'],
+                'needsSymbol': bool(opt.get('needsSymbol')),
+            }
+            for opt in REDIRECT_SCREEN_OPTIONS
+        ],
+    }
+
+
+@router.get('/notifications/audience-preview')
+async def admin_notification_audience_preview(
+    audience: str = Query(..., pattern=r'^(free|premium|all)$'),
+    db: AsyncSession = Depends(get_db),
+    _: AdminUser = Depends(get_admin_user),
+) -> dict[str, object]:
+    from ..push.admin_notify import count_audience
+
+    count = await count_audience(db, audience)  # type: ignore[arg-type]
+    return {'ok': True, 'audience': audience, 'deviceCount': count}
+
+
+@router.get(
+    '/notifications/history',
+    response_model=list[AdminNotificationHistoryOut],
+    response_model_by_alias=True,
+)
+async def admin_notification_history(
+    db: AsyncSession = Depends(get_db),
+    _: AdminUser = Depends(get_admin_user),
+) -> list[AdminNotificationHistoryOut]:
+    from ..push.admin_notify import history_row_to_dict, list_notification_history
+
+    rows = await list_notification_history(db)
+    return [AdminNotificationHistoryOut(**history_row_to_dict(row)) for row in rows]
+
+
+@router.post('/notifications/send')
+async def admin_notification_send(
+    body: AdminNotificationSendIn,
+    db: AsyncSession = Depends(get_db),
+    admin: AdminUser = Depends(get_admin_user),
+) -> dict[str, object]:
+    from ..push.admin_notify import send_admin_custom_notification
+
+    result = await send_admin_custom_notification(
+        db,
+        title=body.title,
+        body=body.body,
+        audience=body.audience,  # type: ignore[arg-type]
+        redirect_screen=body.redirect_screen,
+        redirect_symbol=body.redirect_symbol,
+        sent_by=admin.email,
+    )
+    await db.commit()
+    return result

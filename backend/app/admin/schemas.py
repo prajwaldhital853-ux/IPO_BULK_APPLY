@@ -610,3 +610,37 @@ class ManagedOfferingIn(BaseModel):
     match_key: str | None = Field(default=None, alias='matchKey')
 
     model_config = {'populate_by_name': True}
+
+
+class AdminNotificationSendIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=1000)
+    audience: str = Field(pattern=r'^(free|premium|all)$')
+    redirect_screen: str = Field(alias='redirectScreen', min_length=1, max_length=64)
+    redirect_symbol: str | None = Field(default=None, alias='redirectSymbol', max_length=32)
+
+    model_config = {'populate_by_name': True}
+
+
+class AdminNotificationHistoryOut(BaseModel):
+    id: str
+    title: str
+    body: str
+    audience: str
+    redirect_screen: str = Field(alias='redirectScreen')
+    redirect_symbol: str | None = Field(default=None, alias='redirectSymbol')
+    token_count: int = Field(alias='tokenCount')
+    sent_count: int = Field(alias='sentCount')
+    sent_by: str = Field(alias='sentBy')
+    created_at: str | None = Field(default=None, alias='createdAt')
+
+    model_config = {'populate_by_name': True}
+
+
+class AdminNotificationRedirectOption(BaseModel):
+    id: str
+    label: str
+    needs_symbol: bool = Field(alias='needsSymbol')
+
+    model_config = {'populate_by_name': True}
+
