@@ -15,7 +15,8 @@ import {
   View,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
@@ -63,7 +64,7 @@ import {
 import { rs } from '../utils/responsive';
 import { filterAccountsByQuery } from '../utils/filterAccounts';
 import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
-import type { RootStackParamList } from '../navigation/types';
+import type { RootStackParamList, MainTabParamList } from '../navigation/types';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
@@ -75,6 +76,8 @@ type ApplyFilter =
   | 'balance'
   | 'missing'
   | 'other';
+
+type ApplyRoute = RouteProp<MainTabParamList, 'Apply'>;
 
 function classifyApplyResult(r: ApplyAccountResult): Exclude<ApplyFilter, 'all'> {
   if (r.ok) return 'applied';
@@ -119,6 +122,9 @@ function csvEscape(v: string): string {
 export function ApplyScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<ApplyRoute>();
+  const highlightSymbol = route.params?.highlightSymbol?.trim().toUpperCase();
+  const highlightName = route.params?.highlightName?.trim();
   const openDrawer = useOpenDrawer();
   const { accounts, updateAccountMeta } = useAccounts();
   const { isAccountActive, operationalAccounts } = useActiveAccounts();
@@ -209,6 +215,18 @@ export function ApplyScreen() {
       setIssues(list);
       setSelected((prev) => {
         if (!list.length) return null;
+        if (highlightSymbol || highlightName) {
+          const fromPush = list.find((i) => {
+            const sym = (i.scrip || '').toUpperCase();
+            const name = (i.companyName || '').toUpperCase();
+            if (highlightSymbol && sym === highlightSymbol) return true;
+            if (highlightName && name.includes(highlightName.toUpperCase())) {
+              return true;
+            }
+            return false;
+          });
+          if (fromPush) return fromPush;
+        }
         const still = prev
           ? list.find((i) => i.companyShareId === prev.companyShareId)
           : null;
@@ -217,7 +235,7 @@ export function ApplyScreen() {
     } finally {
       setLoadingIssues(false);
     }
-  }, [accounts]);
+  }, [accounts, highlightName, highlightSymbol]);
 
   const refreshInvestment = useCallback(async () => {
     setInvestment(

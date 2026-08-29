@@ -28,6 +28,16 @@ const ANDROID_CHANNELS = [
     importance: Notifications.AndroidImportance.DEFAULT,
   },
   {
+    id: 'ipo',
+    name: 'IPO open & last day',
+    importance: Notifications.AndroidImportance.HIGH,
+  },
+  {
+    id: 'bulk_trades',
+    name: 'Bulk transactions',
+    importance: Notifications.AndroidImportance.HIGH,
+  },
+  {
     id: 'price_alerts',
     name: 'Price alerts',
     importance: Notifications.AndroidImportance.HIGH,

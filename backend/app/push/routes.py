@@ -15,6 +15,8 @@ from .jobs import (
     sync_price_alerts,
     upsert_push_device,
 )
+from .ipo_jobs import run_ipo_reminder_job
+from .bulk_trade_jobs import run_bulk_trade_notification_job
 
 router = APIRouter(prefix='/app/push', tags=['push'])
 
@@ -146,6 +148,28 @@ async def job_premium_expiry_reminders(
     _: None = Depends(_require_cron),
 ) -> dict:
     result = await run_premium_expiry_reminder_job(db)
+    await db.commit()
+    return result
+
+
+@router.post('/jobs/ipo-reminders')
+async def job_ipo_reminders(
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_cron),
+) -> dict:
+    """Cron: auto-detect IPO open, last day, and closed from ShareHub (no admin)."""
+    result = await run_ipo_reminder_job(db)
+    await db.commit()
+    return result
+
+
+@router.post('/jobs/bulk-transactions')
+async def job_bulk_transactions(
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_cron),
+) -> dict:
+    """Cron: notify when large floorsheet trades appear during market hours."""
+    result = await run_bulk_trade_notification_job(db)
     await db.commit()
     return result
 

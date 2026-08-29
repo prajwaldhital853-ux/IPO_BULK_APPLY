@@ -64,7 +64,7 @@ export function AppSettingsScreen() {
       } else if (next && ok) {
         Alert.alert(
           'Notifications ready',
-          'This phone is registered for market open/close and price alerts.',
+          'This phone is registered for IPO alerts, market updates, bulk trades, and price alerts.',
         );
       }
     } finally {

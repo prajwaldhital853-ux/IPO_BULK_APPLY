@@ -362,6 +362,20 @@ class PushDevice(Base):
     )
 
 
+class PushNotificationLog(Base):
+    """Dedup log for broadcast push jobs (IPO reminders, bulk trades, etc.)."""
+
+    __tablename__ = 'push_notification_logs'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    event_key: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(64), index=True)
+    sent_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class BrokerFlowSnapshot(Base):
     """Shared premium board cache for all users (Postgres)."""
 

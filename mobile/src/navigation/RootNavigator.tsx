@@ -5,6 +5,7 @@ import {
   DefaultTheme,
 } from '@react-navigation/native';
 import { pausePrefetch } from '../services/nepse/prefetchGate';
+import { navigationRef } from './navigationRef';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createDrawerNavigator } from '@react-navigation/drawer';
@@ -256,7 +257,11 @@ export function RootNavigator() {
   }, []);
 
   return (
-    <NavigationContainer theme={navTheme} onStateChange={onNavStateChange}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={navTheme}
+      onStateChange={onNavStateChange}
+    >
       <Drawer.Navigator
         drawerContent={(props) => <DrawerContent {...props} />}
         screenOptions={{

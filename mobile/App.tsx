@@ -14,6 +14,7 @@ import { AppBrandingProvider } from './src/context/AppBrandingContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { AppWarmup } from './src/components/AppWarmup';
 import { PushRegistrationSync } from './src/components/PushRegistrationSync';
+import { NotificationRouter } from './src/components/NotificationRouter';
 import { StartupNoticeModal } from './src/components/StartupNoticeModal';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
@@ -27,6 +28,7 @@ function AppShell() {
           <AccountLimitBlockedProvider>
             <AuthProvider>
               <PushRegistrationSync />
+              <NotificationRouter />
               <AppLockProvider>
                 <AccountsProvider>
                   <SubscriptionProvider>

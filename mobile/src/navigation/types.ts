@@ -6,7 +6,13 @@ import type { ExtraToolKind } from '../services/nepse/extraData';
 
 export type MainTabParamList = {
   Home: undefined;
-  Apply: undefined;
+  Apply:
+    | {
+        highlightSymbol?: string;
+        highlightMatchKey?: string;
+        highlightName?: string;
+      }
+    | undefined;
   Services: undefined;
   Check: undefined;
   Profile: undefined;
