@@ -52,6 +52,29 @@ function makeDemoResult(
     companyName: issue.companyName,
     appliedKitta: 10,
   };
+  const oneBased = index + 1;
+
+  if (oneBased === 8) {
+    return {
+      ...base,
+      ok: false,
+      status: 'REJECTED',
+      allotmentStatus: 'Rejected',
+      message: 'Rejected ( quantity : 10 )',
+      remarks: 'Account Blocked',
+    };
+  }
+  if (oneBased === 10) {
+    return {
+      ...base,
+      ok: false,
+      status: 'REJECTED',
+      allotmentStatus: 'Rejected',
+      message: 'Rejected ( quantity : 10 )',
+      remarks: 'Demat account expired',
+    };
+  }
+
   const bucket = index % 5;
   if (bucket === 0 || bucket === 3) {
     // Allotted

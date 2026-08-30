@@ -10,9 +10,9 @@ module.exports = {
     slug: 'ipobulk',
     owner: 'ipobulks-team',
     scheme: 'nepseghar',
-    version: '3.4.56',
+    version: '3.4.58',
     orientation: 'portrait',
-    icon: './assets/app-icon.png',
+    icon: './assets/nepse-ghar-circle-logo.png',
     userInterfaceStyle: 'dark',
     splash: {
       image: './assets/nepse-ghar-logo.png',
@@ -26,10 +26,10 @@ module.exports = {
     android: {
       package: 'com.nepse.ghar',
       googleServicesFile: './google-services.json',
-      versionCode: 102,
+      versionCode: 104,
       adaptiveIcon: {
-        backgroundColor: '#FFFFFF',
-        foregroundImage: './assets/adaptive-icon-foreground.png',
+        backgroundColor: '#000000',
+        foregroundImage: './assets/nepse-ghar-circle-logo.png',
       },
       predictiveBackGestureEnabled: false,
       // pan: avoid window resize fighting our manual sheet lift.
@@ -41,7 +41,7 @@ module.exports = {
       barStyle: 'light-content',
     },
     web: {
-      favicon: './assets/app-icon.png',
+      favicon: './assets/nepse-ghar-circle-logo.png',
     },
     plugins: [
       // Dev client for local USB builds (npm run android:dev). EAS preview/production
