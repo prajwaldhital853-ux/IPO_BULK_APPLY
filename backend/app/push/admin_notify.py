@@ -81,6 +81,18 @@ async def count_audience(db: AsyncSession, audience: Audience) -> int:
     return len(await tokens_for_audience(db, audience))
 
 
+def _admin_push_body(title: str, body: str) -> str:
+    user_title = title.strip()
+    user_body = body.strip()
+    if not user_title:
+        return user_body
+    if not user_body or user_title.lower() == user_body.lower():
+        return user_title
+    if user_body.lower().startswith(user_title.lower()):
+        return user_body
+    return f'{user_title} — {user_body}'
+
+
 def build_push_data(
     *,
     redirect_screen: str,
@@ -169,8 +181,8 @@ async def send_admin_custom_notification(
 
     result = await send_expo_push(
         tokens,
-        title=title.strip(),
-        body=body.strip(),
+        title='NEPSE GHAR',
+        body=_admin_push_body(title, body),
         data=push_data,
         channel_id='market_v2',
         image_url=image_url,

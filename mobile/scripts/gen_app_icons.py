@@ -14,7 +14,7 @@ NOTIF_SIZE = 96
 # full SS2 artwork (bull, bear, NEPSE GHAR text) stays visible on home screen.
 ICON_FILL_RATIO = 0.68
 ADAPTIVE_FILL_RATIO = 0.68
-NOTIF_FILL_RATIO = 0.62
+NOTIF_FILL_RATIO = 0.62  # unused by emblem notification icon; kept for reference
 
 
 def _fit_logo(
@@ -39,23 +39,32 @@ def _fit_logo(
     return canvas
 
 
-def _make_notification_icon(src: Image.Image) -> Image.Image:
-    """White silhouette on transparent — Android status-bar small icon."""
-    base = _fit_logo(src, NOTIF_SIZE, NOTIF_FILL_RATIO, background='white')
-    rgba = base.convert('RGBA')
-    px = rgba.load()
-    out = Image.new('RGBA', (NOTIF_SIZE, NOTIF_SIZE), (0, 0, 0, 0))
-    out_px = out.load()
-    for y in range(NOTIF_SIZE):
-        for x in range(NOTIF_SIZE):
+def _make_notification_icon() -> Image.Image:
+    """Simple NPS emblem silhouette — dense full-logo masks become a green square."""
+    emblem_src = Image.open(ASSETS / 'app-icon.png').convert('RGBA')
+    w, h = emblem_src.size
+    emblem = emblem_src.crop((0, 0, w, int(h * 0.62)))
+
+    canvas = Image.new('RGBA', (NOTIF_SIZE, NOTIF_SIZE), (0, 0, 0, 0))
+    target = int(NOTIF_SIZE * 0.54)
+    emblem.thumbnail((target, target), Image.Resampling.LANCZOS)
+
+    layer = Image.new('RGBA', emblem.size, (0, 0, 0, 0))
+    px = emblem.load()
+    out_px = layer.load()
+    for y in range(emblem.height):
+        for x in range(emblem.width):
             r, g, b, a = px[x, y]
-            if r > 245 and g > 245 and b > 245:
+            if a < 16 or (r > 245 and g > 245 and b > 245):
                 continue
             lum = int(0.299 * r + 0.587 * g + 0.114 * b)
-            alpha = min(255, max(0, 255 - lum + 40))
-            if alpha > 24:
-                out_px[x, y] = (255, 255, 255, alpha)
-    return out
+            alpha = min(255, max(80, 255 - lum))
+            out_px[x, y] = (255, 255, 255, alpha)
+
+    x = (NOTIF_SIZE - layer.width) // 2
+    y = (NOTIF_SIZE - layer.height) // 2
+    canvas.paste(layer, (x, y), layer)
+    return canvas
 
 
 def main() -> None:
@@ -73,7 +82,7 @@ def main() -> None:
     adaptive = _fit_logo(src, SIZE, ADAPTIVE_FILL_RATIO, background='white')
     adaptive.save(ASSETS / 'nepse-ghar-adaptive-foreground.png', optimize=True)
 
-    notif = _make_notification_icon(src)
+    notif = _make_notification_icon()
     notif.save(ASSETS / 'notification-icon.png', optimize=True)
 
     print('Generated icons from', SRC.name)
