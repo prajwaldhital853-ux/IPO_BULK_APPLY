@@ -10,7 +10,7 @@ module.exports = {
     slug: 'hellou',
     owner: 'helloys-team',
     scheme: 'nepseghar',
-    version: '3.4.74',
+    version: '3.4.75',
     orientation: 'portrait',
     icon: './assets/nepse-ghar-app-icon.png',
     userInterfaceStyle: 'dark',
@@ -26,7 +26,7 @@ module.exports = {
     android: {
       package: 'com.nepse.ghar',
       googleServicesFile: './google-services.json',
-      versionCode: 120,
+      versionCode: 121,
       adaptiveIcon: {
         backgroundColor: '#1B5E20',
         foregroundImage: './assets/nepse-ghar-adaptive-foreground.png',
@@ -61,6 +61,7 @@ module.exports = {
         './plugins/withNotificationLargeIcon.js',
         { icon: './assets/notification-large-icon.png' },
       ],
+      './plugins/withNotificationBigPicture.js',
   'expo-secure-store',
       [
         'expo-image-picker',
