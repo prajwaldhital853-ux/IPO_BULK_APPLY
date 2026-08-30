@@ -18,6 +18,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ImageDropZone } from '../components/admin/ImageDropZone';
+import { NotificationBrandPreview } from '../components/admin/NotificationBrandPreview';
 import { useTheme } from '../context/ThemeContext';
 import { loadAdminToken } from '../services/admin/adminTokenStorage';
 import {
@@ -297,6 +298,13 @@ export function AdminNotificationsScreen() {
               onImageSelected={onImageSelected}
               onImageClear={clearImage}
               onPickingChange={setPickingImage}
+            />
+
+            <NotificationBrandPreview
+              colors={colors}
+              title={title}
+              body={body}
+              imageUri={imageUri}
             />
 
             <Text style={styles.fieldLabel}>Send to</Text>

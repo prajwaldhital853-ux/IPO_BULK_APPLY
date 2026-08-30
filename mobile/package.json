@@ -58,6 +58,7 @@
     "web": "expo start --web",
     "build:preview": "eas build -p android --profile preview --non-interactive",
     "build:production": "eas build -p android --profile production --non-interactive",
+    "icons:regen": "python scripts/gen_app_icons.py",
     "sha1:debug": "node scripts/print-debug-sha1.js"
   },
   "private": true
