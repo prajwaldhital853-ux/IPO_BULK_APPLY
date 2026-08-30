@@ -176,6 +176,19 @@ async def send_admin_custom_notification(
         image_url=image_url,
     )
 
+    stale_tokens = result.get('staleTokens') or []
+    if stale_tokens:
+        stale_set = set(stale_tokens)
+        stale_rows = (
+            await db.scalars(
+                select(PushDevice).where(PushDevice.expo_push_token.in_(stale_set)),
+            )
+        ).all()
+        for device in stale_rows:
+            device.enabled = False
+        if stale_rows:
+            log.info('Disabled %s stale push device(s)', len(stale_rows))
+
     delivered = int(result.get('delivered') or result.get('sent') or 0)
     row.sent_count = delivered
     await db.flush()
