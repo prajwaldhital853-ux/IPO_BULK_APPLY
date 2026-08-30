@@ -162,12 +162,10 @@ async def send_admin_custom_notification(
     await db.commit()
 
     image_url: str | None = None
-    base = get_settings().effective_public_base_url
-    if image_b64 and base:
-        image_url = f'{base}/app/notification-image/{row_id}'
-    elif base:
-        # Always show the real app logo (Pathao-style) when no custom image.
-        image_url = f'{base}/app/notification-brand-logo'
+    if image_b64:
+        base = get_settings().effective_public_base_url
+        if base:
+            image_url = f'{base}/app/notification-image/{row_id}'
 
     result = await send_expo_push(
         tokens,
