@@ -10,6 +10,12 @@ SRC = ASSETS / 'nepse-ghar-full-source.png'
 SIZE = 1024
 NOTIF_SIZE = 96
 
+# Android adaptive icons mask ~outer 25%. Keep logo within safe zone so the
+# full SS2 artwork (bull, bear, NEPSE GHAR text) stays visible on home screen.
+ICON_FILL_RATIO = 0.68
+ADAPTIVE_FILL_RATIO = 0.68
+NOTIF_FILL_RATIO = 0.62
+
 
 def _fit_logo(
     src: Image.Image,
@@ -35,8 +41,7 @@ def _fit_logo(
 
 def _make_notification_icon(src: Image.Image) -> Image.Image:
     """White silhouette on transparent — Android status-bar small icon."""
-    # Use safe-zone scale so bull/bear are not clipped at 96px.
-    base = _fit_logo(src, NOTIF_SIZE, 0.62, background='white')
+    base = _fit_logo(src, NOTIF_SIZE, NOTIF_FILL_RATIO, background='white')
     rgba = base.convert('RGBA')
     px = rgba.load()
     out = Image.new('RGBA', (NOTIF_SIZE, NOTIF_SIZE), (0, 0, 0, 0))
@@ -59,17 +64,14 @@ def main() -> None:
 
     src = Image.open(SRC).convert('RGBA')
 
-    # Square launcher icon — full logo visible with small margin.
-    app_icon = _fit_logo(src, SIZE, 0.94, background='white')
+    # Square launcher + adaptive use same safe-zone scale (white background).
+    app_icon = _fit_logo(src, SIZE, ICON_FILL_RATIO, background='white')
     app_icon.save(ASSETS / 'nepse-ghar-app-icon.png', optimize=True)
     app_icon.save(ASSETS / 'icon.png', optimize=True)
-
-    # Adaptive foreground — smaller so Android circle mask does not crop bull/bear.
-    adaptive = _fit_logo(src, SIZE, 0.56, background='transparent')
-    adaptive.save(ASSETS / 'nepse-ghar-adaptive-foreground.png', optimize=True)
-
-    # Legacy alias used by older config paths.
     app_icon.save(ASSETS / 'nepse-ghar-launcher-icon.png', optimize=True)
+
+    adaptive = _fit_logo(src, SIZE, ADAPTIVE_FILL_RATIO, background='white')
+    adaptive.save(ASSETS / 'nepse-ghar-adaptive-foreground.png', optimize=True)
 
     notif = _make_notification_icon(src)
     notif.save(ASSETS / 'notification-icon.png', optimize=True)
