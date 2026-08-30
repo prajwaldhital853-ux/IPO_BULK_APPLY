@@ -1,11 +1,13 @@
 /**
  * Patches expo-notifications so admin images render as BigPicture banners
- * while the app logo stays on the right. Run via postinstall and prebuild.
+ * (title on top, image in middle, body below) while the app logo stays on the right.
  */
 const fs = require('fs');
 const path = require('path');
 
-const PATCH_MARKER = 'NEPSE GHAR: app logo always on right';
+const BUILDER_V2_MARKER = 'NEPSE GHAR v2';
+const BUILDER_V1_MARKER = 'NEPSE GHAR: app logo always on right';
+const REMOTE_V2_MARKER = 'parsedBodyJson()';
 
 const BUILDER_REL_PATH = path.join(
   'node_modules',
@@ -38,10 +40,10 @@ const REMOTE_CONTENT_REL_PATH = path.join(
   'RemoteNotificationContent.kt',
 );
 
-const BUILDER_OLD_STYLE_LINE =
+const BUILDER_STOCK_STYLE_LINE =
   '    builder.setStyle(NotificationCompat.BigTextStyle().bigText(content.text))';
 
-const BUILDER_OLD_LARGE_ICON_BLOCK = `    if (notificationContent.containsImage()) {
+const BUILDER_STOCK_LARGE_ICON_BLOCK = `    if (notificationContent.containsImage()) {
       val bitmap = notificationContent.getImage(context)
       bitmap?.let { builder.setLargeIcon(it) }
     } else {
@@ -49,7 +51,7 @@ const BUILDER_OLD_LARGE_ICON_BLOCK = `    if (notificationContent.containsImage(
     }
     return builder.build()`;
 
-const BUILDER_NEW_LARGE_ICON_BLOCK = `    // ${PATCH_MARKER}; admin image as big-picture banner.
+const BUILDER_V1_BLOCK = `    // ${BUILDER_V1_MARKER}; admin image as big-picture banner.
     largeIcon?.let { builder.setLargeIcon(it) }
 
     if (notificationContent.containsImage()) {
@@ -70,16 +72,47 @@ const BUILDER_NEW_LARGE_ICON_BLOCK = `    // ${PATCH_MARKER}; admin image as big
     }
     return builder.build()`;
 
-const REMOTE_OLD_GET_IMAGE = `  override suspend fun getImage(context: Context): Bitmap? {
+const BUILDER_V2_BLOCK = `    // ${BUILDER_V2_MARKER}: title top, image middle, body below (SS2 layout).
+    largeIcon?.let { builder.setLargeIcon(it) }
+
+    if (notificationContent.containsImage()) {
+      val bitmap = notificationContent.getImage(context)
+      if (bitmap != null) {
+        val titleText = content.title?.takeIf { it.isNotBlank() } ?: ""
+        val bodyText = content.text?.takeIf { it.isNotBlank() } ?: ""
+        builder.setContentTitle(titleText)
+        builder.setContentText(bodyText)
+        val pictureStyle = NotificationCompat.BigPictureStyle()
+          .bigPicture(bitmap)
+          .setBigContentTitle(titleText)
+          .setSummaryText(bodyText)
+          .bigLargeIcon(null as Bitmap?)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+          pictureStyle.showBigPictureWhenCollapsed(false)
+        }
+        builder.setStyle(pictureStyle)
+      } else {
+        builder.setStyle(NotificationCompat.BigTextStyle().bigText(content.text))
+      }
+    } else {
+      builder.setStyle(NotificationCompat.BigTextStyle().bigText(content.text))
+    }
+    return builder.build()`;
+
+const REMOTE_STOCK_GET_IMAGE = `  override suspend fun getImage(context: Context): Bitmap? {
     val uri = remoteMessage.notification?.imageUrl
     return uri?.let { downloadImage(it) }
   }
 
   override fun containsImage(): Boolean {
     return remoteMessage.notification?.imageUrl != null
-  }`;
+  }
 
-const REMOTE_NEW_GET_IMAGE = `  override suspend fun getImage(context: Context): Bitmap? {
+  override val title = remoteMessage.notification?.title ?: notificationData.title
+
+  override val text = remoteMessage.notification?.body ?: notificationData.message`;
+
+const REMOTE_V1_GET_IMAGE = `  override suspend fun getImage(context: Context): Bitmap? {
     val uri = remoteMessage.notification?.imageUrl
       ?: remoteMessage.data["image"]?.takeIf { it.isNotBlank() }?.let { android.net.Uri.parse(it) }
     return uri?.let { downloadImage(it) }
@@ -90,26 +123,82 @@ const REMOTE_NEW_GET_IMAGE = `  override suspend fun getImage(context: Context):
       return true
     }
     return !remoteMessage.data["image"].isNullOrBlank()
-  }`;
+  }
 
-function patchFile(projectRoot, relPath, { marker, replacements }) {
-  const filePath = path.join(projectRoot, relPath);
+  override val title = remoteMessage.notification?.title ?: notificationData.title
+
+  override val text = remoteMessage.notification?.body ?: notificationData.message`;
+
+const REMOTE_V2_BLOCK = `  private fun parsedBodyJson() = notificationData.body
+
+  override suspend fun getImage(context: Context): Bitmap? {
+    val uri = remoteMessage.notification?.imageUrl
+      ?: remoteMessage.data["image"]?.takeIf { it.isNotBlank() }?.let { android.net.Uri.parse(it) }
+    return uri?.let { downloadImage(it) }
+  }
+
+  override fun containsImage(): Boolean {
+    if (remoteMessage.notification?.imageUrl != null) {
+      return true
+    }
+    return !remoteMessage.data["image"].isNullOrBlank()
+  }
+
+  override val title = remoteMessage.notification?.title
+    ?: notificationData.title
+    ?: parsedBodyJson()?.optString("title")?.takeIf { it.isNotBlank() }
+    ?: remoteMessage.data["title"]?.takeIf { it.isNotBlank() }
+
+  override val text = remoteMessage.notification?.body
+    ?: notificationData.message
+    ?: parsedBodyJson()?.optString("message")?.takeIf { it.isNotBlank() }
+    ?: parsedBodyJson()?.optString("body")?.takeIf { it.isNotBlank() }
+    ?: remoteMessage.data["body"]?.takeIf { it.isNotBlank() && !it.startsWith("{") }`;
+
+function patchBuilder(projectRoot) {
+  const filePath = path.join(projectRoot, BUILDER_REL_PATH);
   if (!fs.existsSync(filePath)) {
-    throw new Error(`apply-expo-notification-patches: missing ${relPath}`);
+    throw new Error(`apply-expo-notification-patches: missing ${BUILDER_REL_PATH}`);
   }
 
   let src = fs.readFileSync(filePath, 'utf8');
-  if (src.includes(marker)) {
+  if (src.includes(BUILDER_V2_MARKER)) {
     return false;
   }
 
-  for (const [oldBlock, newBlock] of replacements) {
-    if (!src.includes(oldBlock)) {
-      throw new Error(
-        `apply-expo-notification-patches: unexpected content in ${relPath}`,
-      );
-    }
-    src = src.replace(oldBlock, newBlock);
+  if (src.includes(BUILDER_V1_MARKER)) {
+    src = src.replace(BUILDER_V1_BLOCK, BUILDER_V2_BLOCK);
+  } else if (src.includes(BUILDER_STOCK_LARGE_ICON_BLOCK)) {
+    src = src.replace(
+      BUILDER_STOCK_STYLE_LINE,
+      '    // Notification style set below (BigText or BigPicture).',
+    );
+    src = src.replace(BUILDER_STOCK_LARGE_ICON_BLOCK, BUILDER_V2_BLOCK);
+  } else {
+    throw new Error('apply-expo-notification-patches: unexpected ExpoNotificationBuilder.kt');
+  }
+
+  fs.writeFileSync(filePath, src);
+  return true;
+}
+
+function patchRemoteContent(projectRoot) {
+  const filePath = path.join(projectRoot, REMOTE_CONTENT_REL_PATH);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`apply-expo-notification-patches: missing ${REMOTE_CONTENT_REL_PATH}`);
+  }
+
+  let src = fs.readFileSync(filePath, 'utf8');
+  if (src.includes(REMOTE_V2_MARKER)) {
+    return false;
+  }
+
+  if (src.includes('remoteMessage.data["image"]')) {
+    src = src.replace(REMOTE_V1_GET_IMAGE, REMOTE_V2_BLOCK);
+  } else if (src.includes(REMOTE_STOCK_GET_IMAGE)) {
+    src = src.replace(REMOTE_STOCK_GET_IMAGE, REMOTE_V2_BLOCK);
+  } else {
+    throw new Error('apply-expo-notification-patches: unexpected RemoteNotificationContent.kt');
   }
 
   fs.writeFileSync(filePath, src);
@@ -117,23 +206,9 @@ function patchFile(projectRoot, relPath, { marker, replacements }) {
 }
 
 function patchExpoNotifications(projectRoot) {
-  const builderPatched = patchFile(projectRoot, BUILDER_REL_PATH, {
-    marker: PATCH_MARKER,
-    replacements: [
-      [
-        BUILDER_OLD_STYLE_LINE,
-        '    // Notification style set below (BigText or BigPicture).',
-      ],
-      [BUILDER_OLD_LARGE_ICON_BLOCK, BUILDER_NEW_LARGE_ICON_BLOCK],
-    ],
-  });
-
-  const remotePatched = patchFile(projectRoot, REMOTE_CONTENT_REL_PATH, {
-    marker: 'remoteMessage.data["image"]',
-    replacements: [[REMOTE_OLD_GET_IMAGE, REMOTE_NEW_GET_IMAGE]],
-  });
-
-  return builderPatched || remotePatched;
+  const builder = patchBuilder(projectRoot);
+  const remote = patchRemoteContent(projectRoot);
+  return builder || remote;
 }
 
 function withNotificationBigPicture(config) {
@@ -152,8 +227,8 @@ if (require.main === module) {
   const changed = patchExpoNotifications(projectRoot);
   console.log(
     changed
-      ? 'Applied expo-notifications notification patches.'
-      : 'expo-notifications notification patches already present.',
+      ? 'Applied expo-notifications notification patches (v2).'
+      : 'expo-notifications notification patches already up to date.',
   );
 }
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -191,6 +192,14 @@ def _build_messages(
                 **base_data,
                 'title': title,
                 'message': body,
+                'body': json.dumps(
+                    {
+                        'title': title,
+                        'message': body,
+                        **base_data,
+                    },
+                    separators=(',', ':'),
+                ),
                 'image': image_url,
             }
             msg: dict[str, Any] = {
