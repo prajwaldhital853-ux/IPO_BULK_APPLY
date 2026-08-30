@@ -10,7 +10,7 @@ module.exports = {
     slug: 'ipobulk',
     owner: 'ipobulks-team',
     scheme: 'nepseghar',
-    version: '3.4.61',
+    version: '3.4.62',
     orientation: 'portrait',
     icon: './assets/nepse-ghar-app-icon.png',
     userInterfaceStyle: 'dark',
@@ -26,7 +26,7 @@ module.exports = {
     android: {
       package: 'com.nepse.ghar',
       googleServicesFile: './google-services.json',
-      versionCode: 107,
+      versionCode: 108,
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',
         foregroundImage: './assets/nepse-ghar-adaptive-foreground.png',
