@@ -10,7 +10,7 @@ module.exports = {
     slug: 'hellou',
     owner: 'helloys-team',
     scheme: 'nepseghar',
-    version: '3.4.71',
+    version: '3.4.72',
     orientation: 'portrait',
     icon: './assets/nepse-ghar-app-icon.png',
     userInterfaceStyle: 'dark',
@@ -26,7 +26,7 @@ module.exports = {
     android: {
       package: 'com.nepse.ghar',
       googleServicesFile: './google-services.json',
-      versionCode: 117,
+      versionCode: 118,
       adaptiveIcon: {
         backgroundColor: '#1B5E20',
         foregroundImage: './assets/nepse-ghar-adaptive-foreground.png',
@@ -52,8 +52,9 @@ module.exports = {
       [
     'expo-notifications',
     {
+      // Full-color logo is notification-large-icon.png (Capture.JPG as-is).
+      // Small icon must still be set for Android status bar; do not tint green.
       icon: './assets/notification-icon.png',
-      color: '#1B5E20',
       defaultChannel: 'market_v2',
     },
   ],
