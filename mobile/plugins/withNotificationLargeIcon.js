@@ -10,7 +10,7 @@ const path = require('path');
 const ANDROID_RES_PATH = 'android/app/src/main/res/';
 const LARGE_ICON = 'notification_large_icon';
 const META_DATA = 'expo.modules.notifications.large_notification_icon';
-const BASELINE_PIXEL_SIZE = 64;
+const BASELINE_PIXEL_SIZE = 128;
 
 const dpiValues = {
   mdpi: { folderName: 'drawable-mdpi', scale: 1 },

@@ -178,6 +178,23 @@ async def app_logo(db: AsyncSession = Depends(get_db)) -> Response:
     )
 
 
+@router.get('/notification-brand-logo')
+async def notification_brand_logo() -> Response:
+    """Full-color circular app logo for push notification rich content."""
+    from pathlib import Path
+
+    bundled = (
+        Path(__file__).resolve().parent / 'static' / 'notification-brand-logo.png'
+    )
+    if not bundled.is_file():
+        raise HTTPException(status_code=404, detail='Brand notification logo missing')
+    return Response(
+        content=bundled.read_bytes(),
+        media_type='image/png',
+        headers={'Cache-Control': 'public, max-age=86400'},
+    )
+
+
 @router.get('/notification-image/{notification_id}')
 async def notification_image(
     notification_id: str,
