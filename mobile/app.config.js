@@ -61,7 +61,7 @@ module.exports = {
         './plugins/withNotificationLargeIcon.js',
         { icon: './assets/notification-large-icon.png' },
       ],
-      './plugins/withNotificationBigPicture.js',
+      './plugins/apply-expo-notification-patches.js',
   'expo-secure-store',
       [
         'expo-image-picker',

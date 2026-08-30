@@ -182,18 +182,34 @@ def _build_messages(
     }
     messages: list[dict[str, Any]] = []
     for token in tokens:
-        msg: dict[str, Any] = {
-            'to': token,
-            'title': title,
-            'body': body,
-            'sound': sound,
-            'channelId': channel_id,
-            'data': data or {},
-        }
+        base_data = {str(k): str(v) for k, v in (data or {}).items()}
+        if image_url:
+            # Data-only payload so Android always renders via our patched
+            # ExpoNotificationBuilder (foreground + background). richContent puts
+            # the image on the right via FCM and bypasses our native code.
+            push_data = {
+                **base_data,
+                'title': title,
+                'message': body,
+                'image': image_url,
+            }
+            msg: dict[str, Any] = {
+                'to': token,
+                'sound': sound,
+                'channelId': channel_id,
+                'data': push_data,
+            }
+        else:
+            msg = {
+                'to': token,
+                'title': title,
+                'body': body,
+                'sound': sound,
+                'channelId': channel_id,
+                'data': base_data,
+            }
         if channel_id in high_priority_channels:
             msg['priority'] = 'high'
-        if image_url:
-            msg['richContent'] = {'image': image_url}
         messages.append(msg)
     return messages
 
