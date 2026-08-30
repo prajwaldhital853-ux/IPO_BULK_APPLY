@@ -44,13 +44,13 @@ def _adaptive_foreground(src: Image.Image, canvas_size: int, fill_ratio: float) 
 
 def _make_notification_icon() -> Image.Image:
     """
-    Bold full-bleed white house-with-chart glyph on transparent.
+    Filled squircle tile with the house glyph knocked out, Daraz-style.
 
-    Android forces the notification small icon through an alpha mask: every
-    non-transparent pixel is repainted with the accent colour, so any detailed
-    or multi-colour artwork collapses into an unreadable blob. A single thick
-    silhouette filling the whole canvas is the only shape that stays legible at
-    24dp, so the glyph is drawn here rather than downscaled from the logo.
+    Android runs the small icon through an alpha mask: opaque pixels are
+    repainted with the accent colour and transparent pixels let the notification
+    background show through. Colourful tiles like Daraz's therefore ship an
+    inverted asset — a solid full-bleed tile with the logo cut out — so the tile
+    reads as brand colour and the glyph reads as white.
     """
     s = NOTIF_SIZE
     canvas = Image.new('RGBA', (s, s), (0, 0, 0, 0))
@@ -59,22 +59,28 @@ def _make_notification_icon() -> Image.Image:
     def p(fx: float, fy: float) -> tuple[int, int]:
         return int(fx * s), int(fy * s)
 
-    house = [
-        p(0.50, 0.02),
-        p(0.98, 0.44),
-        p(0.98, 0.98),
-        p(0.02, 0.98),
-        p(0.02, 0.44),
-    ]
-    draw.polygon(house, fill=(255, 255, 255, 255))
+    opaque = (255, 255, 255, 255)
+    cut = (0, 0, 0, 0)
 
-    # Negative-space rising bars read as a chart inside the house.
-    bars = ((0.20, 0.72), (0.42, 0.60), (0.64, 0.46))
+    draw.rounded_rectangle(
+        [(0, 0), (s - 1, s - 1)],
+        radius=int(s * 0.24),
+        fill=opaque,
+    )
+
+    house = [
+        p(0.50, 0.14),
+        p(0.86, 0.46),
+        p(0.86, 0.86),
+        p(0.14, 0.86),
+        p(0.14, 0.46),
+    ]
+    draw.polygon(house, fill=cut)
+
+    # Rising bars stay opaque so they read as brand colour inside the house.
+    bars = ((0.26, 0.68), (0.44, 0.58), (0.62, 0.48))
     for left, top in bars:
-        draw.rectangle(
-            [p(left, top), p(left + 0.16, 0.86)],
-            fill=(0, 0, 0, 0),
-        )
+        draw.rectangle([p(left, top), p(left + 0.12, 0.78)], fill=opaque)
 
     return canvas
 
