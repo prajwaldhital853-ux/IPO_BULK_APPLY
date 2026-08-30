@@ -21,11 +21,10 @@ const androidApi = require(path.join(
   easRoot,
   'credentials/android/api/GraphqlClient',
 ));
-const AppQuery = require(path.join(easRoot, 'graphql/queries/AppQuery')).AppQuery;
 
 const PROJECT = {
-  account: { name: 'ipobulks-team' },
-  projectName: 'ipobulk',
+  account: { name: 'helloys-team' },
+  projectName: 'hellou',
 };
 const PACKAGE = 'com.nepse.ghar';
 const KEY_PATH = path.join(__dirname, '..', 'credentials', 'fcm-v1-service-account.json');
@@ -79,24 +78,22 @@ async function main() {
   }
 
   const jsonKey = JSON.parse(fs.readFileSync(KEY_PATH, 'utf8'));
-  const app = await AppQuery.byFullNameAsync(
+
+  creds = await androidApi.createOrGetExistingAndroidAppCredentialsWithBuildCredentialsAsync(
     graphqlClient,
-    androidApi.formatProjectFullName(PROJECT),
+    appLookup,
   );
-  if (!app?.account?.id) {
+
+  const account = creds?.app?.ownerAccount;
+  if (!account?.id) {
     console.log(JSON.stringify({ ok: false, error: 'Could not resolve Expo app/account' }));
     process.exit(1);
   }
 
   const uploadedKey = await androidApi.createGoogleServiceAccountKeyAsync(
     graphqlClient,
-    app.account,
+    account,
     jsonKey,
-  );
-
-  creds = await androidApi.createOrGetExistingAndroidAppCredentialsWithBuildCredentialsAsync(
-    graphqlClient,
-    appLookup,
   );
 
   await androidApi.updateAndroidAppCredentialsAsync(graphqlClient, creds, {
