@@ -12,7 +12,7 @@ module.exports = {
     scheme: 'nepseghar',
     version: '3.4.56',
     orientation: 'portrait',
-    icon: './assets/nepse-ghar-logo.png',
+    icon: './assets/app-icon.png',
     userInterfaceStyle: 'dark',
     splash: {
       image: './assets/nepse-ghar-logo.png',
@@ -29,7 +29,7 @@ module.exports = {
       versionCode: 102,
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',
-        foregroundImage: './assets/nepse-ghar-logo.png',
+        foregroundImage: './assets/adaptive-icon-foreground.png',
       },
       predictiveBackGestureEnabled: false,
       // pan: avoid window resize fighting our manual sheet lift.
@@ -41,7 +41,7 @@ module.exports = {
       barStyle: 'light-content',
     },
     web: {
-      favicon: './assets/nepse-ghar-logo.png',
+      favicon: './assets/app-icon.png',
     },
     plugins: [
       // Dev client for local USB builds (npm run android:dev). EAS preview/production
