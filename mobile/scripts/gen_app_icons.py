@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ASSETS = Path(__file__).resolve().parents[1] / 'assets'
 SRC = ASSETS / 'nepse-ghar-full-source.png'
 SIZE = 1024
-NOTIF_SIZE = 96
+NOTIF_SIZE = 192
 
 # Brand green — solid squircle background like Daraz orange tile.
 BRAND_GREEN = (27, 94, 32, 255)
@@ -43,30 +43,39 @@ def _adaptive_foreground(src: Image.Image, canvas_size: int, fill_ratio: float) 
 
 
 def _make_notification_icon() -> Image.Image:
-    """White NPS emblem on transparent — tinted green by Android (not a solid block)."""
-    emblem_src = Image.open(ASSETS / 'app-icon.png').convert('RGBA')
-    w, h = emblem_src.size
-    emblem = emblem_src.crop((0, 0, w, int(h * 0.62)))
+    """
+    Bold full-bleed white house-with-chart glyph on transparent.
 
-    canvas = Image.new('RGBA', (NOTIF_SIZE, NOTIF_SIZE), (0, 0, 0, 0))
-    target = int(NOTIF_SIZE * 0.52)
-    emblem.thumbnail((target, target), Image.Resampling.LANCZOS)
+    Android forces the notification small icon through an alpha mask: every
+    non-transparent pixel is repainted with the accent colour, so any detailed
+    or multi-colour artwork collapses into an unreadable blob. A single thick
+    silhouette filling the whole canvas is the only shape that stays legible at
+    24dp, so the glyph is drawn here rather than downscaled from the logo.
+    """
+    s = NOTIF_SIZE
+    canvas = Image.new('RGBA', (s, s), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
 
-    layer = Image.new('RGBA', emblem.size, (0, 0, 0, 0))
-    px = emblem.load()
-    out_px = layer.load()
-    for y in range(emblem.height):
-        for x in range(emblem.width):
-            r, g, b, a = px[x, y]
-            if a < 16 or (r > 245 and g > 245 and b > 245):
-                continue
-            lum = int(0.299 * r + 0.587 * g + 0.114 * b)
-            alpha = min(255, max(80, 255 - lum))
-            out_px[x, y] = (255, 255, 255, alpha)
+    def p(fx: float, fy: float) -> tuple[int, int]:
+        return int(fx * s), int(fy * s)
 
-    x = (NOTIF_SIZE - layer.width) // 2
-    y = (NOTIF_SIZE - layer.height) // 2
-    canvas.paste(layer, (x, y), layer)
+    house = [
+        p(0.50, 0.02),
+        p(0.98, 0.44),
+        p(0.98, 0.98),
+        p(0.02, 0.98),
+        p(0.02, 0.44),
+    ]
+    draw.polygon(house, fill=(255, 255, 255, 255))
+
+    # Negative-space rising bars read as a chart inside the house.
+    bars = ((0.20, 0.72), (0.42, 0.60), (0.64, 0.46))
+    for left, top in bars:
+        draw.rectangle(
+            [p(left, top), p(left + 0.16, 0.86)],
+            fill=(0, 0, 0, 0),
+        )
+
     return canvas
 
 

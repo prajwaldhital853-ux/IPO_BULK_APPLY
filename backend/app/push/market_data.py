@@ -180,8 +180,8 @@ async def fetch_market_summary_text(*, kind: str) -> tuple[str, str]:
 
     when = now_npt().strftime('%d %b %Y, %H:%M NPT')
     if kind == 'open':
-        title = 'NEPSE GHAR'
-        parts = [f'Market is open · {when}']
+        title = 'Market is open'
+        parts = [when]
         if nepse is not None:
             ch = f'{change:+.2f}' if change is not None else '—'
             pc = f'{pct:+.2f}%' if pct is not None else '—'
@@ -189,8 +189,8 @@ async def fetch_market_summary_text(*, kind: str) -> tuple[str, str]:
         body = ' · '.join(parts)
         return title, body
 
-    title = 'NEPSE GHAR'
-    parts = [f'Market closed · day summary · {when}']
+    title = 'Market closed — day summary'
+    parts = [when]
     if nepse is not None:
         ch = f'{change:+.2f}' if change is not None else '—'
         pc = f'{pct:+.2f}%' if pct is not None else '—'
