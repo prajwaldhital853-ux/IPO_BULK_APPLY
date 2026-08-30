@@ -9,7 +9,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.deps import utcnow
+from ..config import get_settings
 from ..db.models import AdminNotificationSend, PremiumEntitlement, PushDevice
+from ..site_settings import _decode_uploaded_image
 from .expo_push import send_expo_push
 
 log = logging.getLogger('push.admin_notify')
@@ -106,6 +108,7 @@ async def send_admin_custom_notification(
     redirect_screen: str,
     redirect_symbol: str | None,
     sent_by: str,
+    image_base64: str | None = None,
 ) -> dict[str, Any]:
     allowed = {opt['id'] for opt in REDIRECT_SCREEN_OPTIONS}
     screen = redirect_screen.strip()
@@ -116,6 +119,14 @@ async def send_admin_custom_notification(
     symbol = (redirect_symbol or '').strip().upper() or None
     if opt.get('needsSymbol') and not symbol:
         return {'ok': False, 'error': 'symbol_required'}
+
+    image_b64: str | None = None
+    image_mime: str | None = None
+    if image_base64 and image_base64.strip():
+        try:
+            image_b64, image_mime = _decode_uploaded_image(image_base64.strip())
+        except ValueError as e:
+            return {'ok': False, 'error': str(e)}
 
     tokens = await tokens_for_audience(db, audience)
     if not tokens:
@@ -130,27 +141,42 @@ async def send_admin_custom_notification(
         redirect_screen=screen,
         redirect_symbol=symbol,
     )
+
+    row_id = str(uuid.uuid4())
+    row = AdminNotificationSend(
+        id=row_id,
+        title=title.strip(),
+        body=body.strip(),
+        audience=audience,
+        redirect_screen=screen,
+        redirect_symbol=symbol,
+        image_b64=image_b64,
+        image_mime=image_mime,
+        token_count=len(tokens),
+        sent_count=0,
+        sent_by=sent_by,
+        created_at=utcnow(),
+    )
+    db.add(row)
+    await db.flush()
+    await db.commit()
+
+    image_url: str | None = None
+    if image_b64:
+        base = get_settings().effective_public_base_url
+        if base:
+            image_url = f'{base}/app/notification-image/{row_id}'
+
     result = await send_expo_push(
         tokens,
         title=title.strip(),
         body=body.strip(),
         data=push_data,
         channel_id='market',
+        image_url=image_url,
     )
 
-    row = AdminNotificationSend(
-        id=str(uuid.uuid4()),
-        title=title.strip(),
-        body=body.strip(),
-        audience=audience,
-        redirect_screen=screen,
-        redirect_symbol=symbol,
-        token_count=len(tokens),
-        sent_count=int(result.get('sent') or 0),
-        sent_by=sent_by,
-        created_at=utcnow(),
-    )
-    db.add(row)
+    row.sent_count = int(result.get('sent') or 0)
     await db.flush()
 
     keep_ids = (
@@ -169,10 +195,11 @@ async def send_admin_custom_notification(
         )
 
     log.info(
-        'admin_custom_notification audience=%s tokens=%s sent=%s by=%s',
+        'admin_custom_notification audience=%s tokens=%s sent=%s image=%s by=%s',
         audience,
         len(tokens),
         result.get('sent'),
+        bool(image_url),
         sent_by,
     )
     return {
@@ -181,6 +208,7 @@ async def send_admin_custom_notification(
         'redirectScreen': screen,
         'redirectSymbol': symbol,
         'tokenCount': len(tokens),
+        'hasImage': bool(image_url),
         **result,
     }
 
@@ -207,6 +235,7 @@ def history_row_to_dict(row: AdminNotificationSend) -> dict[str, Any]:
         'audience': row.audience,
         'redirectScreen': row.redirect_screen,
         'redirectSymbol': row.redirect_symbol,
+        'hasImage': bool(row.image_b64),
         'tokenCount': row.token_count,
         'sentCount': row.sent_count,
         'sentBy': row.sent_by,

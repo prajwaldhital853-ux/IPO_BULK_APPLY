@@ -178,6 +178,36 @@ async def app_logo(db: AsyncSession = Depends(get_db)) -> Response:
     )
 
 
+@router.get('/notification-image/{notification_id}')
+async def notification_image(
+    notification_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Serve an admin push notification attachment (big-picture style)."""
+    from sqlalchemy import select
+
+    from .db.models import AdminNotificationSend
+
+    row = await db.scalar(
+        select(AdminNotificationSend).where(
+            AdminNotificationSend.id == notification_id,
+        ),
+    )
+    if row is None or not row.image_b64:
+        raise HTTPException(status_code=404, detail='Notification image not found')
+    import base64
+
+    try:
+        data = base64.b64decode(row.image_b64)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail='Invalid image data') from e
+    return Response(
+        content=data,
+        media_type=row.image_mime or 'image/jpeg',
+        headers={'Cache-Control': 'public, max-age=86400'},
+    )
+
+
 @router.get('/popup-notice')
 async def popup_notice_image_legacy(db: AsyncSession = Depends(get_db)) -> Response:
     """Serve first notice (legacy single URL). Prefer /popup-notice/{id}."""

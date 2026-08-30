@@ -618,6 +618,7 @@ class AdminNotificationSendIn(BaseModel):
     audience: str = Field(pattern=r'^(free|premium|all)$')
     redirect_screen: str = Field(alias='redirectScreen', min_length=1, max_length=64)
     redirect_symbol: str | None = Field(default=None, alias='redirectSymbol', max_length=32)
+    image_base64: str | None = Field(default=None, alias='imageBase64')
 
     model_config = {'populate_by_name': True}
 
@@ -629,6 +630,7 @@ class AdminNotificationHistoryOut(BaseModel):
     audience: str
     redirect_screen: str = Field(alias='redirectScreen')
     redirect_symbol: str | None = Field(default=None, alias='redirectSymbol')
+    has_image: bool = Field(default=False, alias='hasImage')
     token_count: int = Field(alias='tokenCount')
     sent_count: int = Field(alias='sentCount')
     sent_by: str = Field(alias='sentBy')

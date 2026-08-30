@@ -373,6 +373,8 @@ class AdminNotificationSend(Base):
     audience: Mapped[str] = mapped_column(String(16))
     redirect_screen: Mapped[str] = mapped_column(String(64))
     redirect_symbol: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    image_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_mime: Mapped[str | None] = mapped_column(String(64), nullable=True)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
     sent_count: Mapped[int] = mapped_column(Integer, default=0)
     sent_by: Mapped[str] = mapped_column(String(256), default='')

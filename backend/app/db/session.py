@@ -233,6 +233,22 @@ def _apply_sqlite_patches(sync_conn) -> None:
                     "ADD COLUMN display_section VARCHAR(16) NOT NULL DEFAULT 'both'"
                 )
             )
+    if 'admin_notification_sends' in tables:
+        cols = {c['name'] for c in insp.get_columns('admin_notification_sends')}
+        if 'image_b64' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE admin_notification_sends '
+                    'ADD COLUMN image_b64 TEXT'
+                )
+            )
+        if 'image_mime' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE admin_notification_sends '
+                    'ADD COLUMN image_mime VARCHAR(64)'
+                )
+            )
 
 
 async def init_db() -> None:
@@ -306,6 +322,22 @@ def _apply_postgres_patches(sync_conn) -> None:
                     "ALTER TABLE managed_offerings "
                     "ADD COLUMN IF NOT EXISTS display_section VARCHAR(16) "
                     "NOT NULL DEFAULT 'both'"
+                )
+            )
+    if 'admin_notification_sends' in tables:
+        cols = {c['name'] for c in insp.get_columns('admin_notification_sends')}
+        if 'image_b64' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE admin_notification_sends '
+                    'ADD COLUMN IF NOT EXISTS image_b64 TEXT'
+                )
+            )
+        if 'image_mime' not in cols:
+            sync_conn.execute(
+                text(
+                    'ALTER TABLE admin_notification_sends '
+                    'ADD COLUMN IF NOT EXISTS image_mime VARCHAR(64)'
                 )
             )
     if 'site_settings' not in tables:

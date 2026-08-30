@@ -111,8 +111,8 @@ class Settings(BaseSettings):
     # Cron / push jobs (Render Cron Jobs). Prefer dedicated secret; falls back to api_key.
     cron_secret: str = ''
 
-    # Absolute public API URL (logo in emails, etc.)
-    public_base_url: str = 'https://ipo-bulk-apply-vti5.onrender.com'
+    # Absolute public API URL (push notification images, logo in emails, etc.)
+    public_base_url: str = 'https://api.nepseghar.com'
 
     @property
     def effective_cron_secret(self) -> str:

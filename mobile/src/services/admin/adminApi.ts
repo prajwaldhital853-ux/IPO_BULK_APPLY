@@ -1228,6 +1228,7 @@ export type AdminNotificationHistoryRow = {
   audience: 'free' | 'premium' | 'all';
   redirectScreen: string;
   redirectSymbol: string | null;
+  hasImage?: boolean;
   tokenCount: number;
   sentCount: number;
   sentBy: string;
@@ -1240,6 +1241,7 @@ export type AdminNotificationSendInput = {
   audience: 'free' | 'premium' | 'all';
   redirectScreen: string;
   redirectSymbol?: string | null;
+  imageBase64?: string | null;
 };
 
 function mapNotificationHistoryRow(
@@ -1253,6 +1255,7 @@ function mapNotificationHistoryRow(
     redirectScreen: String(raw.redirectScreen ?? ''),
     redirectSymbol:
       raw.redirectSymbol == null ? null : String(raw.redirectSymbol),
+    hasImage: Boolean(raw.hasImage),
     tokenCount: Number(raw.tokenCount ?? 0),
     sentCount: Number(raw.sentCount ?? 0),
     sentBy: String(raw.sentBy ?? ''),
@@ -1308,6 +1311,7 @@ export async function sendAdminNotification(
       audience: input.audience,
       redirectScreen: input.redirectScreen,
       redirectSymbol: input.redirectSymbol ?? null,
+      imageBase64: input.imageBase64 ?? null,
     }),
   });
   if (!res.ok) throw new Error(await parseError(res));

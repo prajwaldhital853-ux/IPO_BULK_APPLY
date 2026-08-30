@@ -1756,6 +1756,7 @@ async def admin_notification_send(
         redirect_screen=body.redirect_screen,
         redirect_symbol=body.redirect_symbol,
         sent_by=admin.email,
+        image_base64=body.image_base64,
     )
     await db.commit()
     return result

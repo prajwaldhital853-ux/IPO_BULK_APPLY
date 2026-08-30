@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -14,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -78,6 +80,9 @@ export function AdminNotificationsScreen() {
   const [redirectScreen, setRedirectScreen] = useState('Home');
   const [symbol, setSymbol] = useState('');
   const [screenPickerOpen, setScreenPickerOpen] = useState(false);
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [imageMime, setImageMime] = useState('image/jpeg');
+  const [pickingImage, setPickingImage] = useState(false);
 
   const selectedScreen = screens.find((s) => s.id === redirectScreen);
   const needsSymbol = selectedScreen?.needsSymbol ?? false;
@@ -135,6 +140,54 @@ export function AdminNotificationsScreen() {
     void refreshAudienceCount(token, audience);
   }, [audience, refreshAudienceCount, token]);
 
+  const imageUriToDataUrl = useCallback(
+    async (uri: string, mimeType: string): Promise<string> => {
+      const fileRes = await fetch(uri);
+      const blob = await fileRes.blob();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = String(reader.result ?? '');
+          const raw = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+          if (!raw) reject(new Error('Could not read image'));
+          else resolve(raw);
+        };
+        reader.onerror = () => reject(new Error('Could not read image'));
+        reader.readAsDataURL(blob);
+      });
+      const mime = mimeType || blob.type || 'image/jpeg';
+      return `data:${mime};base64,${base64}`;
+    },
+    [],
+  );
+
+  const onPickImage = async () => {
+    try {
+      setPickingImage(true);
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission needed',
+          'Allow photo access so you can attach an image to the notification.',
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.85,
+        allowsEditing: false,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      setImageUri(asset.uri);
+      setImageMime(asset.mimeType ?? 'image/jpeg');
+    } catch (e) {
+      Alert.alert('Image failed', e instanceof Error ? e.message : 'Try again');
+    } finally {
+      setPickingImage(false);
+    }
+  };
+
   const onSend = () => {
     if (!token) return;
     const trimmedTitle = title.trim();
@@ -160,12 +213,17 @@ export function AdminNotificationsScreen() {
             void (async () => {
               setSending(true);
               try {
+                let imageBase64: string | null = null;
+                if (imageUri) {
+                  imageBase64 = await imageUriToDataUrl(imageUri, imageMime);
+                }
                 const result = await sendAdminNotification(token, {
                   title: trimmedTitle,
                   body: trimmedBody,
                   audience,
                   redirectScreen,
                   redirectSymbol: needsSymbol ? symbol.trim().toUpperCase() : null,
+                  imageBase64,
                 });
                 Alert.alert(
                   'Sent',
@@ -174,6 +232,8 @@ export function AdminNotificationsScreen() {
                 setTitle('');
                 setBody('');
                 setSymbol('');
+                setImageUri(null);
+                setImageMime('image/jpeg');
                 const historyRows = await fetchAdminNotificationHistory(token);
                 setHistory(historyRows);
               } catch (e) {
@@ -239,6 +299,34 @@ export function AdminNotificationsScreen() {
               multiline
               maxLength={1000}
             />
+
+            <Text style={styles.fieldLabel}>Image (optional)</Text>
+            <Text style={styles.hintInline}>
+              Attach a picture for a big-image notification, or leave empty for text only.
+            </Text>
+            {imageUri ? (
+              <View style={styles.imagePreviewWrap}>
+                <Image source={{ uri: imageUri }} style={styles.imagePreview} resizeMode="cover" />
+                <Pressable style={styles.removeImageBtn} onPress={() => setImageUri(null)}>
+                  <Ionicons name="close-circle" size={rs(22)} color="#fff" />
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                style={styles.attachBtn}
+                onPress={() => void onPickImage()}
+                disabled={pickingImage}
+              >
+                {pickingImage ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : (
+                  <>
+                    <Ionicons name="image-outline" size={rs(18)} color={colors.primary} />
+                    <Text style={styles.attachBtnText}>Choose image</Text>
+                  </>
+                )}
+              </Pressable>
+            )}
 
             <Text style={styles.fieldLabel}>Send to</Text>
             <View style={styles.segmentRow}>
@@ -323,6 +411,7 @@ export function AdminNotificationsScreen() {
                     {audienceLabel(row.audience)} · {row.sentCount}/{row.tokenCount} sent ·{' '}
                     {row.redirectScreen}
                     {row.redirectSymbol ? ` (${row.redirectSymbol})` : ''}
+                    {row.hasImage ? ' · image' : ''}
                   </Text>
                 </View>
               ))
@@ -386,6 +475,12 @@ function makeStyles(c: ThemeColors) {
       lineHeight: rs(18),
       marginBottom: rs(14),
     },
+    hintInline: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      lineHeight: rs(16),
+      marginBottom: rs(8),
+    },
     fieldLabel: {
       color: c.textSecondary,
       fontSize: rs(12),
@@ -404,6 +499,35 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(14),
     },
     textArea: { minHeight: rs(96), textAlignVertical: 'top' },
+    attachBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(8),
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderStyle: 'dashed',
+      backgroundColor: c.surface,
+      borderRadius: rs(12),
+      paddingVertical: rs(14),
+    },
+    attachBtnText: { color: c.primary, fontWeight: '700', fontSize: rs(13) },
+    imagePreviewWrap: {
+      position: 'relative',
+      borderRadius: rs(12),
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+    },
+    imagePreview: { width: '100%', height: rs(160), backgroundColor: c.surface },
+    removeImageBtn: {
+      position: 'absolute',
+      top: rs(8),
+      right: rs(8),
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      borderRadius: rs(12),
+      padding: rs(2),
+    },
     segmentRow: { flexDirection: 'row', gap: rs(8) },
     segment: {
       flex: 1,
