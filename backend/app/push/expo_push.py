@@ -10,6 +10,42 @@ log = logging.getLogger('push.expo')
 EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
 
 
+def summarize_expo_tickets(tickets: list[Any]) -> dict[str, Any]:
+    """Turn Expo ticket list into delivered/failed counts and error details."""
+    delivered = 0
+    errors: list[dict[str, str]] = []
+    for ticket in tickets:
+        if not isinstance(ticket, dict):
+            continue
+        if ticket.get('status') == 'ok':
+            delivered += 1
+            continue
+        if ticket.get('status') == 'error':
+            details = ticket.get('details')
+            code = ''
+            if isinstance(details, dict):
+                code = str(details.get('error') or '')
+            errors.append(
+                {
+                    'error': code or 'ExpoPushError',
+                    'message': str(ticket.get('message') or ''),
+                },
+            )
+            continue
+        if ticket.get('error'):
+            errors.append(
+                {
+                    'error': 'RequestError',
+                    'message': str(ticket.get('error')),
+                },
+            )
+    return {
+        'delivered': delivered,
+        'failed': len(errors),
+        'errors': errors[:10],
+    }
+
+
 async def send_expo_push(
     tokens: list[str],
     *,
@@ -23,7 +59,14 @@ async def send_expo_push(
     """Send Expo push notifications in chunks of 100."""
     unique = [t.strip() for t in tokens if t and t.strip()]
     if not unique:
-        return {'sent': 0, 'tickets': []}
+        return {
+            'sent': 0,
+            'tokenCount': 0,
+            'delivered': 0,
+            'failed': 0,
+            'errors': [],
+            'tickets': [],
+        }
 
     messages: list[dict[str, Any]] = []
     high_priority_channels = {
@@ -73,4 +116,19 @@ async def send_expo_push(
                 log.warning('Expo push chunk failed: %s', e)
                 tickets.append({'error': str(e)})
 
-    return {'sent': len(unique), 'tickets': tickets}
+    summary = summarize_expo_tickets(tickets)
+    if summary['failed']:
+        log.warning(
+            'Expo push delivery failures: delivered=%s failed=%s errors=%s',
+            summary['delivered'],
+            summary['failed'],
+            summary['errors'],
+        )
+    return {
+        'sent': summary['delivered'],
+        'tokenCount': len(unique),
+        'delivered': summary['delivered'],
+        'failed': summary['failed'],
+        'errors': summary['errors'],
+        'tickets': tickets,
+    }

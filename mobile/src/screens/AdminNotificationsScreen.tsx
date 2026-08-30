@@ -210,10 +210,26 @@ export function AdminNotificationsScreen() {
                   redirectSymbol: needsSymbol ? symbol.trim().toUpperCase() : null,
                   imageBase64,
                 });
-                Alert.alert(
-                  'Sent',
-                  `Delivered to ${result.sentCount ?? result.tokenCount ?? 0} device(s).`,
-                );
+                const delivered = result.delivered ?? result.sentCount ?? 0;
+                const failed = result.failed ?? 0;
+                const firstError = result.errors?.[0];
+                if (delivered === 0 && failed > 0) {
+                  Alert.alert(
+                    'Push failed',
+                    firstError
+                      ? `${firstError.error}: ${firstError.message || 'No devices received the notification.'}`
+                      : 'Expo rejected all push tokens. Re-open the app, sign in, and toggle notifications.',
+                  );
+                } else if (failed > 0) {
+                  Alert.alert(
+                    'Partially sent',
+                    `Delivered: ${delivered}. Failed: ${failed}.${
+                      firstError ? `\n${firstError.error}: ${firstError.message}` : ''
+                    }`,
+                  );
+                } else {
+                  Alert.alert('Sent', `Delivered to ${delivered} device(s).`);
+                }
                 setTitle('');
                 setBody('');
                 setSymbol('');

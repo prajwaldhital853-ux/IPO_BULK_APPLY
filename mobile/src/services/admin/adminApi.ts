@@ -1301,7 +1301,14 @@ export async function fetchAdminNotificationHistory(
 export async function sendAdminNotification(
   token: string,
   input: AdminNotificationSendInput,
-): Promise<{ ok: boolean; tokenCount?: number; sentCount?: number }> {
+): Promise<{
+  ok: boolean;
+  tokenCount?: number;
+  sentCount?: number;
+  delivered?: number;
+  failed?: number;
+  errors?: Array<{ error: string; message: string }>;
+}> {
   const res = await adminFetch('/admin/notifications/send', token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1319,6 +1326,11 @@ export async function sendAdminNotification(
   return {
     ok: Boolean(json.ok ?? true),
     tokenCount: Number(json.tokenCount ?? 0),
-    sentCount: Number(json.sent ?? json.sentCount ?? json.tokenCount ?? 0),
+    sentCount: Number(json.sentCount ?? json.delivered ?? json.sent ?? 0),
+    delivered: Number(json.delivered ?? json.sentCount ?? json.sent ?? 0),
+    failed: Number(json.failed ?? 0),
+    errors: Array.isArray(json.errors)
+      ? (json.errors as Array<{ error: string; message: string }>)
+      : [],
   };
 }

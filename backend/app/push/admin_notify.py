@@ -176,7 +176,8 @@ async def send_admin_custom_notification(
         image_url=image_url,
     )
 
-    row.sent_count = int(result.get('sent') or 0)
+    delivered = int(result.get('delivered') or result.get('sent') or 0)
+    row.sent_count = delivered
     await db.flush()
 
     keep_ids = (
@@ -195,12 +196,14 @@ async def send_admin_custom_notification(
         )
 
     log.info(
-        'admin_custom_notification audience=%s tokens=%s sent=%s image=%s by=%s',
+        'admin_custom_notification audience=%s tokens=%s delivered=%s failed=%s image=%s by=%s errors=%s',
         audience,
         len(tokens),
-        result.get('sent'),
+        delivered,
+        result.get('failed'),
         bool(image_url),
         sent_by,
+        result.get('errors'),
     )
     return {
         'ok': True,
@@ -208,6 +211,10 @@ async def send_admin_custom_notification(
         'redirectScreen': screen,
         'redirectSymbol': symbol,
         'tokenCount': len(tokens),
+        'sentCount': delivered,
+        'delivered': delivered,
+        'failed': int(result.get('failed') or 0),
+        'errors': result.get('errors') or [],
         'hasImage': bool(image_url),
         **result,
     }

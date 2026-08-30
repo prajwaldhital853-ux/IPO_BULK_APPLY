@@ -362,6 +362,21 @@ async def upsert_push_device(
         if user_id:
             row.user_id = user_id
         row.updated_at = datetime.now(UTC)
+
+    if enabled and user_id:
+        stale = (
+            await db.scalars(
+                select(PushDevice).where(
+                    PushDevice.user_id == user_id,
+                    PushDevice.expo_push_token != token,
+                    PushDevice.enabled.is_(True),
+                ),
+            )
+        ).all()
+        for old in stale:
+            old.enabled = False
+            old.updated_at = datetime.now(UTC)
+
     await db.flush()
     return row
 
