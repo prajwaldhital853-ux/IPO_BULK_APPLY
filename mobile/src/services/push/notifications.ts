@@ -23,9 +23,9 @@ Notifications.setNotificationHandler({
 
 const ANDROID_CHANNELS = [
   {
-    id: 'market',
+    id: 'market_v2',
     name: 'Market open & close',
-    importance: Notifications.AndroidImportance.DEFAULT,
+    importance: Notifications.AndroidImportance.HIGH,
   },
   {
     id: 'ipo',

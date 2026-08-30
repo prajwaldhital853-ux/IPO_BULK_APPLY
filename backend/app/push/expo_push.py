@@ -17,7 +17,7 @@ async def send_expo_push(
     body: str,
     data: dict[str, Any] | None = None,
     sound: str = 'default',
-    channel_id: str = 'market',
+    channel_id: str = 'market_v2',
     image_url: str | None = None,
 ) -> dict[str, Any]:
     """Send Expo push notifications in chunks of 100."""
@@ -26,6 +26,14 @@ async def send_expo_push(
         return {'sent': 0, 'tickets': []}
 
     messages: list[dict[str, Any]] = []
+    high_priority_channels = {
+        'market',
+        'market_v2',
+        'ipo',
+        'price_alerts',
+        'bulk_trades',
+        'account',
+    }
     for token in unique:
         msg: dict[str, Any] = {
             'to': token,
@@ -35,6 +43,8 @@ async def send_expo_push(
             'channelId': channel_id,
             'data': data or {},
         }
+        if channel_id in high_priority_channels:
+            msg['priority'] = 'high'
         if image_url:
             msg['richContent'] = {'image': image_url}
         messages.append(msg)

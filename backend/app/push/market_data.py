@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -36,6 +36,73 @@ def is_market_session_hours(dt: datetime | None = None) -> bool:
     open_m = SESSION_OPEN_HOUR * 60 + SESSION_OPEN_MINUTE
     close_m = SESSION_CLOSE_HOUR * 60 + SESSION_CLOSE_MINUTE
     return open_m <= minutes <= close_m
+
+
+def is_market_open_window(dt: datetime | None = None) -> bool:
+    """First ~45 minutes after session open (cron fires at 11:00 NPT)."""
+    d = dt or now_npt()
+    minutes = d.hour * 60 + d.minute
+    open_m = SESSION_OPEN_HOUR * 60 + SESSION_OPEN_MINUTE
+    return open_m <= minutes < open_m + 45
+
+
+def is_market_close_window(dt: datetime | None = None) -> bool:
+    """After regular close until ~16:30 NPT (cron fires at 15:05)."""
+    d = dt or now_npt()
+    minutes = d.hour * 60 + d.minute
+    close_m = SESSION_CLOSE_HOUR * 60 + SESSION_CLOSE_MINUTE
+    return close_m <= minutes <= close_m + 90
+
+
+def parse_market_is_open(status: dict | None) -> bool | None:
+    if not isinstance(status, dict):
+        return None
+    raw = str(status.get('isOpen') or '').strip().upper()
+    if raw in {'OPEN', 'TRUE', '1', 'YES'}:
+        return True
+    if raw in {'CLOSE', 'CLOSED', 'FALSE', '0', 'NO'}:
+        return False
+    return None
+
+
+def status_as_of_date_npt(status: dict | None) -> date | None:
+    if not isinstance(status, dict):
+        return None
+    raw = status.get('asOf')
+    if not raw:
+        return None
+    try:
+        as_of = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    if as_of.tzinfo is None:
+        as_of = as_of.replace(tzinfo=NPT)
+    return as_of.astimezone(NPT).date()
+
+
+async def fetch_market_status() -> dict | None:
+    status = await fetch_json('/market-status')
+    return status if isinstance(status, dict) else None
+
+
+async def fetch_market_is_open() -> bool | None:
+    return parse_market_is_open(await fetch_market_status())
+
+
+async def had_trading_session_today() -> bool:
+    """True when ShareHub reports today's session had turnover/volume."""
+    status = await fetch_market_status()
+    if status_as_of_date_npt(status) != now_npt().date():
+        return False
+    summary_rows = await fetch_json('/market-summary')
+    smap = _summary_map(summary_rows if isinstance(summary_rows, list) else None)
+    turnover = _pick(smap, 'turnover')
+    volume = _pick(smap, 'volume', 'total traded')
+    if turnover is not None and turnover > 0:
+        return True
+    if volume is not None and volume > 0:
+        return True
+    return False
 
 
 async def fetch_json(path: str, base: str = SHAREHUB) -> Any | None:
@@ -113,8 +180,8 @@ async def fetch_market_summary_text(*, kind: str) -> tuple[str, str]:
 
     when = now_npt().strftime('%d %b %Y, %H:%M NPT')
     if kind == 'open':
-        title = 'NEPSE market is open'
-        parts = [f'Market opened · {when}']
+        title = 'NEPSE GHAR'
+        parts = [f'Market is open · {when}']
         if nepse is not None:
             ch = f'{change:+.2f}' if change is not None else '—'
             pc = f'{pct:+.2f}%' if pct is not None else '—'
@@ -122,8 +189,8 @@ async def fetch_market_summary_text(*, kind: str) -> tuple[str, str]:
         body = ' · '.join(parts)
         return title, body
 
-    title = 'NEPSE market closed — day summary'
-    parts = [when]
+    title = 'NEPSE GHAR'
+    parts = [f'Market closed · day summary · {when}']
     if nepse is not None:
         ch = f'{change:+.2f}' if change is not None else '—'
         pc = f'{pct:+.2f}%' if pct is not None else '—'

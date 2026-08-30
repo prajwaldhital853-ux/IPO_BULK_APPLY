@@ -14,9 +14,12 @@ from .expo_push import send_expo_push
 from .market_data import (
     NPT,
     fetch_ltp_map,
+    fetch_market_is_open,
     fetch_market_summary_text,
+    had_trading_session_today,
+    is_market_close_window,
+    is_market_open_window,
     is_market_session_hours,
-    is_weekday_npt,
     now_npt,
 )
 
@@ -33,8 +36,18 @@ async def _enabled_tokens(db: AsyncSession) -> list[str]:
 
 
 async def run_market_open_job(db: AsyncSession) -> dict:
-    if not is_weekday_npt():
-        return {'ok': True, 'skipped': 'weekend', 'sent': 0, 'tokenCount': 0}
+    if not is_market_open_window():
+        return {
+            'ok': True,
+            'skipped': 'outside_open_window',
+            'sent': 0,
+            'tokenCount': 0,
+        }
+    is_open = await fetch_market_is_open()
+    if is_open is not True:
+        reason = 'market_closed' if is_open is False else 'market_status_unavailable'
+        log.info('market_open skipped: %s', reason)
+        return {'ok': True, 'skipped': reason, 'sent': 0, 'tokenCount': 0}
     title, body = await fetch_market_summary_text(kind='open')
     tokens = await _enabled_tokens(db)
     if not tokens:
@@ -51,15 +64,45 @@ async def run_market_open_job(db: AsyncSession) -> dict:
         title=title,
         body=body,
         data={'type': 'market_open'},
-        channel_id='market',
+        channel_id='market_v2',
     )
     log.info('market_open sent=%s tokenCount=%s', result.get('sent'), len(tokens))
     return {'ok': True, 'kind': 'open', 'tokenCount': len(tokens), **result}
 
 
 async def run_market_close_job(db: AsyncSession) -> dict:
-    if not is_weekday_npt():
-        return {'ok': True, 'skipped': 'weekend', 'sent': 0, 'tokenCount': 0}
+    if not is_market_close_window():
+        return {
+            'ok': True,
+            'skipped': 'outside_close_window',
+            'sent': 0,
+            'tokenCount': 0,
+        }
+    is_open = await fetch_market_is_open()
+    if is_open is True:
+        log.info('market_close skipped: market_still_open')
+        return {
+            'ok': True,
+            'skipped': 'market_still_open',
+            'sent': 0,
+            'tokenCount': 0,
+        }
+    if is_open is None:
+        log.info('market_close skipped: market_status_unavailable')
+        return {
+            'ok': True,
+            'skipped': 'market_status_unavailable',
+            'sent': 0,
+            'tokenCount': 0,
+        }
+    if not await had_trading_session_today():
+        log.info('market_close skipped: no_trading_today')
+        return {
+            'ok': True,
+            'skipped': 'no_trading_today',
+            'sent': 0,
+            'tokenCount': 0,
+        }
     title, body = await fetch_market_summary_text(kind='close')
     tokens = await _enabled_tokens(db)
     if not tokens:
@@ -76,7 +119,7 @@ async def run_market_close_job(db: AsyncSession) -> dict:
         title=title,
         body=body,
         data={'type': 'market_close'},
-        channel_id='market',
+        channel_id='market_v2',
     )
     log.info('market_close sent=%s tokenCount=%s', result.get('sent'), len(tokens))
     return {'ok': True, 'kind': 'close', 'tokenCount': len(tokens), **result}
@@ -85,6 +128,10 @@ async def run_market_close_job(db: AsyncSession) -> dict:
 async def run_price_alert_job(db: AsyncSession) -> dict:
     if not is_market_session_hours():
         return {'ok': True, 'skipped': 'outside_session', 'triggered': 0}
+    is_open = await fetch_market_is_open()
+    if is_open is not True:
+        reason = 'market_closed' if is_open is False else 'market_status_unavailable'
+        return {'ok': True, 'skipped': reason, 'triggered': 0}
 
     alerts = (
         await db.scalars(

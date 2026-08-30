@@ -172,7 +172,7 @@ async def send_admin_custom_notification(
         title=title.strip(),
         body=body.strip(),
         data=push_data,
-        channel_id='market',
+        channel_id='market_v2',
         image_url=image_url,
     )
 

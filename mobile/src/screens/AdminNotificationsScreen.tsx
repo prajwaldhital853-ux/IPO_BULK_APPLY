@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -15,10 +14,10 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ImageDropZone } from '../components/admin/ImageDropZone';
 import { useTheme } from '../context/ThemeContext';
 import { loadAdminToken } from '../services/admin/adminTokenStorage';
 import {
@@ -140,6 +139,19 @@ export function AdminNotificationsScreen() {
     void refreshAudienceCount(token, audience);
   }, [audience, refreshAudienceCount, token]);
 
+  const clearImage = useCallback(() => {
+    if (imageUri?.startsWith('blob:')) {
+      URL.revokeObjectURL(imageUri);
+    }
+    setImageUri(null);
+    setImageMime('image/jpeg');
+  }, [imageUri]);
+
+  const onImageSelected = useCallback((uri: string, mimeType: string) => {
+    setImageUri(uri);
+    setImageMime(mimeType);
+  }, []);
+
   const imageUriToDataUrl = useCallback(
     async (uri: string, mimeType: string): Promise<string> => {
       const fileRes = await fetch(uri);
@@ -160,33 +172,6 @@ export function AdminNotificationsScreen() {
     },
     [],
   );
-
-  const onPickImage = async () => {
-    try {
-      setPickingImage(true);
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert(
-          'Permission needed',
-          'Allow photo access so you can attach an image to the notification.',
-        );
-        return;
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        quality: 0.85,
-        allowsEditing: false,
-      });
-      if (result.canceled || !result.assets?.[0]?.uri) return;
-      const asset = result.assets[0];
-      setImageUri(asset.uri);
-      setImageMime(asset.mimeType ?? 'image/jpeg');
-    } catch (e) {
-      Alert.alert('Image failed', e instanceof Error ? e.message : 'Try again');
-    } finally {
-      setPickingImage(false);
-    }
-  };
 
   const onSend = () => {
     if (!token) return;
@@ -232,8 +217,7 @@ export function AdminNotificationsScreen() {
                 setTitle('');
                 setBody('');
                 setSymbol('');
-                setImageUri(null);
-                setImageMime('image/jpeg');
+                clearImage();
                 const historyRows = await fetchAdminNotificationHistory(token);
                 setHistory(historyRows);
               } catch (e) {
@@ -302,31 +286,18 @@ export function AdminNotificationsScreen() {
 
             <Text style={styles.fieldLabel}>Image (optional)</Text>
             <Text style={styles.hintInline}>
-              Attach a picture for a big-image notification, or leave empty for text only.
+              {Platform.OS === 'web'
+                ? 'Drag & drop a picture here for a big-image notification, or tap to browse.'
+                : 'Tap to attach a picture for a big-image notification, or leave empty for text only.'}
             </Text>
-            {imageUri ? (
-              <View style={styles.imagePreviewWrap}>
-                <Image source={{ uri: imageUri }} style={styles.imagePreview} resizeMode="cover" />
-                <Pressable style={styles.removeImageBtn} onPress={() => setImageUri(null)}>
-                  <Ionicons name="close-circle" size={rs(22)} color="#fff" />
-                </Pressable>
-              </View>
-            ) : (
-              <Pressable
-                style={styles.attachBtn}
-                onPress={() => void onPickImage()}
-                disabled={pickingImage}
-              >
-                {pickingImage ? (
-                  <ActivityIndicator color={colors.primary} />
-                ) : (
-                  <>
-                    <Ionicons name="image-outline" size={rs(18)} color={colors.primary} />
-                    <Text style={styles.attachBtnText}>Choose image</Text>
-                  </>
-                )}
-              </Pressable>
-            )}
+            <ImageDropZone
+              colors={colors}
+              imageUri={imageUri}
+              picking={pickingImage}
+              onImageSelected={onImageSelected}
+              onImageClear={clearImage}
+              onPickingChange={setPickingImage}
+            />
 
             <Text style={styles.fieldLabel}>Send to</Text>
             <View style={styles.segmentRow}>
@@ -499,35 +470,6 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(14),
     },
     textArea: { minHeight: rs(96), textAlignVertical: 'top' },
-    attachBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: rs(8),
-      borderWidth: 1,
-      borderColor: c.borderMuted,
-      borderStyle: 'dashed',
-      backgroundColor: c.surface,
-      borderRadius: rs(12),
-      paddingVertical: rs(14),
-    },
-    attachBtnText: { color: c.primary, fontWeight: '700', fontSize: rs(13) },
-    imagePreviewWrap: {
-      position: 'relative',
-      borderRadius: rs(12),
-      overflow: 'hidden',
-      borderWidth: 1,
-      borderColor: c.borderMuted,
-    },
-    imagePreview: { width: '100%', height: rs(160), backgroundColor: c.surface },
-    removeImageBtn: {
-      position: 'absolute',
-      top: rs(8),
-      right: rs(8),
-      backgroundColor: 'rgba(0,0,0,0.45)',
-      borderRadius: rs(12),
-      padding: rs(2),
-    },
     segmentRow: { flexDirection: 'row', gap: rs(8) },
     segment: {
       flex: 1,
