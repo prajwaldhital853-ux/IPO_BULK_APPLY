@@ -11,6 +11,7 @@ const BUILDER_V5_MARKER = 'NEPSE GHAR v5';
 const BUILDER_V1_MARKER = 'NEPSE GHAR: app logo always on right';
 const REMOTE_V2_MARKER = 'parsedBodyJson()';
 const REMOTE_V4_MARKER = 'NEPSE GHAR remote v4';
+const REMOTE_V5_MARKER = 'NEPSE GHAR remote v5';
 
 const BUILDER_REL_PATH = path.join(
   'node_modules',
@@ -263,6 +264,34 @@ const REMOTE_V4_BLOCK = `  private fun parsedBodyJson() = notificationData.body
     ?: parsedBodyJson()?.optString("body")?.takeIf { it.isNotBlank() }
     ?: remoteMessage.data["body"]?.takeIf { it.isNotBlank() && !it.startsWith("{") }`;
 
+const REMOTE_V5_BLOCK = `  private fun parsedBodyJson() = notificationData.body
+
+  // ${REMOTE_V5_MARKER}: ignore blank FCM notification title/body so data-only pushes
+  // still show text (Expo may send an empty notification block with title/message in data).
+  override suspend fun getImage(context: Context): Bitmap? {
+    val uri = remoteMessage.notification?.imageUrl
+      ?: remoteMessage.data["image"]?.takeIf { it.isNotBlank() }?.let { android.net.Uri.parse(it) }
+    return uri?.let { downloadImage(it) }
+  }
+
+  override fun containsImage(): Boolean {
+    if (remoteMessage.notification?.imageUrl != null) {
+      return true
+    }
+    return !remoteMessage.data["image"].isNullOrBlank()
+  }
+
+  override val title = remoteMessage.notification?.title?.takeIf { it.isNotBlank() }
+    ?: notificationData.title?.takeIf { it.isNotBlank() }
+    ?: parsedBodyJson()?.optString("title")?.takeIf { it.isNotBlank() }
+    ?: remoteMessage.data["title"]?.takeIf { it.isNotBlank() }
+
+  override val text = remoteMessage.notification?.body?.takeIf { it.isNotBlank() }
+    ?: notificationData.message?.takeIf { it.isNotBlank() }
+    ?: parsedBodyJson()?.optString("message")?.takeIf { it.isNotBlank() }
+    ?: parsedBodyJson()?.optString("body")?.takeIf { it.isNotBlank() }
+    ?: remoteMessage.data["body"]?.takeIf { it.isNotBlank() && !it.startsWith("{") }`;
+
 function patchBuilder(projectRoot) {
   const filePath = path.join(projectRoot, BUILDER_REL_PATH);
   if (!fs.existsSync(filePath)) {
@@ -305,11 +334,13 @@ function patchRemoteContent(projectRoot) {
   }
 
   let src = fs.readFileSync(filePath, 'utf8');
-  if (src.includes(REMOTE_V4_MARKER)) {
+  if (src.includes(REMOTE_V5_MARKER)) {
     return false;
   }
 
-  if (src.includes(REMOTE_V2_MARKER)) {
+  if (src.includes(REMOTE_V4_MARKER)) {
+    src = src.replace(REMOTE_V4_BLOCK, REMOTE_V5_BLOCK);
+  } else if (src.includes(REMOTE_V2_MARKER)) {
     src = src.replace(REMOTE_V2_BLOCK, REMOTE_V4_BLOCK);
   } else if (src.includes('remoteMessage.data["image"]') && !src.includes('notification?.imageUrl')) {
     src = src.replace(REMOTE_V3_BLOCK, REMOTE_V4_BLOCK);
@@ -319,6 +350,10 @@ function patchRemoteContent(projectRoot) {
     src = src.replace(REMOTE_STOCK_GET_IMAGE, REMOTE_V4_BLOCK);
   } else {
     throw new Error('apply-expo-notification-patches: unexpected RemoteNotificationContent.kt');
+  }
+
+  if (!src.includes(REMOTE_V5_MARKER)) {
+    throw new Error('apply-expo-notification-patches: remote block did not match, nothing replaced');
   }
 
   fs.writeFileSync(filePath, src);
@@ -347,7 +382,7 @@ if (require.main === module) {
   const changed = patchExpoNotifications(projectRoot);
   console.log(
     changed
-      ? 'Applied expo-notifications notification patches (builder v5, remote v4).'
+      ? 'Applied expo-notifications notification patches (builder v5, remote v5).'
       : 'expo-notifications notification patches already up to date.',
   );
 }

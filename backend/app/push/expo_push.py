@@ -208,21 +208,35 @@ def _build_messages(
     messages: list[dict[str, Any]] = []
     for token in tokens:
         base_data = {str(k): str(v) for k, v in (data or {}).items()}
-        push_data = _android_data_payload(
-            title=title,
-            body=body,
-            base_data=base_data,
-            channel_id=channel_id,
-            image_url=image_url,
-        )
-        # No root title/body or richContent: FCM would auto-render in background and
-        # skip our patched ExpoNotificationBuilder (no right-side logo).
-        msg: dict[str, Any] = {
-            'to': token,
-            'sound': sound,
-            'channelId': channel_id,
-            'data': push_data,
-        }
+        if image_url:
+            # Data-only so our patched ExpoNotificationBuilder controls layout (image + logo).
+            push_data = _android_data_payload(
+                title=title,
+                body=body,
+                base_data=base_data,
+                channel_id=channel_id,
+                image_url=image_url,
+            )
+            msg: dict[str, Any] = {
+                'to': token,
+                'sound': sound,
+                'channelId': channel_id,
+                'data': push_data,
+            }
+        else:
+            # Standard Expo push: root title/body so text always shows (admin + auto alerts).
+            msg = {
+                'to': token,
+                'title': title,
+                'body': body,
+                'sound': sound,
+                'channelId': channel_id,
+                'data': {
+                    **base_data,
+                    'title': title,
+                    'message': body,
+                },
+            }
         if channel_id in high_priority_channels:
             msg['priority'] = 'high'
         messages.append(msg)
