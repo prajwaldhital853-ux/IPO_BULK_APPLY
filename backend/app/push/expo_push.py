@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -185,28 +184,18 @@ def _build_messages(
     for token in tokens:
         base_data = {str(k): str(v) for k, v in (data or {}).items()}
         if image_url:
-            # Data-only payload so Android always renders via our patched
-            # ExpoNotificationBuilder (foreground + background). richContent puts
-            # the image on the right via FCM and bypasses our native code.
-            push_data = {
-                **base_data,
-                'title': title,
-                'message': body,
-                'body': json.dumps(
-                    {
-                        'title': title,
-                        'message': body,
-                        **base_data,
-                    },
-                    separators=(',', ':'),
-                ),
-                'image': image_url,
-            }
+            # Keep title/body at root so Android always shows text (FCM notification
+            # payload). richContent supplies the banner image. data.image lets our
+            # patched ExpoNotificationBuilder render SS2 layout in foreground.
+            push_data = {**base_data, 'image': image_url}
             msg: dict[str, Any] = {
                 'to': token,
+                'title': title,
+                'body': body,
                 'sound': sound,
                 'channelId': channel_id,
                 'data': push_data,
+                'richContent': {'image': image_url},
             }
         else:
             msg = {
