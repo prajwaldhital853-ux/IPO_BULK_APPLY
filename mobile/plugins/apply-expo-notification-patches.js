@@ -7,6 +7,7 @@ const path = require('path');
 
 const BUILDER_V2_MARKER = 'NEPSE GHAR v2';
 const BUILDER_V3_MARKER = 'NEPSE GHAR v3';
+const BUILDER_V5_MARKER = 'NEPSE GHAR v5';
 const BUILDER_V1_MARKER = 'NEPSE GHAR: app logo always on right';
 const REMOTE_V2_MARKER = 'parsedBodyJson()';
 const REMOTE_V4_MARKER = 'NEPSE GHAR remote v4';
@@ -128,6 +129,35 @@ const BUILDER_V3_BLOCK = `    // ${BUILDER_V3_MARKER}: image in middle (no right
     }
     return builder.build()`;
 
+const BUILDER_V5_BLOCK = `    // ${BUILDER_V5_MARKER}: app logo always in the collapsed right slot; attached
+    // image renders in the middle of the expanded notification.
+    largeIcon?.let { builder.setLargeIcon(it) }
+
+    if (notificationContent.containsImage()) {
+      val bitmap = notificationContent.getImage(context)
+      if (bitmap != null) {
+        val titleText = content.title?.takeIf { it.isNotBlank() } ?: ""
+        val bodyText = content.text?.takeIf { it.isNotBlank() } ?: ""
+        builder.setContentTitle(titleText)
+        builder.setContentText(bodyText)
+        val pictureStyle = NotificationCompat.BigPictureStyle()
+          .bigPicture(bitmap)
+          .setBigContentTitle(titleText)
+          .setSummaryText(bodyText)
+          // Hides the logo once expanded so the picture owns the middle area.
+          .bigLargeIcon(null as Bitmap?)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+          pictureStyle.showBigPictureWhenCollapsed(false)
+        }
+        builder.setStyle(pictureStyle)
+      } else {
+        builder.setStyle(NotificationCompat.BigTextStyle().bigText(content.text))
+      }
+    } else {
+      builder.setStyle(NotificationCompat.BigTextStyle().bigText(content.text))
+    }
+    return builder.build()`;
+
 const REMOTE_STOCK_GET_IMAGE = `  override suspend fun getImage(context: Context): Bitmap? {
     val uri = remoteMessage.notification?.imageUrl
     return uri?.let { downloadImage(it) }
@@ -240,22 +270,28 @@ function patchBuilder(projectRoot) {
   }
 
   let src = fs.readFileSync(filePath, 'utf8');
-  if (src.includes(BUILDER_V3_MARKER)) {
+  if (src.includes(BUILDER_V5_MARKER)) {
     return false;
   }
 
-  if (src.includes(BUILDER_V2_MARKER)) {
-    src = src.replace(BUILDER_V2_BLOCK, BUILDER_V3_BLOCK);
+  if (src.includes(BUILDER_V3_MARKER)) {
+    src = src.replace(BUILDER_V3_BLOCK, BUILDER_V5_BLOCK);
+  } else if (src.includes(BUILDER_V2_MARKER)) {
+    src = src.replace(BUILDER_V2_BLOCK, BUILDER_V5_BLOCK);
   } else if (src.includes(BUILDER_V1_MARKER)) {
-    src = src.replace(BUILDER_V1_BLOCK, BUILDER_V3_BLOCK);
+    src = src.replace(BUILDER_V1_BLOCK, BUILDER_V5_BLOCK);
   } else if (src.includes(BUILDER_STOCK_LARGE_ICON_BLOCK)) {
     src = src.replace(
       BUILDER_STOCK_STYLE_LINE,
       '    // Notification style set below (BigText or BigPicture).',
     );
-    src = src.replace(BUILDER_STOCK_LARGE_ICON_BLOCK, BUILDER_V3_BLOCK);
+    src = src.replace(BUILDER_STOCK_LARGE_ICON_BLOCK, BUILDER_V5_BLOCK);
   } else {
     throw new Error('apply-expo-notification-patches: unexpected ExpoNotificationBuilder.kt');
+  }
+
+  if (!src.includes(BUILDER_V5_MARKER)) {
+    throw new Error('apply-expo-notification-patches: builder block did not match, nothing replaced');
   }
 
   fs.writeFileSync(filePath, src);
@@ -311,7 +347,7 @@ if (require.main === module) {
   const changed = patchExpoNotifications(projectRoot);
   console.log(
     changed
-      ? 'Applied expo-notifications notification patches (v4).'
+      ? 'Applied expo-notifications notification patches (builder v5, remote v4).'
       : 'expo-notifications notification patches already up to date.',
   );
 }
