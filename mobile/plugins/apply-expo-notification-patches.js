@@ -9,6 +9,7 @@ const BUILDER_V2_MARKER = 'NEPSE GHAR v2';
 const BUILDER_V3_MARKER = 'NEPSE GHAR v3';
 const BUILDER_V1_MARKER = 'NEPSE GHAR: app logo always on right';
 const REMOTE_V2_MARKER = 'parsedBodyJson()';
+const REMOTE_V4_MARKER = 'NEPSE GHAR remote v4';
 
 const BUILDER_REL_PATH = path.join(
   'node_modules',
@@ -205,6 +206,33 @@ const REMOTE_V3_BLOCK = `  private fun parsedBodyJson() = notificationData.body
     ?: parsedBodyJson()?.optString("body")?.takeIf { it.isNotBlank() }
     ?: remoteMessage.data["body"]?.takeIf { it.isNotBlank() && !it.startsWith("{") }`;
 
+const REMOTE_V4_BLOCK = `  private fun parsedBodyJson() = notificationData.body
+
+  // ${REMOTE_V4_MARKER}: richContent imageUrl + data.image for BigPicture in foreground.
+  override suspend fun getImage(context: Context): Bitmap? {
+    val uri = remoteMessage.notification?.imageUrl
+      ?: remoteMessage.data["image"]?.takeIf { it.isNotBlank() }?.let { android.net.Uri.parse(it) }
+    return uri?.let { downloadImage(it) }
+  }
+
+  override fun containsImage(): Boolean {
+    if (remoteMessage.notification?.imageUrl != null) {
+      return true
+    }
+    return !remoteMessage.data["image"].isNullOrBlank()
+  }
+
+  override val title = remoteMessage.notification?.title
+    ?: notificationData.title
+    ?: parsedBodyJson()?.optString("title")?.takeIf { it.isNotBlank() }
+    ?: remoteMessage.data["title"]?.takeIf { it.isNotBlank() }
+
+  override val text = remoteMessage.notification?.body
+    ?: notificationData.message
+    ?: parsedBodyJson()?.optString("message")?.takeIf { it.isNotBlank() }
+    ?: parsedBodyJson()?.optString("body")?.takeIf { it.isNotBlank() }
+    ?: remoteMessage.data["body"]?.takeIf { it.isNotBlank() && !it.startsWith("{") }`;
+
 function patchBuilder(projectRoot) {
   const filePath = path.join(projectRoot, BUILDER_REL_PATH);
   if (!fs.existsSync(filePath)) {
@@ -241,16 +269,18 @@ function patchRemoteContent(projectRoot) {
   }
 
   let src = fs.readFileSync(filePath, 'utf8');
-  if (src.includes('return !remoteMessage.data["image"].isNullOrBlank()')) {
+  if (src.includes(REMOTE_V4_MARKER)) {
     return false;
   }
 
   if (src.includes(REMOTE_V2_MARKER)) {
-    src = src.replace(REMOTE_V2_BLOCK, REMOTE_V3_BLOCK);
+    src = src.replace(REMOTE_V2_BLOCK, REMOTE_V4_BLOCK);
+  } else if (src.includes('remoteMessage.data["image"]') && !src.includes('notification?.imageUrl')) {
+    src = src.replace(REMOTE_V3_BLOCK, REMOTE_V4_BLOCK);
   } else if (src.includes('remoteMessage.data["image"]')) {
-    src = src.replace(REMOTE_V1_GET_IMAGE, REMOTE_V3_BLOCK);
+    src = src.replace(REMOTE_V1_GET_IMAGE, REMOTE_V4_BLOCK);
   } else if (src.includes(REMOTE_STOCK_GET_IMAGE)) {
-    src = src.replace(REMOTE_STOCK_GET_IMAGE, REMOTE_V3_BLOCK);
+    src = src.replace(REMOTE_STOCK_GET_IMAGE, REMOTE_V4_BLOCK);
   } else {
     throw new Error('apply-expo-notification-patches: unexpected RemoteNotificationContent.kt');
   }
@@ -281,7 +311,7 @@ if (require.main === module) {
   const changed = patchExpoNotifications(projectRoot);
   console.log(
     changed
-      ? 'Applied expo-notifications notification patches (v3).'
+      ? 'Applied expo-notifications notification patches (v4).'
       : 'expo-notifications notification patches already up to date.',
   );
 }
