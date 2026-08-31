@@ -184,9 +184,8 @@ def _build_messages(
     for token in tokens:
         base_data = {str(k): str(v) for k, v in (data or {}).items()}
         if image_url:
-            # Keep title/body at root so Android always shows text (FCM notification
-            # payload). richContent supplies the banner image. data.image lets our
-            # patched ExpoNotificationBuilder render SS2 layout in foreground.
+            # title/body at root for visible text. Image only in data (not richContent)
+            # so FCM does not put the admin photo on the right as a thumbnail.
             push_data = {**base_data, 'image': image_url}
             msg: dict[str, Any] = {
                 'to': token,
@@ -195,7 +194,6 @@ def _build_messages(
                 'sound': sound,
                 'channelId': channel_id,
                 'data': push_data,
-                'richContent': {'image': image_url},
             }
         else:
             msg = {
