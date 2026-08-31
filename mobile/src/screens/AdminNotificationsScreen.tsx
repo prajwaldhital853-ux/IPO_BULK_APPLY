@@ -17,7 +17,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ImageDropZone } from '../components/admin/ImageDropZone';
 import { useTheme } from '../context/ThemeContext';
 import { loadAdminToken } from '../services/admin/adminTokenStorage';
 import {
@@ -79,9 +78,6 @@ export function AdminNotificationsScreen() {
   const [redirectScreen, setRedirectScreen] = useState('Home');
   const [symbol, setSymbol] = useState('');
   const [screenPickerOpen, setScreenPickerOpen] = useState(false);
-  const [imageUri, setImageUri] = useState<string | null>(null);
-  const [imageMime, setImageMime] = useState('image/jpeg');
-  const [pickingImage, setPickingImage] = useState(false);
 
   const selectedScreen = screens.find((s) => s.id === redirectScreen);
   const needsSymbol = selectedScreen?.needsSymbol ?? false;
@@ -139,40 +135,6 @@ export function AdminNotificationsScreen() {
     void refreshAudienceCount(token, audience);
   }, [audience, refreshAudienceCount, token]);
 
-  const clearImage = useCallback(() => {
-    if (imageUri?.startsWith('blob:')) {
-      URL.revokeObjectURL(imageUri);
-    }
-    setImageUri(null);
-    setImageMime('image/jpeg');
-  }, [imageUri]);
-
-  const onImageSelected = useCallback((uri: string, mimeType: string) => {
-    setImageUri(uri);
-    setImageMime(mimeType);
-  }, []);
-
-  const imageUriToDataUrl = useCallback(
-    async (uri: string, mimeType: string): Promise<string> => {
-      const fileRes = await fetch(uri);
-      const blob = await fileRes.blob();
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const dataUrl = String(reader.result ?? '');
-          const raw = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-          if (!raw) reject(new Error('Could not read image'));
-          else resolve(raw);
-        };
-        reader.onerror = () => reject(new Error('Could not read image'));
-        reader.readAsDataURL(blob);
-      });
-      const mime = mimeType || blob.type || 'image/jpeg';
-      return `data:${mime};base64,${base64}`;
-    },
-    [],
-  );
-
   const onSend = () => {
     if (!token) return;
     const trimmedTitle = title.trim();
@@ -198,17 +160,12 @@ export function AdminNotificationsScreen() {
             void (async () => {
               setSending(true);
               try {
-                let imageBase64: string | null = null;
-                if (imageUri) {
-                  imageBase64 = await imageUriToDataUrl(imageUri, imageMime);
-                }
                 const result = await sendAdminNotification(token, {
                   title: trimmedTitle,
                   body: trimmedBody,
                   audience,
                   redirectScreen,
                   redirectSymbol: needsSymbol ? symbol.trim().toUpperCase() : null,
-                  imageBase64,
                 });
                 const delivered = result.delivered ?? result.sentCount ?? 0;
                 const failed = result.failed ?? 0;
@@ -233,7 +190,6 @@ export function AdminNotificationsScreen() {
                 setTitle('');
                 setBody('');
                 setSymbol('');
-                clearImage();
                 const historyRows = await fetchAdminNotificationHistory(token);
                 setHistory(historyRows);
               } catch (e) {
@@ -298,21 +254,6 @@ export function AdminNotificationsScreen() {
               placeholderTextColor={colors.textMuted}
               multiline
               maxLength={1000}
-            />
-
-            <Text style={styles.fieldLabel}>Image (optional)</Text>
-            <Text style={styles.hintInline}>
-              {Platform.OS === 'web'
-                ? 'Drag & drop a picture here for a big-image notification, or tap to browse.'
-                : 'Tap to attach a picture for a big-image notification, or leave empty for text only.'}
-            </Text>
-            <ImageDropZone
-              colors={colors}
-              imageUri={imageUri}
-              picking={pickingImage}
-              onImageSelected={onImageSelected}
-              onImageClear={clearImage}
-              onPickingChange={setPickingImage}
             />
 
             <Text style={styles.fieldLabel}>Send to</Text>
@@ -461,12 +402,6 @@ function makeStyles(c: ThemeColors) {
       fontSize: rs(12),
       lineHeight: rs(18),
       marginBottom: rs(14),
-    },
-    hintInline: {
-      color: c.textMuted,
-      fontSize: rs(11),
-      lineHeight: rs(16),
-      marginBottom: rs(8),
     },
     fieldLabel: {
       color: c.textSecondary,

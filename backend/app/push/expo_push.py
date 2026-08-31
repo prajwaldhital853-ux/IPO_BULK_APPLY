@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -162,6 +163,30 @@ async def _post_expo_messages(
         return [{'error': str(exc)} for _ in messages]
 
 
+def _android_data_payload(
+    *,
+    title: str,
+    body: str,
+    base_data: dict[str, str],
+    channel_id: str,
+    image_url: str | None = None,
+) -> dict[str, str]:
+    """Data-only Expo payload so Android always renders via ExpoNotificationBuilder."""
+    payload = {
+        **base_data,
+        'title': title,
+        'message': body,
+        'body': json.dumps(
+            {'title': title, 'message': body, **base_data},
+            separators=(',', ':'),
+        ),
+        'channelId': channel_id,
+    }
+    if image_url:
+        payload['image'] = image_url
+    return payload
+
+
 def _build_messages(
     tokens: list[str],
     *,
@@ -183,29 +208,21 @@ def _build_messages(
     messages: list[dict[str, Any]] = []
     for token in tokens:
         base_data = {str(k): str(v) for k, v in (data or {}).items()}
-        if image_url:
-            # title/body at root so Android always shows text when the app is backgrounded.
-            # richContent.image lets FCM show the image when we are not building the UI.
-            # data.image lets our patched ExpoNotificationBuilder use BigPicture in foreground.
-            push_data = {**base_data, 'image': image_url}
-            msg: dict[str, Any] = {
-                'to': token,
-                'title': title,
-                'body': body,
-                'sound': sound,
-                'channelId': channel_id,
-                'data': push_data,
-                'richContent': {'image': image_url},
-            }
-        else:
-            msg = {
-                'to': token,
-                'title': title,
-                'body': body,
-                'sound': sound,
-                'channelId': channel_id,
-                'data': base_data,
-            }
+        push_data = _android_data_payload(
+            title=title,
+            body=body,
+            base_data=base_data,
+            channel_id=channel_id,
+            image_url=image_url,
+        )
+        # No root title/body or richContent: FCM would auto-render in background and
+        # skip our patched ExpoNotificationBuilder (no right-side logo).
+        msg: dict[str, Any] = {
+            'to': token,
+            'sound': sound,
+            'channelId': channel_id,
+            'data': push_data,
+        }
         if channel_id in high_priority_channels:
             msg['priority'] = 'high'
         messages.append(msg)
