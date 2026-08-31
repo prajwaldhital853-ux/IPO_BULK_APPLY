@@ -338,21 +338,33 @@ function patchRemoteContent(projectRoot) {
     return false;
   }
 
-  if (src.includes(REMOTE_V4_MARKER)) {
-    src = src.replace(REMOTE_V4_BLOCK, REMOTE_V5_BLOCK);
-  } else if (src.includes(REMOTE_V2_MARKER)) {
-    src = src.replace(REMOTE_V2_BLOCK, REMOTE_V4_BLOCK);
-  } else if (src.includes('remoteMessage.data["image"]') && !src.includes('notification?.imageUrl')) {
-    src = src.replace(REMOTE_V3_BLOCK, REMOTE_V4_BLOCK);
-  } else if (src.includes('remoteMessage.data["image"]')) {
-    src = src.replace(REMOTE_V1_GET_IMAGE, REMOTE_V4_BLOCK);
-  } else if (src.includes(REMOTE_STOCK_GET_IMAGE)) {
-    src = src.replace(REMOTE_STOCK_GET_IMAGE, REMOTE_V4_BLOCK);
-  } else {
-    throw new Error('apply-expo-notification-patches: unexpected RemoteNotificationContent.kt');
+  const replaceCandidates = [
+    REMOTE_V4_BLOCK,
+    REMOTE_V2_BLOCK,
+    REMOTE_V3_BLOCK,
+    REMOTE_V1_GET_IMAGE,
+    REMOTE_STOCK_GET_IMAGE,
+  ];
+
+  let replaced = false;
+  for (const block of replaceCandidates) {
+    if (src.includes(block)) {
+      src = src.replace(block, REMOTE_V5_BLOCK);
+      replaced = true;
+      break;
+    }
   }
 
-  if (!src.includes(REMOTE_V5_MARKER)) {
+  if (!replaced) {
+    const stockPattern =
+      /  override suspend fun getImage\(context: Context\): Bitmap\? \{[\s\S]*?override val text = remoteMessage\.notification\?\.body \?: notificationData\.message/;
+    if (stockPattern.test(src)) {
+      src = src.replace(stockPattern, REMOTE_V5_BLOCK);
+      replaced = true;
+    }
+  }
+
+  if (!replaced || !src.includes(REMOTE_V5_MARKER)) {
     throw new Error('apply-expo-notification-patches: remote block did not match, nothing replaced');
   }
 
