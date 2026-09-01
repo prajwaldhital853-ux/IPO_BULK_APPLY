@@ -144,17 +144,68 @@ def _pick(m: dict[str, float], *keys: str) -> float | None:
     return None
 
 
+def _index_change_phrase(change: float, *, kind: str) -> str:
+    points = abs(change)
+    if change > 0:
+        verb = 'is up by' if kind == 'open' else 'increased by'
+    elif change < 0:
+        verb = 'is down by' if kind == 'open' else 'decreased by'
+    else:
+        return 'is unchanged today'
+    return f'{verb} {points:.2f} points today'
+
+
+def _market_index_body(
+    *,
+    kind: str,
+    nepse: float | None,
+    change: float | None,
+) -> str:
+    cta = 'Open our app for more detailed analysis.'
+    if nepse is None:
+        fallback = (
+            'Market is open today.'
+            if kind == 'open'
+            else 'Market closed today.'
+        )
+        return f'{fallback} {cta}'
+
+    level = f'{nepse:.2f}'
+    if change is None:
+        summary = (
+            f'The NEPSE index is currently at {level} today.'
+            if kind == 'open'
+            else f'The NEPSE index closed at {level} today.'
+        )
+    else:
+        change_phrase = _index_change_phrase(change, kind=kind)
+        if change == 0:
+            level_phrase = (
+                f'currently at {level}'
+                if kind == 'open'
+                else f'to close at {level}'
+            )
+            summary = f'The NEPSE index {change_phrase}, {level_phrase}.'
+        elif kind == 'open':
+            summary = (
+                f'The NEPSE index {change_phrase}, currently at {level}.'
+            )
+        else:
+            summary = (
+                f'The NEPSE index {change_phrase} to close at {level}.'
+            )
+    return f'{summary}\n{cta}'
+
+
 async def fetch_market_summary_text(*, kind: str) -> tuple[str, str]:
     """
     Build title/body for market open or close push.
     kind: 'open' | 'close'
     """
-    status, summary_rows, index_rows = await _fetch_bundle()
-    smap = _summary_map(summary_rows if isinstance(summary_rows, list) else None)
+    _status, _summary_rows, index_rows = await _fetch_bundle()
 
     nepse = None
     change = None
-    pct = None
     if isinstance(index_rows, list):
         for row in index_rows:
             if not isinstance(row, dict):
@@ -164,48 +215,15 @@ async def fetch_market_summary_text(*, kind: str) -> tuple[str, str]:
                 try:
                     nepse = float(row.get('currentValue') or 0)
                     change = float(row.get('change') or 0)
-                    pct = float(row.get('perChange') or 0)
                 except (TypeError, ValueError):
                     pass
                 break
 
-    turnover = _pick(smap, 'turnover')
-    volume = _pick(smap, 'volume', 'total traded')
-    advanced = _pick(smap, 'advanced')
-    declined = _pick(smap, 'declined')
-
-    is_open = False
-    if isinstance(status, dict):
-        is_open = str(status.get('isOpen') or '').lower() in {'true', '1', 'yes', 'open'}
-
-    when = now_npt().strftime('%d %b %Y, %H:%M NPT')
     if kind == 'open':
         title = 'Market is open'
-        parts = [when]
-        if nepse is not None:
-            ch = f'{change:+.2f}' if change is not None else '—'
-            pc = f'{pct:+.2f}%' if pct is not None else '—'
-            parts.append(f'NEPSE {nepse:,.2f} ({ch} / {pc})')
-        body = ' · '.join(parts)
-        return title, body
-
-    title = 'Market closed — day summary'
-    parts = [when]
-    if nepse is not None:
-        ch = f'{change:+.2f}' if change is not None else '—'
-        pc = f'{pct:+.2f}%' if pct is not None else '—'
-        parts.append(f'NEPSE {nepse:,.2f} ({ch} / {pc})')
-    if turnover is not None:
-        parts.append(f'Turnover Rs {turnover:,.0f}')
-    if volume is not None:
-        parts.append(f'Vol {volume:,.0f}')
-    if advanced is not None or declined is not None:
-        parts.append(
-            f'Adv {int(advanced or 0)} / Dec {int(declined or 0)}',
-        )
-    if not is_open and nepse is None and turnover is None:
-        parts.append('Summary unavailable — open the app for details')
-    body = ' · '.join(parts)
+    else:
+        title = 'Market closed'
+    body = _market_index_body(kind=kind, nepse=nepse, change=change)
     return title, body
 
 

@@ -179,11 +179,11 @@ async def run_price_alert_job(db: AsyncSession) -> dict:
         if not tokens:
             continue
 
-        direction_word = 'rose above' if alert.direction == 'above' else 'fell below'
+        direction_word = 'crossed above' if alert.direction == 'above' else 'fell below'
         title = f'{alert.symbol} price alert'
         body = (
-            f'{alert.name or alert.symbol} {direction_word} '
-            f'Rs {alert.target_price:g} (now Rs {ltp:g})'
+            f'{alert.symbol} {direction_word} Rs {alert.target_price:g} '
+            f'(now Rs {ltp:g})'
         )
         await send_expo_push(
             tokens,
