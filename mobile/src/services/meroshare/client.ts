@@ -1,8 +1,10 @@
 import { resolveClientId } from './capital';
 import { DEFAULT_HEADERS, MEROSHARE_BASE, PATHS } from './endpoints';
 import {
+  isRoleRestrictedMeroshareMessage,
   isTransientMeroshareMessage,
   MeroshareError,
+  sanitizeMeroshareMessage,
   withMeroshareRetries,
 } from './errors';
 import {
@@ -209,6 +211,9 @@ export class MeroshareClient {
       if (/captcha/i.test(msg)) {
         throw new MeroshareError('CAPTCHA', msg);
       }
+      if (isRoleRestrictedMeroshareMessage(msg)) {
+        throw new MeroshareError('UNKNOWN', sanitizeMeroshareMessage(msg));
+      }
       if (
         res.status === 403 ||
         /password|credential|unauthorized|invalid user|expired|token/i.test(msg)
@@ -239,6 +244,9 @@ export class MeroshareClient {
       typeof (data as { message: unknown }).message === 'string'
         ? (data as { message: string }).message
         : '';
+    if (softMsg && isRoleRestrictedMeroshareMessage(softMsg)) {
+      throw new MeroshareError('UNKNOWN', sanitizeMeroshareMessage(softMsg));
+    }
     if (softMsg && isTransientMeroshareMessage(softMsg)) {
       const softCode =
         typeof data === 'object' &&

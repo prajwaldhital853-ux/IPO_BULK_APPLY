@@ -315,6 +315,7 @@ export function BankDetailScreen() {
           password: capital.password,
           crn: crn.trim(),
           pin,
+          fallbackBankName: linkedBank,
         });
 
         if (!verify.ok) {

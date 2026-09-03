@@ -13,6 +13,7 @@ const BULK_PORTFOLIO_CONCURRENCY = 8;
 const BULK_PORTFOLIO_GAP_MS = 180;
 const BULK_PORTFOLIO_GAP_MAX_MS = 2800;
 const BULK_PORTFOLIO_PAUSE_MS = 2200;
+const BULK_PORTFOLIO_ROLE_RETRY_MS = 1500;
 const DEMO_ACCOUNT_GAP_MS = 80;
 
 function sleep(ms: number) {
@@ -104,12 +105,18 @@ export type BulkPortfolioOptions = {
   ) => void;
   /** Return false to stop scheduling new work (stale run / user cancelled). */
   shouldContinue?: () => boolean;
+  /** Fired when a background retry succeeds after an initial role-blocked empty result. */
+  onAccountRetryComplete?: (
+    account: AccountMeta,
+    result: ImportResult,
+  ) => void;
 };
 
 async function fetchOnePortfolio(
   account: AccountMeta,
   index: number,
   throttle: BulkThrottle,
+  opts: BulkPortfolioOptions,
   password?: string,
 ): Promise<BulkPortfolioAccountResult> {
   if (isMockAccountId(account.id)) {
@@ -145,9 +152,32 @@ async function fetchOnePortfolio(
     void patchAccountMeta(account.id, patch).catch(() => undefined);
   };
 
+  const scheduleRoleRetry = (first: ImportResult) => {
+    if (!first.portfolioAccessRestricted || !opts.onAccountRetryComplete) return;
+    void (async () => {
+      await sleep(BULK_PORTFOLIO_ROLE_RETRY_MS);
+      if (opts.shouldContinue && !opts.shouldContinue()) return;
+      try {
+        await throttle.acquire();
+        const retry = await importPortfolioFromMeroshare(account, {
+          bulkFast: true,
+          password,
+          roleRestrictedRetry: true,
+        });
+        throttle.relax();
+        if (retry.portfolioAccessRestricted) return;
+        persistCacheHints(retry);
+        opts.onAccountRetryComplete?.(account, retry);
+      } catch {
+        throttle.backoff(new MeroshareError('UNKNOWN', 'Portfolio retry failed'));
+      }
+    })();
+  };
+
   try {
     const result = await run();
     persistCacheHints(result);
+    scheduleRoleRetry(result);
     return { ok: true, account, index, result };
   } catch (e) {
     if (!isTransientMeroshareError(e)) {
@@ -218,6 +248,7 @@ export async function runBulkPortfolioCheck(
       account,
       i,
       throttle,
+      opts,
       passwordById.get(account.id),
     );
     completed += 1;

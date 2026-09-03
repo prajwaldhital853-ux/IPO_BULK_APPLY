@@ -37,4 +37,6 @@ export {
   MeroshareError,
   sanitizeMeroshareMessage,
   isTransientMeroshareError,
+  isRoleRestrictedMeroshareError,
+  isRoleRestrictedMeroshareMessage,
 } from './errors';

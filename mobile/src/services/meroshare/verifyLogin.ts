@@ -1,5 +1,10 @@
 import { MeroshareClient } from './client';
-import { MeroshareError } from './errors';
+import {
+  MeroshareError,
+  isRoleRestrictedMeroshareError,
+  isTransientMeroshareError,
+  sanitizeMeroshareMessage,
+} from './errors';
 import { extractBankWithBranchFromProfile } from '../../utils/minorAccount';
 
 export type VerifyField =
@@ -118,6 +123,8 @@ export async function verifyAccountForSave(args: {
   password: string;
   crn: string;
   pin: string;
+  /** Bank from My Details / form when ASBA list API is blocked for this role. */
+  fallbackBankName?: string;
 }): Promise<VerifyAccountResult> {
   const username = args.username.trim();
   const crn = args.crn.trim();
@@ -234,15 +241,18 @@ export async function verifyAccountForSave(args: {
     }
 
     const ss2Bank = extractBankWithBranchFromProfile(profile) ?? undefined;
+    const fallbackBank = args.fallbackBankName?.trim() || undefined;
+    const knownBank = ss2Bank || fallbackBank;
 
-    // ASBA bank list is flaky — prefer My Details bankName (includes branch)
-    let bankName: string | undefined = ss2Bank;
+    // ASBA bank list is flaky / blocked for some minors — skip when bank is already known.
+    let bankName: string | undefined = knownBank;
     let accountNumber: string | undefined;
     let bankDeferred = false;
-    try {
-      const banks = await client.listBanksWithRetry();
-      if (!banks.length) {
-        if (!ss2Bank) {
+
+    if (!knownBank) {
+      try {
+        const banks = await client.listBanksWithRetry();
+        if (!banks.length) {
           return {
             ok: false,
             field: 'bank',
@@ -254,30 +264,40 @@ export async function verifyAccountForSave(args: {
             accountHolderName,
           };
         }
-      } else {
-        if (!bankName) bankName = banks[0].name;
+        bankName = banks[0].name;
         try {
           const branch = await client.getBankBranchDetails(banks[0].id);
           accountNumber = branch.accountNumber;
         } catch {
           // account number is optional when My Details already has the bank
         }
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Could not load bank details';
-      if (ss2Bank) {
-        bankName = ss2Bank;
-      } else if (!isTransientMeroShareError(msg)) {
-        return {
-          ok: false,
-          field: 'bank',
-          message: `Login OK, but bank details failed: ${msg}`,
-          stage: 'bank',
-          boid: session.boid,
-          demat: session.demat,
-          accountHolderName,
-        };
-      } else {
+      } catch (e) {
+        const msg = sanitizeMeroshareMessage(
+          e instanceof Error ? e.message : 'Could not load bank details',
+        );
+        if (isRoleRestrictedMeroshareError(e)) {
+          return {
+            ok: false,
+            field: 'bank',
+            message:
+              'Login OK, but MeroShare blocked bank access for this account type. Select or confirm the bank on the form above, then try again.',
+            stage: 'bank',
+            boid: session.boid,
+            demat: session.demat,
+            accountHolderName,
+          };
+        }
+        if (!isTransientMeroShareError(msg)) {
+          return {
+            ok: false,
+            field: 'bank',
+            message: `Login OK, but bank details failed: ${msg}`,
+            stage: 'bank',
+            boid: session.boid,
+            demat: session.demat,
+            accountHolderName,
+          };
+        }
         bankDeferred = true;
         if (!bankName) {
           const fromProfile =

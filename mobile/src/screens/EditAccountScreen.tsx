@@ -460,6 +460,7 @@ export function EditAccountScreen() {
           password,
           crn: crn.trim(),
           pin,
+          fallbackBankName: linkedBank,
         });
         if (!verify.ok) {
           setErrorField(verify.field);

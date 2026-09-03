@@ -2,7 +2,7 @@ import type { AccountMeta } from '../../types/account';
 import { isMockAccountId, mockHoldingsForAccount } from '../../data/mockAccounts';
 import { getSecrets } from '../../storage/accountsStorage';
 import { MeroshareClient } from './client';
-import { MeroshareError } from './errors';
+import { MeroshareError, isRoleRestrictedMeroshareError } from './errors';
 import type { PortfolioHoldingRow } from './types';
 
 export type ImportedHolding = {
@@ -22,6 +22,8 @@ export type ImportResult = {
   /** Set after live fetch — persist on account to speed up the next bulk run. */
   meroClientCode?: string;
   demat?: string;
+  /** First try hit CDSC role block — holdings empty until a background retry. */
+  portfolioAccessRestricted?: boolean;
 };
 
 export type ImportPortfolioOpts = {
@@ -29,6 +31,8 @@ export type ImportPortfolioOpts = {
   password?: string;
   /** Bulk mode: fewer login retries + single-shot portfolio request. */
   bulkFast?: boolean;
+  /** Background retry after role block — full login, no re-queue. */
+  roleRestrictedRetry?: boolean;
 };
 
 /**
@@ -65,6 +69,23 @@ export async function importPortfolioFromMeroshare(
   }
 
   const bulkFast = opts?.bulkFast === true;
+  const roleRetry = opts?.roleRestrictedRetry === true;
+
+  const onRoleRestricted = (): ImportResult => {
+    if (roleRetry) {
+      return {
+        accountId: account.id,
+        accountName: account.name,
+        holdings: [],
+      };
+    }
+    return {
+      accountId: account.id,
+      accountName: account.name,
+      holdings: [],
+      portfolioAccessRestricted: true,
+    };
+  };
 
   const runLiveImport = async (
     useCachedClientCode: boolean,
@@ -73,7 +94,7 @@ export async function importPortfolioFromMeroshare(
       ? account.meroClientCode?.trim()
       : undefined;
     const cachedDemat = account.demat?.trim();
-    const canSkipOwnDetail = Boolean(cachedClientCode);
+    const canSkipOwnDetail = Boolean(cachedClientCode) && !roleRetry;
 
     const client = new MeroshareClient();
     await client.login(
@@ -139,14 +160,24 @@ export async function importPortfolioFromMeroshare(
     };
   };
 
-  if (account.meroClientCode?.trim()) {
+  if (account.meroClientCode?.trim() && !roleRetry) {
     try {
       return await runLiveImport(true);
     } catch (e) {
+      if (isRoleRestrictedMeroshareError(e)) {
+        return onRoleRestricted();
+      }
       if (!bulkFast) throw e;
       return await runLiveImport(false);
     }
   }
 
-  return await runLiveImport(false);
+  try {
+    return await runLiveImport(false);
+  } catch (e) {
+    if (isRoleRestrictedMeroshareError(e)) {
+      return onRoleRestricted();
+    }
+    throw e;
+  }
 }

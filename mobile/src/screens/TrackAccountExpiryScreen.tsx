@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -34,6 +34,9 @@ import type { RootStackParamList } from '../navigation/types';
 
 type TabId = 'users' | 'expiry';
 type Styles = ReturnType<typeof makeStyles>;
+
+const FETCH_CONCURRENCY = 5;
+const PROGRESS_FLUSH_MS = 120;
 
 /** Pure green / red accents for valid vs invalid. */
 const STATUS = {
@@ -167,6 +170,7 @@ export function TrackAccountExpiryScreen() {
     done: number;
     total: number;
   } | null>(null);
+  const refreshRunRef = useRef(0);
 
   useEffect(() => {
     setSelected((prev) => pruneAccountIdSet(accounts, prev));
@@ -174,63 +178,107 @@ export function TrackAccountExpiryScreen() {
 
   const refresh = useCallback(
     async (silent = false) => {
+      const runId = ++refreshRunRef.current;
+      const isStale = () => refreshRunRef.current !== runId;
+
       if (!silent) {
         setLoading(true);
         setRows([]);
       }
       if (!accounts.length) {
-        setRows([]);
-        setFetchProgress(null);
-        setLoading(false);
+        if (!isStale()) {
+          setRows([]);
+          setFetchProgress(null);
+          setLoading(false);
+        }
         return;
       }
       const targets = accounts.filter((a) => selected.has(a.id));
       if (!targets.length) {
-        setRows([]);
-        setFetchProgress(null);
-        setLoading(false);
+        if (!isStale()) {
+          setRows([]);
+          setFetchProgress(null);
+          setLoading(false);
+        }
         return;
       }
 
-      setFetchProgress({ done: 0, total: targets.length });
-
-      for (let i = 0; i < targets.length; i++) {
-        const account = targets[i];
-        const secrets = await loadSecrets(account.id);
-        let info: AccountExpiryInfo;
-        if (!secrets?.password) {
-          info = {
-            accountId: account.id,
-            accountName: account.name,
-            username: account.username,
-            dpName: account.dpName,
-            demat: account.demat ?? null,
-            meroshareExpired: null,
-            dematExpired: null,
-            passwordExpired: null,
-            meroshareExpiryDate: null,
-            dematExpiryDate: null,
-            passwordExpiryDate: null,
-            status: 'error',
-            detail: 'Password not saved — re-add account',
-            pills: [],
-          };
-        } else {
-          info = await fetchAccountExpiryInfo(account, secrets.password);
-        }
-
-        setRows((prev) => {
-          const idx = prev.findIndex((r) => r.accountId === info.accountId);
-          if (idx >= 0) {
-            const next = [...prev];
-            next[idx] = info;
-            return next;
-          }
-          return [...prev, info];
-        });
-        setFetchProgress({ done: i + 1, total: targets.length });
+      const total = targets.length;
+      const orderIds = targets.map((a) => a.id);
+      if (!isStale()) {
+        setFetchProgress({ done: 0, total });
       }
 
+      const byId = new Map<string, AccountExpiryInfo>();
+      let done = 0;
+      let lastProgressFlush = 0;
+
+      const flushRows = () => {
+        if (isStale()) return;
+        setRows(
+          orderIds
+            .map((id) => byId.get(id))
+            .filter((row): row is AccountExpiryInfo => row != null),
+        );
+      };
+
+      const bumpProgress = (force = false) => {
+        if (isStale()) return;
+        const now = Date.now();
+        if (!force && now - lastProgressFlush < PROGRESS_FLUSH_MS) return;
+        lastProgressFlush = now;
+        setFetchProgress({ done, total });
+      };
+
+      const onAccountDone = (info: AccountExpiryInfo) => {
+        if (isStale()) return;
+        byId.set(info.accountId, info);
+        done += 1;
+        flushRows();
+        bumpProgress(done === total);
+      };
+
+      let nextIndex = 0;
+      const worker = async () => {
+        while (nextIndex < targets.length) {
+          if (isStale()) return;
+          const i = nextIndex;
+          nextIndex += 1;
+          const account = targets[i]!;
+          const secrets = await loadSecrets(account.id);
+          let info: AccountExpiryInfo;
+          if (!secrets?.password) {
+            info = {
+              accountId: account.id,
+              accountName: account.name,
+              username: account.username,
+              dpName: account.dpName,
+              demat: account.demat ?? null,
+              meroshareExpired: null,
+              dematExpired: null,
+              passwordExpired: null,
+              meroshareExpiryDate: null,
+              dematExpiryDate: null,
+              passwordExpiryDate: null,
+              status: 'error',
+              detail: 'Password not saved — re-add account',
+              pills: [],
+            };
+          } else {
+            info = await fetchAccountExpiryInfo(account, secrets.password);
+          }
+          onAccountDone(info);
+        }
+      };
+
+      await Promise.all(
+        Array.from({ length: Math.min(FETCH_CONCURRENCY, targets.length) }, () =>
+          worker(),
+        ),
+      );
+
+      if (isStale()) return;
+      flushRows();
       setFetchProgress(null);
       setLoading(false);
     },
@@ -412,37 +460,39 @@ export function TrackAccountExpiryScreen() {
           </View>
         </View>
       ) : (
-        <FlatList
-          data={visibleRows}
-          keyExtractor={(item) => item.accountId}
-          {...ACCOUNT_LIST_FLAT_PROPS}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => {
-                setRefreshing(true);
-                void refresh(true).finally(() => setRefreshing(false));
-              }}
-              tintColor={colors.accentGreen}
-            />
-          }
-          contentContainerStyle={styles.list}
-          ListHeaderComponent={
-            fetchProgress ? (
+        <View style={styles.flex}>
+          {fetchProgress ? (
+            <View style={styles.progressSticky}>
               <View style={styles.progressBanner}>
                 <ActivityIndicator size="small" color={palette.okText} />
                 <Text style={styles.progressText}>
                   Fetching {fetchProgress.done}/{fetchProgress.total}…
                 </Text>
               </View>
-            ) : null
-          }
-          ListEmptyComponent={
+            </View>
+          ) : null}
+          <FlatList
+            style={styles.flex}
+            data={visibleRows}
+            keyExtractor={(item) => item.accountId}
+            {...ACCOUNT_LIST_FLAT_PROPS}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  void refresh(true).finally(() => setRefreshing(false));
+                }}
+                tintColor={colors.accentGreen}
+              />
+            }
+            contentContainerStyle={styles.list}
+            ListEmptyComponent={
             loading || fetchProgress ? (
               <View style={styles.loadingEmpty}>
                 <ActivityIndicator color={palette.okText} />
                 <Text style={styles.empty}>
-                  Checking selected accounts one by one…
+                  Checking selected accounts…
                 </Text>
               </View>
             ) : (
@@ -514,6 +564,7 @@ export function TrackAccountExpiryScreen() {
             );
           }}
         />
+        </View>
       )}
     </View>
   );
@@ -682,11 +733,20 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontSize: rs(11),
       fontWeight: '800',
     },
+    progressSticky: {
+      paddingHorizontal: rs(14),
+      paddingTop: rs(4),
+      paddingBottom: rs(8),
+      backgroundColor: c.bg,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border,
+      zIndex: 2,
+      elevation: 2,
+    },
     progressBanner: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(10),
-      marginBottom: rs(12),
       paddingVertical: rs(10),
       paddingHorizontal: rs(12),
       borderRadius: rs(12),

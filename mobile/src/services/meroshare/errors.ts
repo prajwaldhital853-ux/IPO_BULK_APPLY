@@ -29,6 +29,23 @@ export function isTransientMeroshareError(error: unknown): boolean {
   return false;
 }
 
+/** CDSC blocks some APIs (bank list, portfolio) for minor / restricted roles. */
+export function isRoleRestrictedMeroshareMessage(message: string): boolean {
+  return /role\s*not\s*authorized|not\s*authorized\s*for|access\s*denied|permission\s*denied|insufficient\s*privilege|forbidden\s*role/i.test(
+    message,
+  );
+}
+
+export function isRoleRestrictedMeroshareError(error: unknown): boolean {
+  if (error instanceof MeroshareError) {
+    return isRoleRestrictedMeroshareMessage(error.message);
+  }
+  if (error instanceof Error) {
+    return isRoleRestrictedMeroshareMessage(error.message);
+  }
+  return false;
+}
+
 /** Strip HTTP status noise from user-facing MeroShare error text. */
 export function sanitizeMeroshareMessage(message: string): string {
   let m = String(message ?? '').trim();

@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Modal,
   Pressable,
   ScrollView,
@@ -22,7 +23,10 @@ import type { ThemeColors } from '../theme/colors';
 import { MeroshareClient } from '../services/meroshare/client';
 import { updateAccountSecrets } from '../storage/accountsStorage';
 import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
+import { filterAccountsByQuery } from '../utils/filterAccounts';
+import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
 import { rs } from '../utils/responsive';
+import type { AccountMeta } from '../types/account';
 import type { RootStackParamList } from '../navigation/types';
 
 const RULES = [
@@ -40,6 +44,37 @@ function validatePassword(pw: string): string | null {
   return null;
 }
 
+type AccountPickerRowProps = {
+  account: AccountMeta;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: ThemeColors;
+};
+
+const AccountPickerRow = React.memo(function AccountPickerRow({
+  account,
+  selected,
+  onSelect,
+  styles,
+  colors,
+}: AccountPickerRowProps) {
+  return (
+    <Pressable style={styles.modalRow} onPress={() => onSelect(account.id)}>
+      <Ionicons name="person" size={rs(16)} color={colors.textSecondary} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.modalName}>{account.name.toUpperCase()}</Text>
+        <Text style={styles.modalMeta}>
+          {account.dpName} · {account.username}
+        </Text>
+      </View>
+      {selected ? (
+        <Ionicons name="checkmark" size={rs(18)} color={colors.primary} />
+      ) : null}
+    </Pressable>
+  );
+});
+
 export function ChangePasswordScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -53,6 +88,7 @@ export function ChangePasswordScreen() {
     accounts[0]?.id ?? null,
   );
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState('');
   const [oldPw, setOldPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
@@ -64,6 +100,24 @@ export function ChangePasswordScreen() {
   const selected = useMemo(
     () => accounts.find((a) => a.id === accountId) ?? null,
     [accounts, accountId],
+  );
+
+  const filteredAccounts = useMemo(
+    () => filterAccountsByQuery(accounts, pickerQuery),
+    [accounts, pickerQuery],
+  );
+
+  const closePicker = useCallback(() => {
+    setPickerOpen(false);
+    setPickerQuery('');
+  }, []);
+
+  const onSelectAccount = useCallback(
+    (id: string) => {
+      setAccountId(id);
+      closePicker();
+    },
+    [closePicker],
   );
 
   const onSubmit = async () => {
@@ -222,39 +276,57 @@ export function ChangePasswordScreen() {
         </Pressable>
       </ScrollView>
 
-      <Modal visible={pickerOpen} transparent animationType="fade">
-        <Pressable
-          style={styles.modalBg}
-          onPress={() => setPickerOpen(false)}
-        >
-          <View style={styles.modalCard}>
+      <Modal
+        visible={pickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={closePicker}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closePicker} />
+          <View
+            style={[
+              styles.modalSheet,
+              { paddingBottom: Math.max(insets.bottom, rs(12)) },
+            ]}
+          >
             <Text style={styles.modalTitle}>Select Account</Text>
-            {accounts.map((a) => (
-              <Pressable
-                key={a.id}
-                style={styles.modalRow}
-                onPress={() => {
-                  setAccountId(a.id);
-                  setPickerOpen(false);
-                }}
-              >
-                <Ionicons name="person" size={rs(16)} color={colors.textSecondary} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.modalName}>{a.name.toUpperCase()}</Text>
-                  <Text style={styles.modalMeta}>
-                    {a.dpName} · {a.username}
-                  </Text>
-                </View>
-                {accountId === a.id ? (
-                  <Ionicons name="checkmark" size={rs(18)} color={colors.primary} />
-                ) : null}
-              </Pressable>
-            ))}
-            {!accounts.length ? (
-              <Text style={styles.modalEmpty}>No accounts saved.</Text>
-            ) : null}
+            <TextInput
+              style={styles.modalSearch}
+              placeholder="Search by name or username…"
+              placeholderTextColor={colors.textMuted}
+              value={pickerQuery}
+              onChangeText={setPickerQuery}
+              autoCorrect={false}
+              autoCapitalize="none"
+              autoFocus
+            />
+            <FlatList
+              style={styles.modalList}
+              data={filteredAccounts}
+              keyExtractor={(item) => item.id}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              {...ACCOUNT_LIST_FLAT_PROPS}
+              ListEmptyComponent={
+                <Text style={styles.modalEmpty}>
+                  {accounts.length
+                    ? 'No accounts match your search.'
+                    : 'No accounts saved.'}
+                </Text>
+              }
+              renderItem={({ item }) => (
+                <AccountPickerRow
+                  account={item}
+                  selected={accountId === item.id}
+                  onSelect={onSelectAccount}
+                  styles={styles}
+                  colors={colors}
+                />
+              )}
+            />
           </View>
-        </Pressable>
+        </View>
       </Modal>
     </View>
   );
@@ -386,23 +458,39 @@ function makeStyles(c: ThemeColors) {
       alignItems: 'center',
     },
     submitText: { color: c.primary, fontWeight: '700', fontSize: rs(14) },
-    modalBg: {
+    modalBackdrop: {
       flex: 1,
       backgroundColor: c.overlay,
-      justifyContent: 'center',
-      padding: rs(24),
+      justifyContent: 'flex-end',
     },
-    modalCard: {
+    modalSheet: {
+      height: '78%',
+      maxHeight: '85%',
       backgroundColor: c.bgElevated,
-      borderRadius: rs(14),
-      padding: rs(14),
-      maxHeight: '70%',
+      borderTopLeftRadius: rs(18),
+      borderTopRightRadius: rs(18),
+      paddingHorizontal: rs(14),
+      paddingTop: rs(16),
+    },
+    modalList: {
+      flex: 1,
     },
     modalTitle: {
       color: c.text,
       fontWeight: '800',
       fontSize: rs(15),
       marginBottom: rs(10),
+    },
+    modalSearch: {
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      borderRadius: rs(10),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
+      marginBottom: rs(10),
+      color: c.text,
+      fontSize: rs(14),
+      backgroundColor: c.surface,
     },
     modalRow: {
       flexDirection: 'row',

@@ -17,6 +17,7 @@ import { useAccounts } from '../context/AccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import { type ThemeColors } from '../theme/colors';
 import { runBulkPortfolioCheck } from '../services/meroshare';
+import type { ImportResult } from '../services/meroshare/portfolioImport';
 import type { AccountMeta } from '../types/account';
 import {
   saveBulkPortfolioSnapshot,
@@ -163,6 +164,53 @@ export function BulkPortfolioScreen() {
 
     const snapRows: BulkHoldingSnap[] = [];
 
+    const applyPortfolioResult = (
+      accountId: string,
+      result: ImportResult,
+    ) => {
+      const value = result.holdings.reduce(
+        (sum, h) => sum + holdingValue(h),
+        0,
+      );
+      const change = result.holdings.reduce(
+        (sum, h) => sum + holdingChange(h),
+        0,
+      );
+      for (const h of result.holdings) {
+        const existing = snapRows.findIndex(
+          (r) => r.accountId === accountId && r.symbol === h.symbol,
+        );
+        const snap: BulkHoldingSnap = {
+          accountId,
+          accountName: result.accountName,
+          symbol: h.symbol,
+          name: h.name,
+          qty: h.qty,
+          wacc: h.wacc,
+          ltp: h.ltp,
+          previousClosingPrice: h.previousClosingPrice ?? null,
+          value: holdingValue(h),
+          dayChange: holdingChange(h),
+        };
+        if (existing >= 0) snapRows[existing] = snap;
+        else snapRows.push(snap);
+      }
+      setRows((prev) =>
+        prev.map((r) =>
+          r.account.id === accountId
+            ? {
+                ...r,
+                status: 'done',
+                value,
+                change,
+                holdings: result.holdings.length,
+                message: undefined,
+              }
+            : r,
+        ),
+      );
+    };
+
     await runBulkPortfolioCheck({
       accounts: list,
       shouldContinue: () => runIdRef.current === runId,
@@ -180,43 +228,7 @@ export function BulkPortfolioScreen() {
         setTotalCount(total);
 
         if (row.ok) {
-          const { result } = row;
-          const value = result.holdings.reduce(
-            (sum, h) => sum + holdingValue(h),
-            0,
-          );
-          const change = result.holdings.reduce(
-            (sum, h) => sum + holdingChange(h),
-            0,
-          );
-          for (const h of result.holdings) {
-            snapRows.push({
-              accountId: row.account.id,
-              accountName: row.account.name,
-              symbol: h.symbol,
-              name: h.name,
-              qty: h.qty,
-              wacc: h.wacc,
-              ltp: h.ltp,
-              previousClosingPrice: h.previousClosingPrice ?? null,
-              value: holdingValue(h),
-              dayChange: holdingChange(h),
-            });
-          }
-          setRows((prev) =>
-            prev.map((r) =>
-              r.account.id === row.account.id
-                ? {
-                    ...r,
-                    status: 'done',
-                    value,
-                    change,
-                    holdings: result.holdings.length,
-                    message: undefined,
-                  }
-                : r,
-            ),
-          );
+          applyPortfolioResult(row.account.id, row.result);
         } else {
           setRows((prev) =>
             prev.map((r) =>
@@ -233,6 +245,10 @@ export function BulkPortfolioScreen() {
             ),
           );
         }
+      },
+      onAccountRetryComplete: (account, result) => {
+        if (runIdRef.current !== runId) return;
+        applyPortfolioResult(account.id, result);
       },
     });
 
