@@ -308,6 +308,31 @@ const BRANCH_NAME_KEY_ALIASES = new Set(
   ].map((s) => s.toLowerCase()),
 );
 
+const BANK_ACCOUNT_NUMBER_KEY_ALIASES = new Set(
+  [
+    'bankaccountnumber',
+    'bankaccountno',
+    'asbaaccountnumber',
+    'asbaaccountno',
+    'accountbanknumber',
+    'accountbankno',
+    'linkedaccountnumber',
+  ].map((s) => s.toLowerCase()),
+);
+
+const NESTED_BANK_ACCOUNT_KEYS = [
+  'bankAccount',
+  'asbaAccount',
+  'account',
+  'asba',
+] as const;
+
+const NESTED_ACCOUNT_NUMBER_KEYS = [
+  'accountNumber',
+  'accountNo',
+  'number',
+] as const;
+
 function cleanProfileName(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const name = value.trim().replace(/\s+/g, ' ');
@@ -371,6 +396,62 @@ export function extractBankWithBranchFromProfile(
     return `${bankName}-${branchName}`;
   }
   return bankName;
+}
+
+function looksLikeDematNumber(value: string): boolean {
+  const digits = value.replace(/\D/g, '');
+  // CDSC demat / BOID is 16 digits and usually starts with 130.
+  return digits.length === 16 && digits.startsWith('130');
+}
+
+function cleanBankAccountNumber(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  const s = String(value).trim().replace(/\s+/g, '');
+  if (!s || s.toUpperCase() === 'N/A') return null;
+  if (looksLikeDematNumber(s)) return null;
+  return s;
+}
+
+/**
+ * ASBA bank account number from MeroShare My Details when present.
+ * Avoids mistaking demat / BOID (`accountNumber` on ownDetail) for bank account.
+ */
+export function extractBankAccountNumberFromProfile(
+  raw: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!raw || typeof raw !== 'object') return null;
+
+  for (const rec of walkRecords(raw)) {
+    for (const nestKey of NESTED_BANK_ACCOUNT_KEYS) {
+      const nested = rec[nestKey];
+      if (!nested || typeof nested !== 'object' || Array.isArray(nested)) {
+        continue;
+      }
+      const n = nested as Record<string, unknown>;
+      for (const key of NESTED_ACCOUNT_NUMBER_KEYS) {
+        const num = cleanBankAccountNumber(n[key]);
+        if (num) return num;
+      }
+    }
+  }
+
+  for (const rec of walkRecords(raw)) {
+    for (const [key, value] of Object.entries(rec)) {
+      const k = normalizedProfileKey(key);
+      if (!BANK_ACCOUNT_NUMBER_KEY_ALIASES.has(k)) continue;
+      const num = cleanBankAccountNumber(value);
+      if (num) return num;
+    }
+  }
+
+  for (const rec of walkRecords(raw)) {
+    for (const key of ['accountNumber', 'accountNo'] as const) {
+      const num = cleanBankAccountNumber(rec[key]);
+      if (num) return num;
+    }
+  }
+
+  return null;
 }
 
 /** Parent / guardian name from My Details when present. */
