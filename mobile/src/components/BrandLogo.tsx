@@ -22,7 +22,7 @@ export function BrandLogo({
 }: Props) {
   const { appLogoUrl } = useAppBranding();
   const h = height ?? (variant === 'mark' ? rs(36) : rs(72));
-  const aspect = variant === 'mark' ? 1.15 : 1.55;
+  const aspect = 1;
 
   return (
     <View style={[styles.wrap, style]}>

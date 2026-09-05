@@ -28,7 +28,7 @@ module.exports = {
       googleServicesFile: './google-services.json',
       versionCode: 127,
       adaptiveIcon: {
-        backgroundColor: '#1B5E20',
+        backgroundColor: '#FFFFFF',
         foregroundImage: './assets/nepse-ghar-adaptive-foreground.png',
       },
       predictiveBackGestureEnabled: false,
@@ -49,6 +49,25 @@ module.exports = {
       ...(process.env.LOCAL_DEV === '1' || process.env.EAS_BUILD_PROFILE === 'development'
         ? ['expo-dev-client']
         : []),
+      [
+        'expo-splash-screen',
+        {
+          backgroundColor: '#FFFFFF',
+          image: './assets/nepse-ghar-logo.png',
+          imageWidth: 280,
+          resizeMode: 'contain',
+          android: {
+            backgroundColor: '#FFFFFF',
+            image: './assets/nepse-ghar-logo.png',
+            imageWidth: 280,
+          },
+          ios: {
+            backgroundColor: '#FFFFFF',
+            image: './assets/nepse-ghar-logo.png',
+            imageWidth: 280,
+          },
+        },
+      ],
       [
     'expo-notifications',
     {

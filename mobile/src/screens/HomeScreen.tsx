@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
   RefreshControl,
@@ -18,6 +17,7 @@ import DraggableFlatList, {
 } from 'react-native-draggable-flatlist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AccountDetailSheet } from '../components/AccountDetailSheet';
+import { BusyOverlay } from '../components/BusyOverlay';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { AppHeader } from '../components/AppHeader';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
@@ -710,14 +710,7 @@ export function HomeScreen() {
           />
       </View>
       </SwipeTabGesture>
-      {demoBusy ? (
-        <View style={styles.demoOverlay} pointerEvents="auto">
-          <View style={styles.demoOverlayCard}>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={styles.demoOverlayText}>{demoBusyLabel}</Text>
-          </View>
-        </View>
-      ) : null}
+      <BusyOverlay visible={Boolean(demoBusy)} message={demoBusyLabel} />
     </GestureHandlerRootView>
   );
 }
@@ -731,28 +724,6 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
 
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
-    demoOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.45)',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 50,
-    },
-    demoOverlayCard: {
-      backgroundColor: c.bgElevated,
-      borderRadius: rs(14),
-      paddingHorizontal: rs(22),
-      paddingVertical: rs(18),
-      alignItems: 'center',
-      maxWidth: '80%',
-    },
-    demoOverlayText: {
-      color: c.text,
-      marginTop: rs(12),
-      fontSize: rs(14),
-      fontWeight: '600',
-      textAlign: 'center',
-    },
     tabPane: { flex: 1 },
     tabPaneHidden: { display: 'none' },
     tabs: {

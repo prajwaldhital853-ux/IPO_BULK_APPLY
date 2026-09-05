@@ -17,6 +17,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
+import { BusyOverlay } from '../components/BusyOverlay';
 import { KeyboardSheetModal } from '../components/KeyboardSheetModal';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
@@ -541,12 +542,7 @@ export function PortfolioScreen() {
           </Pressable>
         </Modal>
 
-        {busy ? (
-          <View style={styles.busyOverlay}>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={styles.busyText}>{busy}</Text>
-          </View>
-        ) : null}
+        <BusyOverlay visible={Boolean(busy)} message={busy} />
       </View>
     </ProtectedPersonalScreen>
   );
@@ -759,13 +755,5 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.borderMuted,
     },
-    busyOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: isDark ? 'rgba(30,30,30,0.85)' : 'rgba(228,234,217,0.85)',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: rs(10),
-    },
-    busyText: { color: c.textSecondary, fontWeight: '600' },
   });
 }

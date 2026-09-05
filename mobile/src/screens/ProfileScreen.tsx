@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   InteractionManager,
   Linking,
@@ -21,6 +20,7 @@ import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { BrandLogo } from '../components/BrandLogo';
 import { DeleteAccountModal } from '../components/DeleteAccountModal';
+import { BusyOverlay } from '../components/BusyOverlay';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useAccounts } from '../context/AccountsContext';
@@ -779,14 +779,7 @@ export function ProfileScreen() {
         </Pressable>
       </Modal>
 
-      {busy ? (
-        <View style={styles.busyOverlay}>
-          <View style={styles.busyCard}>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={styles.busyText}>{busy}</Text>
-          </View>
-        </View>
-      ) : null}
+      <BusyOverlay visible={Boolean(busy)} message={busy} />
 
       <DeleteAccountModal
         visible={deleteOpen}
@@ -1003,21 +996,5 @@ function makeStyles(c: ThemeColors) {
       marginTop: rs(8),
       marginBottom: rs(4),
     },
-    busyOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.45)',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    busyCard: {
-      backgroundColor: c.surface,
-      borderRadius: rs(14),
-      paddingHorizontal: rs(24),
-      paddingVertical: rs(20),
-      alignItems: 'center',
-      gap: rs(10),
-      minWidth: rs(180),
-    },
-    busyText: { color: c.text, fontSize: rs(13), fontWeight: '600' },
   });
 }
