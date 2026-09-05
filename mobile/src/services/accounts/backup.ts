@@ -2,6 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
 import type { AccountMeta, LinkedAccount } from '../../types/account';
+import { resolveBoidSync } from '../../utils/boid';
 import { getSecrets } from '../../storage/accountsStorage';
 import {
   backupFolderHint,
@@ -86,7 +87,7 @@ export function buildAccountsCsv(accounts: AccountMeta[]): string {
     a.dpName ?? '',
     a.bankName ?? '',
     a.accountNumber ?? '',
-    a.demat ?? '',
+    a.demat || resolveBoidSync(a) || '',
   ]);
   return [CSV_HEADER, ...rows]
     .map((r) => r.map(csvCell).join(','))
@@ -119,6 +120,7 @@ export function fullExportRowsToAoa(
       r.pin ?? '',
       r.dpName ?? '',
       r.bankName ?? '',
+      r.accountNumber ?? '',
       r.demat ?? '',
     ]),
   ];
@@ -144,6 +146,7 @@ export function buildFullAccountsBackup(
         bankName: r.bankName,
         accountNumber: r.accountNumber,
         demat: r.demat,
+        boid: r.demat,
         dateOfBirth: r.dateOfBirth,
         holderType: r.holderType,
         guardianName: r.guardianName,
@@ -175,7 +178,8 @@ export function buildAccountsBackup(accounts: AccountMeta[]): string {
         username: a.username,
         bankName: a.bankName,
         accountNumber: a.accountNumber,
-        demat: a.demat,
+        demat: a.demat || resolveBoidSync(a) || undefined,
+        boid: a.demat || resolveBoidSync(a) || undefined,
         dateOfBirth: a.dateOfBirth,
         holderType: a.holderType,
         guardianName: a.guardianName,
@@ -224,6 +228,37 @@ function findCol(headers: string[], ...candidates: string[]): number {
     if (idx !== -1) return idx;
   }
   return -1;
+}
+
+/** Detect 16-digit CDSC demat / BOID (130 + DP + username). */
+function looksLikeBoid(value: string): boolean {
+  const digits = value.replace(/\D/g, '');
+  return digits.length === 16 && digits.startsWith('130');
+}
+
+/**
+ * Fix older exports that wrote BOID into the Account No column and left BOID blank.
+ * Also handles swapped bank-account / BOID columns on import.
+ */
+function reconcileImportAccountNoAndBoid(
+  accountNo?: string,
+  demat?: string,
+): { accountNumber?: string; demat?: string } {
+  const acct = accountNo?.trim() || '';
+  const boid = demat?.trim() || '';
+  const acctDigits = acct.replace(/\D/g, '');
+  const boidDigits = boid.replace(/\D/g, '');
+
+  if (looksLikeBoid(acctDigits) && !boid) {
+    return { accountNumber: undefined, demat: acctDigits };
+  }
+  if (looksLikeBoid(acctDigits) && boid && !looksLikeBoid(boidDigits)) {
+    return { accountNumber: boid, demat: acctDigits };
+  }
+  return {
+    accountNumber: acct || undefined,
+    demat: boid || undefined,
+  };
 }
 
 function toAccount(
@@ -321,21 +356,21 @@ export function parseAccountsCsv(text: string): ImportedAccount[] {
       idx >= 0 && idx < cells.length ? cells[idx] : fallback;
 
     if (fullFormat) {
-      const accountNo =
-        iAccountNo >= 0 ? get(iAccountNo) || undefined : undefined;
-      const dematVal =
-        iDemat >= 0
-          ? get(iDemat) || undefined
-          : iAccountNo >= 0
-            ? get(10) || undefined
-            : get(9) || undefined;
+      const rawAccountNo =
+        iAccountNo >= 0 ? get(iAccountNo) || undefined : get(9) || undefined;
+      const rawDemat =
+        iDemat >= 0 ? get(iDemat) || undefined : get(10) || undefined;
+      const { accountNumber, demat: dematVal } = reconcileImportAccountNoAndBoid(
+        rawAccountNo,
+        rawDemat,
+      );
       const acc = toAccount(
         get(iName >= 0 ? iName : 1),
         get(iDp >= 0 ? iDp : 2),
         get(iUser >= 0 ? iUser : 3),
         get(iDpName >= 0 ? iDpName : 7),
         get(iBank >= 0 ? iBank : 8) || undefined,
-        accountNo,
+        accountNumber,
         dematVal,
         get(iHolder >= 0 ? iHolder : -1) || undefined,
         get(iGuardian >= 0 ? iGuardian : -1) || undefined,
@@ -350,21 +385,21 @@ export function parseAccountsCsv(text: string): ImportedAccount[] {
       continue;
     }
 
-    const accountNo =
-      iAccountNo >= 0 ? get(iAccountNo) || undefined : undefined;
-    const dematVal =
-      iDemat >= 0
-        ? get(iDemat) || undefined
-        : iAccountNo >= 0
-          ? get(6) || undefined
-          : get(5) || undefined;
+    const rawAccountNo =
+      iAccountNo >= 0 ? get(iAccountNo) || undefined : get(5) || undefined;
+    const rawDemat =
+      iDemat >= 0 ? get(iDemat) || undefined : get(6) || undefined;
+    const { accountNumber, demat: dematVal } = reconcileImportAccountNoAndBoid(
+      rawAccountNo,
+      rawDemat,
+    );
     const acc = toAccount(
       get(iName >= 0 ? iName : 0),
       get(iDp >= 0 ? iDp : 1),
       get(iUser >= 0 ? iUser : 2),
       get(iDpName >= 0 ? iDpName : 3),
       get(iBank >= 0 ? iBank : 4) || undefined,
-      accountNo,
+      accountNumber,
       dematVal,
       get(iHolder >= 0 ? iHolder : -1) || undefined,
       get(iGuardian >= 0 ? iGuardian : -1) || undefined,
@@ -376,14 +411,18 @@ export function parseAccountsCsv(text: string): ImportedAccount[] {
 }
 
 function rowToImportedAccount(r: Record<string, unknown>): ImportedAccount | null {
+  const { accountNumber, demat } = reconcileImportAccountNoAndBoid(
+    r.accountNumber != null ? String(r.accountNumber) : undefined,
+    r.demat || r.boid ? String(r.demat ?? r.boid) : undefined,
+  );
   return toAccount(
     String(r.name ?? ''),
     String(r.dpCode ?? r.dpId ?? r.dp ?? ''),
     String(r.username ?? r.client ?? ''),
     String(r.dpName ?? ''),
     r.bankName ? String(r.bankName) : undefined,
-    r.accountNumber != null ? String(r.accountNumber) : undefined,
-    r.demat ? String(r.demat) : undefined,
+    accountNumber,
+    demat,
     r.holderType ? String(r.holderType) : undefined,
     r.guardianName ? String(r.guardianName) : undefined,
     r.dateOfBirth ? String(r.dateOfBirth) : undefined,
@@ -568,7 +607,7 @@ export function accountMetaToFullExportRow(
     dpName: account.dpName,
     bankName: account.bankName,
     accountNumber: account.accountNumber,
-    demat: account.demat,
+    demat: account.demat || resolveBoidSync(account) || undefined,
     dateOfBirth: account.dateOfBirth,
     holderType: account.holderType,
     guardianName: account.guardianName,
