@@ -1,8 +1,8 @@
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
 import type { AccountMeta, LinkedAccount } from '../../types/account';
 import { resolveBoidSync } from '../../utils/boid';
+import { readPickedFileAsString } from '../../utils/pickedFile';
 import { getSecrets } from '../../storage/accountsStorage';
 import {
   backupFolderHint,
@@ -473,18 +473,14 @@ async function readBackupFileContent(
   fileName: string,
 ): Promise<string> {
   if (isSpreadsheetFile(fileName)) {
-    const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+    const base64 = await readPickedFileAsString(uri, 'base64', fileName);
     const wb = XLSX.read(base64, { type: 'base64' });
     const sheetName = wb.SheetNames[0];
     if (!sheetName) return '';
     const sheet = wb.Sheets[sheetName];
     return sheet ? XLSX.utils.sheet_to_csv(sheet) : '';
   }
-  return FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
+  return readPickedFileAsString(uri, 'utf8', fileName);
 }
 
 /** Write accounts to a file in Download/Nepse Ghar (or app backup folder on iOS). */
@@ -639,10 +635,11 @@ function parseAccountsWorkbook(wb: XLSX.WorkBook): ImportedAccount[] {
   return parseAccountsCsv(XLSX.utils.sheet_to_csv(sheet));
 }
 
-async function readSpreadsheetWorkbook(uri: string): Promise<XLSX.WorkBook> {
-  const base64 = await FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
+async function readSpreadsheetWorkbook(
+  uri: string,
+  fileName?: string,
+): Promise<XLSX.WorkBook> {
+  const base64 = await readPickedFileAsString(uri, 'base64', fileName);
   return XLSX.read(base64, { type: 'base64' });
 }
 
@@ -685,7 +682,7 @@ export async function pickAccountsFile(): Promise<{
   const name = asset.name ?? 'file';
   const spreadsheet = isSpreadsheetFile(name, asset.mimeType);
   if (spreadsheet) {
-    const wb = await readSpreadsheetWorkbook(asset.uri);
+    const wb = await readSpreadsheetWorkbook(asset.uri, name);
     const accounts = parseAccountsWorkbook(wb);
     if (!accounts.length) {
       throw new Error(
@@ -703,9 +700,7 @@ export async function pickAccountsFile(): Promise<{
     }
     return { name, content };
   }
-  const content = await FileSystem.readAsStringAsync(asset.uri, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
+  const content = await readPickedFileAsString(asset.uri, 'utf8', name);
   if (!content.trim()) {
     throw new Error('That file is empty or could not be read.');
   }

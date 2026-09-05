@@ -1,6 +1,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import { readPickedFileAsString } from '../../utils/pickedFile';
 import {
   listPortfolios,
   replaceAllPortfolios,
@@ -101,9 +102,11 @@ export async function importPortfoliosBackup(): Promise<{
     return { count: 0, mode: 'json' };
   }
   const asset = res.assets[0];
-  const content = await FileSystem.readAsStringAsync(asset.uri, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
+  const content = await readPickedFileAsString(
+    asset.uri,
+    'utf8',
+    asset.name ?? 'import',
+  );
   const name = (asset.name ?? '').toLowerCase();
 
   if (name.endsWith('.csv') || content.includes('Symbol') || content.includes('symbol')) {
@@ -170,9 +173,12 @@ export async function importHoldingsFromExcelCsv(): Promise<{
   if (res.canceled || !res.assets?.[0]) {
     return { holdings: 0, portfolioName: '' };
   }
-  const content = await FileSystem.readAsStringAsync(res.assets[0].uri, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
+  const asset = res.assets[0];
+  const content = await readPickedFileAsString(
+    asset.uri,
+    'utf8',
+    asset.name ?? 'import',
+  );
   const holdings = parseHoldingsCsv(content);
   if (!holdings.length) throw new Error('No holdings found — use columns Symbol, Qty, WACC');
   const portfolioName = `Excel ${new Date().toLocaleDateString()}`;
