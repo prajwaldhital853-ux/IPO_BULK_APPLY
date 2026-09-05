@@ -62,7 +62,11 @@ module.exports = {
         { icon: './assets/notification-large-icon.png' },
       ],
       './plugins/apply-expo-notification-patches.js',
-  'expo-secure-store',
+      'expo-secure-store',
+      'expo-font',
+      'expo-sharing',
+      'expo-status-bar',
+      'expo-web-browser',
       [
         'expo-image-picker',
         {
@@ -90,7 +94,7 @@ module.exports = {
         {
           android: {
             minSdkVersion: 24,
-            targetSdkVersion: 35,
+            targetSdkVersion: 36,
             useLegacyPackaging: true,
           },
         },
