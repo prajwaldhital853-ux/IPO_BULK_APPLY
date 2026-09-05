@@ -48,10 +48,8 @@ function keyboardOcclusion(e: {
 /**
  * Bottom sheet with a pinned footer above the keypad.
  *
- * Android APK: RN Modal is a separate Dialog window and ignores
- * softwareKeyboardLayoutMode — Save stays under the keys. We render an
- * in-screen overlay instead so `resize` shrinks the window and the sheet
- * docks above the keypad (with a keyboard lift fallback).
+ * Uses a Modal on all platforms so the sheet renders reliably on Expo SDK 57+.
+ * Keyboard lift uses Keyboard metrics + marginBottom so Save stays above the keys.
  */
 export function KeyboardSheetModal({
   visible,
@@ -189,20 +187,11 @@ export function KeyboardSheetModal({
     </View>
   );
 
-  // Android: in-screen overlay (participates in window resize). Never Modal.
-  if (Platform.OS === 'android') {
-    if (!visible) return null;
-    return (
-      <View
-        style={styles.androidOverlay}
-        pointerEvents="box-none"
-        collapsable={false}
-      >
-        {sheetBody}
-      </View>
-    );
-  }
+  if (!visible) return null;
 
+  // Modal on all platforms — SDK 57+ Android absoluteFill overlays often render
+  // as a blank sheet (only the drag handle visible). Keyboard lift still uses
+  // Keyboard metrics + marginBottom above the keypad.
   return (
     <Modal
       visible={visible}
@@ -217,11 +206,6 @@ export function KeyboardSheetModal({
 }
 
 const styles = StyleSheet.create({
-  androidOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 1000,
-    elevation: 24,
-  },
   root: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -236,13 +220,14 @@ const styles = StyleSheet.create({
     borderTopRightRadius: rs(20),
     paddingHorizontal: rs(18),
     paddingTop: rs(10),
+    minHeight: rs(200),
   },
   scroll: {
-    flexGrow: 0,
     flexShrink: 1,
   },
   scrollContent: {
     paddingBottom: rs(8),
+    flexGrow: 1,
   },
   handle: {
     alignSelf: 'center',
@@ -250,6 +235,7 @@ const styles = StyleSheet.create({
     height: rs(4),
     borderRadius: rs(2),
     marginBottom: rs(14),
+    backgroundColor: 'rgba(0,0,0,0.2)',
   },
   title: {
     fontWeight: '800',

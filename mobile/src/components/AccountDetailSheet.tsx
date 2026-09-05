@@ -85,9 +85,24 @@ export function AccountDetailSheet({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, rs(16)) }]}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={styles.container}>
+        <Pressable
+          style={styles.backdrop}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close account details"
+        />
+        <Pressable
+          style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, rs(16)) }]}
+          onPress={() => {}}
+        >
         <View style={styles.grabber} />
         <View style={styles.headRow}>
           <View style={styles.indexBadge}>
@@ -251,6 +266,7 @@ export function AccountDetailSheet({
             <Text style={[styles.actionText, { color: colors.danger }]}>Delete</Text>
           </Pressable>
         </View>
+        </Pressable>
       </View>
     </Modal>
   );
@@ -258,15 +274,15 @@ export function AccountDetailSheet({
 
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
+    container: {
+      flex: 1,
+      justifyContent: 'flex-end',
+    },
     backdrop: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: c.overlay,
     },
     sheet: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      bottom: 0,
       backgroundColor: c.surface,
       borderTopLeftRadius: rs(20),
       borderTopRightRadius: rs(20),
