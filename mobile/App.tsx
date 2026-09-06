@@ -13,8 +13,7 @@ import { SubscriptionProvider } from './src/context/SubscriptionContext';
 import { AppBrandingProvider } from './src/context/AppBrandingContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { AppWarmup } from './src/components/AppWarmup';
-import { PushRegistrationSync } from './src/components/PushRegistrationSync';
-import { NotificationRouter } from './src/components/NotificationRouter';
+import { ExpoPushBridge } from './src/components/ExpoPushBridge';
 import { StartupNoticeModal } from './src/components/StartupNoticeModal';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
@@ -27,8 +26,7 @@ function AppShell() {
         <AppBrandingProvider>
           <AccountLimitBlockedProvider>
             <AuthProvider>
-              <PushRegistrationSync />
-              <NotificationRouter />
+              <ExpoPushBridge />
               <AppLockProvider>
                 <AccountsProvider>
                   <SubscriptionProvider>

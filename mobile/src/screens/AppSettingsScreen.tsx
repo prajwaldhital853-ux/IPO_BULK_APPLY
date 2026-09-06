@@ -19,9 +19,7 @@ import {
   loadNotificationsEnabled,
   saveNotificationsEnabled,
 } from '../storage/appPreferencesStorage';
-import {
-  registerPushTokenOnServer,
-} from '../services/push/notifications';
+import { isExpoGo } from '../utils/expoGo';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
@@ -43,18 +41,32 @@ export function AppSettingsScreen() {
     void loadNotificationsEnabled().then((enabled) => {
       setNotifications(enabled);
       setLoadingPrefs(false);
-      if (enabled) {
-        void registerPushTokenOnServer(true);
+      if (enabled && !isExpoGo()) {
+        void import('../services/push/notifications').then(
+          ({ registerPushTokenOnServer }) => {
+            void registerPushTokenOnServer(true);
+          },
+        );
       }
     });
   }, []);
 
   const onToggleNotifications = async () => {
+    if (isExpoGo()) {
+      Alert.alert(
+        'Not available in Expo Go',
+        'Push notifications work in the installed APK only. They are skipped while testing in Expo Go.',
+      );
+      return;
+    }
     const next = !notifications;
     setBusyNotify(true);
     setNotifications(next);
     await saveNotificationsEnabled(next);
     try {
+      const { registerPushTokenOnServer } = await import(
+        '../services/push/notifications'
+      );
       const ok = await registerPushTokenOnServer(next);
       if (next && !ok) {
         Alert.alert(
@@ -126,11 +138,13 @@ export function AppSettingsScreen() {
             <View style={styles.rowText}>
               <Text style={styles.rowLabel}>App notifications</Text>
               <Text style={styles.rowHint}>
-                {busyNotify
-                  ? 'Updating…'
-                  : notifications
-                    ? 'Market open/close + price alerts'
-                    : 'Disabled on this device'}
+                {isExpoGo()
+                  ? 'Disabled in Expo Go (use APK)'
+                  : busyNotify
+                    ? 'Updating…'
+                    : notifications
+                      ? 'Market open/close + price alerts'
+                      : 'Disabled on this device'}
               </Text>
             </View>
             <View

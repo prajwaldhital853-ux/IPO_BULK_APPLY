@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { isExpoGo } from '../services/push/notifications';
+import { isExpoGo } from '../utils/expoGo';
 import { navigateFromNotification } from '../navigation/navigationRef';
 
 type PushData = {

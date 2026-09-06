@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as MediaLibrary from 'expo-media-library';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +25,7 @@ import { fetchPaymentInfo, type PaymentInfo } from '../services/auth/subscriptio
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
+import { isExpoGo } from '../utils/expoGo';
 
 function generatedQrUrl(text: string): string {
   const data = text.trim() || 'NEPSE GHAR Premium Payment';
@@ -287,8 +287,16 @@ export function SubscriptionScreen() {
 
   const downloadQr = useCallback(async () => {
     if (!qrUrl || savingQr) return;
+    if (isExpoGo()) {
+      Alert.alert(
+        'Not available in Expo Go',
+        'Saving the payment QR to gallery works in the installed APK. In Expo Go, screenshot the QR code instead.',
+      );
+      return;
+    }
     setSavingQr(true);
     try {
+      const MediaLibrary = await import('expo-media-library');
       const permission = await MediaLibrary.requestPermissionsAsync(true);
       if (!permission.granted) {
         Alert.alert(

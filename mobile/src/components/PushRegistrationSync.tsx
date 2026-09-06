@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { AUTH_ENABLED } from '../services/auth/config';
-import { registerPushTokenOnServer } from '../services/push/notifications';
+import { isExpoGo } from '../utils/expoGo';
 import { loadNotificationsEnabled } from '../storage/appPreferencesStorage';
 
 /**
@@ -14,12 +14,15 @@ export function PushRegistrationSync() {
   const { isAuthenticated, user } = useAuth();
 
   useEffect(() => {
-    if (!AUTH_ENABLED || !isAuthenticated || !user?.id) return;
+    if (isExpoGo() || !AUTH_ENABLED || !isAuthenticated || !user?.id) return;
 
     let cancelled = false;
     const sync = async () => {
       const enabled = await loadNotificationsEnabled();
       if (cancelled || !enabled) return;
+      const { registerPushTokenOnServer } = await import(
+        '../services/push/notifications'
+      );
       await registerPushTokenOnServer(true);
     };
 

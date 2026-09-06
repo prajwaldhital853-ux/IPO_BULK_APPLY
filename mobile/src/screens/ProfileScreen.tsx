@@ -539,11 +539,14 @@ export function ProfileScreen() {
       color: '#EF6C00',
       onPress: () => void handleExport(),
     },
-    ...(BULK_FETCH_BANK_DETAILS_ENABLED && bankFetchPendingCount > 0
+    ...(BULK_FETCH_BANK_DETAILS_ENABLED
       ? [
           {
             label: 'Fetch bank account numbers',
-            hint: `MeroShare login for ${bankFetchPendingCount} account(s) missing ASBA number (migration)`,
+            hint:
+              bankFetchPendingCount > 0
+                ? `MeroShare login for ${bankFetchPendingCount} account(s) missing ASBA number (migration)`
+                : 'Import accounts first — none need a bank number yet',
             icon: 'cloud-download-outline' as keyof typeof Ionicons.glyphMap,
             color: '#2E7D32',
             onPress: () => void handleBulkFetchBankDetails(),

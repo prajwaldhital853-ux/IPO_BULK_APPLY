@@ -1,59 +1,52 @@
 import { Platform } from 'react-native';
-import Constants, { ExecutionEnvironment } from 'expo-constants';
+import Constants from 'expo-constants';
 import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
 import { AUTH_API_BASE } from '../auth/config';
 import { getAccessToken } from '../auth/tokenStorage';
+import { isExpoGo } from '../../utils/expoGo';
 import type { PriceAlert } from '../../storage/priceAlertStorage';
 
-/** Expo Go (SDK 53+) cannot register remote push tokens. */
-export function isExpoGo(): boolean {
-  return Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
-}
+export { isExpoGo } from '../../utils/expoGo';
 
-if (!isExpoGo()) {
-  try {
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-        shouldShowBanner: true,
-        shouldShowList: true,
-      }),
-    });
-  } catch {
-    // Dev client / missing native module — push still works in production APK.
-  }
-}
+type NotificationsModule = typeof import('expo-notifications');
+
+/** Android NotificationManager.IMPORTANCE_HIGH — avoid static expo-notifications import. */
+const ANDROID_IMPORTANCE_HIGH = 6;
 
 const ANDROID_CHANNELS = [
-  {
-    id: 'market_v2',
-    name: 'Market open & close',
-    importance: Notifications.AndroidImportance.HIGH,
-  },
-  {
-    id: 'ipo',
-    name: 'IPO open & last day',
-    importance: Notifications.AndroidImportance.HIGH,
-  },
-  {
-    id: 'bulk_trades',
-    name: 'Bulk transactions',
-    importance: Notifications.AndroidImportance.HIGH,
-  },
-  {
-    id: 'price_alerts',
-    name: 'Price alerts',
-    importance: Notifications.AndroidImportance.HIGH,
-  },
-  {
-    id: 'account',
-    name: 'Account & subscription',
-    importance: Notifications.AndroidImportance.HIGH,
-  },
+  { id: 'market_v2', name: 'Market open & close' },
+  { id: 'ipo', name: 'IPO open & last day' },
+  { id: 'bulk_trades', name: 'Bulk transactions' },
+  { id: 'price_alerts', name: 'Price alerts' },
+  { id: 'account', name: 'Account & subscription' },
 ] as const;
+
+let notificationsModule: NotificationsModule | null = null;
+let handlerConfigured = false;
+
+async function loadNotifications(): Promise<NotificationsModule | null> {
+  if (isExpoGo()) return null;
+  if (!notificationsModule) {
+    notificationsModule = await import('expo-notifications');
+  }
+  if (!handlerConfigured) {
+    handlerConfigured = true;
+    try {
+      notificationsModule.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+          shouldShowBanner: true,
+          shouldShowList: true,
+        }),
+      });
+    } catch {
+      // Missing native module in some dev setups.
+    }
+  }
+  return notificationsModule;
+}
 
 let cachedToken: string | null = null;
 
@@ -61,13 +54,14 @@ export function getCachedExpoPushToken(): string | null {
   return cachedToken;
 }
 
-async function ensureAndroidChannels(): Promise<void> {
+async function ensureAndroidChannels(
+  Notifications: NotificationsModule,
+): Promise<void> {
   if (Platform.OS !== 'android') return;
-  if (isExpoGo()) return;
   for (const ch of ANDROID_CHANNELS) {
     await Notifications.setNotificationChannelAsync(ch.id, {
       name: ch.name,
-      importance: ch.importance,
+      importance: ANDROID_IMPORTANCE_HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#1B5E20',
     });
@@ -75,15 +69,14 @@ async function ensureAndroidChannels(): Promise<void> {
 }
 
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
-  // Remote push was removed from Expo Go in SDK 53 — skip quietly.
-  if (isExpoGo()) {
-    return null;
-  }
-  if (!Device.isDevice) {
+  if (isExpoGo() || !Device.isDevice) {
     return null;
   }
 
-  await ensureAndroidChannels();
+  const Notifications = await loadNotifications();
+  if (!Notifications) return null;
+
+  await ensureAndroidChannels(Notifications);
 
   const { status: existing } = await Notifications.getPermissionsAsync();
   let finalStatus = existing;

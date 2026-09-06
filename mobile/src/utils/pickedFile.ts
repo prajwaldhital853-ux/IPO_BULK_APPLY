@@ -1,34 +1,65 @@
-import * as FileSystem from 'expo-file-system/legacy';
+import * as LegacyFS from 'expo-file-system/legacy';
+import { File } from 'expo-file-system';
 
 function sanitizeFileName(name: string): string {
   const trimmed = name.trim() || 'import';
   return trimmed.replace(/[^\w.\-() ]+/g, '_');
 }
 
-/** Legacy FileSystem.readAsStringAsync only accepts file:// (and some SAF URIs), not Android content://. */
-async function toReadableFileUri(uri: string, fileName?: string): Promise<string> {
-  if (uri.startsWith('file://')) return uri;
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
 
-  const cache = FileSystem.cacheDirectory;
+async function readViaNewFileApi(
+  uri: string,
+  encoding: 'utf8' | 'base64',
+): Promise<string> {
+  const file = new File(uri);
+  if (encoding === 'utf8') {
+    return file.text();
+  }
+  const buffer = await file.arrayBuffer();
+  return bytesToBase64(new Uint8Array(buffer));
+}
+
+/** Legacy copy fallback when the new File API cannot read the picked URI. */
+async function readViaLegacyCopy(
+  uri: string,
+  encoding: 'utf8' | 'base64',
+  fileName?: string,
+): Promise<string> {
+  const cache = LegacyFS.cacheDirectory;
   if (!cache) {
     throw new Error('Storage is not available on this device.');
   }
 
   const dest = `${cache}picked-${Date.now()}-${sanitizeFileName(fileName ?? 'import')}`;
-  await FileSystem.copyAsync({ from: uri, to: dest });
-  return dest;
+  await LegacyFS.copyAsync({ from: uri, to: dest });
+  return LegacyFS.readAsStringAsync(dest, {
+    encoding:
+      encoding === 'base64'
+        ? LegacyFS.EncodingType.Base64
+        : LegacyFS.EncodingType.UTF8,
+  });
 }
 
+/**
+ * Read a document-picker / SAF / content URI as text or base64.
+ * SDK 57 Expo Go: DocumentPicker cache file:// paths are not readable via legacy FS.
+ */
 export async function readPickedFileAsString(
   uri: string,
   encoding: 'utf8' | 'base64',
   fileName?: string,
 ): Promise<string> {
-  const readableUri = await toReadableFileUri(uri, fileName);
-  return FileSystem.readAsStringAsync(readableUri, {
-    encoding:
-      encoding === 'base64'
-        ? FileSystem.EncodingType.Base64
-        : FileSystem.EncodingType.UTF8,
-  });
+  try {
+    return await readViaNewFileApi(uri, encoding);
+  } catch {
+    return readViaLegacyCopy(uri, encoding, fileName);
+  }
 }
