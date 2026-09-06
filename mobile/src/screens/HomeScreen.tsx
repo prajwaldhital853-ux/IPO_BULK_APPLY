@@ -370,9 +370,12 @@ export function HomeScreen() {
   };
 
   const openSheet = useCallback((item: AccountMeta, index: number) => {
-    setSelectedAccount(item);
-    setSelectedIndex(index);
-    setSheetOpen(true);
+    // Defer sheet mount so the account row press feels instant on large lists.
+    requestAnimationFrame(() => {
+      setSelectedAccount(item);
+      setSelectedIndex(index);
+      setSheetOpen(true);
+    });
   }, []);
 
   const exportAccounts = useCallback(() => {

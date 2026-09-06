@@ -1,7 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  BackHandler,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -58,6 +60,15 @@ export function AccountDetailSheet({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [copied, setCopied] = useState<'boid' | 'acc' | null>(null);
 
+  useEffect(() => {
+    if (!visible || Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
+
   if (!account) return null;
 
   const boid = resolveBoidSync(account) ?? account.demat?.trim() ?? null;
@@ -87,21 +98,20 @@ export function AccountDetailSheet({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType="fade"
       transparent
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <View style={styles.container}>
+      <View style={styles.container} pointerEvents="box-none">
         <Pressable
           style={styles.backdrop}
           onPress={onClose}
           accessibilityRole="button"
           accessibilityLabel="Close account details"
         />
-        <Pressable
+        <View
           style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, rs(16)) }]}
-          onPress={() => {}}
         >
         <View style={styles.grabber} />
         <View style={styles.headRow}>
@@ -266,7 +276,7 @@ export function AccountDetailSheet({
             <Text style={[styles.actionText, { color: colors.danger }]}>Delete</Text>
           </Pressable>
         </View>
-        </Pressable>
+        </View>
       </View>
     </Modal>
   );
@@ -279,7 +289,7 @@ function makeStyles(c: ThemeColors) {
       justifyContent: 'flex-end',
     },
     backdrop: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: c.overlay,
     },
     sheet: {
