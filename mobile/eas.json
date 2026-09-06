@@ -38,7 +38,8 @@
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "135881195410-g35g0mgtoo5guruj28cbgs5l9buuruth.apps.googleusercontent.com",
         "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "135881195410-1ho5khids45md5e7v4f54rpevmc9h2gq.apps.googleusercontent.com",
         "EXPO_PUBLIC_PREMIUM_BYPASS": "false",
-        "EXPO_PUBLIC_GUEST_CAN_ADD_ACCOUNTS": "false"
+        "EXPO_PUBLIC_GUEST_CAN_ADD_ACCOUNTS": "false",
+        "EXPO_PUBLIC_BULK_FETCH_BANK_DETAILS": "true"
       }
     },
     "production": {

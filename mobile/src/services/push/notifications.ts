@@ -7,19 +7,25 @@ import { getAccessToken } from '../auth/tokenStorage';
 import type { PriceAlert } from '../../storage/priceAlertStorage';
 
 /** Expo Go (SDK 53+) cannot register remote push tokens. */
-function isExpoGo(): boolean {
+export function isExpoGo(): boolean {
   return Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 }
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+if (!isExpoGo()) {
+  try {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+  } catch {
+    // Dev client / missing native module — push still works in production APK.
+  }
+}
 
 const ANDROID_CHANNELS = [
   {

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import * as Notifications from 'expo-notifications';
+import { isExpoGo } from '../services/push/notifications';
 import { navigateFromNotification } from '../navigation/navigationRef';
 
 type PushData = {
@@ -74,7 +74,9 @@ function routeForPush(data: PushData | undefined): void {
 }
 
 function extractData(
-  response: Notifications.NotificationResponse | null | undefined,
+  response: {
+    notification?: { request?: { content?: { data?: unknown } } };
+  } | null | undefined,
 ): PushData | undefined {
   const raw = response?.notification?.request?.content?.data;
   if (!raw || typeof raw !== 'object') return undefined;
@@ -83,21 +85,32 @@ function extractData(
 
 /**
  * Routes notification taps to the correct screen (Apply tab for IPO alerts, etc.).
+ * Skipped in Expo Go — remote push is not available there (SDK 53+).
  */
 export function NotificationRouter() {
   useEffect(() => {
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
-      const data = extractData(response);
-      if (data?.type) routeForPush(data);
-    });
+    if (isExpoGo()) return;
 
-    const sub = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
-        routeForPush(extractData(response));
-      },
-    );
+    let sub: { remove: () => void } | undefined;
 
-    return () => sub.remove();
+    void (async () => {
+      try {
+        const Notifications = await import('expo-notifications');
+        const response = await Notifications.getLastNotificationResponseAsync();
+        const data = extractData(response);
+        if (data?.type) routeForPush(data);
+
+        sub = Notifications.addNotificationResponseReceivedListener(
+          (response) => {
+            routeForPush(extractData(response));
+          },
+        );
+      } catch {
+        // Push routing is production-APK only.
+      }
+    })();
+
+    return () => sub?.remove();
   }, []);
 
   return null;

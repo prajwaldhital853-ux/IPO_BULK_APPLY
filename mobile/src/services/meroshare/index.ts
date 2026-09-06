@@ -21,6 +21,12 @@ export { importPortfolioFromMeroshare } from './portfolioImport';
 export type { ImportedHolding, ImportResult, ImportPortfolioOpts } from './portfolioImport';
 export { runBulkPortfolioCheck } from './bulkPortfolioEngine';
 export type { BulkPortfolioAccountResult } from './bulkPortfolioEngine';
+export { bulkFetchMissingBankDetails } from './bulkBankDetailsEngine';
+export type {
+  BulkBankFetchProgress,
+  BulkBankFetchResult,
+} from './bulkBankDetailsEngine';
+export { fetchMeroShareBankDetails } from './fetchBankDetails';
 export type {
   OpenIssue,
   ApplyAccountResult,

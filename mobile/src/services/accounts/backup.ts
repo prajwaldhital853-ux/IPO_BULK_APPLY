@@ -2,6 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as XLSX from 'xlsx';
 import type { AccountMeta, LinkedAccount } from '../../types/account';
 import { resolveBoidSync } from '../../utils/boid';
+import { looksLikeBoid } from '../../utils/accountBank';
 import { readPickedFileAsString } from '../../utils/pickedFile';
 import { getSecrets } from '../../storage/accountsStorage';
 import {
@@ -230,12 +231,6 @@ function findCol(headers: string[], ...candidates: string[]): number {
   return -1;
 }
 
-/** Detect 16-digit CDSC demat / BOID (130 + DP + username). */
-function looksLikeBoid(value: string): boolean {
-  const digits = value.replace(/\D/g, '');
-  return digits.length === 16 && digits.startsWith('130');
-}
-
 /**
  * Fix older exports that wrote BOID into the Account No column and left BOID blank.
  * Also handles swapped bank-account / BOID columns on import.
@@ -249,6 +244,9 @@ function reconcileImportAccountNoAndBoid(
   const acctDigits = acct.replace(/\D/g, '');
   const boidDigits = boid.replace(/\D/g, '');
 
+  if (looksLikeBoid(acctDigits) && looksLikeBoid(boidDigits)) {
+    return { accountNumber: undefined, demat: acctDigits };
+  }
   if (looksLikeBoid(acctDigits) && !boid) {
     return { accountNumber: undefined, demat: acctDigits };
   }

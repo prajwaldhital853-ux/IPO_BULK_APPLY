@@ -36,7 +36,10 @@ import {
   pickAccountsFile,
   toLinkedDraft,
 } from '../services/accounts/backup';
+import { BULK_FETCH_BANK_DETAILS_ENABLED } from '../config/bulkBankFetch';
+import { bulkFetchMissingBankDetails } from '../services/meroshare/bulkBankDetailsEngine';
 import { loadAccountMeta } from '../storage/accountsStorage';
+import { needsBankAccountFetch } from '../utils/accountBank';
 import type { ThemeColors } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
@@ -190,7 +193,7 @@ export function ProfileScreen() {
     state,
     refresh: refreshSubscription,
   } = useSubscription();
-  const { accounts, bulkImportAccounts } = useAccounts();
+  const { accounts, bulkImportAccounts, reloadAccounts } = useAccounts();
   const auth = useAuth();
   const { colors, isDark, toggle } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -447,6 +450,74 @@ export function ProfileScreen() {
     );
   };
 
+  const bankFetchPendingCount = useMemo(
+    () => accounts.filter(needsBankAccountFetch).length,
+    [accounts],
+  );
+
+  const runBulkFetchBankDetails = async () => {
+    const targets = accounts.filter(needsBankAccountFetch);
+    if (!targets.length) {
+      Alert.alert(
+        'Nothing to fetch',
+        'All saved accounts already have a bank account number.',
+      );
+      return;
+    }
+    try {
+      const result = await bulkFetchMissingBankDetails(targets, (p) => {
+        const who = p.currentName ? ` · ${p.currentName}` : '';
+        setBusy(
+          `Fetching bank details… ${p.done}/${p.total} (updated ${p.updated}, failed ${p.failed})${who}`,
+        );
+      });
+      await reloadAccounts();
+      const failNote =
+        result.failures.length > 0
+          ? `\n\nFirst failures:\n${result.failures
+              .slice(0, 3)
+              .map((f) => `${f.username}: ${f.message}`)
+              .join('\n')}`
+          : '';
+      Alert.alert(
+        'Bank fetch finished',
+        `Updated: ${result.updated}\nFailed: ${result.failed}\nSkipped: ${result.skipped}${failNote}\n\nExport a new backup to save the corrected file.`,
+      );
+    } catch (e) {
+      Alert.alert(
+        'Fetch failed',
+        e instanceof Error ? e.message : 'Could not fetch bank details.',
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleBulkFetchBankDetails = () => {
+    setOptionsOpen(false);
+    const count = bankFetchPendingCount;
+    if (!count) {
+      Alert.alert(
+        'Nothing to fetch',
+        'All saved accounts already have a bank account number.',
+      );
+      return;
+    }
+    Alert.alert(
+      'Fetch bank account numbers',
+      `Log into MeroShare for ${count} account(s) and save each ASBA bank account number. This runs slowly (about 30–40 minutes for 400 accounts) to avoid rate limits.\n\nKeep the app open until finished, then export a new backup.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Start',
+          onPress: () => {
+            void runBulkFetchBankDetails();
+          },
+        },
+      ],
+    );
+  };
+
   const optionItems: {
     label: string;
     hint: string;
@@ -468,6 +539,17 @@ export function ProfileScreen() {
       color: '#EF6C00',
       onPress: () => void handleExport(),
     },
+    ...(BULK_FETCH_BANK_DETAILS_ENABLED && bankFetchPendingCount > 0
+      ? [
+          {
+            label: 'Fetch bank account numbers',
+            hint: `MeroShare login for ${bankFetchPendingCount} account(s) missing ASBA number (migration)`,
+            icon: 'cloud-download-outline' as keyof typeof Ionicons.glyphMap,
+            color: '#2E7D32',
+            onPress: () => void handleBulkFetchBankDetails(),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -773,7 +855,11 @@ export function ProfileScreen() {
               </View>
             ))}
             <Text style={styles.menuNote}>
-              Backups never include your password, CRN or PIN.
+              Full Excel/CSV backups include password, CRN and PIN. Keep files
+              private.
+              {BULK_FETCH_BANK_DETAILS_ENABLED
+                ? ' Use Fetch bank account numbers after importing old backups.'
+                : ''}
             </Text>
           </View>
         </Pressable>
