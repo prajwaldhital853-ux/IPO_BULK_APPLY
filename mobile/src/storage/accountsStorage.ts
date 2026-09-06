@@ -222,6 +222,24 @@ export async function patchAccountMeta(
   id: string,
   patch: Partial<Omit<AccountMeta, 'id'>>,
 ): Promise<AccountMeta[]> {
+  return enqueueAccountMetaWrite(() => applyAccountMetaPatch(id, patch));
+}
+
+let accountMetaWriteChain: Promise<unknown> = Promise.resolve();
+
+function enqueueAccountMetaWrite<T>(fn: () => Promise<T>): Promise<T> {
+  const task = accountMetaWriteChain.then(fn, fn);
+  accountMetaWriteChain = task.then(
+    () => undefined,
+    () => undefined,
+  );
+  return task;
+}
+
+async function applyAccountMetaPatch(
+  id: string,
+  patch: Partial<Omit<AccountMeta, 'id'>>,
+): Promise<AccountMeta[]> {
   const list = await loadAccountMeta();
   const next = list.map((a) => {
     if (a.id !== id) return a;

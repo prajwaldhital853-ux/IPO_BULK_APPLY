@@ -144,7 +144,20 @@ async function fetchOneAccount(
     patch.demat = demat;
   }
   if (Object.keys(patch).length) {
-    await patchAccountMeta(account.id, patch);
+    const list = await patchAccountMeta(account.id, patch);
+    const saved = list.find((a) => a.id === account.id);
+    const savedAcct = saved?.accountNumber?.trim() ?? '';
+    if (
+      !saved ||
+      !savedAcct ||
+      looksLikeBoid(savedAcct) ||
+      needsBankAccountFetch(saved)
+    ) {
+      return {
+        status: 'failed',
+        message: 'Login OK but bank account number was not saved on this device.',
+      };
+    }
   }
 
   return fetchedAcct && !looksLikeBoid(fetchedAcct)
