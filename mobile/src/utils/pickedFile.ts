@@ -1,5 +1,4 @@
-import * as LegacyFS from 'expo-file-system/legacy';
-import { File } from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 
 function sanitizeFileName(name: string): string {
   const trimmed = name.trim() || 'import';
@@ -15,51 +14,70 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-async function readViaNewFileApi(
-  uri: string,
-  encoding: 'utf8' | 'base64',
-): Promise<string> {
+async function readArrayBufferDirect(uri: string): Promise<ArrayBuffer> {
   const file = new File(uri);
-  if (encoding === 'utf8') {
-    return file.text();
-  }
-  const buffer = await file.arrayBuffer();
-  return bytesToBase64(new Uint8Array(buffer));
+  return file.arrayBuffer();
 }
 
-/** Legacy copy fallback when the new File API cannot read the picked URI. */
-async function readViaLegacyCopy(
-  uri: string,
-  encoding: 'utf8' | 'base64',
-  fileName?: string,
-): Promise<string> {
-  const cache = LegacyFS.cacheDirectory;
-  if (!cache) {
-    throw new Error('Storage is not available on this device.');
+async function readArrayBufferViaFetch(uri: string): Promise<ArrayBuffer> {
+  const response = await fetch(uri);
+  if (!response.ok) {
+    throw new Error(`Could not read file (HTTP ${response.status}).`);
   }
+  return response.arrayBuffer();
+}
 
-  const dest = `${cache}picked-${Date.now()}-${sanitizeFileName(fileName ?? 'import')}`;
-  await LegacyFS.copyAsync({ from: uri, to: dest });
-  return LegacyFS.readAsStringAsync(dest, {
-    encoding:
-      encoding === 'base64'
-        ? LegacyFS.EncodingType.Base64
-        : LegacyFS.EncodingType.UTF8,
-  });
+/** Copy into app cache first — DocumentPicker temp files are unreadable on SDK 57 Expo Go. */
+async function readArrayBufferViaCopy(
+  uri: string,
+  fileName?: string,
+): Promise<ArrayBuffer> {
+  const source = new File(uri);
+  const dest = new File(
+    Paths.cache,
+    `picked-${Date.now()}-${sanitizeFileName(fileName ?? 'import')}`,
+  );
+  await source.copy(dest, { overwrite: true });
+  return dest.arrayBuffer();
 }
 
 /**
- * Read a document-picker / SAF / content URI as text or base64.
- * SDK 57 Expo Go: DocumentPicker cache file:// paths are not readable via legacy FS.
+ * Read picked file bytes (content://, file://, SAF).
+ * Never uses legacy readAsStringAsync — that fails on DocumentPicker cache paths in Expo Go SDK 57.
  */
+export async function readPickedFileAsArrayBuffer(
+  uri: string,
+  fileName?: string,
+): Promise<ArrayBuffer> {
+  const attempts = [
+    () => readArrayBufferViaFetch(uri),
+    () => readArrayBufferDirect(uri),
+    () => readArrayBufferViaCopy(uri, fileName),
+  ];
+
+  let lastError: unknown;
+  for (const attempt of attempts) {
+    try {
+      const buffer = await attempt();
+      if (buffer.byteLength > 0) return buffer;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Could not read the selected file.');
+}
+
 export async function readPickedFileAsString(
   uri: string,
   encoding: 'utf8' | 'base64',
   fileName?: string,
 ): Promise<string> {
-  try {
-    return await readViaNewFileApi(uri, encoding);
-  } catch {
-    return readViaLegacyCopy(uri, encoding, fileName);
+  const buffer = await readPickedFileAsArrayBuffer(uri, fileName);
+  if (encoding === 'base64') {
+    return bytesToBase64(new Uint8Array(buffer));
   }
+  return new TextDecoder('utf-8').decode(buffer);
 }

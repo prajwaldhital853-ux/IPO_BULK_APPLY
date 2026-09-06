@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import type { AccountMeta, LinkedAccount } from '../../types/account';
 import { resolveBoidSync } from '../../utils/boid';
 import { looksLikeBoid } from '../../utils/accountBank';
-import { readPickedFileAsString } from '../../utils/pickedFile';
+import { readPickedFileAsArrayBuffer, readPickedFileAsString } from '../../utils/pickedFile';
 import { getSecrets } from '../../storage/accountsStorage';
 import {
   backupFolderHint,
@@ -637,8 +637,8 @@ async function readSpreadsheetWorkbook(
   uri: string,
   fileName?: string,
 ): Promise<XLSX.WorkBook> {
-  const base64 = await readPickedFileAsString(uri, 'base64', fileName);
-  return XLSX.read(base64, { type: 'base64' });
+  const buffer = await readPickedFileAsArrayBuffer(uri, fileName);
+  return XLSX.read(buffer, { type: 'array' });
 }
 
 /** Open the document picker and return the selected file's text content. */
@@ -672,7 +672,7 @@ export async function pickAccountsFile(): Promise<{
       'text/plain',
       '*/*',
     ],
-    copyToCacheDirectory: true,
+    copyToCacheDirectory: false,
     multiple: false,
   });
   if (res.canceled || !res.assets?.length) return null;
