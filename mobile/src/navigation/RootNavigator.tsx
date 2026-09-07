@@ -44,6 +44,7 @@ import { PriceAlertScreen } from '../screens/PriceAlertScreen';
 import { BulkPortfolioScreen } from '../screens/BulkPortfolioScreen';
 import { IpoIssuesScreen } from '../screens/IpoIssuesScreen';
 import { MeroshareWebScreen } from '../screens/MeroshareWebScreen';
+import { OnlineDematTmsScreen } from '../screens/OnlineDematTmsScreen';
 import { CalculateWaccScreen } from '../screens/CalculateWaccScreen';
 import { TrackAccountExpiryScreen } from '../screens/TrackAccountExpiryScreen';
 import { MinorAccountsScreen } from '../screens/MinorAccountsScreen';
@@ -183,6 +184,7 @@ function RootStack() {
       <Stack.Screen name="BulkPortfolio" component={BulkPortfolioScreen} />
       <Stack.Screen name="IpoIssues" component={IpoIssuesScreen} />
       <Stack.Screen name="MeroshareWeb" component={MeroshareWebScreen} />
+      <Stack.Screen name="OnlineDematTms" component={OnlineDematTmsScreen} />
       <Stack.Screen name="CalculateWacc" component={CalculateWaccScreen} />
       <Stack.Screen name="TrackAccountExpiry" component={TrackAccountExpiryScreen} />
       <Stack.Screen name="MinorAccounts" component={MinorAccountsScreen} />

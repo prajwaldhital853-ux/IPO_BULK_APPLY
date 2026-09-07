@@ -19,7 +19,7 @@ import type {
   OpenIssue,
 } from './types';
 
-const ACCOUNT_GAP_MS = 2200;
+const ACCOUNT_GAP_MS = 1800;
 
 /** Par value per IPO unit (Rs) — ordinary Nepali IPOs are issued at par. */
 const IPO_PRICE_PER_UNIT = 100;

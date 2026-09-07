@@ -61,6 +61,7 @@ export type RootStackParamList = {
   MeroshareWeb:
     | { accountId?: string; destination?: 'dashboard' | 'purchase' }
     | undefined;
+  OnlineDematTms: undefined;
   CalculateWacc: undefined;
   TrackAccountExpiry: undefined;
   MinorAccounts: undefined;

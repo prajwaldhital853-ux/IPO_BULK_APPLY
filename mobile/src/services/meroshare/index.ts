@@ -1,4 +1,4 @@
-export { MeroshareClient, DEMO_OPENINGS, humanizeApplicationStatus } from './client';
+export { MeroshareClient, DEMO_OPENINGS, humanizeApplicationStatus, humanizeApplicationPhaseStatus } from './client';
 export { runBulkApply, loadOpenIssuesForUi, loadAllOpenIssuesForUi, loadCurrentOpenIssuesForUi } from './applyEngine';
 export {
   runBulkResultCheck,

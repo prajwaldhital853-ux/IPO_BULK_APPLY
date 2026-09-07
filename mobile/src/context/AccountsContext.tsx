@@ -17,6 +17,7 @@ import {
   clearAllAccounts,
   getSecrets,
   loadAccountMeta,
+  markCrnPinVerifiedMany,
   patchAccountMeta,
   removeAccountFully,
   removeAccountsFullyMany,
@@ -53,6 +54,8 @@ type AccountsContextValue = {
     id: string,
     patch: Partial<Omit<AccountMeta, 'id'>>,
   ) => Promise<void>;
+  /** Mark CRN+PIN verified on many accounts in one storage write (bulk IPO apply). */
+  markCrnPinVerifiedMany: (ids: string[]) => Promise<void>;
   /**
    * Edit an existing account in place (keeps the same id, so apply history and
    * ordering are preserved). Updates meta and, when provided, secrets.
@@ -267,6 +270,10 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const markCrnPinVerifiedManyCtx = useCallback(async (ids: string[]) => {
+    setAccounts(await markCrnPinVerifiedMany(ids));
+  }, []);
+
   const updateAccount = useCallback(
     async (
       id: string,
@@ -340,6 +347,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       clearAll,
       reorderAccounts,
       updateAccountMeta,
+      markCrnPinVerifiedMany: markCrnPinVerifiedManyCtx,
       updateAccount,
       loadSecrets,
       bulkImportAccounts,
@@ -356,6 +364,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       clearAll,
       reorderAccounts,
       updateAccountMeta,
+      markCrnPinVerifiedManyCtx,
       updateAccount,
       loadSecrets,
       bulkImportAccounts,

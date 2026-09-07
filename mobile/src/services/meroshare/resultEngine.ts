@@ -117,16 +117,23 @@ function resultRowFromCheck(
     dryRun: boolean;
     status: string;
     message: string;
+    ok?: boolean;
     appliedKitta?: number;
     allotmentStatus?: string;
     remarks?: string;
   },
 ): ResultAccountStatus {
+  const failed =
+    res.ok === false ||
+    res.status === 'REJECTED' ||
+    res.status === 'NOT_APPLIED' ||
+    res.status === 'FAILED' ||
+    res.status === 'AUTH';
   return {
     accountId: account.id,
     accountName: account.name,
     username: account.username,
-    ok: true,
+    ok: res.ok ?? !failed,
     dryRun: res.dryRun,
     status: res.status,
     message: friendlyResultError(res.message),
@@ -222,6 +229,7 @@ async function checkOneAccountResult(
   dryRun: boolean,
   simulateLogin: boolean,
   throttle: BulkThrottle,
+  applicationPhase?: boolean,
 ): Promise<ResultAccountStatus> {
   const secrets = await getSecrets(account.id);
   if (!secrets?.password) {
@@ -247,7 +255,8 @@ async function checkOneAccountResult(
   const statusOpts = {
     dryRun,
     companyName: issue.companyName,
-    bulkFast: true,
+    bulkFast: !applicationPhase,
+    applicationPhase,
   };
 
   const runCheck = async () => {
@@ -291,6 +300,8 @@ export type BulkResultOptions = {
   /** Default false — live MeroShare application reports */
   dryRun?: boolean;
   simulateLogin?: boolean;
+  /** Open IPO window — Verified/Unverified/Rejected instead of allotment labels. */
+  applicationPhase?: boolean;
   onProgress?: (msg: string, index: number, total: number) => void;
   /** Called as soon as each account finishes, for progressive UI rendering. */
   onAccountResult?: (
@@ -340,6 +351,7 @@ export async function runBulkResultCheck(
       dryRun,
       simulateLogin,
       throttle,
+      opts.applicationPhase,
     );
     emit(row, i);
     return row;

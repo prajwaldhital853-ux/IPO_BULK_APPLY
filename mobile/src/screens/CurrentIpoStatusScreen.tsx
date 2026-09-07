@@ -24,7 +24,6 @@ import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
 import {
-  humanizeApplicationStatus,
   loadCurrentOpenIssuesForUi,
   runBulkResultCheck,
   type OpenIssue,
@@ -55,94 +54,61 @@ const GREEN = '#2E7D32';
 const RED = '#C62828';
 const REJECT = '#E66A5C';
 const CHIP_ORANGE = '#EF6C00';
+const UNVERIFIED_AMBER = '#F57F17';
+const VERIFIED_TEAL = '#00838F';
 const APPLY_GREEN = '#66BB6A';
 
-type ResultKind = 'allotted' | 'not' | 'rejected' | 'not_applied';
+type ResultKind = 'verified' | 'unverified' | 'rejected' | 'not_applied';
 type StatusFilter = 'all' | ResultKind;
 
-function classify(
-  row: ResultAccountStatus,
-): 'allotted' | 'not' | 'rejected' | 'not_applied' {
+function classify(row: ResultAccountStatus): ResultKind {
   if (
     row.status === 'NOT_APPLIED' ||
     /no application found|not applied|have not applied/i.test(row.message)
   ) {
     return 'not_applied';
   }
-  if (!row.ok) return 'rejected';
-  const { code } = humanizeApplicationStatus(row.status, row.allotmentStatus);
-  if (code === 'ALLOTTED') return 'allotted';
-  if (code === 'NOT_APPLIED') return 'not_applied';
-  if (code === 'NOT_ALLOTTED' || /NOT.?ALLOT/i.test(row.message)) return 'not';
-  if (
-    code === 'REJECTED' ||
-    /REJECT|FAIL|ERROR|CANCEL|BLOCK/i.test(row.status + row.message)
-  ) {
-    return 'rejected';
-  }
-  return 'not';
-}
 
-function appliedQty(row: ResultAccountStatus): number | undefined {
-  if (row.appliedKitta != null && Number.isFinite(row.appliedKitta)) {
-    return row.appliedKitta;
-  }
-  const m = String(row.message || '').match(
-    /quantity\s*:\s*(\d+)/i,
-  );
-  if (m?.[1]) {
-    const n = Number(m[1]);
-    return Number.isFinite(n) ? n : undefined;
-  }
-  return undefined;
+  // Prefer MeroShare Status field (same as website) for filter buckets.
+  const meroshareStatus = (row.allotmentStatus || row.message || '').trim();
+  if (/^verified$/i.test(meroshareStatus)) return 'verified';
+  if (/^rejected$/i.test(meroshareStatus)) return 'rejected';
+  if (/^unverified$/i.test(meroshareStatus)) return 'unverified';
+
+  if (row.status === 'VERIFIED') return 'verified';
+  if (row.status === 'REJECTED' || !row.ok) return 'rejected';
+  if (row.status === 'UNVERIFIED') return 'unverified';
+
+  const raw = `${row.status} ${row.allotmentStatus ?? ''} ${row.message}`.toUpperCase();
+  if (/REJECT|FAIL|ERROR|CANCEL/i.test(raw)) return 'rejected';
+  if (/VERIF/.test(raw) && !/UNVERIF|NOT.?VERIF/.test(raw)) return 'verified';
+  if (/UNVERIF|NOT.?VERIF|PENDING|APPLIED|PROCESS/i.test(raw)) return 'unverified';
+  return 'unverified';
 }
 
 function statusLine(row: ResultAccountStatus): string {
   const kind = classify(row);
-  const qty = appliedQty(row);
-  if (kind === 'allotted') {
-    return qty != null ? `Alloted ( quantity : ${qty} )` : 'Alloted';
-  }
   if (kind === 'not_applied') return 'NOT APPLIED';
-  if (kind === 'rejected') {
-    return qty != null ? `Rejected ( quantity : ${qty} )` : 'Rejected';
-  }
-  return qty != null ? `Not Alloted ( quantity : ${qty} )` : 'Not Alloted';
+  const label = (row.allotmentStatus || row.message || '').trim();
+  if (label) return label;
+  if (kind === 'rejected') return 'Rejected';
+  if (kind === 'verified') return 'Verified';
+  return 'Unverified';
 }
 
-/** Strip status boilerplate so the pill never repeats the line above it. */
-function cleanReason(raw: string): string | null {
-  const text = raw
-    .replace(/\s*\(HTTP\s*\d+\)\s*$/i, '')
-    .replace(/^rejected\s*\(\s*quantity\s*:\s*\d+\s*\)\s*[-–—]?\s*/i, '')
-    .replace(/^rejected\s*[-–—:]\s*/i, '')
-    .trim();
+/** Full MeroShare remarks line (Block Amount Status - …). */
+function statusRemarks(row: ResultAccountStatus): string | null {
+  const kind = classify(row);
+  if (kind === 'not_applied') return null;
+  const text = (row.remarks ?? '').trim();
   if (!text) return null;
-  if (/^rejected\.?$/i.test(text)) return null;
-  if (/^not\s*allot/i.test(text)) return null;
-  if (/^block\s*amount\s*status/i.test(text)) return null;
-  if (/^\(?\s*quantity\s*:/i.test(text)) return null;
+  if (text.toLowerCase() === statusLine(row).toLowerCase()) return null;
   return text;
 }
 
-function rejectReason(row: ResultAccountStatus): string | null {
-  for (const candidate of [row.remarks, row.allotmentStatus, row.message]) {
-    const text = cleanReason(String(candidate ?? ''));
-    if (!text) continue;
-    if (/insufficient|not enough|low balance|block[_\s-]?fail/i.test(text)) {
-      return 'Insufficient Balance';
-    }
-    if (/\bcrn\b/i.test(text)) return 'CRN Mismatch';
-    if (/\bpan\b/i.test(text)) return 'PAN Not Registered';
-    if (/duplicate|already applied/i.test(text)) return 'Duplicate Application';
-    if (/expire/i.test(text)) return 'Account Expired';
-    return text.length > 42 ? `${text.slice(0, 40)}…` : text;
-  }
-  return null;
-}
-
 function kindColor(kind: ResultKind): string {
-  if (kind === 'allotted') return GREEN;
+  if (kind === 'verified') return VERIFIED_TEAL;
+  if (kind === 'unverified') return UNVERIFIED_AMBER;
   if (kind === 'rejected') return REJECT;
   if (kind === 'not_applied') return RED;
   return RED;
@@ -178,8 +144,8 @@ export function CurrentIpoStatusScreen() {
 
   const counts = useMemo(() => {
     const base: Record<ResultKind, number> = {
-      allotted: 0,
-      not: 0,
+      verified: 0,
+      unverified: 0,
       rejected: 0,
       not_applied: 0,
     };
@@ -190,8 +156,8 @@ export function CurrentIpoStatusScreen() {
   const chips = useMemo(() => {
     const kinds = (
       [
-        { key: 'allotted', label: 'Alloted', color: GREEN },
-        { key: 'not', label: 'Not Alloted', color: RED },
+        { key: 'verified', label: 'Verified', color: VERIFIED_TEAL },
+        { key: 'unverified', label: 'Unverified', color: UNVERIFIED_AMBER },
         { key: 'rejected', label: 'Rejected', color: REJECT },
         { key: 'not_applied', label: 'Not Applied', color: CHIP_ORANGE },
       ] as const
@@ -331,6 +297,7 @@ export function CurrentIpoStatusScreen() {
           await runBulkResultCheck({
             accounts: checkAccounts,
             issue: selected,
+            applicationPhase: true,
             onProgress: (msg, index, total) => {
               setProgress({ done: index, total });
             },
@@ -372,7 +339,7 @@ export function CurrentIpoStatusScreen() {
           onPress={() =>
             Alert.alert(
               'Current IPO Status',
-              'Checks application status only for currently open IPO/FPO/Right issues.',
+              'Shows MeroShare application status (Verified, Unverified, or Rejected) for currently open IPO/FPO/Right issues — not allotment results.',
             )
           }
         >
@@ -476,7 +443,7 @@ export function CurrentIpoStatusScreen() {
               <Text style={styles.updatesTitle}>
                 IPO/FPO Status Updates{' '}
                 <Text style={styles.updatesCount}>
-                  ({results.length}/{counts.allotted})
+                  ({results.length}/{counts.verified})
                 </Text>
               </Text>
               <Pressable
@@ -535,8 +502,7 @@ export function CurrentIpoStatusScreen() {
                 const idx = resultIndexByAccountId.get(row.accountId) ?? 0;
                 const kind = classify(row);
                 const color = kindColor(kind);
-                const reason =
-                  kind === 'rejected' ? rejectReason(row) : null;
+                const reason = statusRemarks(row);
                 const showApply =
                   kind === 'not_applied' || kind === 'rejected';
                 const applyBtnColor =
@@ -560,11 +526,13 @@ export function CurrentIpoStatusScreen() {
                     >
                       <MaterialCommunityIcons
                         name={
-                          kind === 'allotted'
+                          kind === 'verified'
                             ? 'check-bold'
-                            : kind === 'rejected'
-                              ? 'alert-octagon'
-                              : 'cancel'
+                            : kind === 'unverified'
+                              ? 'clock-outline'
+                              : kind === 'rejected'
+                                ? 'alert-octagon'
+                                : 'cancel'
                         }
                         size={rs(19)}
                         color={color}
@@ -586,7 +554,7 @@ export function CurrentIpoStatusScreen() {
                         >
                           <Text
                             style={[styles.reasonPillText, { color }]}
-                            numberOfLines={2}
+                            numberOfLines={4}
                           >
                             {reason}
                           </Text>

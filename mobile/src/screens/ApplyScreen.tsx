@@ -126,7 +126,7 @@ export function ApplyScreen() {
   const highlightSymbol = route.params?.highlightSymbol?.trim().toUpperCase();
   const highlightName = route.params?.highlightName?.trim();
   const openDrawer = useOpenDrawer();
-  const { accounts, updateAccountMeta } = useAccounts();
+  const { accounts, markCrnPinVerifiedMany } = useAccounts();
   const { isAccountActive, operationalAccounts } = useActiveAccounts();
   const { user, isAuthenticated, signInWithGoogle } = useAuth();
   const { isPremium, maxAccounts } = useSubscription();
@@ -190,6 +190,8 @@ export function ApplyScreen() {
     Awaited<ReturnType<typeof loadApplyHistory>>
   >({});
   const [loadingIssues, setLoadingIssues] = useState(false);
+  /** Pause IPO dropdown reload during/after bulk apply (avoids MeroShare login spam). */
+  const issuesRefreshPausedRef = useRef(false);
 
   const kitta = Math.max(1, parseInt(qty.replace(/\D/g, ''), 10) || 10);
   const companyShareId = selected?.companyShareId;
@@ -207,6 +209,7 @@ export function ApplyScreen() {
   }, [accounts, user?.name]);
 
   const refreshIssues = useCallback(async () => {
+    if (issuesRefreshPausedRef.current) return;
     setLoadingIssues(true);
     try {
       const list = await enrichIssuesWithClosingDates(
@@ -244,6 +247,7 @@ export function ApplyScreen() {
   }, [operationalAccounts]);
 
   const refreshAll = useCallback(async () => {
+    issuesRefreshPausedRef.current = false;
     setRefreshing(true);
     try {
       await Promise.all([refreshIssues(), refreshInvestment()]);
@@ -273,7 +277,9 @@ export function ApplyScreen() {
   );
 
   useEffect(() => {
-    if (issuesStartedRef.current) void refreshIssues();
+    if (issuesStartedRef.current && !issuesRefreshPausedRef.current) {
+      void refreshIssues();
+    }
   }, [refreshIssues]);
 
   useEffect(() => {
@@ -369,10 +375,7 @@ export function ApplyScreen() {
       }));
     if (rows.length) {
       await markAppliedMany(rows);
-      // Successful live apply means CRN+PIN were accepted by MeroShare
-      for (const row of rows) {
-        await updateAccountMeta(row.accountId, { crnPinVerified: true });
-      }
+      await markCrnPinVerifiedMany(rows.map((r) => r.accountId));
       setHistoryTick((t) => t + 1);
     }
   };
@@ -408,6 +411,7 @@ export function ApplyScreen() {
         onPress: () => {
           const execute = () => {
             void (async () => {
+              issuesRefreshPausedRef.current = true;
               setRunning(true);
               resultModalBatchKeyRef.current = null;
               setSummary(null);

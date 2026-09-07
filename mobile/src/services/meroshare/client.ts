@@ -1013,11 +1013,14 @@ export class MeroshareClient {
       companyName?: string;
       /** Skip report-detail GET when list row already shows allotted / not allotted. */
       bulkFast?: boolean;
+      /** Open IPO window — show Verified/Unverified/Rejected, not allotment outcome. */
+      applicationPhase?: boolean;
     } = {},
   ): Promise<{
     status: string;
     message: string;
     dryRun: boolean;
+    ok?: boolean;
     appliedKitta?: number;
     allotmentStatus?: string;
     remarks?: string;
@@ -1043,6 +1046,7 @@ export class MeroshareClient {
         dryRun: false,
         status: 'NOT_APPLIED',
         message: 'You have not applied for this IPO',
+        ok: false,
       };
     }
 
@@ -1057,7 +1061,9 @@ export class MeroshareClient {
 
     const formId = match.applicantFormId ?? match.id;
     const skipDetail =
-      opts.bulkFast === true && isClearAllotmentFromListStatus(statusName);
+      !opts.applicationPhase &&
+      opts.bulkFast === true &&
+      isClearAllotmentFromListStatus(statusName);
     if (formId != null && !skipDetail) {
       try {
         const detail = await this.request<Record<string, unknown>>(
@@ -1090,6 +1096,38 @@ export class MeroshareClient {
       }
     } else if (skipDetail) {
       allotmentStatus = statusName.trim() || undefined;
+    }
+
+    if (opts.applicationPhase) {
+      const label = humanizeApplicationPhaseStatus(
+        statusName,
+        allotmentStatus,
+        remarks,
+      );
+      let finalRemarks = remarks ?? label.reason;
+      if (!finalRemarks) {
+        const combined = `${allotmentStatus ?? ''} ${statusName}`;
+        if (/RELEASE/i.test(combined)) {
+          finalRemarks = 'Block Amount Status - Amount Released';
+        } else if (/INSUFFICIENT|NOT ENOUGH|LOW BALANCE/i.test(combined)) {
+          finalRemarks =
+            'Block Amount Status - Amount Rejected (Insufficient Balance)';
+        } else if (/UNVERIF|NOT.?VERIF/i.test(combined)) {
+          finalRemarks =
+            'Block Amount Status - Unverified (Application In-Process at Bank End)';
+        } else if (/BLOCK|HOLD|LOCK/i.test(combined)) {
+          finalRemarks = 'Block Amount Status - Amount Blocked';
+        }
+      }
+      return {
+        dryRun: false,
+        status: label.code,
+        message: label.message,
+        ok: label.code !== 'REJECTED' && label.code !== 'NOT_APPLIED',
+        appliedKitta: kitta,
+        allotmentStatus,
+        remarks: finalRemarks,
+      };
     }
 
     const label = humanizeApplicationStatus(
@@ -1615,6 +1653,88 @@ export function humanizeApplicationStatus(
     };
   }
   return { code: s || 'UNKNOWN', message: statusName };
+}
+
+/** Application-window status (Verified / Unverified / Rejected) — not allotment. */
+function formatApplicationPhaseStatusLabel(primary: string): string {
+  const t = primary.trim();
+  if (!t) return '';
+  if (/^unverified$/i.test(t)) return 'Unverified';
+  if (/^verified$/i.test(t)) return 'Verified';
+  if (/^rejected$/i.test(t)) return 'Rejected';
+  if (/not.?allot/i.test(t)) return 'Not Alloted';
+  return t;
+}
+
+export function humanizeApplicationPhaseStatus(
+  listStatus: string,
+  detailStatus?: string,
+  remarks?: string,
+): { code: string; message: string; reason?: string } {
+  const primary = (detailStatus || listStatus || '').trim();
+  const display = formatApplicationPhaseStatusLabel(primary);
+  const statusLine = display || 'Unverified';
+  const s = primary.toUpperCase();
+  const r = (remarks ?? '').trim();
+  const combined = `${listStatus} ${detailStatus ?? ''} ${r}`.toUpperCase();
+
+  if (
+    /INSUFFICIENT|NOT ENOUGH|LOW BALANCE|INSUFFICEN|BALANCE.?NOT.?AVAILABLE|INSUFFICIENT.?FUND/i.test(
+      combined,
+    ) ||
+    /BLOCK[_\s-]?FAIL|AMOUNT.?BLOCK.?FAIL|BLOCK.?AMOUNT.?FAIL/i.test(combined)
+  ) {
+    return {
+      code: 'REJECTED',
+      message: /reject/i.test(primary) ? statusLine : 'Rejected',
+      reason:
+        r ||
+        'Block Amount Status - Amount Rejected (Insufficient Balance)',
+    };
+  }
+  if (/REJECT|CANCEL/i.test(combined)) {
+    return {
+      code: 'REJECTED',
+      message: /reject/i.test(primary) ? statusLine : 'Rejected',
+      reason: r || undefined,
+    };
+  }
+  if (/FAIL|ERROR/.test(s) && !/BLOCK/.test(s)) {
+    return {
+      code: 'REJECTED',
+      message: /reject/i.test(primary) ? statusLine : 'Rejected',
+      reason: r || primary || 'Application failed',
+    };
+  }
+  if (
+    /^VERIFIED$/i.test(primary) ||
+    (/VERIF/i.test(s) && !/UNVERIF|NOT.?VERIF/i.test(s))
+  ) {
+    return { code: 'VERIFIED', message: statusLine, reason: r || undefined };
+  }
+  if (/UNVERIF|NOT.?VERIF|CURRENTLY\s*UNVERIF/i.test(s)) {
+    return { code: 'UNVERIFIED', message: statusLine, reason: r || undefined };
+  }
+  if (/TRANSACTION_SUCCESS|APPROVED|APPLIED|SUBMIT/i.test(combined)) {
+    return { code: 'UNVERIFIED', message: statusLine || 'Unverified', reason: r || undefined };
+  }
+  if (/PENDING|WAIT|PROCESS/i.test(combined)) {
+    return { code: 'UNVERIFIED', message: statusLine || 'Unverified', reason: r || undefined };
+  }
+  if (/NOT.?ALLOT|UNALLOT/i.test(combined)) {
+    return {
+      code: 'UNVERIFIED',
+      message: /not.?allot/i.test(primary) ? statusLine : 'Not Alloted',
+      reason: r || undefined,
+    };
+  }
+  if (/ALLOT/i.test(s) && !/NOT/.test(s)) {
+    return { code: 'VERIFIED', message: statusLine, reason: r || undefined };
+  }
+  if (primary) {
+    return { code: 'UNVERIFIED', message: statusLine, reason: r || undefined };
+  }
+  return { code: 'UNVERIFIED', message: 'Unverified', reason: r || undefined };
 }
 
 function toNum(v: unknown): number | null {

@@ -261,6 +261,22 @@ async function applyAccountMetaPatch(
   return next;
 }
 
+/** One save for many accounts — avoids hundreds of context updates after bulk IPO apply. */
+export async function markCrnPinVerifiedMany(
+  ids: string[],
+): Promise<AccountMeta[]> {
+  if (!ids.length) return loadAccountMeta();
+  const idSet = new Set(ids);
+  return enqueueAccountMetaWrite(async () => {
+    const list = await loadAccountMeta();
+    const next = list.map((a) =>
+      idSet.has(a.id) ? { ...a, crnPinVerified: true } : a,
+    );
+    await saveAccountMeta(next);
+    return next;
+  });
+}
+
 export async function removeAccountFully(id: string): Promise<AccountMeta[]> {
   const list = await loadAccountMeta();
   const next = list.filter((a) => a.id !== id);
