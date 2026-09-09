@@ -25,7 +25,9 @@ import type {
   OpenIssue,
 } from './types';
 
-const ACCOUNT_GAP_MS = 1800;
+/** Pause between accounts — keep low for bulk speed; MeroShare still gets a fresh login per account. */
+const ACCOUNT_GAP_MS = 500;
+const ACCOUNT_GAP_BULK_MS = 350;
 
 /** Par value per IPO unit (Rs) — ordinary Nepali IPOs are issued at par. */
 const IPO_PRICE_PER_UNIT = 100;
@@ -112,6 +114,68 @@ function formatApplyError(msg: string): string {
   return clean;
 }
 
+/**
+ * CDSC often returns "unable to process" / busy text on repeat apply (same account + IPO).
+ * If the application report shows this account already applied, show that instead of busy.
+ */
+async function finalizeFailedApplyMessage(
+  client: MeroshareClient,
+  companyShareId: number,
+  rawMessage: string,
+  opts?: { skipStatusProbe?: boolean },
+): Promise<string> {
+  const formatted = formatApplyError(rawMessage);
+  if (isAlreadyAppliedApplyMessage(formatted)) return formatted;
+
+  const clean = sanitizeMeroshareMessage(rawMessage);
+  const looksLikeBusy =
+    isTransientMeroshareMessage(clean) ||
+    /mero\s*share\s*is\s*busy/i.test(formatted);
+
+  if (!looksLikeBusy || opts?.skipStatusProbe) return formatted;
+
+  try {
+    const status = await client.checkApplicationStatus(companyShareId, {
+      applicationPhase: true,
+      bulkFast: true,
+    });
+    if (status.status !== 'NOT_APPLIED') {
+      return ALREADY_APPLIED_MSG;
+    }
+  } catch {
+    // keep busy — genuine overload or report unavailable
+  }
+  return formatted;
+}
+
+async function failedApplyResult(
+  client: MeroshareClient,
+  companyShareId: number,
+  dryRun: boolean,
+  rawMessage: string,
+  opts?: { skipStatusProbe?: boolean },
+): Promise<{
+  ok: false;
+  dryRun: boolean;
+  message: string;
+  rejectedPrevious?: boolean;
+  canReapply?: boolean;
+}> {
+  const message = await finalizeFailedApplyMessage(
+    client,
+    companyShareId,
+    rawMessage,
+    opts,
+  );
+  return {
+    ok: false,
+    dryRun,
+    message,
+    rejectedPrevious: isRejectedApplicantMeroshareMessage(rawMessage),
+    canReapply: isRejectedApplicantMeroshareMessage(rawMessage),
+  };
+}
+
 export type BulkApplyOptions = {
   accounts: AccountMeta[];
   issue: OpenIssue;
@@ -138,6 +202,9 @@ export async function runBulkApply(
 ): Promise<BulkApplySummary> {
   const dryRun = opts.dryRun === true;
   const simulateLogin = opts.simulateLogin ?? dryRun;
+  const bulkFast = opts.accounts.length > 1;
+  const accountGapMs = bulkFast ? ACCOUNT_GAP_BULK_MS : ACCOUNT_GAP_MS;
+  const statusProbeOpts = bulkFast ? { skipStatusProbe: true } : undefined;
   const results: ApplyAccountResult[] = [];
   const stoppedEarly = false;
 
@@ -177,7 +244,7 @@ export async function runBulkApply(
         },
         i,
       );
-      if (i < opts.accounts.length - 1) await sleep(ACCOUNT_GAP_MS);
+      if (i < opts.accounts.length - 1) await sleep(accountGapMs);
       continue;
     }
 
@@ -193,7 +260,7 @@ export async function runBulkApply(
         { simulate: simulateLogin, skipOwnDetail: true },
       );
 
-      const applyRes = await client.applyShare(
+      let applyRes = await client.applyShare(
         {
           companyShareId: opts.issue.companyShareId,
           appliedKitta: opts.kitta,
@@ -207,6 +274,18 @@ export async function runBulkApply(
         },
         { dryRun, ipoStillOpen: true },
       );
+
+      if (!applyRes.ok && !applyRes.rejectedPrevious && !dryRun) {
+        const resolved = await finalizeFailedApplyMessage(
+          client,
+          opts.issue.companyShareId,
+          applyRes.message,
+          statusProbeOpts,
+        );
+        if (resolved !== applyRes.message) {
+          applyRes = { ...applyRes, message: resolved };
+        }
+      }
 
       pushResult(
         buildApplyResultRow(account, applyRes, opts.issue, opts.kitta),
@@ -238,7 +317,7 @@ export async function runBulkApply(
       if (shouldRetry) {
         try {
           client.clearSession();
-          await sleep(1400);
+          await sleep(800);
           await client.loginOrSimulate(
             {
               clientId: account.dpId,
@@ -248,7 +327,7 @@ export async function runBulkApply(
             },
             { simulate: simulateLogin, skipOwnDetail: true },
           );
-          const applyRes = await client.applyShare(
+          let applyRes = await client.applyShare(
             {
               companyShareId: opts.issue.companyShareId,
               appliedKitta: opts.kitta,
@@ -262,6 +341,17 @@ export async function runBulkApply(
             },
             { dryRun, ipoStillOpen: true },
           );
+          if (!applyRes.ok && !applyRes.rejectedPrevious && !dryRun) {
+            const resolved = await finalizeFailedApplyMessage(
+              client,
+              opts.issue.companyShareId,
+              applyRes.message,
+              statusProbeOpts,
+            );
+            if (resolved !== applyRes.message) {
+              applyRes = { ...applyRes, message: resolved };
+            }
+          }
           pushResult(
             buildApplyResultRow(account, applyRes, opts.issue, opts.kitta),
             i,
@@ -279,26 +369,26 @@ export async function runBulkApply(
           }
         } catch (e2) {
           const raw2 = e2 instanceof Error ? e2.message : raw;
-          const applyRes = {
-            ok: false,
+          const applyRes = await failedApplyResult(
+            client,
+            opts.issue.companyShareId,
             dryRun,
-            message: formatApplyError(raw2),
-            rejectedPrevious: isRejectedApplicantMeroshareMessage(raw2),
-            canReapply: isRejectedApplicantMeroshareMessage(raw2),
-          };
+            raw2,
+            statusProbeOpts,
+          );
           pushResult(
             buildApplyResultRow(account, applyRes, opts.issue, opts.kitta),
             i,
           );
         }
       } else {
-        const applyRes = {
-          ok: false,
+        const applyRes = await failedApplyResult(
+          client,
+          opts.issue.companyShareId,
           dryRun,
-          message: formatApplyError(raw),
-          rejectedPrevious: isRejectedApplicantMeroshareMessage(raw),
-          canReapply: isRejectedApplicantMeroshareMessage(raw),
-        };
+          raw,
+          statusProbeOpts,
+        );
         pushResult(
           buildApplyResultRow(account, applyRes, opts.issue, opts.kitta),
           i,
@@ -311,7 +401,7 @@ export async function runBulkApply(
     }
 
     if (i < opts.accounts.length - 1) {
-      await sleep(ACCOUNT_GAP_MS);
+      await sleep(accountGapMs);
     }
   }
 

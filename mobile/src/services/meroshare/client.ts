@@ -1022,6 +1022,7 @@ export class MeroshareClient {
         { method: 'GET', auth: true },
       );
       const canMsg = String(can?.message ?? '').trim();
+      // customerType often returns vague errors on repeat apply — map to already-applied.
       if (canMsg && isAlreadyAppliedMeroshareMessage(canMsg)) {
         return {
           ok: false,

@@ -10,7 +10,6 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import {
   NepseMarketChart,
   type NepseMarketChartHandle,
@@ -22,7 +21,6 @@ import {
 } from '../../services/nepse/indexChart';
 import type { ChartPoint, IndexQuote } from '../../services/nepse';
 import type { ThemeColors } from '../../theme/colors';
-import { GLASS_GRADIENT } from '../../theme/glassUi';
 import { rs } from '../../utils/responsive';
 
 export const MARKET_CHART_HEIGHT = rs(232);
@@ -72,7 +70,7 @@ export function useMarketChartModel({
   const up = (indexQuote.change ?? 0) >= 0;
   const rangeLabel =
     INDEX_CHART_RANGES.find((r) => r.id === range)?.label ?? '1 Day';
-  const iconColor = isDark ? colors.sage : '#1565C0';
+  const iconColor = isDark ? colors.sage : '#4A5544';
   const chartBg = isDark ? colors.bg : '#F9FAF2';
 
   const loadChart = useCallback(async () => {
@@ -118,14 +116,7 @@ export function useMarketChartModel({
       </Pressable>
       {onSearchPress ? (
         <Pressable style={styles.searchBtn} onPress={onSearchPress} hitSlop={8}>
-          <LinearGradient
-            colors={GLASS_GRADIENT}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.searchGrad}
-          >
-            <Ionicons name="search" size={rs(18)} color="#fff" />
-          </LinearGradient>
+          <Ionicons name="search" size={rs(18)} color="#fff" />
         </Pressable>
       ) : null}
     </View>
@@ -244,19 +235,14 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     wrap: {
       marginTop: rs(2),
-      backgroundColor: isDark ? c.bg : 'rgba(255,255,255,0.7)',
-      borderRadius: rs(18),
-      overflow: 'hidden',
-      borderWidth: 1.5,
-      borderColor: isDark ? c.borderMuted : 'rgba(255,255,255,0.95)',
+      backgroundColor: isDark ? c.bg : '#F9FAF2',
+      borderRadius: rs(4),
     },
     controls: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
       marginBottom: rs(6),
-      paddingHorizontal: rs(4),
-      paddingTop: rs(4),
     },
     dropdown: {
       flexDirection: 'row',
@@ -264,14 +250,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       gap: rs(6),
       paddingHorizontal: rs(12),
       paddingVertical: rs(9),
-      borderRadius: rs(18),
-      backgroundColor: isDark ? c.surfaceAlt : 'rgba(255,255,255,0.85)',
+      borderRadius: rs(16),
+      backgroundColor: isDark ? c.surfaceAlt : '#E4EDD8',
       maxWidth: rs(148),
-      borderWidth: 1,
-      borderColor: isDark ? c.borderMuted : 'rgba(255,255,255,0.95)',
     },
     dropdownText: {
-      color: isDark ? c.sage : '#1565C0',
+      color: isDark ? c.sage : '#3E4638',
       fontSize: rs(12),
       fontWeight: '700',
       flexShrink: 1,
@@ -281,15 +265,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       width: rs(40),
       height: rs(40),
       borderRadius: rs(20),
-      overflow: 'hidden',
-      elevation: 4,
-      shadowColor: '#22C55E',
-      shadowOpacity: 0.35,
-      shadowRadius: 6,
-      shadowOffset: { width: 0, height: 2 },
-    },
-    searchGrad: {
-      flex: 1,
+      backgroundColor: isDark ? c.accentGreen : '#1B5E20',
       alignItems: 'center',
       justifyContent: 'center',
     },

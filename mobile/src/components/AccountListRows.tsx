@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { AccountMeta } from '../types/account';
 import type { ThemeColors } from '../theme/colors';
@@ -168,7 +168,9 @@ export const ApplySingleAccountRow = React.memo(function ApplySingleAccountRow({
   index,
   applied,
   locked,
-  running,
+  applying,
+  resultMessage,
+  resultOk,
   onApply,
   styles,
   colors,
@@ -177,12 +179,25 @@ export const ApplySingleAccountRow = React.memo(function ApplySingleAccountRow({
   index: number;
   applied: boolean;
   locked: boolean;
-  running: boolean;
+  applying: boolean;
+  resultMessage?: string | null;
+  resultOk?: boolean;
   onApply: (id: string) => void;
   styles: ApplyAccountRowStyles;
   colors: ThemeColors;
 }) {
   const blocked = applied || locked;
+  const showResult = Boolean(resultMessage) && !applying;
+  const subtitle = applying
+    ? 'Applying…'
+    : showResult
+      ? resultMessage!
+      : applied
+        ? 'Already applied for this IPO'
+        : locked
+          ? 'Locked — over plan limit'
+          : account.bankName || account.dpName;
+
   return (
     <View style={styles.accountRow}>
       <View style={styles.indexBadge}>
@@ -190,27 +205,43 @@ export const ApplySingleAccountRow = React.memo(function ApplySingleAccountRow({
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.accName}>{account.name}</Text>
-        <Text style={styles.accBank}>
-          {applied
-            ? 'Already applied for this IPO'
-            : locked
-              ? 'Locked — over plan limit'
-              : account.bankName || account.dpName}
+        <Text
+          style={[
+            styles.accBank,
+            applying && { color: colors.primary, fontWeight: '700' },
+            showResult &&
+              (resultOk
+                ? { color: colors.accentGreen, fontWeight: '700' }
+                : { color: colors.danger, fontWeight: '600' }),
+          ]}
+          numberOfLines={3}
+        >
+          {subtitle}
         </Text>
       </View>
       <Pressable
-        style={[styles.applyBtn, blocked && styles.applyBtnDisabled]}
+        style={[styles.applyBtn, (blocked || applying) && styles.applyBtnDisabled]}
         onPress={() => onApply(account.id)}
-        disabled={running || applied}
+        disabled={applying || (applied && !showResult) || locked}
       >
-        <Text
-          style={[
-            styles.applyBtnText,
-            blocked && { color: colors.textMuted },
-          ]}
-        >
-          {applied ? 'Done' : locked ? 'Locked' : 'Apply'}
-        </Text>
+        {applying ? (
+          <ActivityIndicator size="small" color={colors.primary} />
+        ) : (
+          <Text
+            style={[
+              styles.applyBtnText,
+              (blocked || (showResult && resultOk)) && { color: colors.textMuted },
+            ]}
+          >
+            {applied || (showResult && resultOk)
+              ? 'Done'
+              : locked
+                ? 'Locked'
+                : showResult && !resultOk
+                  ? 'Retry'
+                  : 'Apply'}
+          </Text>
+        )}
       </Pressable>
     </View>
   );

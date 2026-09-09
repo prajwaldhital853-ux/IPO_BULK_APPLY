@@ -7,6 +7,7 @@ import {
   Modal,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,10 +18,6 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { floatingTabBarClearance } from '../components/AppTabBar';
-import { GlassClusterBackground } from '../components/GlassClusterBackground';
-import { GlassIpoPickerField } from '../components/GlassIpoPickerField';
-import { GlassPrimaryButton } from '../components/GlassPrimaryButton';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
@@ -30,6 +27,7 @@ import { isMockAccountId } from '../data/mockAccounts';
 import {
   humanizeApplicationStatus,
   loadCheckableIssuesForUi,
+  runBulkApply,
   runBulkResultCheck,
   type ApplicationReportRow,
   type OpenIssue,
@@ -46,38 +44,42 @@ import {
 } from '../utils/checkAccountSelection';
 import { filterAccountsByQuery } from '../utils/filterAccounts';
 import { shareIpoBulkStatusExcel } from '../utils/ipoBulkStatusExport';
+import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
+import { useAfterInteractions } from '../utils/useAfterInteractions';
+import { usePullToRefresh } from '../utils/usePullToRefresh';
+import type { RootStackParamList } from '../navigation/types';
+import { SensitiveActionModals } from '../components/SensitiveActionModals';
+import { useSensitiveAction } from '../hooks/useSensitiveAction';
 import {
   applicationPhaseRemarks,
   applicationPhaseStatusLine,
   classifyApplicationPhase,
   shouldUseApplicationPhaseStatus,
 } from '../utils/ipoApplicationPhase';
-import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
 import {
   buildStatusCardStyle,
-  chipActiveBackground,
-  STATUS_NOT_APPLIED,
+  CHIP_BLUE,
+  CHIP_GREEN,
+  CHIP_ORANGE,
+  CHIP_PURPLE,
+  CHIP_RED,
+  chipTint,
   STATUS_REJECTED,
   STATUS_VERIFIED,
 } from '../utils/statusCardStyle';
-import { useAfterInteractions } from '../utils/useAfterInteractions';
-import { usePullToRefresh } from '../utils/usePullToRefresh';
-import type { RootStackParamList } from '../navigation/types';
-import { SensitiveActionModals } from '../components/SensitiveActionModals';
-import { useSensitiveAction } from '../hooks/useSensitiveAction';
 
 const ACCENT = '#2D5A27';
 /** Deep forest green for check CTAs in dark mode */
 const ACCENT_DARK = '#0A3A14';
+const HEADER_BG = '#E8F0E6';
+const BODY_BG = '#F6F8F2';
 /** Pure status colors — high contrast on light (and dark) backgrounds */
 const GREEN = '#2E7D32';
 const RED = '#C62828';
 const REJECT_RED = STATUS_REJECTED;
 const VERIFIED_GREEN = STATUS_VERIFIED;
-const CHIP_ORANGE = STATUS_NOT_APPLIED;
-/** Blue for unverified (open IPO) and rejected (published result) rows. */
+/** Blue for unverified application rows. */
 const STATUS_BLUE = '#1976D2';
-const OTHERS_BLUE = '#5C6BC0';
 
 function badgeType(shareTypeName: string): string {
   const s = (shareTypeName || 'IPO').toUpperCase();
@@ -165,6 +167,31 @@ function statusLine(row: ResultAccountStatus): string {
   return qty != null ? `Not Alloted ( quantity : ${qty} )` : 'Not Alloted';
 }
 
+function applicationPhaseDisplayLine(row: ResultAccountStatus): string {
+  const kind = classifyApplicationPhase(row);
+  const base = applicationPhaseStatusLine(row);
+  const qty = row.appliedKitta;
+  if (qty == null || /quantity\s*:/i.test(base)) return base;
+  if (kind === 'verified') return `Verified ( quantity : ${qty} )`;
+  if (kind === 'unverified') return `Unverified ( quantity : ${qty} )`;
+  if (kind === 'rejected') return `Rejected ( quantity : ${qty} )`;
+  return base;
+}
+
+function toUnverifiedAfterReapply(row: ResultAccountStatus): ResultAccountStatus {
+  const qty = row.appliedKitta;
+  return {
+    ...row,
+    ok: true,
+    status: 'UNVERIFIED',
+    allotmentStatus: 'Unverified',
+    message:
+      qty != null ? `Unverified ( quantity : ${qty} )` : 'Unverified',
+    remarks:
+      'Block Amount Status - Unverified (Application In-Process at Bank End)',
+  };
+}
+
 function amountStatusLine(row: ResultAccountStatus): string {
   const raw = (row.remarks || row.allotmentStatus || '').trim();
   if (/release/i.test(raw)) {
@@ -196,7 +223,6 @@ export function IpoBulkStatusScreen() {
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-  const tabClearance = floatingTabBarClearance(insets.bottom);
   const ready = useAfterInteractions();
   const modalListHeight = useMemo(
     () => Math.max(rs(160), Dimensions.get('window').height * 0.38),
@@ -219,11 +245,34 @@ export function IpoBulkStatusScreen() {
   const [openCompanyShareIds, setOpenCompanyShareIds] = useState<Set<number>>(
     () => new Set(),
   );
+  const [reapplying, setReapplying] = useState(false);
+  const [toast, setToast] = useState<{
+    text: string;
+    kind: 'success' | 'error';
+  } | null>(null);
   const loadGenRef = useRef(0);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const applicationPhase = useMemo(
     () => shouldUseApplicationPhaseStatus(selected, openCompanyShareIds),
     [selected, openCompanyShareIds],
+  );
+
+  const ipoStillOpen = Boolean(
+    selected && openCompanyShareIds.has(selected.companyShareId),
+  );
+
+  const showToast = useCallback((text: string, kind: 'success' | 'error') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ text, kind });
+    toastTimerRef.current = setTimeout(() => setToast(null), 4500);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    },
+    [],
   );
 
   const checkAccounts = useMemo(
@@ -466,6 +515,8 @@ export function IpoBulkStatusScreen() {
             accounts: checkAccounts,
             issue,
             applicationPhase: useApplicationPhase,
+            // Render each account as soon as it resolves so the user sees
+            // 1, 2, 3… appear instead of staring at a blank screen.
             onAccountResult: (row, index, total) => {
               setResults((prev) => {
                 const i = prev.findIndex((r) => r.accountId === row.accountId);
@@ -522,9 +573,9 @@ export function IpoBulkStatusScreen() {
   const applicationChips = useMemo(() => {
     const kinds = (
       [
-        { key: 'verified' as const, label: 'Verified', color: VERIFIED_GREEN },
-        { key: 'unverified' as const, label: 'Unverified', color: STATUS_BLUE },
-        { key: 'rejected' as const, label: 'Rejected', color: REJECT_RED },
+        { key: 'verified' as const, label: 'Verified', color: CHIP_GREEN },
+        { key: 'unverified' as const, label: 'Unverified', color: CHIP_BLUE },
+        { key: 'rejected' as const, label: 'Rejected', color: CHIP_RED },
         { key: 'not_applied' as const, label: 'Not Applied', color: CHIP_ORANGE },
       ] as const
     )
@@ -540,10 +591,10 @@ export function IpoBulkStatusScreen() {
   const allotmentChips = useMemo(() => {
     const kinds = (
       [
-        { key: 'allotted' as const, label: 'Alloted', color: GREEN },
-        { key: 'not' as const, label: 'Not Allot', color: RED },
-        { key: 'rejected' as const, label: 'Rejected', color: STATUS_BLUE },
-        { key: 'others' as const, label: 'Others', color: OTHERS_BLUE },
+        { key: 'allotted' as const, label: 'Alloted', color: CHIP_GREEN },
+        { key: 'not' as const, label: 'Not Allot', color: CHIP_RED },
+        { key: 'rejected' as const, label: 'Rejected', color: CHIP_BLUE },
+        { key: 'others' as const, label: 'Others', color: CHIP_PURPLE },
       ] as const
     )
       .map((chip) => ({ ...chip, count: allotmentFilterCounts[chip.key] }))
@@ -564,6 +615,78 @@ export function IpoBulkStatusScreen() {
     }
     return results.filter((row) => resolveFilterBucket(row) === filter);
   }, [results, filter, applicationPhase]);
+
+  const reapplyEligible = useMemo(() => {
+    if (!applicationPhase || !ipoStillOpen) return [];
+    return results.filter((row) => classifyApplicationPhase(row) === 'rejected');
+  }, [applicationPhase, ipoStillOpen, results]);
+
+  const reapplyRows = useCallback(
+    (targetRows: ResultAccountStatus[]) => {
+      if (!selected || !targetRows.length || !ipoStillOpen) return;
+      const issue: OpenIssue = {
+        id: selected.companyShareId,
+        companyShareId: selected.companyShareId,
+        companyName: selected.companyName,
+        scrip: selected.scrip,
+        shareTypeName: selected.shareTypeName,
+        alreadyApplied: true,
+      };
+      void sensitive.requestSensitiveAction(
+        async () => {
+          setReapplying(true);
+          try {
+            for (const row of targetRows) {
+              const account = checkAccounts.find((a) => a.id === row.accountId);
+              if (!account) continue;
+              const kitta = row.appliedKitta ?? 10;
+              const summary = await runBulkApply({
+                accounts: [account],
+                issue,
+                kitta,
+              });
+              const applyResult = summary.results[0];
+              if (applyResult?.ok) {
+                setResults((prev) =>
+                  prev.map((r) =>
+                    r.accountId === row.accountId
+                      ? toUnverifiedAfterReapply(r)
+                      : r,
+                  ),
+                );
+                showToast(
+                  `${applyResult.accountName}: Re-applied successfully`,
+                  'success',
+                );
+              } else {
+                showToast(
+                  `${applyResult?.accountName ?? row.accountName}: ${
+                    applyResult?.message ?? 'Re-apply failed'
+                  }`,
+                  'error',
+                );
+              }
+            }
+          } catch (e) {
+            showToast(
+              e instanceof Error ? e.message : 'Re-apply failed',
+              'error',
+            );
+          } finally {
+            setReapplying(false);
+          }
+        },
+        { pinPolicy: 'skipIfUnlocked' },
+      );
+    },
+    [
+      checkAccounts,
+      ipoStillOpen,
+      selected,
+      sensitive,
+      showToast,
+    ],
+  );
 
   const shareToExcel = async () => {
     if (!results.length) {
@@ -587,39 +710,26 @@ export function IpoBulkStatusScreen() {
     }
   };
 
-  const companyLabel = selected
-    ? `${selected.companyName}${selected.scrip ? ` (${selected.scrip})` : ''}`
-    : loadingList
-      ? 'Loading…'
-      : 'No listed IPO/FPO';
-
   return (
-    <GlassClusterBackground variant="default" style={{ paddingTop: insets.top }}>
+    <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
-        <View style={styles.headerTitleRow}>
-          <MaterialCommunityIcons
-            name="format-list-checks"
-            size={rs(20)}
-            color={isDark ? '#67E8F9' : '#1565C0'}
-          />
-          <Text style={styles.title}>IPO Bulk Status</Text>
-        </View>
+        <Text style={styles.title}>IPO Bulk Status</Text>
         <Pressable
           hitSlop={10}
           onPress={() =>
             Alert.alert(
               'IPO Bulk Status',
-              'Open IPOs (result not out) show Verified / Unverified / Rejected like Current IPO Status. Closed IPOs with published results show Alloted / Not Allot filters.',
+              'Open IPOs (result not out) show Verified / Unverified / Rejected like Current IPO Status. Closed IPOs with published results show Alloted / Not Allot filters. Rejected accounts can be re-applied while the IPO is still open.',
             )
           }
         >
           <Ionicons
             name="information-circle-outline"
             size={rs(22)}
-            color={isDark ? '#67E8F9' : '#1565C0'}
+            color={isDark ? colors.text : ACCENT}
           />
         </Pressable>
       </View>
@@ -635,26 +745,76 @@ export function IpoBulkStatusScreen() {
       </View>
 
       <View style={styles.controls}>
-        <GlassIpoPickerField
-          icon="accounts"
-          label={checkLabel}
-          placeholder={checkAccounts.length === accounts.length}
+        <Pressable
+          style={styles.dropdown}
           onPress={() => setCheckPickerOpen(true)}
-        />
-        <GlassIpoPickerField
-          icon="ipo"
-          label={companyLabel}
-          placeholder={!selected}
+        >
+          <Text
+            style={[
+              styles.dropdownText,
+              checkAccounts.length === accounts.length && styles.dropdownPlaceholder,
+            ]}
+            numberOfLines={1}
+          >
+            {checkLabel}
+          </Text>
+          <Ionicons
+            name="caret-down"
+            size={rs(14)}
+            color={isDark ? colors.textMuted : '#6B726B'}
+          />
+        </Pressable>
+
+        <View style={styles.labelRow}>
+          <MaterialCommunityIcons
+            name="bank"
+            size={rs(16)}
+            color={isDark ? colors.text : '#1B2E1B'}
+          />
+          <Text style={styles.label}>Listed IPO/FPO</Text>
+        </View>
+
+        <Pressable
+          style={styles.dropdown}
           onPress={() => setCompanyPickerOpen(true)}
           disabled={loadingList || companies.length === 0}
-          loading={loadingList}
-        />
-        <GlassPrimaryButton
-          label="IPO Bulk Status"
+        >
+          <Text
+            style={[
+              styles.dropdownText,
+              styles.dropdownValue,
+              !selected && styles.dropdownPlaceholder,
+            ]}
+            numberOfLines={1}
+          >
+            {selected
+              ? `${selected.companyName}${selected.scrip ? ` (${selected.scrip})` : ''}`
+              : loadingList
+                ? 'Loading…'
+                : 'No listed IPO/FPO'}
+          </Text>
+          {loadingList ? (
+            <ActivityIndicator size="small" color={ACCENT} />
+          ) : (
+            <Ionicons
+              name="caret-down"
+              size={rs(14)}
+              color={isDark ? colors.textMuted : '#6B726B'}
+            />
+          )}
+        </Pressable>
+
+        <Pressable
+          style={[styles.actionBtn, running && { opacity: 0.6 }]}
           onPress={runCheck}
-          disabled={!selected}
-          loading={running}
-        />
+          disabled={running || !selected}
+        >
+          {running ? (
+            <ActivityIndicator color={isDark ? '#FFFFFF' : ACCENT} />
+          ) : (
+            <Text style={styles.actionText}>IPO Bulk Status</Text>
+          )}
+        </Pressable>
 
         {running && progress ? (
           <View style={styles.progressWrap}>
@@ -694,49 +854,67 @@ export function IpoBulkStatusScreen() {
             </View>
 
             {statusChips.length > 0 ? (
-              <View style={styles.chipWrap}>
-                <View style={styles.chipRowWrap}>
-                  {statusChips.map((chip) => {
-                    const active =
-                      filter === chip.key ||
-                      (filter === 'all' && statusChips.length === 1);
-                    return (
-                      <Pressable
-                        key={chip.key}
-                        onPress={() => setFilter(chip.key)}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.chipScroll}
+                contentContainerStyle={styles.chipRow}
+              >
+                {statusChips.map((chip) => {
+                  const active =
+                    filter === chip.key ||
+                    (filter === 'all' && statusChips.length === 1);
+                  return (
+                    <Pressable
+                      key={chip.key}
+                      onPress={() => setFilter(chip.key)}
+                      style={[
+                        styles.chip,
+                        active && {
+                          borderColor: chip.color,
+                          backgroundColor: chipTint(chip.color, isDark),
+                        },
+                      ]}
+                    >
+                      <Text
                         style={[
-                          styles.chip,
-                          styles.chipWrapItem,
-                          active && {
-                            borderColor: chip.color,
-                            backgroundColor: chipActiveBackground(chip.color, isDark),
-                          },
+                          styles.chipText,
+                          { color: active ? chip.color : colors.textMuted },
                         ]}
+                        numberOfLines={1}
                       >
-                        <Text
-                          style={[
-                            styles.chipText,
-                            { color: active ? chip.color : colors.textMuted },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {chip.label} ({chip.count})
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
+                        {chip.label} ({chip.count})
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : null}
+
+            {applicationPhase &&
+            filter === 'rejected' &&
+            reapplyEligible.length > 0 ? (
+              <Pressable
+                style={[styles.reapplyAllBtn, reapplying && { opacity: 0.65 }]}
+                onPress={() => reapplyRows(reapplyEligible)}
+                disabled={reapplying}
+              >
+                {reapplying ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Ionicons name="refresh" size={rs(18)} color="#FFFFFF" />
+                )}
+                <Text style={styles.reapplyAllText}>
+                  Re-apply All Rejected ({reapplyEligible.length})
+                </Text>
+              </Pressable>
             ) : null}
 
             <FlatList
               style={styles.resultsList}
               data={visibleResults}
               keyExtractor={(row) => row.accountId}
-              contentContainerStyle={[
-                styles.resultsListBody,
-                { paddingBottom: tabClearance },
-              ]}
+              contentContainerStyle={styles.resultsListBody}
               refreshControl={refreshControl}
               {...ACCOUNT_LIST_FLAT_PROPS}
               ListEmptyComponent={
@@ -754,7 +932,7 @@ export function IpoBulkStatusScreen() {
                         ? STATUS_BLUE
                         : appKind === 'rejected'
                           ? REJECT_RED
-                          : RED;
+                          : CHIP_ORANGE;
                   const card = buildStatusCardStyle(color, isDark);
                   const remarks = applicationPhaseRemarks(row);
                   const mciIcon =
@@ -765,6 +943,8 @@ export function IpoBulkStatusScreen() {
                         : appKind === 'rejected'
                           ? 'alert-octagon'
                           : 'cancel';
+                  const showReapply =
+                    appKind === 'rejected' && ipoStillOpen && !reapplying;
                   return (
                     <View
                       style={[
@@ -788,12 +968,12 @@ export function IpoBulkStatusScreen() {
                           color={card.iconColor}
                         />
                       </View>
-                      <View style={{ flex: 1 }}>
+                      <View style={styles.resultBody}>
                         <Text style={[styles.resultName, { color: card.textColor }]}>
                           {idx + 1}. {row.accountName.toUpperCase()}
                         </Text>
                         <Text style={[styles.resultStatus, { color: card.textColor }]}>
-                          {applicationPhaseStatusLine(row)}
+                          {applicationPhaseDisplayLine(row)}
                         </Text>
                         {remarks ? (
                           <View
@@ -811,6 +991,27 @@ export function IpoBulkStatusScreen() {
                           </View>
                         ) : null}
                       </View>
+                      {showReapply ? (
+                        <Pressable
+                          style={[
+                            styles.rowApplyBtn,
+                            {
+                              borderColor: `${card.accent}66`,
+                              backgroundColor: isDark ? card.accent : '#FFFFFF',
+                            },
+                          ]}
+                          onPress={() => reapplyRows([row])}
+                        >
+                          <Text
+                            style={[
+                              styles.rowApplyText,
+                              { color: isDark ? '#FFFFFF' : card.accent },
+                            ]}
+                          >
+                            Apply
+                          </Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                   );
                 }
@@ -819,13 +1020,13 @@ export function IpoBulkStatusScreen() {
                 const bucket = resolveFilterBucket(row);
                 const color =
                   kind === 'allotted'
-                    ? GREEN
+                    ? CHIP_GREEN
                     : bucket === 'rejected'
-                      ? STATUS_BLUE
+                      ? CHIP_BLUE
                       : bucket === 'others'
-                        ? OTHERS_BLUE
-                        : RED;
-                const allotmentCard = buildStatusCardStyle(color, isDark);
+                        ? CHIP_PURPLE
+                        : CHIP_RED;
+                const card = buildStatusCardStyle(color, isDark);
                 const icon =
                   kind === 'allotted'
                     ? 'checkmark'
@@ -839,43 +1040,37 @@ export function IpoBulkStatusScreen() {
                     style={[
                       styles.resultCard,
                       {
-                        borderColor: allotmentCard.borderColor,
-                        backgroundColor: allotmentCard.backgroundColor,
+                        borderColor: card.borderColor,
+                        backgroundColor: card.backgroundColor,
                       },
                     ]}
                   >
                     <View
                       style={[
                         styles.resultIcon,
-                        { backgroundColor: allotmentCard.iconBackground },
+                        { backgroundColor: card.iconBackground },
                       ]}
                     >
                       <Ionicons
                         name={icon}
                         size={rs(20)}
-                        color={allotmentCard.iconColor}
+                        color={card.iconColor}
                       />
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={[styles.resultName, { color: allotmentCard.textColor }]}
-                      >
+                    <View style={styles.resultBody}>
+                      <Text style={[styles.resultName, { color: card.textColor }]}>
                         {idx + 1}. {row.accountName.toUpperCase()}
                       </Text>
-                      <Text
-                        style={[styles.resultStatus, { color: allotmentCard.textColor }]}
-                      >
+                      <Text style={[styles.resultStatus, { color: card.textColor }]}>
                         {statusLine(row)}
                       </Text>
                       <View
                         style={[
                           styles.remarkPill,
-                          { backgroundColor: allotmentCard.pillBackground },
+                          { backgroundColor: card.pillBackground },
                         ]}
                       >
-                        <Text
-                          style={[styles.remarkText, { color: allotmentCard.textColor }]}
-                        >
+                        <Text style={[styles.remarkText, { color: card.textColor }]}>
                           {amountStatusLine(row)}
                         </Text>
                       </View>
@@ -956,13 +1151,13 @@ export function IpoBulkStatusScreen() {
               )}
             />
             <Pressable
-              style={styles.modalDone}
+              style={[styles.modalDone, styles.actionBtn]}
               onPress={() => {
                 setCheckPickerOpen(false);
                 setAccountPickerFilter('');
               }}
             >
-              <Text style={styles.modalDoneText}>Done</Text>
+              <Text style={styles.actionText}>Done</Text>
             </Pressable>
           </View>
         </View>
@@ -1011,48 +1206,58 @@ export function IpoBulkStatusScreen() {
               )}
             />
             <Pressable
-              style={styles.modalDone}
+              style={[styles.modalDone, styles.actionBtn]}
               onPress={() => setCompanyPickerOpen(false)}
             >
-              <Text style={styles.modalDoneText}>Close</Text>
+              <Text style={styles.actionText}>Close</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
 
+      {toast ? (
+        <View
+          style={[
+            styles.toast,
+            toast.kind === 'success' ? styles.toastSuccess : styles.toastError,
+            { marginBottom: Math.max(insets.bottom, rs(12)) },
+          ]}
+        >
+          <Text style={styles.toastText}>{toast.text}</Text>
+        </View>
+      ) : null}
+
       <SensitiveActionModals action={sensitive} />
-    </GlassClusterBackground>
+    </View>
   );
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const boxBorder = isDark ? c.borderMuted : 'rgba(186,230,253,0.55)';
+  const fieldBg = isDark ? c.surface : BODY_BG;
+  const fieldBorder = isDark ? c.border : '#8E968E';
+  const fieldText = isDark ? c.text : '#1B2E1B';
+  const boxBorder = isDark ? c.border : '#C5CBC5';
 
   return StyleSheet.create({
+    root: { flex: 1, backgroundColor: isDark ? c.bg : BODY_BG },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: rs(16),
+      paddingHorizontal: rs(14),
       paddingVertical: rs(12),
-      backgroundColor: 'transparent',
-    },
-    headerTitleRow: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: rs(8),
-      marginHorizontal: rs(8),
+      backgroundColor: isDark ? c.bgElevated : HEADER_BG,
     },
     title: {
-      color: isDark ? c.text : '#1B2A4A',
-      fontSize: rs(17),
-      fontWeight: '800',
+      color: c.text,
+      fontSize: rs(16),
+      fontWeight: '700',
+      flex: 1,
+      textAlign: 'center',
     },
     controls: {
-      paddingHorizontal: rs(16),
-      paddingTop: rs(6),
+      paddingHorizontal: rs(18),
+      paddingTop: rs(18),
       paddingBottom: rs(4),
     },
     resultsPane: {
@@ -1062,7 +1267,87 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       minHeight: 0,
     },
     resultsList: { flex: 1 },
-    resultsListBody: {},
+    resultsListBody: { paddingBottom: rs(16) },
+    dropdown: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: fieldBorder,
+      borderRadius: rs(22),
+      paddingHorizontal: rs(16),
+      paddingVertical: rs(12),
+      minHeight: rs(46),
+      backgroundColor: fieldBg,
+      marginBottom: rs(14),
+      gap: rs(8),
+    },
+    dropdownText: {
+      flex: 1,
+      color: fieldText,
+      fontSize: rs(13),
+      fontWeight: '500',
+    },
+    dropdownPlaceholder: {
+      color: isDark ? c.textMuted : '#8A938A',
+      fontWeight: '500',
+    },
+    dropdownValue: {
+      color: isDark ? c.text : '#1B2E1B',
+      fontWeight: '600',
+    },
+    labelRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(6),
+      marginBottom: rs(10),
+    },
+    label: {
+      color: isDark ? c.text : '#1B2E1B',
+      fontSize: rs(13),
+      fontWeight: '700',
+    },
+    companyRow: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+    },
+    ipoBadge: {
+      backgroundColor: isDark ? GREEN : ACCENT,
+      borderRadius: rs(4),
+      paddingHorizontal: rs(6),
+      paddingVertical: rs(2),
+    },
+    ipoBadgeText: { color: '#FFF', fontWeight: '800', fontSize: rs(10) },
+    companyText: {
+      flex: 1,
+      color: isDark ? c.text : '#1B2E1B',
+      fontSize: rs(13),
+      fontWeight: '600',
+    },
+    actionBtn: {
+      alignSelf: 'center',
+      borderWidth: 1,
+      borderColor: isDark ? ACCENT_DARK : '#C5D0C5',
+      borderRadius: rs(24),
+      paddingHorizontal: rs(28),
+      paddingVertical: rs(12),
+      marginTop: rs(10),
+      marginBottom: rs(10),
+      minWidth: rs(168),
+      alignItems: 'center',
+      backgroundColor: isDark ? ACCENT_DARK : BODY_BG,
+      shadowColor: '#000',
+      shadowOpacity: isDark ? 0 : 0.06,
+      shadowRadius: 3,
+      shadowOffset: { width: 0, height: 1 },
+      elevation: isDark ? 0 : 1,
+    },
+    actionText: {
+      color: isDark ? '#FFFFFF' : ACCENT,
+      fontWeight: '700',
+      fontSize: rs(14),
+    },
     progressWrap: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1072,49 +1357,39 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(4),
     },
     progressText: { color: c.textSecondary, fontSize: rs(12), fontWeight: '600' },
-    chipWrap: { marginBottom: rs(12), gap: rs(8) },
-    chipRowWrap: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: rs(8),
-    },
-    chipWrapItem: {
-      flex: 0,
-      minWidth: rs(88),
+    chipScroll: {
+      flexGrow: 0,
+      flexShrink: 0,
+      paddingBottom: rs(12),
     },
     chipRow: {
       flexDirection: 'row',
+      alignItems: 'center',
       gap: rs(8),
-    },
-    chipRowBottom: {
-      flexDirection: 'row',
+      paddingRight: rs(4),
     },
     chip: {
-      flex: 1,
-      minWidth: 0,
-      borderWidth: 1,
-      borderColor: isDark ? c.border : 'rgba(186,230,253,0.7)',
+      flexShrink: 0,
+      alignSelf: 'center',
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: isDark ? c.border : '#5F6B5F',
       borderRadius: rs(16),
-      paddingHorizontal: rs(8),
+      paddingHorizontal: rs(12),
       paddingVertical: rs(6),
-      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.55)',
+      minHeight: rs(32),
+      backgroundColor: isDark ? c.surface : '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
-    },
-    chipBottom: {
-      flex: 0,
-      width: '23.5%',
-      minWidth: rs(78),
     },
     chipText: { fontSize: rs(11), fontWeight: '700', textAlign: 'center' },
     updatesBox: {
       flex: 1,
-      borderWidth: 1,
+      borderWidth: isDark ? 1 : 1.5,
       borderColor: boxBorder,
-      borderRadius: rs(16),
+      borderRadius: rs(14),
       padding: rs(12),
       minHeight: 0,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.35)',
+      backgroundColor: isDark ? 'transparent' : '#FFFFFF',
     },
     updatesHead: {
       flexDirection: 'row',
@@ -1140,38 +1415,84 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontWeight: '800',
     },
     clearText: { color: c.textMuted, fontSize: rs(12) },
-    resultCard: {
+    reapplyAllBtn: {
       flexDirection: 'row',
-      gap: rs(12),
-      borderWidth: 1.5,
-      borderRadius: rs(12),
-      padding: rs(13),
-      marginBottom: rs(10),
-      backgroundColor: cardBg,
-      alignItems: 'flex-start',
-    },
-    resultIcon: {
-      width: rs(40),
-      height: rs(40),
-      borderRadius: rs(20),
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: rs(2),
+      gap: rs(8),
+      backgroundColor: REJECT_RED,
+      borderRadius: rs(22),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(16),
+      marginBottom: rs(12),
+    },
+    reapplyAllText: {
+      color: '#FFFFFF',
+      fontWeight: '800',
+      fontSize: rs(13),
+    },
+    resultCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      borderWidth: 1,
+      borderRadius: rs(18),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(12),
+      marginBottom: rs(10),
+      marginHorizontal: rs(2),
+      alignSelf: 'stretch',
+    },
+    resultBody: { flex: 1, minWidth: 0 },
+    resultIcon: {
+      width: rs(36),
+      height: rs(36),
+      borderRadius: rs(18),
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     resultIconSquare: {
-      borderRadius: rs(8),
-      width: rs(34),
-      height: rs(34),
+      borderRadius: rs(10),
     },
-    resultName: { fontWeight: '800', fontSize: rs(13), marginBottom: rs(4) },
-    resultStatus: { fontSize: rs(12), fontWeight: '600', marginBottom: rs(8) },
+    resultName: { fontWeight: '800', fontSize: rs(12), marginBottom: rs(3) },
+    resultStatus: { fontSize: rs(11), fontWeight: '700', marginBottom: rs(6) },
     remarkPill: {
-      alignSelf: 'flex-start',
+      alignSelf: 'stretch',
       borderRadius: rs(12),
       paddingHorizontal: rs(10),
-      paddingVertical: rs(5),
+      paddingVertical: rs(6),
     },
-    remarkText: { fontSize: rs(11), fontWeight: '600' },
+    remarkText: { fontSize: rs(11), fontWeight: '600', lineHeight: rs(15) },
+    rowApplyBtn: {
+      borderWidth: 1,
+      borderRadius: rs(14),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(6),
+      alignSelf: 'center',
+    },
+    rowApplyText: { fontSize: rs(11), fontWeight: '800' },
+    toast: {
+      position: 'absolute',
+      left: rs(16),
+      right: rs(16),
+      bottom: 0,
+      borderRadius: rs(10),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(14),
+      zIndex: 20,
+    },
+    toastSuccess: {
+      backgroundColor: '#2E7D32',
+    },
+    toastError: {
+      backgroundColor: '#C62828',
+    },
+    toastText: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+      fontSize: rs(13),
+      textAlign: 'center',
+    },
     empty: { color: c.textMuted, textAlign: 'center', padding: rs(20) },
     modalBackdrop: {
       flex: 1,
@@ -1218,24 +1539,6 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       gap: rs(10),
     },
     modalRowTitle: { flex: 1, color: c.text, fontWeight: '600', fontSize: rs(13) },
-    companyRow: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(8),
-    },
-    ipoBadge: {
-      backgroundColor: isDark ? GREEN : ACCENT,
-      borderRadius: rs(4),
-      paddingHorizontal: rs(6),
-      paddingVertical: rs(2),
-    },
-    ipoBadgeText: { color: '#FFF', fontWeight: '800', fontSize: rs(10) },
     modalDone: { alignItems: 'center', paddingVertical: rs(14) },
-    modalDoneText: {
-      color: c.primary,
-      fontWeight: '800',
-      fontSize: rs(15),
-    },
   });
 }

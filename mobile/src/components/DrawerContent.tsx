@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import {
-  ImageBackground,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,7 +11,6 @@ import {
   MaterialCommunityIcons,
   Feather,
 } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import type { DrawerNavigationProp } from '@react-navigation/drawer';
@@ -21,11 +19,11 @@ import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { rs } from '../utils/responsive';
 import { SoftBadge } from './SoftBadge';
+import { BrandLogo } from './BrandLogo';
 import type { DrawerParamList, RootStackParamList } from '../navigation/types';
 
 type Item = {
   label: string;
-  accent: string;
   icon: React.ReactNode;
   badge?: 'NEW' | 'UPDATED';
   onPress?: () => void;
@@ -37,12 +35,10 @@ function Section({
   title,
   items,
   styles,
-  isDark,
 }: {
   title: string;
   items: Item[];
   styles: Styles;
-  isDark: boolean;
 }) {
   return (
     <View style={styles.section}>
@@ -51,43 +47,19 @@ function Section({
         <Text style={styles.sectionTitle}>{title}</Text>
         <View style={styles.line} />
       </View>
-      {items.map((item) => {
-        const rowColors: [string, string, string] = isDark
-          ? ['rgba(255,255,255,0.16)', `${item.accent}40`, 'rgba(30,30,30,0.72)']
-          : ['rgba(255,255,255,1)', `${item.accent}55`, `${item.accent}22`];
-        return (
-          <Pressable
-            key={item.label}
-            onPress={item.onPress}
-            style={({ pressed }) => [styles.itemWrap, pressed && styles.itemPressed]}
-          >
-            <LinearGradient
-              colors={rowColors}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.item}
-            >
-              <LinearGradient
-                colors={['rgba(255,255,255,0.9)', 'rgba(255,255,255,0.05)']}
-                start={{ x: 0.5, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
-                style={styles.itemShine}
-                pointerEvents="none"
-              />
-              <View style={styles.itemIcon}>{item.icon}</View>
-              <Text style={styles.itemLabel} numberOfLines={1}>
-                {item.label}
-              </Text>
-              {item.badge ? <SoftBadge label={item.badge} /> : null}
-              <Ionicons
-                name="chevron-forward"
-                size={rs(15)}
-                color={item.accent}
-              />
-            </LinearGradient>
-          </Pressable>
-        );
-      })}
+      {items.map((item) => (
+        <Pressable
+          key={item.label}
+          style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}
+          onPress={item.onPress}
+        >
+          <View style={styles.itemIcon}>{item.icon}</View>
+          <Text style={styles.itemLabel} numberOfLines={1}>
+            {item.label}
+          </Text>
+          {item.badge ? <SoftBadge label={item.badge} /> : null}
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -102,24 +74,14 @@ function IconWell({
   return (
     <View
       style={{
-        width: rs(38),
-        height: rs(38),
-        borderRadius: rs(12),
+        width: rs(36),
+        height: rs(36),
+        borderRadius: rs(10),
         backgroundColor: bg,
         alignItems: 'center',
         justifyContent: 'center',
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.65)',
       }}
     >
-      <LinearGradient
-        colors={['rgba(255,255,255,0.75)', 'rgba(255,255,255,0.05)']}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
       {children}
     </View>
   );
@@ -164,7 +126,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
   const market: Item[] = [
     {
       label: 'NEPSE Calendar',
-      accent: ink('#2E7D32', '#81C784'),
       icon: (
         <IconWell bg={well('#D8EDD9', '#1E3D28')}>
           <Ionicons
@@ -178,7 +139,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'Live NEPSE',
-      accent: ink('#1565C0', '#64B5F6'),
       icon: (
         <IconWell bg={well('#D6E8FA', '#1A3A55')}>
           <Feather
@@ -192,7 +152,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'Investment Summary',
-      accent: ink('#EF6C00', '#FFD54F'),
       icon: (
         <IconWell bg={well('#FFF0C2', '#4A3D14')}>
           <MaterialCommunityIcons
@@ -207,7 +166,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'Share Portfolio',
-      accent: ink('#C2185B', '#F48FB1'),
       icon: (
         <IconWell bg={well('#FAD4E4', '#4A1E38')}>
           <MaterialCommunityIcons
@@ -222,13 +180,12 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'Bulk Portfolio Check',
-      accent: ink('#1565C0', '#90CAF9'),
       icon: (
-        <IconWell bg={well('#D6E8FA', '#1A3A55')}>
+        <IconWell bg={well('#E3E8EA', '#2A3238')}>
           <Ionicons
             name="folder-outline"
             size={iconSize}
-            color={ink('#1565C0', '#90CAF9')}
+            color={ink('#455A64', '#B0BEC5')}
           />
         </IconWell>
       ),
@@ -237,7 +194,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'My Portfolio',
-      accent: ink('#EF6C00', '#FFD54F'),
       icon: (
         <IconWell bg={well('#FFF6C7', '#4A4014')}>
           <Ionicons
@@ -251,7 +207,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'Watchlist',
-      accent: ink('#00838F', '#4DD0E1'),
       icon: (
         <IconWell bg={well('#D1EFFA', '#163A4A')}>
           <Ionicons
@@ -268,7 +223,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
   const ipo: Item[] = [
     {
       label: 'IPO Result',
-      accent: ink('#2E7D32', '#81C784'),
       icon: (
         <IconWell bg={well('#D8EDD9', '#1E3D28')}>
           <Ionicons
@@ -282,13 +236,12 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'Bulk IPO Status/Result',
-      accent: ink('#3949AB', '#9FA8DA'),
       icon: (
-        <IconWell bg={well('#E8EAF6', '#1A237E')}>
+        <IconWell bg={well('#CFECE8', '#163D38')}>
           <MaterialCommunityIcons
             name="clipboard-check-outline"
             size={iconSize}
-            color={ink('#3949AB', '#9FA8DA')}
+            color={ink('#00897B', '#4DB6AC')}
           />
         </IconWell>
       ),
@@ -296,7 +249,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'Current IPO Status',
-      accent: ink('#1565C0', '#90CAF9'),
       icon: (
         <IconWell bg={well('#D6E8FA', '#1A3A55')}>
           <Ionicons
@@ -311,7 +263,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'All IPO Status',
-      accent: ink('#00838F', '#4DD0E1'),
       icon: (
         <IconWell bg={well('#CFF3F7', '#163A44')}>
           <Ionicons
@@ -326,7 +277,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'All IPO Statistics',
-      accent: ink('#2E7D32', '#A5D6A7'),
       icon: (
         <IconWell bg={well('#D8EDD9', '#1E3D28')}>
           <MaterialCommunityIcons
@@ -341,7 +291,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'Calculate WACC',
-      accent: ink('#EF6C00', '#FFD54F'),
       icon: (
         <IconWell bg={well('#FFF0C2', '#4A3D14')}>
           <MaterialCommunityIcons
@@ -356,7 +305,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'Upcoming Issues',
-      accent: ink('#C2185B', '#F48FB1'),
       icon: (
         <IconWell bg={well('#FAD4E4', '#4A2440')}>
           <Ionicons
@@ -370,7 +318,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'Current Issues',
-      accent: ink('#7B1FA2', '#CE93D8'),
       icon: (
         <IconWell bg={well('#E8D4F2', '#3A2450')}>
           <MaterialCommunityIcons
@@ -388,7 +335,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
   const resources: Item[] = [
     {
       label: 'Share News',
-      accent: ink('#455A64', '#CFD8DC'),
       icon: (
         <IconWell bg={well('#E3E8EA', '#2A3238')}>
           <Ionicons
@@ -402,7 +348,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'Share Calculator',
-      accent: ink('#EF6C00', '#FFB74D'),
       icon: (
         <IconWell bg={well('#FFE8CC', '#4A3518')}>
           <Ionicons
@@ -416,7 +361,6 @@ export function DrawerContent(props: DrawerContentComponentProps) {
     },
     {
       label: 'TMS Brokers',
-      accent: ink('#0277BD', '#81D4FA'),
       icon: (
         <IconWell bg={well('#D1EFFA', '#163A4A')}>
           <MaterialCommunityIcons
@@ -431,25 +375,17 @@ export function DrawerContent(props: DrawerContentComponentProps) {
   ];
 
   return (
-    <LinearGradient
-      colors={
-        isDark
-          ? [theme.bg, '#1A2A32']
-          : ['#CFFAFE', '#E0F2FE', '#F0FDFA']
-      }
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={[styles.root, { paddingTop: insets.top + rs(8) }]}
+    <View
+      style={[
+        styles.root,
+        { paddingTop: insets.top + rs(8) },
+      ]}
     >
-      <Pressable onPress={() => goTab('Apply')} style={styles.brandWrap}>
-        <ImageBackground
-          source={require('../../assets/drawer-header-banner.png')}
-          style={styles.brand}
-          imageStyle={styles.brandImage}
-          resizeMode="cover"
-        >
-          {isDark ? <View style={styles.brandDim} /> : null}
-        </ImageBackground>
+      <Pressable style={styles.brand} onPress={() => goTab('Apply')}>
+        <View style={styles.brandIcon}>
+          <BrandLogo variant="mark" height={rs(44)} />
+        </View>
+        <Text style={styles.brandText}>NEPSE GHAR</Text>
       </Pressable>
 
       <ScrollView
@@ -457,73 +393,63 @@ export function DrawerContent(props: DrawerContentComponentProps) {
         contentContainerStyle={{ paddingBottom: insets.bottom + rs(20) }}
         showsVerticalScrollIndicator={false}
       >
-        <Section title="MARKET & PORTFOLIO" items={market} styles={styles} isDark={isDark} />
-        <Section title="IPO STATUS & RESULTS" items={ipo} styles={styles} isDark={isDark} />
-        <Section title="RESOURCES & TOOLS" items={resources} styles={styles} isDark={isDark} />
+        <Section title="MARKET & PORTFOLIO" items={market} styles={styles} />
+        <Section title="IPO STATUS & RESULTS" items={ipo} styles={styles} />
+        <Section title="RESOURCES & TOOLS" items={resources} styles={styles} />
 
         <Text style={styles.version}>
           Version : {versionName}
           {versionCode ? ` (${versionCode})` : ''}
         </Text>
       </ScrollView>
-    </LinearGradient>
+    </View>
   );
 }
 
 function makeStyles(colors: ThemeColors, isDark: boolean) {
-  const lineBg = isDark ? '#3A3A3A' : '#A5D8F0';
+  const panelBg = isDark ? colors.bg : '#F8FBF2';
+  const rowBg = isDark ? '#2C2C2C' : '#ECEEE8';
+  const brandBg = isDark ? '#1A3320' : '#E8F5E9';
+  const brandBorder = isDark ? '#43A047' : '#2E7D32';
+  const lineBg = isDark ? '#3A3A3A' : '#C5CBC0';
 
   return StyleSheet.create({
     root: {
       flex: 1,
+      backgroundColor: panelBg,
       paddingHorizontal: rs(14),
     },
     scroll: {
       flex: 1,
     },
-    brandWrap: {
-      marginBottom: rs(10),
-      borderRadius: rs(20),
-      overflow: 'hidden',
-      borderWidth: 1.5,
-      borderColor: 'rgba(255,255,255,0.8)',
-      shadowColor: '#67E8F9',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.45,
-      shadowRadius: 10,
-      elevation: 6,
-    },
     brand: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(10),
-      minHeight: rs(76),
+      gap: rs(12),
+      borderWidth: 1.5,
+      borderColor: brandBorder,
+      backgroundColor: brandBg,
+      borderRadius: rs(18),
       paddingVertical: rs(12),
       paddingHorizontal: rs(12),
-    },
-    brandImage: {
-      borderRadius: rs(18),
-    },
-    brandDim: {
-      ...StyleSheet.absoluteFill,
-      backgroundColor: 'rgba(0,0,0,0.22)',
+      marginBottom: rs(10),
     },
     brandIcon: {
-      width: rs(48),
-      height: rs(48),
-      borderRadius: rs(12),
-      backgroundColor: '#FFFFFF',
+      width: rs(52),
+      height: rs(52),
+      borderRadius: rs(14),
+      backgroundColor: isDark ? '#122418' : '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
       overflow: 'hidden',
-      padding: rs(3),
+      padding: rs(4),
     },
     brandText: {
-      flex: 1,
-      color: isDark ? '#F8FAFC' : '#111111',
-      fontSize: rs(16),
+      color: isDark ? colors.text : '#111111',
+      fontSize: rs(17),
       fontWeight: '800',
       letterSpacing: 0.2,
+      flexShrink: 1,
     },
     section: {
       marginTop: rs(8),
@@ -541,41 +467,29 @@ function makeStyles(colors: ThemeColors, isDark: boolean) {
       backgroundColor: lineBg,
     },
     sectionTitle: {
-      color: isDark ? '#90CAF9' : '#5B8DEF',
+      color: isDark ? '#9E9E9E' : '#7A8574',
       fontSize: rs(10),
       fontWeight: '700',
       letterSpacing: 0.8,
     },
-    itemWrap: {
-      marginBottom: rs(9),
-      borderRadius: rs(18),
-      overflow: 'hidden',
-      borderWidth: 1.5,
-      borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,1)',
-      shadowColor: isDark ? '#000' : '#67E8F9',
-      shadowOffset: { width: 0, height: 3 },
-      shadowOpacity: isDark ? 0.25 : 0.45,
-      shadowRadius: 8,
-      elevation: 4,
-    },
     item: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: rs(11),
-      paddingHorizontal: rs(10),
-      gap: rs(10),
-      minHeight: rs(54),
-    },
-    itemShine: {
-      ...StyleSheet.absoluteFill,
+      backgroundColor: rowBg,
+      borderRadius: rs(16),
+      paddingVertical: rs(15),
+      paddingHorizontal: rs(14),
+      marginBottom: rs(10),
+      gap: rs(12),
+      minHeight: rs(58),
     },
     itemPressed: { opacity: 0.88 },
     itemIcon: {},
     itemLabel: {
       flex: 1,
       color: isDark ? colors.text : '#111111',
-      fontSize: rs(14),
-      fontWeight: '700',
+      fontSize: rs(16),
+      fontWeight: '600',
     },
     version: {
       textAlign: 'center',

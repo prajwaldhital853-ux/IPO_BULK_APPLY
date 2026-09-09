@@ -18,10 +18,6 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { floatingTabBarClearance } from '../components/AppTabBar';
-import { GlassClusterBackground } from '../components/GlassClusterBackground';
-import { GlassIpoPickerField } from '../components/GlassIpoPickerField';
-import { GlassPrimaryButton } from '../components/GlassPrimaryButton';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
@@ -50,7 +46,11 @@ import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
 import {
   buildStatusCardStyle,
-  chipActiveBackground,
+  CHIP_BLUE,
+  CHIP_GREEN,
+  CHIP_ORANGE,
+  CHIP_RED,
+  chipTint,
   STATUS_NOT_APPLIED,
   STATUS_REJECTED,
   STATUS_VERIFIED,
@@ -59,8 +59,10 @@ import {
 const ACCENT = '#2D5A27';
 /** Deep forest green for check CTAs in dark mode */
 const ACCENT_DARK = '#0A3A14';
+const HEADER_BG = '#E8F0E6';
+const BODY_BG = '#F6F8F2';
 const GREEN = '#2E7D32';
-/** Blue for unverified application status on this screen only. */
+/** Blue for unverified application status (glass-era semantic color). */
 const UNVERIFIED_BLUE = '#1976D2';
 
 type ResultKind = 'verified' | 'unverified' | 'rejected' | 'not_applied';
@@ -101,6 +103,17 @@ function statusLine(row: ResultAccountStatus): string {
   return 'Unverified';
 }
 
+function statusDisplayLine(row: ResultAccountStatus): string {
+  const kind = classify(row);
+  const base = statusLine(row);
+  const qty = row.appliedKitta;
+  if (qty == null || /quantity\s*:/i.test(base)) return base;
+  if (kind === 'verified') return `Verified ( quantity : ${qty} )`;
+  if (kind === 'unverified') return `Unverified ( quantity : ${qty} )`;
+  if (kind === 'rejected') return `Rejected ( quantity : ${qty} )`;
+  return base;
+}
+
 /** Full MeroShare remarks line (Block Amount Status - …). */
 function statusRemarks(row: ResultAccountStatus): string | null {
   const kind = classify(row);
@@ -131,7 +144,6 @@ export function CurrentIpoStatusScreen() {
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-  const tabClearance = floatingTabBarClearance(insets.bottom);
   const ready = useAfterInteractions();
   const modalListHeight = useMemo(
     () => Math.max(rs(160), Dimensions.get('window').height * 0.38),
@@ -166,10 +178,10 @@ export function CurrentIpoStatusScreen() {
   const chips = useMemo(() => {
     const kinds = (
       [
-        { key: 'verified', label: 'Verified', color: STATUS_VERIFIED },
-        { key: 'unverified', label: 'Unverified', color: UNVERIFIED_BLUE },
-        { key: 'rejected', label: 'Rejected', color: STATUS_REJECTED },
-        { key: 'not_applied', label: 'Not Applied', color: STATUS_NOT_APPLIED },
+        { key: 'verified', label: 'Verified', color: CHIP_GREEN },
+        { key: 'unverified', label: 'Unverified', color: CHIP_BLUE },
+        { key: 'rejected', label: 'Rejected', color: CHIP_RED },
+        { key: 'not_applied', label: 'Not Applied', color: CHIP_ORANGE },
       ] as const
     )
       .map((chip) => ({ ...chip, count: counts[chip.key] }))
@@ -240,9 +252,9 @@ export function CurrentIpoStatusScreen() {
     try {
       const list = await loadCurrentOpenIssuesForUi(accounts);
       const real = list.filter((i) => i.companyShareId !== 9001);
-      setIssues((prev) => (real.length ? real : prev));
+      setIssues(real);
       setSelected((prev) => {
-        if (!real.length) return prev;
+        if (!real.length) return null;
         const still = prev
           ? real.find((i) => i.companyShareId === prev.companyShareId)
           : null;
@@ -338,19 +350,12 @@ export function CurrentIpoStatusScreen() {
   };
 
   return (
-    <GlassClusterBackground variant="default" style={{ paddingTop: insets.top }}>
+    <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
-        <View style={styles.headerTitleRow}>
-          <MaterialCommunityIcons
-            name="chart-donut"
-            size={rs(20)}
-            color={isDark ? '#67E8F9' : '#1565C0'}
-          />
-          <Text style={styles.title}>Current IPO Status</Text>
-        </View>
+        <Text style={styles.title}>Current IPO Status</Text>
         <Pressable
           hitSlop={10}
           onPress={() =>
@@ -363,7 +368,7 @@ export function CurrentIpoStatusScreen() {
           <Ionicons
             name="information-circle-outline"
             size={rs(22)}
-            color={isDark ? '#67E8F9' : '#1565C0'}
+            color={isDark ? colors.text : ACCENT}
           />
         </Pressable>
       </View>
@@ -379,30 +384,82 @@ export function CurrentIpoStatusScreen() {
       </View>
 
       <View style={styles.controls}>
-        <GlassIpoPickerField
-          icon="accounts"
-          label={checkLabel}
-          placeholder={checkAccounts.length === accounts.length}
+        <Pressable
+          style={styles.dropdown}
           onPress={() => setCheckPickerOpen(true)}
-        />
-        <GlassIpoPickerField
-          icon="ipo"
-          label={openingLabel}
-          placeholder={!selected || loading}
+        >
+          <Text
+            style={[
+              styles.dropdownText,
+              checkAccounts.length === accounts.length &&
+                styles.dropdownPlaceholder,
+            ]}
+            numberOfLines={1}
+          >
+            {checkLabel}
+          </Text>
+          <Ionicons
+            name="caret-down"
+            size={rs(14)}
+            color={isDark ? colors.textMuted : '#6B726B'}
+          />
+        </Pressable>
+
+        <View style={styles.labelRow}>
+          <MaterialCommunityIcons
+            name="bank"
+            size={rs(16)}
+            color={isDark ? colors.textSecondary : '#1B2E1B'}
+          />
+          <Text style={styles.label}>Current Opening IPO/FPO/Right</Text>
+        </View>
+
+        <Pressable
+          style={styles.dropdown}
           onPress={() => setPickerOpen(true)}
           disabled={loading}
-          loading={loading}
-        />
-        <GlassPrimaryButton
-          label="Check Bulk Status"
+        >
+          <Text
+            style={[
+              styles.dropdownText,
+              styles.dropdownValue,
+              (!selected || loading) && styles.dropdownPlaceholder,
+            ]}
+            numberOfLines={1}
+          >
+            {openingLabel}
+          </Text>
+          {loading ? (
+            <ActivityIndicator size="small" color={ACCENT} />
+          ) : (
+            <Ionicons
+              name="caret-down"
+              size={rs(14)}
+              color={isDark ? colors.textMuted : '#6B726B'}
+            />
+          )}
+        </Pressable>
+
+        <Pressable
+          style={[styles.actionBtn, running && styles.actionBtnLoading]}
           onPress={runCheck}
-          disabled={!selected}
-          loading={running}
-        />
+          disabled={running || !selected}
+        >
+          {running ? (
+            <ActivityIndicator color={isDark ? '#FFFFFF' : ACCENT} />
+          ) : (
+            <Text style={styles.actionText}>Check Bulk Status</Text>
+          )}
+        </Pressable>
       </View>
 
       {results.length > 0 ? (
-        <View style={styles.resultsPane}>
+        <View
+          style={[
+            styles.resultsPane,
+            { paddingBottom: Math.max(insets.bottom, rs(12)) },
+          ]}
+        >
           <View style={styles.updatesBox}>
             <View style={styles.updatesHead}>
               <Text style={styles.updatesTitle}>
@@ -422,48 +479,47 @@ export function CurrentIpoStatusScreen() {
               </Pressable>
             </View>
 
-            {chips.length > 0 ? (
-              <View style={styles.chipRow}>
-                {chips.map((chip) => {
-                  const active =
-                    filter === chip.key ||
-                    (filter === 'all' && chips.length === 1);
-                  return (
-                    <Pressable
-                      key={chip.key}
-                      onPress={() => setFilter(chip.key)}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.chipScroll}
+              contentContainerStyle={styles.chipRow}
+            >
+              {chips.map((chip) => {
+                const active =
+                  filter === chip.key || (filter === 'all' && chips.length === 1);
+                return (
+                  <Pressable
+                    key={chip.key}
+                    onPress={() => setFilter(chip.key)}
+                    style={[
+                      styles.chip,
+                      {
+                        borderColor: active ? chip.color : colors.borderMuted,
+                        backgroundColor: active
+                          ? chipTint(chip.color, isDark)
+                          : 'transparent',
+                      },
+                    ]}
+                  >
+                    <Text
                       style={[
-                        styles.chip,
-                        {
-                          borderColor: active ? chip.color : colors.borderMuted,
-                          backgroundColor: active
-                            ? chipActiveBackground(chip.color, isDark)
-                            : 'transparent',
-                        },
+                        styles.chipText,
+                        { color: active ? chip.color : colors.textMuted },
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.chipText,
-                          { color: active ? chip.color : colors.textMuted },
-                        ]}
-                      >
-                        {chip.label} ({chip.count})
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
+                      {chip.label} ({chip.count})
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
 
             <FlatList
               style={styles.resultsList}
               data={visibleResults}
               keyExtractor={(row) => row.accountId}
-              contentContainerStyle={[
-                styles.resultsListBody,
-                { paddingBottom: tabClearance },
-              ]}
+              contentContainerStyle={styles.resultsListBody}
               refreshControl={refreshControl}
               {...ACCOUNT_LIST_FLAT_PROPS}
               ListEmptyComponent={
@@ -474,7 +530,8 @@ export function CurrentIpoStatusScreen() {
                 const kind = classify(row);
                 const card = kindCardTheme(kind, isDark);
                 const reason = statusRemarks(row);
-                const showApply = kind === 'not_applied' || kind === 'rejected';
+                const showApply =
+                  kind === 'not_applied' || kind === 'rejected';
                 const applyBtnColor =
                   kind === 'not_applied' ? STATUS_NOT_APPLIED : card.accent;
                 const mciIcon =
@@ -508,22 +565,22 @@ export function CurrentIpoStatusScreen() {
                         color={card.iconColor}
                       />
                     </View>
-                    <View style={{ flex: 1 }}>
+                    <View style={styles.resultBody}>
                       <Text style={[styles.resultName, { color: card.textColor }]}>
                         {idx + 1}. {row.accountName.toUpperCase()}
                       </Text>
                       <Text style={[styles.resultStatus, { color: card.textColor }]}>
-                        {statusLine(row)}
+                        {statusDisplayLine(row)}
                       </Text>
                       {reason ? (
                         <View
                           style={[
-                            styles.reasonPill,
+                            styles.remarkPill,
                             { backgroundColor: card.pillBackground },
                           ]}
                         >
                           <Text
-                            style={[styles.reasonPillText, { color: card.textColor }]}
+                            style={[styles.remarkText, { color: card.textColor }]}
                             numberOfLines={4}
                           >
                             {reason}
@@ -537,14 +594,21 @@ export function CurrentIpoStatusScreen() {
                           styles.rowApplyBtn,
                           {
                             borderColor: `${applyBtnColor}66`,
-                            backgroundColor: applyBtnColor,
+                            backgroundColor: isDark ? applyBtnColor : '#FFFFFF',
                           },
                         ]}
                         onPress={() =>
                           navigation.navigate('MainTabs', { screen: 'Apply' })
                         }
                       >
-                        <Text style={styles.rowApplyText}>Apply</Text>
+                        <Text
+                          style={[
+                            styles.rowApplyText,
+                            { color: isDark ? '#FFFFFF' : applyBtnColor },
+                          ]}
+                        >
+                          Apply
+                        </Text>
                       </Pressable>
                     ) : null}
                   </View>
@@ -635,13 +699,13 @@ export function CurrentIpoStatusScreen() {
               )}
             />
             <Pressable
-              style={styles.modalDone}
+              style={[styles.modalDone, styles.actionBtn]}
               onPress={() => {
                 setCheckPickerOpen(false);
                 setAccountPickerFilter('');
               }}
             >
-              <Text style={styles.modalDoneText}>Done</Text>
+              <Text style={styles.actionText}>Done</Text>
             </Pressable>
           </View>
         </View>
@@ -675,60 +739,126 @@ export function CurrentIpoStatusScreen() {
               )}
             />
             <Pressable
-              style={styles.modalDone}
+              style={[styles.modalDone, styles.actionBtn]}
               onPress={() => setPickerOpen(false)}
             >
-              <Text style={styles.modalDoneText}>Close</Text>
+              <Text style={styles.actionText}>Close</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
 
       <SensitiveActionModals action={sensitive} />
-    </GlassClusterBackground>
+    </View>
   );
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const boxBorder = isDark ? c.borderMuted : 'rgba(186,230,253,0.55)';
+  const fieldBg = isDark ? c.surface : BODY_BG;
+  const fieldBorder = isDark ? c.border : '#8E968E';
+  const fieldText = isDark ? c.text : '#1B2E1B';
+  const cardBg = isDark ? c.bgElevated : '#FFFFFF';
 
   return StyleSheet.create({
+    root: { flex: 1, backgroundColor: isDark ? c.bg : BODY_BG },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: rs(16),
+      paddingHorizontal: rs(14),
       paddingVertical: rs(12),
-      backgroundColor: 'transparent',
-    },
-    headerTitleRow: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: rs(8),
-      marginHorizontal: rs(8),
+      backgroundColor: isDark ? c.bgElevated : HEADER_BG,
     },
     title: {
-      color: isDark ? c.text : '#1B2A4A',
-      fontSize: rs(17),
-      fontWeight: '800',
+      color: c.text,
+      fontSize: rs(16),
+      fontWeight: '700',
+      flex: 1,
+      textAlign: 'center',
     },
+    body: { padding: rs(16), paddingBottom: rs(40) },
     controls: {
-      paddingHorizontal: rs(16),
-      paddingTop: rs(6),
+      paddingHorizontal: rs(18),
+      paddingTop: rs(18),
       paddingBottom: rs(4),
     },
     resultsList: { flex: 1, minHeight: 0 },
-    resultsListBody: {},
-    resultsPane: { flex: 1, paddingHorizontal: rs(16) },
+    resultsListBody: { paddingBottom: rs(8) },
+    dropdown: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: fieldBorder,
+      borderRadius: rs(22),
+      paddingHorizontal: rs(16),
+      paddingVertical: rs(12),
+      minHeight: rs(46),
+      backgroundColor: fieldBg,
+      marginBottom: rs(14),
+      gap: rs(8),
+    },
+    dropdownText: {
+      flex: 1,
+      color: fieldText,
+      fontSize: rs(13),
+      fontWeight: '500',
+    },
+    dropdownPlaceholder: {
+      color: isDark ? c.textMuted : '#8A938A',
+      fontWeight: '500',
+    },
+    dropdownValue: {
+      color: isDark ? c.text : '#1B2E1B',
+      fontWeight: '600',
+    },
+    labelRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(6),
+      marginBottom: rs(10),
+    },
+    label: {
+      color: isDark ? c.textSecondary : '#1B2E1B',
+      fontSize: rs(13),
+      fontWeight: '700',
+    },
+    actionBtn: {
+      alignSelf: 'center',
+      borderWidth: 1,
+      borderColor: isDark ? ACCENT_DARK : '#C5D0C5',
+      borderRadius: rs(24),
+      paddingHorizontal: rs(28),
+      paddingVertical: rs(12),
+      marginTop: rs(10),
+      marginBottom: rs(14),
+      minWidth: rs(180),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? ACCENT_DARK : BODY_BG,
+      shadowColor: '#000',
+      shadowOpacity: isDark ? 0 : 0.06,
+      shadowRadius: 3,
+      shadowOffset: { width: 0, height: 1 },
+      elevation: isDark ? 0 : 1,
+    },
+    actionBtnLoading: {
+      backgroundColor: isDark ? ACCENT_DARK : BODY_BG,
+      minWidth: rs(92),
+      paddingHorizontal: rs(24),
+    },
+    actionText: {
+      color: isDark ? '#FFFFFF' : ACCENT,
+      fontWeight: '700',
+      fontSize: rs(14),
+    },
+    resultsPane: { flex: 1, paddingHorizontal: rs(14) },
     updatesBox: {
       flex: 1,
       minHeight: 0,
       borderWidth: 1,
-      borderColor: boxBorder,
-      borderRadius: rs(16),
-      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.35)',
+      borderColor: isDark ? c.border : '#E2E6E2',
+      borderRadius: rs(12),
+      backgroundColor: cardBg,
       paddingHorizontal: rs(10),
       paddingTop: rs(10),
     },
@@ -741,68 +871,77 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     updatesTitle: { color: c.text, fontWeight: '800', fontSize: rs(13) },
     updatesCount: { color: GREEN, fontWeight: '800' },
     clearText: { color: c.textMuted, fontSize: rs(12), fontWeight: '600' },
-    chipRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: rs(8),
+    chipScroll: {
+      flexGrow: 0,
+      flexShrink: 0,
       marginTop: rs(10),
       marginBottom: rs(10),
     },
+    chipRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      paddingRight: rs(4),
+    },
     chip: {
+      flexShrink: 0,
+      alignSelf: 'center',
       borderWidth: 1,
-      borderRadius: rs(14),
+      borderRadius: rs(16),
       paddingHorizontal: rs(12),
-      paddingVertical: rs(5),
-      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.55)',
+      paddingVertical: rs(6),
+      minHeight: rs(32),
+      justifyContent: 'center',
     },
     chipText: { fontSize: rs(11), fontWeight: '700' },
     resultCard: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: rs(12),
-      borderWidth: 1.5,
-      borderRadius: rs(12),
-      padding: rs(13),
+      alignItems: 'center',
+      gap: rs(10),
+      borderWidth: 1,
+      borderRadius: rs(18),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(12),
       marginBottom: rs(10),
+      marginHorizontal: rs(2),
+      alignSelf: 'stretch',
     },
+    resultBody: { flex: 1, minWidth: 0 },
     resultIcon: {
-      width: rs(40),
-      height: rs(40),
-      borderRadius: rs(20),
+      width: rs(36),
+      height: rs(36),
+      borderRadius: rs(18),
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: rs(2),
     },
     resultIconSquare: {
-      borderRadius: rs(8),
-      width: rs(34),
-      height: rs(34),
+      borderRadius: rs(10),
     },
-    resultName: { fontWeight: '800', fontSize: rs(13), marginBottom: rs(4) },
+    resultName: { fontWeight: '800', fontSize: rs(12), marginBottom: rs(3) },
     resultStatus: {
-      fontSize: rs(12),
-      fontWeight: '600',
-      marginBottom: rs(8),
-    },
-    reasonPill: {
-      alignSelf: 'flex-start',
-      marginTop: rs(6),
-      borderRadius: rs(12),
-      paddingHorizontal: rs(10),
-      paddingVertical: rs(4),
-    },
-    reasonPillText: {
       fontSize: rs(11),
       fontWeight: '700',
+      marginBottom: rs(6),
+    },
+    remarkPill: {
+      alignSelf: 'stretch',
+      borderRadius: rs(12),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(6),
+    },
+    remarkText: {
+      fontSize: rs(11),
+      fontWeight: '600',
+      lineHeight: rs(15),
     },
     rowApplyBtn: {
       borderWidth: 1,
       borderRadius: rs(14),
-      paddingHorizontal: rs(14),
+      paddingHorizontal: rs(12),
       paddingVertical: rs(6),
-      backgroundColor: isDark ? 'transparent' : '#FFFFFF',
+      alignSelf: 'center',
     },
-    rowApplyText: { fontSize: rs(11), fontWeight: '700', color: '#FFFFFF' },
+    rowApplyText: { fontSize: rs(11), fontWeight: '800' },
     emptyScroll: { flex: 1 },
     emptyWrap: { flexGrow: 1, justifyContent: 'flex-start', paddingTop: rs(24) },
     empty: { color: c.textMuted, textAlign: 'center', padding: rs(20) },
@@ -852,10 +991,5 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     modalRowTitle: { flex: 1, color: c.text, fontWeight: '600', fontSize: rs(13) },
     modalDone: { alignItems: 'center', paddingVertical: rs(14) },
-    modalDoneText: {
-      color: c.primary,
-      fontWeight: '800',
-      fontSize: rs(15),
-    },
   });
 }

@@ -15,17 +15,11 @@ import {
   View,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { floatingTabBarClearance } from '../components/AppTabBar';
 import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
-import { ApplyInvestmentSummaryCard } from '../components/ApplyInvestmentSummaryCard';
-import { GlassClusterBackground } from '../components/GlassClusterBackground';
-import { GlassSurface } from '../components/GlassSurface';
 import {
   ApplyModalAccountRow,
   ApplySingleAccountRow,
@@ -42,16 +36,7 @@ import {
   type InvestmentSummary,
 } from '../services/nepse/premiumAnalytics';
 import type { ThemeColors } from '../theme/colors';
-import {
-  GLASS_CARD_BG,
-  GLASS_CARD_BORDER,
-  GLASS_CYAN_GLOW,
-  GLASS_GRADIENT,
-  GLASS_PAGE_BG,
-  GHAR_TEAL,
-  NEPSE_GREEN,
-  NEPSE_NAVY,
-} from '../theme/glassUi';
+import type { AccountMeta } from '../types/account';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import {
   ensureGoogleSignedInForAddAccount,
@@ -60,8 +45,6 @@ import {
 import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
 import { isUserInactive } from '../utils/accountOperational';
 import {
-  isAlreadyAppliedApplyMessage,
-  isRejectedApplicantApplyMessage,
   loadOpenIssuesForUi,
   runBulkApply,
   sanitizeMeroshareMessage,
@@ -73,7 +56,6 @@ import {
   isAppliedInMap,
   loadApplyHistory,
   markAppliedMany,
-  unmarkApplied,
 } from '../storage/applyHistory';
 import {
   daysLeftForIssue,
@@ -100,26 +82,20 @@ type ApplyRoute = RouteProp<MainTabParamList, 'Apply'>;
 
 function classifyApplyResult(r: ApplyAccountResult): Exclude<ApplyFilter, 'all'> {
   if (r.ok) return 'applied';
-  if (isAlreadyAppliedApplyMessage(r.message)) return 'applied';
-  if (isRejectedApplicantApplyMessage(r.message, r.rejectedPrevious)) {
-    return 'other';
-  }
   const m = r.message.toLowerCase();
   if (
     /invalid username|password|credential|unauthorized|wrong depository|auth/i.test(
       m,
-    ) &&
-    !/role not authorized/i.test(m)
+    )
   ) {
     return 'auth';
   }
-  if (/missing password|crn|pin/i.test(m) && !/wrong crn/i.test(m)) return 'missing';
+  if (/missing password|crn|pin/i.test(m)) return 'missing';
   if (/insufficient|balance|block.?fail/i.test(m)) return 'balance';
   return 'other';
 }
 
 function reasonLabel(r: ApplyAccountResult): string {
-  if (isAlreadyAppliedApplyMessage(r.message)) return 'Already applied';
   const kind = classifyApplyResult(r);
   if (kind === 'applied') return 'Applied';
   if (kind === 'auth') return 'Invalid login';
@@ -144,6 +120,159 @@ function csvEscape(v: string): string {
   return s;
 }
 
+type ApplySinglePaneProps = {
+  accounts: AccountMeta[];
+  appliedIds: Set<string>;
+  applyingAccountId: string | null;
+  singleResults: Record<string, ApplyAccountResult>;
+  isAccountActive: (id: string) => boolean;
+  onApply: (id: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: ThemeColors;
+  listBoxStyle: object;
+};
+
+/** Virtualized account list — only visible rows mount (safe for 200–500 accounts). */
+const ApplySingleAccountsPane = React.memo(function ApplySingleAccountsPane({
+  accounts,
+  appliedIds,
+  applyingAccountId,
+  singleResults,
+  isAccountActive,
+  onApply,
+  styles,
+  colors,
+  listBoxStyle,
+}: ApplySinglePaneProps) {
+  const renderItem = useCallback(
+    ({ item, index }: { item: AccountMeta; index: number }) => {
+      const rowResult = singleResults[item.id];
+      const applied = appliedIds.has(item.id);
+      const resultMessage = rowResult
+        ? rowResult.ok
+          ? reasonLabel(rowResult)
+          : applyDisplayMessage(rowResult)
+        : null;
+      return (
+        <ApplySingleAccountRow
+          account={item}
+          index={index}
+          applied={applied}
+          locked={!isAccountActive(item.id) || isUserInactive(item)}
+          applying={applyingAccountId === item.id}
+          resultMessage={resultMessage}
+          resultOk={rowResult?.ok}
+          onApply={onApply}
+          styles={styles}
+          colors={colors}
+        />
+      );
+    },
+    [
+      appliedIds,
+      applyingAccountId,
+      colors,
+      isAccountActive,
+      onApply,
+      singleResults,
+      styles,
+    ],
+  );
+
+  return (
+    <View style={listBoxStyle}>
+      <FlatList
+        data={accounts}
+        keyExtractor={(item) => item.id}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator
+        renderItem={renderItem}
+        extraData={applyingAccountId}
+        {...ACCOUNT_LIST_FLAT_PROPS}
+      />
+    </View>
+  );
+});
+
+type BulkUpdatesPaneProps = {
+  results: ApplyAccountResult[];
+  running: boolean;
+  accounts: AccountMeta[];
+  onRetry: (accountId: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: ThemeColors;
+  listBoxStyle: object;
+};
+
+/** Virtualized bulk apply result cards — safe for 300–400 accounts. */
+const BulkApplyUpdatesPane = React.memo(function BulkApplyUpdatesPane({
+  results,
+  running,
+  accounts,
+  onRetry,
+  styles,
+  colors,
+  listBoxStyle,
+}: BulkUpdatesPaneProps) {
+  const renderItem = useCallback(
+    ({ item, index }: { item: ApplyAccountResult; index: number }) => {
+      const ok = item.ok;
+      const cardStyle = ok ? styles.updateCardOk : styles.updateCardFail;
+      const acc = accounts.find((a) => a.id === item.accountId);
+      const label = (acc?.name || item.accountName || item.username || '').trim();
+      const rowTitle = `IPO@${label.toUpperCase()}`;
+      return (
+        <View style={cardStyle}>
+          <Ionicons
+            name={ok ? 'checkmark-circle' : 'alert-circle'}
+            size={rs(22)}
+            color={ok ? colors.accentGreen : colors.danger}
+          />
+          <View style={styles.updateBody}>
+            <Text style={styles.updateName}>
+              {index + 1}. {rowTitle}
+            </Text>
+            <Text
+              style={[
+                styles.updateMsg,
+                ok ? styles.updateMsgOk : styles.updateMsgFail,
+              ]}
+              numberOfLines={3}
+            >
+              {ok ? reasonLabel(item) : applyDisplayMessage(item)}
+            </Text>
+          </View>
+          {!ok && !running ? (
+            <Pressable
+              style={styles.updateApplyBtn}
+              onPress={() => onRetry(item.accountId)}
+            >
+              <Text style={styles.updateApplyText}>Apply</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      );
+    },
+    [accounts, colors, onRetry, running, styles],
+  );
+
+  return (
+    <View style={listBoxStyle}>
+      <FlatList
+        data={results}
+        keyExtractor={(item) => item.accountId}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator
+        renderItem={renderItem}
+        extraData={running}
+        {...ACCOUNT_LIST_FLAT_PROPS}
+      />
+    </View>
+  );
+});
+
 export function ApplyScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -156,10 +285,8 @@ export function ApplyScreen() {
   const { user, isAuthenticated, signInWithGoogle } = useAuth();
   const { isPremium, maxAccounts } = useSubscription();
   const { colors, isDark } = useTheme();
-  const insets = useSafeAreaInsets();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-  const tabClearance = floatingTabBarClearance(insets.bottom);
 
   const goAddCapital = useCallback(() => {
     void (async () => {
@@ -202,6 +329,10 @@ export function ApplyScreen() {
   const [selected, setSelected] = useState<OpenIssue | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [running, setRunning] = useState(false);
+  const [applyingAccountId, setApplyingAccountId] = useState<string | null>(null);
+  const [singleResults, setSingleResults] = useState<
+    Record<string, ApplyAccountResult>
+  >({});
   const [summary, setSummary] = useState<BulkApplySummary | null>(null);
   const [applyResults, setApplyResults] = useState<ApplyAccountResult[]>([]);
   const [applyProgress, setApplyProgress] = useState<{
@@ -242,9 +373,9 @@ export function ApplyScreen() {
       const list = await enrichIssuesWithClosingDates(
         await loadOpenIssuesForUi(accounts),
       );
-      setIssues((prev) => (list.length ? list : prev));
+      setIssues(list);
       setSelected((prev) => {
-        if (!list.length) return prev;
+        if (!list.length) return null;
         if (highlightSymbol || highlightName) {
           const fromPush = list.find((i) => {
             const sym = (i.scrip || '').toUpperCase();
@@ -330,20 +461,37 @@ export function ApplyScreen() {
     };
   }, [historyTick, companyShareId]);
 
+  const appliedAccountIds = useMemo(() => {
+    if (companyShareId == null) return new Set<string>();
+    const ids = new Set<string>();
+    for (const a of operationalAccounts) {
+      if (isAppliedInMap(historyMap, a.id, companyShareId)) ids.add(a.id);
+    }
+    return ids;
+  }, [companyShareId, historyMap, operationalAccounts]);
+
   const alreadyApplied = useCallback(
-    (accountId: string) => {
-      if (companyShareId == null) return false;
-      return isAppliedInMap(historyMap, accountId, companyShareId);
-    },
-    [companyShareId, historyMap],
+    (accountId: string) => appliedAccountIds.has(accountId),
+    [appliedAccountIds],
   );
 
   const checkedEligible = useMemo(() => {
     if (!selected) return [];
     return operationalAccounts.filter(
-      (a) => selectedIds[a.id] && !alreadyApplied(a.id),
+      (a) => selectedIds[a.id] && !appliedAccountIds.has(a.id),
     );
-  }, [operationalAccounts, selectedIds, selected, alreadyApplied]);
+  }, [appliedAccountIds, operationalAccounts, selectedIds, selected]);
+
+  const openResultModal = useCallback((result: BulkApplySummary) => {
+    const batchKey = `${result.companyShareId}-${result.kitta}-${result.results.length}`;
+    if (resultModalBatchKeyRef.current === batchKey) return;
+    resultModalBatchKeyRef.current = batchKey;
+    setResultModalOpen(true);
+  }, []);
+
+  const clearApplyingState = useCallback(() => {
+    setApplyingAccountId(null);
+  }, []);
 
   const promptLocked = useCallback(() => {
     showLockedAccountAlert(() => navigation.navigate('Subscription'));
@@ -393,11 +541,7 @@ export function ApplyScreen() {
   ) => {
     // Only lock accounts after a real live apply
     const rows = result.results
-      .filter(
-        (r) =>
-          !r.dryRun &&
-          (r.ok || isAlreadyAppliedApplyMessage(r.message)),
-      )
+      .filter((r) => r.ok && !r.dryRun)
       .map((r) => ({
         accountId: r.accountId,
         companyShareId: companyId,
@@ -471,7 +615,7 @@ export function ApplyScreen() {
   }, [checkedEligible, kitta, selected, sensitive]);
 
   const runSingle = useCallback(
-    (accountId: string, opts?: { reapply?: boolean }) => {
+    (accountId: string) => {
       const acc = accounts.find((a) => a.id === accountId);
       if (!acc || !isAccountActive(accountId) || isUserInactive(acc)) {
         promptLocked();
@@ -488,7 +632,7 @@ export function ApplyScreen() {
         );
         return;
       }
-      if (!opts?.reapply && alreadyApplied(accountId)) {
+      if (alreadyApplied(accountId)) {
         Alert.alert(
           'Already applied',
           'This account already applied for this IPO (one apply per account per IPO).',
@@ -497,16 +641,17 @@ export function ApplyScreen() {
       }
       const one = accounts.filter((a) => a.id === accountId);
       if (!one.length) return;
+
+      resultModalBatchKeyRef.current = null;
+      setApplyingAccountId(accountId);
+      setSingleResults((prev) => {
+        const next = { ...prev };
+        delete next[accountId];
+        return next;
+      });
+
       const execute = () => {
         void (async () => {
-          if (opts?.reapply) {
-            await unmarkApplied(accountId, selected.companyShareId);
-            setHistoryTick((t) => t + 1);
-          }
-          setRunning(true);
-          resultModalBatchKeyRef.current = null;
-          setApplyResults([]);
-          setApplyProgress({ done: 0, total: 1 });
           try {
             const result = await runBulkApply({
               accounts: one,
@@ -514,26 +659,33 @@ export function ApplyScreen() {
               kitta,
               dryRun: false,
               simulateLogin: false,
-              onAccountResult: (row, index, total) => {
-                setApplyResults((prev) => [...prev, row]);
-                setApplyProgress({ done: index + 1, total });
-              },
             });
+            const row = result.results[0];
             setSummary(result);
-            await persistSuccessful(result, selected.companyShareId);
-          } finally {
-            setRunning(false);
-            setApplyProgress(null);
+            setApplyResults(result.results);
+            if (row) {
+              setSingleResults((prev) => ({ ...prev, [accountId]: row }));
+            }
+            setApplyingAccountId(null);
+            openResultModal(result);
+            if (row?.ok) {
+              void persistSuccessful(result, selected.companyShareId);
+            }
+          } catch {
+            setApplyingAccountId(null);
           }
         })();
       };
-      void sensitive.requestSensitiveAction(execute);
+      void sensitive.requestSensitiveAction(execute, {
+        pinPolicy: 'skipIfUnlocked',
+      });
     },
     [
       accounts,
       alreadyApplied,
       isAccountActive,
       kitta,
+      openResultModal,
       promptLocked,
       selected,
       sensitive,
@@ -576,18 +728,14 @@ export function ApplyScreen() {
     return counts;
   }, [applyResults]);
 
-  const failedApplyCount = useMemo(
-    () =>
-      applyResults.filter(
-        (r) =>
-          !r.ok &&
-          !isAlreadyAppliedApplyMessage(r.message) &&
-          !isRejectedApplicantApplyMessage(r.message, r.rejectedPrevious),
-      ).length,
-    [applyResults],
-  );
+  const failedApplyCount = applyResults.length - applyCounts.applied;
   const showBulkUpdates = running || applyResults.length > 0;
   const daysLeft = daysLeftForIssue(selected);
+
+  useEffect(() => {
+    setSingleResults({});
+    setApplyingAccountId(null);
+  }, [companyShareId]);
 
   useEffect(() => {
     if (!selected) return;
@@ -622,13 +770,7 @@ export function ApplyScreen() {
     modalTotal > 0 ? Math.round((modalSuccess / modalTotal) * 100) : 0;
   const modalNeedsAttention = modalIssues > 0;
   const modalIssueRows = useMemo(
-    () =>
-      applyResults.filter(
-        (r) =>
-          !r.ok &&
-          !isAlreadyAppliedApplyMessage(r.message) &&
-          !isRejectedApplicantApplyMessage(r.message, r.rejectedPrevious),
-      ),
+    () => applyResults.filter((r) => !r.ok),
     [applyResults],
   );
 
@@ -645,112 +787,6 @@ export function ApplyScreen() {
     setSummary(null);
     setApplyProgress(null);
   }, []);
-
-  const renderSingleAccountRows = () => (
-    <FlatList
-      data={operationalAccounts}
-      keyExtractor={(item) => item.id}
-      scrollEnabled={false}
-      {...ACCOUNT_LIST_FLAT_PROPS}
-      renderItem={({ item, index }) => (
-        <ApplySingleAccountRow
-          account={item}
-          index={index}
-          applied={alreadyApplied(item.id)}
-          locked={!isAccountActive(item.id) || isUserInactive(item)}
-          running={running}
-          onApply={runSingle}
-          styles={styles}
-          colors={colors}
-        />
-      )}
-    />
-  );
-
-  const renderUpdateCard = (r: ApplyAccountResult, index: number) => {
-    const alreadyAppliedRow = isAlreadyAppliedApplyMessage(r.message);
-    const rejectedRow = isRejectedApplicantApplyMessage(
-      r.message,
-      r.rejectedPrevious,
-    );
-    const canReapply = Boolean(r.canReapply);
-    const ok = r.ok;
-    const cardStyle = ok
-      ? styles.updateCardOk
-      : alreadyAppliedRow
-        ? styles.updateCardInfo
-        : rejectedRow
-          ? styles.updateCardRejected
-          : styles.updateCardFail;
-    const acc = accounts.find((a) => a.id === r.accountId);
-    const label = (acc?.name || r.accountName || r.username || '').trim();
-    const rowTitle = `IPO@${label.toUpperCase()}`;
-    const iconName = ok
-      ? 'checkmark-circle'
-      : alreadyAppliedRow
-        ? 'information-circle'
-        : rejectedRow
-          ? 'alert-circle-outline'
-          : 'alert-circle';
-    const iconColor = ok
-      ? colors.accentGreen
-      : alreadyAppliedRow
-        ? colors.primary
-        : rejectedRow
-          ? colors.chipOrange ?? '#EF6C00'
-          : colors.danger;
-    const displayMsg =
-      ok || alreadyAppliedRow || rejectedRow
-        ? applyDisplayMessage(r)
-        : applyDisplayMessage(r);
-    const showAction =
-      !ok && !alreadyAppliedRow && !running && (rejectedRow ? canReapply : true);
-    return (
-      <View key={r.accountId} style={cardStyle}>
-        <Ionicons name={iconName} size={rs(22)} color={iconColor} />
-        <View style={styles.updateBody}>
-          <Text style={styles.updateName}>
-            {index + 1}. {rowTitle}
-          </Text>
-          <Text
-            style={[
-              styles.updateMsg,
-              ok
-                ? styles.updateMsgOk
-                : alreadyAppliedRow
-                  ? styles.updateMsgInfo
-                  : rejectedRow
-                    ? styles.updateMsgRejected
-                    : styles.updateMsgFail,
-            ]}
-            numberOfLines={4}
-          >
-            {displayMsg}
-          </Text>
-        </View>
-        {showAction ? (
-          <Pressable
-            style={[
-              styles.updateApplyBtn,
-              rejectedRow && canReapply && styles.updateReapplyBtn,
-            ]}
-            onPress={() =>
-              runSingle(r.accountId, { reapply: rejectedRow && canReapply })
-            }
-          >
-            <Text
-              style={[
-                styles.updateApplyText,
-                rejectedRow && canReapply && styles.updateReapplyText,
-              ]}
-            >
-              {rejectedRow && canReapply ? 'Reapply' : 'Apply'}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
-    );
-  };
 
   const renderBulkUpdatesHeader = () => {
     const total = applyResults.length || applyProgress?.total || 0;
@@ -793,43 +829,47 @@ export function ApplyScreen() {
   const renderBulkAutoApply = () =>
     mode === 'Bulk' ? (
       <Pressable
-        style={[styles.autoApplyWrap, running && styles.autoApplyDisabled]}
+        style={[styles.autoApply, running && styles.autoApplyDisabled]}
         onPress={confirmBulkApply}
         disabled={running}
       >
-        <LinearGradient
-          colors={GLASS_GRADIENT}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={styles.autoApply}
-        >
-          {running ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <>
-              <MaterialCommunityIcons
-                name="lightning-bolt"
-                size={rs(18)}
-                color="#FFFFFF"
-              />
-              <Text style={styles.autoApplyText}>Auto Apply</Text>
-              <Ionicons name="chevron-forward" size={rs(18)} color="#FFFFFF" />
-            </>
-          )}
-        </LinearGradient>
+        {running ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <Text style={styles.autoApplyText}>Auto Apply</Text>
+        )}
       </Pressable>
     ) : null;
 
   const renderFormTopSection = () => (
     <>
-      <ApplyInvestmentSummaryCard
-        displayName={displayName}
-        currentValueText={currentValueText}
-        plText={plText}
-        hideValues={hideValues}
-        onToggleHide={() => setHideValues((v) => !v)}
-        onOpenSummary={() => navigation.navigate('InvestmentSummary')}
-      />
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryName}>{displayName}</Text>
+        <View style={styles.summaryValueRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.summaryLabel}>Total current value</Text>
+            <Text style={styles.summaryValue}>{currentValueText}</Text>
+          </View>
+          <View style={styles.summarySide}>
+            <View style={styles.plPill}>
+              <Text style={styles.plPillText}>{plText}</Text>
+              <Pressable onPress={() => setHideValues((v) => !v)} hitSlop={8}>
+                <Ionicons
+                  name={hideValues ? 'eye-off-outline' : 'eye-outline'}
+                  size={rs(14)}
+                  color={colors.text}
+                />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+        <Pressable
+          style={styles.summaryBtn}
+          onPress={() => navigation.navigate('InvestmentSummary')}
+        >
+          <Text style={styles.summaryBtnText}>Current Investment Summary</Text>
+        </Pressable>
+      </View>
 
       <View style={styles.modeBar}>
         <Pressable
@@ -847,42 +887,22 @@ export function ApplyScreen() {
           />
         </Pressable>
         <View style={styles.modeToggle}>
-          {(['Bulk', 'Single'] as const).map((m) => {
-            const active = mode === m;
-            const color = active ? '#FFFFFF' : isDark ? '#9AA0A6' : '#64748B';
-            return (
-              <Pressable
-                key={m}
-                onPress={() => setMode(m)}
-                style={styles.modeBtn}
+          {(['Bulk', 'Single'] as const).map((m) => (
+            <Pressable
+              key={m}
+              onPress={() => setMode(m)}
+              style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
+            >
+              <Text
+                style={[
+                  styles.modeText,
+                  mode === m && styles.modeTextActive,
+                ]}
               >
-                {active ? (
-                  <LinearGradient
-                    colors={GLASS_GRADIENT}
-                    start={{ x: 0, y: 0.5 }}
-                    end={{ x: 1, y: 0.5 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                ) : null}
-                {m === 'Bulk' ? (
-                  <MaterialCommunityIcons
-                    name={active ? 'account-group' : 'account-group-outline'}
-                    size={rs(15)}
-                    color={color}
-                  />
-                ) : (
-                  <Ionicons
-                    name={active ? 'person' : 'person-outline'}
-                    size={rs(15)}
-                    color={color}
-                  />
-                )}
-                <Text style={[styles.modeText, active && styles.modeTextActive]}>
-                  {m}
-                </Text>
-              </Pressable>
-            );
-          })}
+                {m}
+              </Text>
+            </Pressable>
+          ))}
         </View>
         <Pressable
           onPress={() =>
@@ -892,66 +912,39 @@ export function ApplyScreen() {
             )
           }
           hitSlop={8}
-          style={styles.modeInfoBtn}
+          style={styles.modeSideBtn}
         >
           <Ionicons
             name="information-circle-outline"
-            size={rs(20)}
-            color={isDark ? colors.text : NEPSE_NAVY}
+            size={rs(18)}
+            color={colors.textSecondary}
           />
         </Pressable>
       </View>
     </>
   );
 
-  const renderGlassField = (
-    children: React.ReactNode,
-    onPress?: () => void,
-    disabled?: boolean,
-  ) => {
-    const shell = (
-      <GlassSurface style={styles.glassFieldCard} borderRadius={rs(16)}>
-        {children}
-      </GlassSurface>
-    );
-    if (onPress) {
-      return (
-        <Pressable onPress={onPress} disabled={disabled}>
-          {shell}
-        </Pressable>
-      );
-    }
-    return shell;
-  };
-
   const renderCategoryDropdown = () =>
-    mode === 'Bulk'
-      ? renderGlassField(
-          <View style={styles.glassFieldRow}>
-            <View style={styles.fieldIconWell}>
-              <MaterialCommunityIcons
-                name="view-grid-outline"
-                size={rs(16)}
-                color={isDark ? '#86EFAC' : NEPSE_GREEN}
-              />
-            </View>
-            <Text style={styles.dropdownValueText} numberOfLines={1}>
-              {checkedEligible.length === operationalAccounts.length ||
-              checkedEligible.length === eligibleCount
-                ? 'Select Category (All Accounts)'
-                : checkedEligible.length === 1
-                  ? `${checkedEligible[0].name.toUpperCase()} - ${checkedEligible[0].username}`
-                  : `Select Category (${checkedEligible.length} accounts)`}
-            </Text>
-            <Ionicons
-              name="chevron-down"
-              size={rs(18)}
-              color={colors.textMuted}
-            />
-          </View>,
-          () => setAccountsModalOpen(true),
-        )
-      : null;
+    mode === 'Bulk' ? (
+      <Pressable
+        style={styles.dropdown}
+        onPress={() => setAccountsModalOpen(true)}
+      >
+        <Text style={styles.dropdownText} numberOfLines={1}>
+          {checkedEligible.length === operationalAccounts.length ||
+          checkedEligible.length === eligibleCount
+            ? 'Select Category (All Accounts)'
+            : checkedEligible.length === 1
+              ? `${checkedEligible[0].name.toUpperCase()} - ${checkedEligible[0].username}`
+              : `Select Category (${checkedEligible.length} accounts)`}
+        </Text>
+        <Ionicons
+          name="chevron-down"
+          size={rs(18)}
+          color={colors.textMuted}
+        />
+      </Pressable>
+    ) : null;
 
   const renderDaysLeftBadge = () =>
     daysLeft ? (
@@ -965,78 +958,71 @@ export function ApplyScreen() {
       </View>
     ) : null;
 
-  const renderIpoFieldSection = () =>
-    renderGlassField(
-      <>
-        <View style={styles.labelRowBetween}>
-          <View style={styles.labelRowLeftInline}>
-            <View style={styles.fieldIconWell}>
-              <MaterialCommunityIcons
-                name="bank-outline"
-                size={rs(16)}
-                color={isDark ? '#86EFAC' : NEPSE_GREEN}
-              />
-            </View>
-            <Text style={styles.fieldLabel}>Current Opening IPO/FPO/Right</Text>
-          </View>
-          {renderDaysLeftBadge()}
-        </View>
-        <View style={styles.innerDropdown}>
-          <Text
-            style={[
-              styles.dropdownValueText,
-              !hasRealOpening && styles.dropdownPlaceholder,
-            ]}
-            numberOfLines={1}
-          >
-            {openingLabel}
-          </Text>
-          {loadingIssues ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <Ionicons
-              name="chevron-down"
-              size={rs(18)}
-              color={colors.textMuted}
-            />
-          )}
-        </View>
-      </>,
-      () => setPickerOpen(true),
-      loadingIssues,
-    );
-
-  const renderQuantityField = () =>
-    renderGlassField(
-      <>
+  const renderIpoFieldSection = () => (
+    <View style={styles.fieldBlock}>
+      <View style={styles.labelRowBetween}>
         <View style={styles.labelRowLeftInline}>
-          <View style={styles.fieldIconWell}>
-            <Text style={styles.hash}>#</Text>
-          </View>
-          <Text style={styles.fieldLabel}>Quantity</Text>
-        </View>
-        <View style={styles.innerDropdown}>
-          <TextInput
-            value={qty}
-            onChangeText={setQty}
-            keyboardType="number-pad"
-            style={styles.qtyInput}
-            placeholder="10"
-            placeholderTextColor={colors.textMuted}
+          <MaterialCommunityIcons
+            name="bank-outline"
+            size={rs(16)}
+            color={colors.text}
           />
+          <Text style={styles.fieldLabel}>Current Opening IPO/FPO/Right</Text>
         </View>
-      </>,
-    );
+        {renderDaysLeftBadge()}
+      </View>
+      <Pressable
+        style={styles.dropdown}
+        onPress={() => setPickerOpen(true)}
+        disabled={loadingIssues}
+      >
+        <Text
+          style={[
+            styles.dropdownValueText,
+            !hasRealOpening && styles.dropdownPlaceholder,
+          ]}
+          numberOfLines={1}
+        >
+          {openingLabel}
+        </Text>
+        {loadingIssues ? (
+          <ActivityIndicator size="small" color={colors.primary} />
+        ) : (
+          <Ionicons
+            name="chevron-down"
+            size={rs(18)}
+            color={colors.textMuted}
+          />
+        )}
+      </Pressable>
+    </View>
+  );
+
+  const renderQuantityField = () => (
+    <View style={styles.fieldBlock}>
+      <View style={styles.labelRowLeftInline}>
+        <Text style={styles.hash}>#</Text>
+        <Text style={styles.fieldLabel}>Quantity</Text>
+      </View>
+      <View style={styles.dropdown}>
+        <TextInput
+          value={qty}
+          onChangeText={setQty}
+          keyboardType="number-pad"
+          style={styles.qtyInput}
+          placeholder="10"
+          placeholderTextColor={colors.textMuted}
+        />
+      </View>
+    </View>
+  );
 
   useEffect(() => {
+    if (mode !== 'Bulk') return;
     if (!running && summary && applyResults.length > 0) {
-      const batchKey = `${summary.companyShareId}-${summary.kitta}-${applyResults.length}`;
-      if (resultModalBatchKeyRef.current !== batchKey) {
-        resultModalBatchKeyRef.current = batchKey;
-        setResultModalOpen(true);
-      }
+      openResultModal(summary);
     }
-  }, [running, summary, applyResults.length]);
+  }, [mode, openResultModal, running, summary, applyResults.length]);
 
   const shareApplyExcel = useCallback(async () => {
     const company = summary?.companyName ?? selected?.companyName ?? 'IPO';
@@ -1064,15 +1050,53 @@ export function ApplyScreen() {
     }
   }, [applyResults, selected?.companyName, summary?.companyName]);
 
+  const renderApplyFormHeader = () => (
+    <>
+      <OverQuotaBanner />
+      {renderFormTopSection()}
+      {renderCategoryDropdown()}
+      {renderIpoFieldSection()}
+      {renderQuantityField()}
+      {mode === 'Bulk' ? renderBulkAutoApply() : null}
+    </>
+  );
+
+  const headerActions = (
+    <View style={styles.headerActions}>
+      <Pressable
+        onPress={() => navigation.navigate('NepseCalendar')}
+        hitSlop={8}
+        style={[styles.headerIconBtn, { backgroundColor: colors.primary }]}
+      >
+        <MaterialCommunityIcons name="calendar-month" size={rs(20)} color="#FFFFFF" />
+      </Pressable>
+      <Pressable
+        onPress={() => navigation.navigate('FinancialNews')}
+        hitSlop={8}
+        style={[
+          styles.headerIconBtn,
+          { backgroundColor: colors.surface, borderColor: colors.border },
+        ]}
+      >
+        <Ionicons name="newspaper-outline" size={rs(18)} color={colors.text} />
+        <View style={[styles.headerDot, { backgroundColor: colors.badgeNew }]} />
+      </Pressable>
+    </View>
+  );
+
   return (
     <ProtectedPersonalScreen
       title="Sign in to bulk apply"
       subtitle="Sign in with Google to add accounts and sync them across your phones."
     >
-    <View style={styles.root}>
-      <GlassClusterBackground variant="apply">
-      <AppHeader onMenuPress={openDrawer} variant="branded" />
-      <AdminPromoBanner page="apply" art="home" />
+    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+      <AppHeader
+        onMenuPress={openDrawer}
+        title="IPO Bulk Apply"
+        showLogo={false}
+        right={headerActions}
+      />
+      <AdminPromoBanner page="apply" />
 
       {accounts.length === 0 ? (
         <View style={styles.emptyWrap}>
@@ -1102,54 +1126,40 @@ export function ApplyScreen() {
       ) : (
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: tabClearance },
-          ]}
+          contentContainerStyle={styles.scrollContent}
           refreshControl={refreshControl}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator
         >
-          <OverQuotaBanner />
-          {renderFormTopSection()}
-          <View style={styles.formFields}>
-            {renderCategoryDropdown()}
-            {renderIpoFieldSection()}
-            {renderQuantityField()}
-          </View>
-          {mode === 'Bulk' ? renderBulkAutoApply() : null}
+          {renderApplyFormHeader()}
           {mode === 'Bulk' ? (
             showBulkUpdates ? (
               <>
                 {renderBulkUpdatesHeader()}
                 {renderBulkUpdatesWaiting()}
-                {applyResults.length > 5 ? (
-                  <View style={styles.resultsBox}>
-                    <ScrollView
-                      nestedScrollEnabled
-                      keyboardShouldPersistTaps="handled"
-                      showsVerticalScrollIndicator
-                    >
-                      {renderBulkUpdateCards()}
-                    </ScrollView>
-                  </View>
-                ) : (
-                  renderBulkUpdateCards()
-                )}
+                <BulkApplyUpdatesPane
+                  results={applyResults}
+                  running={running}
+                  accounts={accounts}
+                  onRetry={runSingle}
+                  styles={styles}
+                  colors={colors}
+                  listBoxStyle={styles.resultsBox}
+                />
               </>
             ) : null
-          ) : accounts.length > 5 ? (
-            <View style={styles.resultsBox}>
-              <ScrollView
-                nestedScrollEnabled
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator
-              >
-                {renderSingleAccountRows()}
-              </ScrollView>
-            </View>
           ) : (
-            renderSingleAccountRows()
+            <ApplySingleAccountsPane
+              accounts={operationalAccounts}
+              appliedIds={appliedAccountIds}
+              applyingAccountId={applyingAccountId}
+              singleResults={singleResults}
+              isAccountActive={isAccountActive}
+              onApply={runSingle}
+              styles={styles}
+              colors={colors}
+              listBoxStyle={styles.resultsBox}
+            />
           )}
         </ScrollView>
       )}
@@ -1389,27 +1399,28 @@ export function ApplyScreen() {
         </View>
       </Modal>
 
-      <SensitiveActionModals action={sensitive} />
-      </GlassClusterBackground>
+      <SensitiveActionModals
+        action={sensitive}
+        onDismiss={clearApplyingState}
+      />
     </View>
     </ProtectedPersonalScreen>
   );
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const pageBg = isDark ? c.bg : GLASS_PAGE_BG;
-  const cardBg = isDark ? c.surface : GLASS_CARD_BG;
-  const cardBorder = isDark ? c.borderMuted : GLASS_CARD_BORDER;
-  const fieldBg = isDark ? c.surfaceAlt : 'rgba(255,255,255,0.55)';
-  const fieldBorder = isDark ? c.borderMuted : 'rgba(186,230,253,0.9)';
-  const ink = isDark ? c.text : NEPSE_NAVY;
-  const inkMuted = isDark ? c.textSecondary : '#64748B';
+  const cardBg = c.bg;
+  const fieldBg = c.bg;
+  const fieldBorder = isDark ? c.borderMuted : '#B8B8B8';
+  const ink = isDark ? c.text : '#1B1B1B';
+  const inkMuted = isDark ? c.textSecondary : '#5A6556';
 
   return StyleSheet.create({
-    root: { flex: 1 },
+    root: { flex: 1, backgroundColor: c.bg },
     scroll: { flex: 1 },
     scrollContent: {
       padding: rs(16),
+      paddingBottom: rs(32),
     },
     resultsBox: {
       height: rs(400),
@@ -1495,40 +1506,21 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderRadius: rs(4),
     },
     summaryCard: {
-      borderWidth: 1.5,
-      borderColor: cardBorder,
-      borderRadius: rs(20),
-      paddingHorizontal: rs(14),
-      paddingTop: rs(14),
-      paddingBottom: rs(12),
+      borderWidth: 1,
+      borderColor: isDark ? c.borderMuted : '#D8D6CF',
+      borderRadius: rs(11),
+      paddingHorizontal: rs(12),
+      paddingTop: rs(10),
+      paddingBottom: rs(10),
       backgroundColor: cardBg,
-      marginBottom: rs(12),
-      shadowColor: GLASS_CYAN_GLOW,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0 : 0.3,
-      shadowRadius: 10,
-      elevation: isDark ? 0 : 3,
-    },
-    summaryTopRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(10),
-      marginBottom: rs(8),
-    },
-    summaryIconWell: {
-      width: rs(34),
-      height: rs(34),
-      borderRadius: rs(17),
-      backgroundColor: isDark ? NEPSE_GREEN : GHAR_TEAL,
-      alignItems: 'center',
-      justifyContent: 'center',
+      marginBottom: rs(10),
     },
     summaryName: {
-      flex: 1,
       color: ink,
       fontWeight: '800',
-      fontSize: rs(13),
+      fontSize: rs(12),
       letterSpacing: 0.3,
+      marginBottom: rs(5),
     },
     summaryValueRow: {
       flexDirection: 'row',
@@ -1542,9 +1534,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(1),
     },
     summaryValue: {
-      color: isDark ? '#86EFAC' : NEPSE_GREEN,
+      color: ink,
       fontWeight: '800',
-      fontSize: rs(24),
+      fontSize: rs(19),
       letterSpacing: -0.2,
     },
     summarySide: {
@@ -1557,12 +1549,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(4),
-      backgroundColor: isDark ? c.surfaceAlt : 'rgba(255,255,255,0.9)',
+      backgroundColor: isDark ? c.surface : c.surfaceAlt,
       borderRadius: rs(12),
-      paddingHorizontal: rs(8),
-      paddingVertical: rs(4),
-      borderWidth: 1,
-      borderColor: fieldBorder,
+      paddingHorizontal: rs(7),
+      paddingVertical: rs(3),
+      borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
+      borderColor: c.borderMuted,
     },
     plPillText: {
       color: ink,
@@ -1573,26 +1565,22 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       padding: rs(3),
     },
     summaryBtn: {
-      alignSelf: 'stretch',
-      borderRadius: rs(22),
-      overflow: 'hidden',
-      marginTop: rs(4),
-    },
-    summaryBtnGradient: {
-      flexDirection: 'row',
+      alignSelf: 'flex-start',
+      borderWidth: 1,
+      borderColor: c.primary,
+      borderRadius: rs(12),
+      paddingVertical: rs(6),
+      paddingHorizontal: rs(14),
       alignItems: 'center',
       justifyContent: 'center',
-      gap: rs(8),
-      paddingVertical: rs(10),
-      paddingHorizontal: rs(14),
+      backgroundColor: c.bg,
     },
     summaryBtnText: {
-      color: '#FFFFFF',
-      fontWeight: '800',
-      fontSize: rs(12),
+      color: isDark ? c.sage : c.primary,
+      fontWeight: '700',
+      fontSize: rs(11),
       textAlign: 'center',
       includeFontPadding: false,
-      flex: 1,
     },
     modeBar: {
       flexDirection: 'row',
@@ -1613,82 +1601,29 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(12),
     },
     modeToggle: {
-      flexGrow: 1,
+      flexGrow: 0,
       flexShrink: 1,
-      maxWidth: rs(240),
+      width: rs(180),
       flexDirection: 'row',
-      backgroundColor: isDark ? c.surface : 'rgba(255,255,255,0.55)',
-      borderRadius: rs(28),
-      padding: rs(4),
-      borderWidth: 1.5,
-      borderColor: cardBorder,
-      shadowColor: GLASS_CYAN_GLOW,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0 : 0.2,
-      shadowRadius: 6,
-      elevation: isDark ? 0 : 2,
+      backgroundColor: isDark ? c.surface : c.primarySoft,
+      borderRadius: rs(16),
+      padding: rs(3),
+      borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
+      borderColor: c.borderMuted,
     },
     modeBtn: {
       flex: 1,
-      flexDirection: 'row',
-      paddingVertical: rs(8),
-      borderRadius: rs(24),
+      paddingVertical: rs(6),
+      borderRadius: rs(13),
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: rs(6),
-      overflow: 'hidden',
     },
+    modeBtnActive: { backgroundColor: c.primary },
     modeText: {
-      color: isDark ? c.sage : '#64748B',
-      fontWeight: '800',
-      fontSize: rs(13),
+      color: isDark ? c.sage : c.primary,
+      fontWeight: '700',
+      fontSize: rs(12),
     },
     modeTextActive: { color: '#FFFFFF' },
-    modeInfoBtn: {
-      width: rs(36),
-      height: rs(36),
-      borderRadius: rs(18),
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: isDark ? c.surface : 'rgba(255,255,255,0.72)',
-      borderWidth: 1.5,
-      borderColor: cardBorder,
-    },
-    formFields: {
-      gap: rs(12),
-      marginBottom: rs(4),
-    },
-    glassFieldCard: {
-      paddingHorizontal: rs(10),
-      paddingVertical: rs(9),
-    },
-    glassFieldRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(8),
-    },
-    fieldIconWell: {
-      width: rs(28),
-      height: rs(28),
-      borderRadius: rs(8),
-      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.9)',
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: fieldBorder,
-    },
-    innerDropdown: {
-      minHeight: rs(34),
-      borderRadius: rs(12),
-      borderWidth: 1,
-      borderColor: fieldBorder,
-      paddingHorizontal: rs(10),
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      backgroundColor: fieldBg,
-      marginTop: rs(6),
-    },
     fieldBlock: { marginBottom: rs(12) },
     labelRow: {
       flexDirection: 'row',
@@ -1701,7 +1636,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: rs(4),
+      marginBottom: rs(6),
       gap: rs(6),
     },
     labelRowLeft: {
@@ -1721,9 +1656,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     fieldLabel: {
       color: ink,
       fontSize: rs(12),
-      fontWeight: '700',
+      fontWeight: '600',
     },
-    hash: { color: isDark ? '#86EFAC' : NEPSE_GREEN, fontWeight: '800', fontSize: rs(13) },
+    hash: { color: ink, fontWeight: '700', fontSize: rs(12) },
     dropdown: {
       minHeight: rs(36),
       borderRadius: rs(14),
@@ -1745,7 +1680,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     dropdownValueText: {
       flex: 1,
       color: ink,
-      fontSize: rs(11),
+      fontSize: rs(12),
       fontWeight: '700',
       marginRight: rs(6),
     },
@@ -1762,9 +1697,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     qtyInput: {
       flex: 1,
       color: ink,
-      fontSize: rs(13),
+      fontSize: rs(14),
       fontWeight: '700',
-      paddingVertical: rs(5),
+      paddingVertical: rs(7),
     },
     selectActions: {
       flexDirection: 'row',
@@ -1772,33 +1707,22 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(6),
     },
     linkAction: { color: c.primary, fontWeight: '700', fontSize: rs(12) },
-    autoApplyWrap: {
-      alignSelf: 'stretch',
-      marginTop: rs(10),
-      borderRadius: rs(22),
-      overflow: 'hidden',
-      shadowColor: GLASS_CYAN_GLOW,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0 : 0.35,
-      shadowRadius: 10,
-      elevation: isDark ? 0 : 4,
-    },
     autoApply: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: rs(10),
-      paddingVertical: rs(14),
+      alignSelf: 'stretch',
+      marginTop: rs(8),
+      backgroundColor: c.promoBanner,
+      borderRadius: rs(16),
+      paddingVertical: rs(8),
       paddingHorizontal: rs(16),
-      minHeight: rs(50),
+      alignItems: 'center',
+      minHeight: rs(36),
+      justifyContent: 'center',
     },
     autoApplyDisabled: { opacity: 0.7 },
     autoApplyText: {
       color: '#FFFFFF',
       fontWeight: '800',
-      fontSize: rs(16),
-      flex: 1,
-      textAlign: 'center',
+      fontSize: rs(13),
     },
     daysBadge: {
       flexDirection: 'row',
@@ -1807,8 +1731,8 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'rgba(255,183,77,0.12)' : '#FFF8F0',
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,183,77,0.35)' : '#E8C9A8',
-      borderRadius: rs(10),
-      paddingHorizontal: rs(6),
+      borderRadius: rs(12),
+      paddingHorizontal: rs(8),
       paddingVertical: rs(3),
       flexShrink: 0,
     },
@@ -1889,28 +1813,6 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(8),
       backgroundColor: cardBg,
     },
-    updateCardInfo: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: rs(10),
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(100,181,246,0.35)' : 'rgba(25,118,210,0.25)',
-      borderRadius: rs(10),
-      padding: rs(12),
-      marginBottom: rs(8),
-      backgroundColor: cardBg,
-    },
-    updateCardRejected: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: rs(10),
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,183,77,0.4)' : 'rgba(239,108,0,0.35)',
-      borderRadius: rs(10),
-      padding: rs(12),
-      marginBottom: rs(8),
-      backgroundColor: cardBg,
-    },
     updateBody: { flex: 1, minWidth: 0 },
     updateName: {
       color: c.text,
@@ -1923,8 +1825,6 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       lineHeight: rs(16),
     },
     updateMsgFail: { color: c.danger },
-    updateMsgInfo: { color: isDark ? '#90CAF9' : '#1565C0' },
-    updateMsgRejected: { color: isDark ? '#FFB74D' : '#E65100' },
     updateMsgOk: { color: c.textSecondary },
     updateApplyBtn: {
       borderWidth: 1,
@@ -1938,13 +1838,6 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       color: isDark ? '#FFB74D' : '#E65100',
       fontWeight: '700',
       fontSize: rs(12),
-    },
-    updateReapplyBtn: {
-      borderColor: isDark ? '#66BB6A' : '#2E7D32',
-      backgroundColor: isDark ? 'rgba(102,187,106,0.12)' : '#F1F8F4',
-    },
-    updateReapplyText: {
-      color: isDark ? '#81C784' : '#2E7D32',
     },
     accountRow: {
       marginTop: rs(10),

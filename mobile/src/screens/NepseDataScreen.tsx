@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
@@ -108,8 +108,9 @@ function IndexPill({
   const pct = quote.pct;
   const tint = changeColor(ch, colors).color;
   const up = (ch ?? 0) >= 0;
+  const pillTone = up ? styles.indexPillUp : styles.indexPillDown;
   return (
-    <View style={styles.indexPill}>
+    <View style={[styles.indexPill, pillTone]}>
       <Text style={styles.pillLabel}>{quote.name}</Text>
       <Text style={styles.pillValue}>{fmtNum(quote.current)}</Text>
       <View style={styles.pillChangeWrap}>
@@ -119,14 +120,36 @@ function IndexPill({
           color={tint}
         />
         <Text style={[styles.pillChange, { color: tint }]}>
-          {ch != null ? `${ch >= 0 ? '+ ' : ''}${fmtNum(Math.abs(ch))}` : '—'}
+          {ch != null ? `${ch >= 0 ? '' : '-'}${fmtNum(Math.abs(ch))}` : '—'}
         </Text>
         <Text style={[styles.pillPct, { color: tint }]}>
           {pct != null
-            ? `${pct >= 0 ? '+ ' : ''}${fmtNum(Math.abs(pct))}%`
+            ? `${pct >= 0 ? '' : '-'}${fmtNum(Math.abs(pct))}%`
             : ''}
         </Text>
       </View>
+    </View>
+  );
+}
+
+function SummarySectionCard({
+  title,
+  icon,
+  children,
+  styles,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <View style={styles.sectionCard}>
+      <View style={styles.sectionCardHead}>
+        {icon}
+        <Text style={styles.sectionCardTitle}>{title}</Text>
+      </View>
+      {children}
     </View>
   );
 }
@@ -200,7 +223,7 @@ export function NepseDataScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'NepseData'>>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const [data, setData] = useState<NepseMarketSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -437,16 +460,25 @@ export function NepseDataScreen() {
           marketOpen={data.status === 'open'}
         />
 
-        <Text style={styles.sectionTitle}>Market Summary</Text>
-        <View style={styles.summaryGrid}>
+        <SummarySectionCard
+          title="Market Summary"
+          icon={
+            <MaterialCommunityIcons
+              name="chart-bar"
+              size={rs(16)}
+              color="#43A047"
+            />
+          }
+          styles={styles}
+        >
           <SummaryCell
             label="Turnover"
-            value={fmtNum(data.summary.turnover, 2)}
+            value={`Rs. ${fmtNum(data.summary.turnover, 2)}`}
             styles={styles}
           />
           <SummaryCell
             label="Volume"
-            value={fmtQty(data.summary.tradedShares)}
+            value={`${fmtQty(data.summary.tradedShares)} shares`}
             styles={styles}
           />
           <SummaryCell
@@ -459,129 +491,165 @@ export function NepseDataScreen() {
             value={fmtQty(data.summary.scripsTraded)}
             styles={styles}
           />
-        </View>
+          <View style={styles.breadthRow}>
+            <View style={styles.breadthItem}>
+              <Text style={[styles.breadthNum, { color: colors.accentGreen }]}>
+                {data.summary.advanced ?? '—'}
+              </Text>
+              <Text style={styles.breadthLabel}>Advanced</Text>
+            </View>
+            <View style={styles.breadthItem}>
+              <Text style={[styles.breadthNum, { color: colors.danger }]}>
+                {data.summary.declined ?? '—'}
+              </Text>
+              <Text style={styles.breadthLabel}>Declined</Text>
+            </View>
+            <View style={styles.breadthItem}>
+              <Text style={[styles.breadthNum, { color: colors.teal }]}>
+                {data.summary.unchanged ?? '—'}
+              </Text>
+              <Text style={styles.breadthLabel}>Unchanged</Text>
+            </View>
+          </View>
+        </SummarySectionCard>
 
-        <View style={styles.breadthRow}>
-          <View style={styles.breadthItem}>
-            <Text style={[styles.breadthNum, { color: colors.accentGreen }]}>
-              {data.summary.advanced ?? '—'}
-            </Text>
-            <Text style={styles.breadthLabel}>Advanced</Text>
-          </View>
-          <View style={styles.breadthItem}>
-            <Text style={[styles.breadthNum, { color: colors.danger }]}>
-              {data.summary.declined ?? '—'}
-            </Text>
-            <Text style={styles.breadthLabel}>Declined</Text>
-          </View>
-          <View style={styles.breadthItem}>
-            <Text style={[styles.breadthNum, { color: colors.teal }]}>
-              {data.summary.unchanged ?? '—'}
-            </Text>
-            <Text style={styles.breadthLabel}>Unchanged</Text>
-          </View>
-        </View>
-
-        <Text style={styles.sectionTitle}>Top Gainers</Text>
-        <MoverPreviewTable
-          rows={data.gainers.slice(0, 8)}
-          colors={colors}
-          styles={styles}
-          onPressSymbol={(symbol) =>
-            navigation.navigate('StockDetail', { symbol })
+        <SummarySectionCard
+          title="Indices"
+          icon={
+            <MaterialCommunityIcons
+              name="finance"
+              size={rs(16)}
+              color="#43A047"
+            />
           }
-        />
-        <Pressable style={styles.moreBtn} onPress={() => setTab('movers')}>
-          <Text style={styles.moreBtnText}>All gainers →</Text>
-        </Pressable>
-
-        <Text style={styles.sectionTitle}>Top Losers</Text>
-        <MoverPreviewTable
-          rows={data.losers.slice(0, 8)}
-          colors={colors}
           styles={styles}
-          onPressSymbol={(symbol) =>
-            navigation.navigate('StockDetail', { symbol })
-          }
-        />
-        <Pressable
-          style={styles.moreBtn}
-          onPress={() => {
-            setMoverTab('losers');
-            setTab('movers');
-          }}
         >
-          <Text style={styles.moreBtnText}>All losers →</Text>
-        </Pressable>
-
-        <Text style={styles.sectionTitle}>All Indices</Text>
-        <TableHeader
-          cols={['Index', 'Current', 'CH P', 'CH %']}
-          layout={['sym', 'num', 'narrow', 'narrow']}
-          styles={styles}
-        />
-        {data.indices.map((row: IndexQuote) => (
-          <View key={row.name} style={styles.tableRow}>
-            <Text style={[styles.tdSym, styles.colSym]} numberOfLines={1}>
-              {row.name}
-            </Text>
-            <Text style={[styles.td, styles.colNum]}>{fmtNum(row.current)}</Text>
-            <View style={styles.colNarrow}>
-              <ChangeCell value={row.change} colors={colors} styles={styles} />
-            </View>
-            <View style={styles.colNarrow}>
-              <ChangeCell value={row.pct} colors={colors} styles={styles} pct />
-            </View>
+          <View style={styles.tableCardInner}>
+            <TableHeader
+              cols={['INDEX', 'VALUE', 'CHG', '%']}
+              layout={['sym', 'num', 'narrow', 'narrow']}
+              styles={styles}
+            />
+            {data.indices.map((row: IndexQuote) => (
+              <View key={row.name} style={styles.tableRow}>
+                <Text style={[styles.tdSym, styles.colSym]} numberOfLines={1}>
+                  {row.name}
+                </Text>
+                <Text style={[styles.td, styles.colNum]}>{fmtNum(row.current)}</Text>
+                <View style={styles.colNarrow}>
+                  <ChangeCell value={row.change} colors={colors} styles={styles} />
+                </View>
+                <View style={styles.colNarrow}>
+                  <ChangeCell value={row.pct} colors={colors} styles={styles} pct />
+                </View>
+              </View>
+            ))}
           </View>
-        ))}
+        </SummarySectionCard>
 
-        <Text style={styles.sectionTitle}>Full market lists</Text>
-        <View style={styles.quickLinks}>
-          <Pressable style={styles.quickLink} onPress={() => setTab('live')}>
-            <Text style={styles.quickLinkText}>Live prices</Text>
+        <SummarySectionCard
+          title="Top Gainers"
+          icon={
+            <Ionicons name="trending-up" size={rs(16)} color="#43A047" />
+          }
+          styles={styles}
+        >
+          <View style={styles.tableCardInner}>
+            <MoverPreviewTable
+              rows={data.gainers.slice(0, 8)}
+              colors={colors}
+              styles={styles}
+              onPressSymbol={(symbol) =>
+                navigation.navigate('StockDetail', { symbol })
+              }
+            />
+          </View>
+          <Pressable style={styles.moreBtn} onPress={() => setTab('movers')}>
+            <Text style={styles.moreBtnText}>All gainers →</Text>
           </Pressable>
-          <Pressable style={styles.quickLink} onPress={() => setTab('today')}>
-            <Text style={styles.quickLinkText}>Today A–Z</Text>
+        </SummarySectionCard>
+
+        <SummarySectionCard
+          title="Top Losers"
+          icon={
+            <Ionicons name="trending-down" size={rs(16)} color="#E53935" />
+          }
+          styles={styles}
+        >
+          <View style={styles.tableCardInner}>
+            <MoverPreviewTable
+              rows={data.losers.slice(0, 8)}
+              colors={colors}
+              styles={styles}
+              onPressSymbol={(symbol) =>
+                navigation.navigate('StockDetail', { symbol })
+              }
+            />
+          </View>
+          <Pressable
+            style={styles.moreBtn}
+            onPress={() => {
+              setMoverTab('losers');
+              setTab('movers');
+            }}
+          >
+            <Text style={styles.moreBtnText}>All losers →</Text>
           </Pressable>
-          <Pressable style={styles.quickLink} onPress={() => setTab('movers')}>
-            <Text style={styles.quickLinkText}>Turnover & trades</Text>
-          </Pressable>
-        </View>
+        </SummarySectionCard>
+
+        <SummarySectionCard
+          title="Quick links"
+          icon={
+            <Ionicons name="link-outline" size={rs(16)} color="#43A047" />
+          }
+          styles={styles}
+        >
+          <View style={styles.quickLinks}>
+            <Pressable style={styles.quickLink} onPress={() => setTab('live')}>
+              <Text style={styles.quickLinkText}>Live prices</Text>
+            </Pressable>
+            <Pressable style={styles.quickLink} onPress={() => setTab('today')}>
+              <Text style={styles.quickLinkText}>Today A–Z</Text>
+            </Pressable>
+            <Pressable style={styles.quickLink} onPress={() => setTab('movers')}>
+              <Text style={styles.quickLinkText}>Turnover & trades</Text>
+            </Pressable>
+          </View>
+        </SummarySectionCard>
       </ScrollView>
     );
   };
 
   const renderSecurityList = (rows: SecurityQuote[]) => (
     <View style={styles.listWrap}>
-      {data ? (
-        <View style={styles.pillPad}>
-          <IndexPill data={data} colors={colors} styles={styles} />
-        </View>
-      ) : null}
-      <TableHeader
-        cols={['SYM', 'LTP', 'CH P', 'CH %', 'QTY']}
-        layout={['sym', 'num', 'narrow', 'narrow', 'num']}
-        styles={styles}
-      />
-      <FlatList
-        data={rows}
-        keyExtractor={(item) => item.symbol}
-        renderItem={renderSecurityRow}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              void refresh(true);
-            }}
-            tintColor={colors.primary}
-          />
-        }
-        ListEmptyComponent={
-          <Text style={styles.emptyList}>No stocks to show</Text>
-        }
-        contentContainerStyle={rows.length ? undefined : styles.emptyContainer}
-      />
+      <View style={styles.tableHeadCard}>
+        <TableHeader
+          cols={['SYM', 'LTP', 'CH P', 'CH %', 'QTY']}
+          layout={['sym', 'num', 'narrow', 'narrow', 'num']}
+          styles={styles}
+        />
+      </View>
+      <View style={styles.tableDataCard}>
+        <FlatList
+          data={rows}
+          keyExtractor={(item) => item.symbol}
+          renderItem={renderSecurityRow}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                void refresh(true);
+              }}
+              tintColor={colors.primary}
+            />
+          }
+          ListEmptyComponent={
+            <Text style={styles.emptyList}>No stocks to show</Text>
+          }
+          contentContainerStyle={rows.length ? undefined : styles.emptyContainer}
+        />
+      </View>
     </View>
   );
 
@@ -593,35 +661,33 @@ export function NepseDataScreen() {
     );
     return (
       <View style={styles.listWrap}>
-        <View style={styles.pillPad}>
-          <IndexPill data={data} colors={colors} styles={styles} />
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.moverTabsBar}
-          contentContainerStyle={styles.moverTabs}
-        >
-          {MOVER_TABS.map((t) => {
-            const active = moverTab === t.id;
-            return (
-              <Pressable
-                key={t.id}
-                style={[styles.moverTab, active && styles.moverTabActive]}
-                onPress={() => setMoverTab(t.id)}
-              >
-                <Text
-                  style={[
-                    styles.moverTabText,
-                    active && styles.moverTabTextActive,
-                  ]}
+        <View style={styles.moverTabBox}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.moverTabs}
+          >
+            {MOVER_TABS.map((t) => {
+              const active = moverTab === t.id;
+              return (
+                <Pressable
+                  key={t.id}
+                  style={[styles.moverTab, active && styles.moverTabActive]}
+                  onPress={() => setMoverTab(t.id)}
                 >
-                  {t.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+                  <Text
+                    style={[
+                      styles.moverTabText,
+                      active && styles.moverTabTextActive,
+                    ]}
+                  >
+                    {t.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
         <SwipeTabGesture
           index={moverIndex}
           count={MOVER_TABS.length}
@@ -630,38 +696,42 @@ export function NepseDataScreen() {
             if (next) setMoverTab(next.id);
           }}
         >
-          <TableHeader
-            cols={moverCols}
-            layout={
-              moverTab === 'turnovers'
-                ? ['sn', 'sym', 'num', 'wide', 'narrow']
-                : moverTab === 'transactions'
-                  ? ['sn', 'sym', 'num', 'num', 'narrow']
-                  : ['sn', 'sym', 'num', 'narrow', 'narrow']
-            }
-            styles={styles}
-          />
-          <FlatList
-            data={moverRows}
-            keyExtractor={(item, i) => `${item.symbol}-${i}`}
-            renderItem={renderMoverRow}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={() => {
-                  setRefreshing(true);
-                  void refresh(true);
-                }}
-                tintColor={colors.primary}
-              />
-            }
-            ListEmptyComponent={
-              <Text style={styles.emptyList}>No movers to show</Text>
-            }
-            contentContainerStyle={
-              moverRows.length ? undefined : styles.emptyContainer
-            }
-          />
+          <View style={styles.tableHeadCard}>
+            <TableHeader
+              cols={moverCols}
+              layout={
+                moverTab === 'turnovers'
+                  ? ['sn', 'sym', 'num', 'wide', 'narrow']
+                  : moverTab === 'transactions'
+                    ? ['sn', 'sym', 'num', 'num', 'narrow']
+                    : ['sn', 'sym', 'num', 'narrow', 'narrow']
+              }
+              styles={styles}
+            />
+          </View>
+          <View style={styles.tableDataCard}>
+            <FlatList
+              data={moverRows}
+              keyExtractor={(item, i) => `${item.symbol}-${i}`}
+              renderItem={renderMoverRow}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={() => {
+                    setRefreshing(true);
+                    void refresh(true);
+                  }}
+                  tintColor={colors.primary}
+                />
+              }
+              ListEmptyComponent={
+                <Text style={styles.emptyList}>No movers to show</Text>
+              }
+              contentContainerStyle={
+                moverRows.length ? undefined : styles.emptyContainer
+              }
+            />
+          </View>
         </SwipeTabGesture>
       </View>
     );
@@ -778,7 +848,7 @@ function SummaryCell({
   styles: ReturnType<typeof makeStyles>;
 }) {
   return (
-    <View style={styles.summaryCell}>
+    <View style={styles.summaryRow}>
       <Text style={styles.summaryLabel}>{label}</Text>
       <Text style={styles.summaryValue}>{value}</Text>
     </View>
@@ -828,9 +898,15 @@ function MoverPreviewTable({
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
+  const pageBg = isDark ? c.bg : '#F4F6F2';
+  const cardBg = isDark ? c.surface : '#EEF4EC';
+  const lightGreen = isDark ? '#254D2B' : '#C8E6C9';
+  const lightGreenBorder = isDark ? '#388E3C' : '#A5D6A7';
+  const activeMoverGreen = isDark ? '#388E3C' : '#2E7D32';
+
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: c.bg },
+    root: { flex: 1, backgroundColor: pageBg },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -895,13 +971,37 @@ function makeStyles(c: ThemeColors) {
       marginTop: rs(6),
       height: rs(2),
       width: '100%',
-      backgroundColor: c.accentGreen,
+      backgroundColor: '#43A047',
       borderRadius: rs(1),
     },
     tabBody: {
       padding: rs(12),
       paddingBottom: rs(40),
+      gap: rs(12),
+    },
+    sectionCard: {
+      backgroundColor: cardBg,
+      borderRadius: rs(14),
+      borderWidth: 1,
+      borderColor: isDark ? c.border : '#D4E4D8',
+      padding: rs(14),
       gap: rs(10),
+      shadowColor: '#000',
+      shadowOpacity: isDark ? 0 : 0.04,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: isDark ? 0 : 1,
+    },
+    sectionCardHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+      marginBottom: rs(2),
+    },
+    sectionCardTitle: {
+      color: c.text,
+      fontSize: rs(15),
+      fontWeight: '800',
     },
     indexPill: {
       flexDirection: 'row',
@@ -909,12 +1009,18 @@ function makeStyles(c: ThemeColors) {
       justifyContent: 'space-between',
       gap: rs(8),
       borderWidth: 1,
-      borderColor: c.accentGreen,
       borderRadius: rs(22),
       paddingHorizontal: rs(14),
       paddingVertical: rs(10),
       width: '100%',
-      backgroundColor: c.surface,
+    },
+    indexPillUp: {
+      backgroundColor: isDark ? '#254D2B' : '#D4EDDA',
+      borderColor: isDark ? '#43A047' : '#81C784',
+    },
+    indexPillDown: {
+      backgroundColor: isDark ? '#3A2020' : '#FFEBEE',
+      borderColor: isDark ? '#E57373' : '#EF9A9A',
     },
     pillLabel: {
       color: c.text,
@@ -952,39 +1058,27 @@ function makeStyles(c: ThemeColors) {
       paddingVertical: rs(6),
     },
     dropdownText: { color: c.textSecondary, fontSize: rs(12), fontWeight: '600' },
-    sectionTitle: {
-      color: c.text,
-      fontSize: rs(14),
-      fontWeight: '800',
-      marginTop: rs(6),
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
-      paddingBottom: rs(6),
-    },
-    summaryGrid: {
+    summaryRow: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: rs(8),
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: rs(12),
+      paddingVertical: rs(6),
     },
-    summaryCell: {
-      width: '48%',
-      backgroundColor: c.surface,
-      borderRadius: rs(8),
-      borderWidth: 1,
-      borderColor: c.borderMuted,
-      padding: rs(10),
-    },
-    summaryLabel: { color: c.textMuted, fontSize: rs(11), fontWeight: '600' },
+    summaryLabel: { color: c.textMuted, fontSize: rs(12), fontWeight: '600' },
     summaryValue: {
       color: c.text,
-      fontSize: rs(13),
+      fontSize: rs(12),
       fontWeight: '800',
-      marginTop: rs(4),
+      textAlign: 'right',
+      flexShrink: 1,
     },
     breadthRow: {
       flexDirection: 'row',
-      marginTop: rs(12),
-      marginBottom: rs(8),
+      marginTop: rs(4),
+      paddingTop: rs(8),
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: isDark ? c.border : '#E8ECE8',
       gap: rs(12),
     },
     breadthItem: { flex: 1, alignItems: 'center' },
@@ -1002,18 +1096,53 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: rs(14),
       paddingVertical: rs(10),
       borderRadius: rs(20),
-      backgroundColor: c.primarySoft,
+      backgroundColor: lightGreen,
+      borderWidth: 1,
+      borderColor: lightGreenBorder,
     },
-    quickLinkText: { color: c.primary, fontWeight: '700', fontSize: rs(12) },
+    quickLinkText: { color: '#1B5E20', fontWeight: '700', fontSize: rs(12) },
+    tableHeadCard: {
+      marginHorizontal: rs(12),
+      marginBottom: rs(12),
+      borderRadius: rs(20),
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: lightGreenBorder,
+    },
+    tableDataCard: {
+      flex: 1,
+      marginHorizontal: rs(12),
+      backgroundColor: cardBg,
+      borderRadius: rs(14),
+      borderWidth: 1,
+      borderColor: isDark ? c.border : '#D4E4D8',
+      overflow: 'hidden',
+    },
+    tableCard: {
+      flex: 1,
+      marginHorizontal: rs(12),
+      marginTop: rs(4),
+      backgroundColor: cardBg,
+      borderRadius: rs(14),
+      borderWidth: 1,
+      borderColor: isDark ? c.border : '#D4E4D8',
+      overflow: 'hidden',
+    },
+    tableCardInner: {
+      borderRadius: rs(10),
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: isDark ? c.borderMuted : lightGreenBorder,
+    },
     tableHead: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: c.primary,
+      backgroundColor: lightGreen,
       paddingVertical: rs(8),
-      paddingHorizontal: rs(6),
+      paddingHorizontal: rs(8),
     },
     th: {
-      color: '#FFFFFF',
+      color: isDark ? '#C8E6C9' : '#1B5E20',
       fontSize: rs(10),
       fontWeight: '800',
       textTransform: 'uppercase',
@@ -1026,10 +1155,9 @@ function makeStyles(c: ThemeColors) {
     tableRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: rs(7),
-      paddingHorizontal: rs(6),
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.borderMuted,
+      paddingVertical: rs(8),
+      paddingHorizontal: rs(8),
+      backgroundColor: cardBg,
     },
     td: { color: c.textSecondary, fontSize: rs(11), fontWeight: '600' },
     tdSym: { color: c.text, fontSize: rs(11), fontWeight: '800' },
@@ -1046,39 +1174,45 @@ function makeStyles(c: ThemeColors) {
       justifyContent: 'flex-end',
       gap: rs(2),
     },
-    listWrap: { flex: 1 },
-    pillPad: { paddingHorizontal: rs(12), paddingTop: rs(10), paddingBottom: rs(4), gap: rs(6) },
+    listWrap: { flex: 1, paddingTop: rs(10) },
     stockCount: { color: c.textMuted, fontSize: rs(11), fontWeight: '600' },
-    moverTabsBar: {
-      flexGrow: 0,
-      flexShrink: 0,
-      alignSelf: 'stretch',
+    moverTabBox: {
+      marginHorizontal: rs(12),
+      marginBottom: rs(14),
+      backgroundColor: lightGreen,
+      borderRadius: rs(24),
+      borderWidth: 1,
+      borderColor: lightGreenBorder,
+      padding: rs(4),
     },
     moverTabs: {
-      paddingHorizontal: rs(10),
-      paddingVertical: rs(8),
-      gap: rs(8),
+      flexDirection: 'row',
       alignItems: 'center',
+      gap: rs(6),
+      paddingHorizontal: rs(4),
     },
     moverTab: {
       alignSelf: 'center',
-      borderRadius: rs(14),
+      borderRadius: rs(18),
       paddingHorizontal: rs(14),
-      paddingVertical: rs(7),
-      borderWidth: 1,
-      borderColor: c.borderMuted,
+      paddingVertical: rs(8),
     },
     moverTabActive: {
-      backgroundColor: c.accentGreen,
-      borderColor: c.accentGreen,
+      backgroundColor: activeMoverGreen,
+      shadowColor: '#1B5E20',
+      shadowOpacity: isDark ? 0 : 0.18,
+      shadowRadius: 4,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: isDark ? 0 : 3,
     },
     moverTabText: {
-      color: c.textSecondary,
-      fontSize: rs(11),
+      color: isDark ? '#C8E6C9' : '#1B5E20',
+      fontSize: rs(12),
       fontWeight: '700',
     },
     moverTabTextActive: {
-      color: '#0A0A0A',
+      color: '#FFFFFF',
+      fontWeight: '800',
     },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: rs(10) },
     muted: { color: c.textSecondary, fontSize: rs(12) },

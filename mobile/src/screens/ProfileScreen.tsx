@@ -18,7 +18,6 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
-import { GlassClusterBackground } from '../components/GlassClusterBackground';
 import { BrandLogo } from '../components/BrandLogo';
 import { DeleteAccountModal } from '../components/DeleteAccountModal';
 import { BusyOverlay } from '../components/BusyOverlay';
@@ -197,7 +196,7 @@ export function ProfileScreen() {
   const { accounts, bulkImportAccounts, reloadAccounts } = useAccounts();
   const auth = useAuth();
   const { colors, isDark, toggle } = useTheme();
-  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -558,13 +557,11 @@ export function ProfileScreen() {
 
   return (
     <View style={styles.root}>
-      <GlassClusterBackground variant="check">
       <AppHeader
         onMenuPress={openDrawer}
         title="NEPSE GHAR"
         showLogo={false}
         showActions={false}
-        glassActions
         right={
           <View style={styles.headerRight}>
             <Pressable
@@ -888,17 +885,13 @@ export function ProfileScreen() {
           }
         }}
       />
-      </GlassClusterBackground>
     </View>
   );
 }
 
-function makeStyles(c: ThemeColors, isDark: boolean) {
-  const cardBg = isDark ? c.surface : 'rgba(255,255,255,0.58)';
-  const cardBorder = isDark ? c.borderMuted : 'rgba(255,255,255,0.95)';
-
+function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
-    root: { flex: 1 },
+    root: { flex: 1, backgroundColor: c.bg },
     headerRight: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -924,29 +917,23 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'center',
     },
-    content: { paddingBottom: rs(100) },
+    content: { paddingBottom: rs(40) },
     heroCard: {
       marginHorizontal: rs(12),
       marginTop: rs(10),
       marginBottom: rs(18),
-      borderRadius: rs(22),
-      backgroundColor: isDark ? 'rgba(38,38,38,0.9)' : 'rgba(255,255,255,0.58)',
-      borderWidth: 1.5,
-      borderColor: cardBorder,
+      borderRadius: rs(18),
+      backgroundColor: '#81D4FA',
       alignItems: 'center',
       paddingTop: rs(22),
       paddingBottom: rs(22),
       paddingHorizontal: rs(18),
       overflow: 'hidden',
-      shadowColor: isDark ? '#000' : '#67E8F9',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.2 : 0.2,
-      shadowRadius: 10,
-      elevation: 3,
     },
     heroGlow: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: isDark ? 'transparent' : 'rgba(186,230,253,0.25)',
+      backgroundColor: '#B3E5FC',
+      opacity: 0.65,
     },
     logoCircle: {
       width: rs(92),
@@ -1030,16 +1017,11 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginHorizontal: rs(16),
       marginBottom: rs(16),
       borderRadius: rs(22),
-      borderWidth: 1.5,
-      borderColor: cardBorder,
-      backgroundColor: cardBg,
+      borderWidth: 1,
+      borderColor: c.borderMuted,
+      backgroundColor: c.surface,
       paddingHorizontal: rs(14),
       paddingVertical: rs(6),
-      shadowColor: isDark ? '#000' : '#67E8F9',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0.15 : 0.14,
-      shadowRadius: 6,
-      elevation: 2,
     },
     row: {
       flexDirection: 'row',

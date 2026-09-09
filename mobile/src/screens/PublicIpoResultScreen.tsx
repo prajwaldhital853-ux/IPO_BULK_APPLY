@@ -14,28 +14,14 @@ import {
 } from 'react-native';
 import Svg, { Line, Path } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { floatingTabBarClearance } from '../components/AppTabBar';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
-import { GlassClusterBackground } from '../components/GlassClusterBackground';
-import { GlassSurface } from '../components/GlassSurface';
 import { useAccounts } from '../context/AccountsContext';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
-import {
-  CHECK_BTN_GRADIENT,
-  GLASS_CARD_BG,
-  GLASS_CARD_BORDER,
-  GLASS_CYAN_GLOW,
-  GLASS_PAGE_BG,
-  NEPSE_GREEN,
-  NEPSE_NAVY,
-  resultCardTheme,
-} from '../theme/glassUi';
 import type { AccountMeta } from '../types/account';
 import {
   ISSUE_MANAGERS,
@@ -130,7 +116,6 @@ type AccountResultRowProps = {
   running: boolean;
   hasSelected: boolean;
   onCheckOne: (account: AccountMeta) => void;
-  isDark: boolean;
   styles: ResultCardStyles;
   colors: ThemeColors;
 };
@@ -144,7 +129,6 @@ const AccountResultRow = React.memo(function AccountResultRow({
   running,
   hasSelected,
   onCheckOne,
-  isDark,
   styles,
   colors,
 }: AccountResultRowProps) {
@@ -175,21 +159,12 @@ const AccountResultRow = React.memo(function AccountResultRow({
   const showHourglass =
     !isChecking && !result && !isAllotted && !isError && !isNotAllotted;
   const showStatusLine = Boolean(statusMessage);
-  const theme = resultCardTheme(index, isDark);
 
   return (
-    <View
-      style={[
-        styles.resultCard,
-        { backgroundColor: theme.bg, borderColor: `${theme.accent}33` },
-      ]}
-    >
-      <View style={[styles.resultIndexBadge, { backgroundColor: theme.accent }]}>
-        <Text style={styles.resultIndexText}>{index}</Text>
-      </View>
+    <View style={styles.resultCard}>
       <View style={styles.resultIconWrap}>
         {isChecking ? (
-          <ActivityIndicator size="small" color={theme.accent} />
+          <ActivityIndicator size="small" color="#9E9E9E" />
         ) : isAllotted ? (
           <Ionicons name="checkmark-circle" size={rs(18)} color="#4CAF50" />
         ) : isError ? (
@@ -197,15 +172,12 @@ const AccountResultRow = React.memo(function AccountResultRow({
         ) : isNotAllotted ? (
           <Ionicons name="close-circle" size={rs(18)} color="#E57373" />
         ) : showHourglass ? (
-          <PendingHourglass
-            size={rs(18)}
-            color={isDark ? colors.textSecondary : NEPSE_NAVY}
-          />
+          <PendingHourglass size={rs(18)} color="#5A5A5A" />
         ) : null}
       </View>
       <View style={styles.resultBody}>
         <Text style={styles.resultName} numberOfLines={1}>
-          {account.name.toUpperCase()}
+          {index}. {account.name.toUpperCase()}
         </Text>
         <Text style={styles.resultBoid} numberOfLines={1}>
           {boidText}
@@ -225,20 +197,12 @@ const AccountResultRow = React.memo(function AccountResultRow({
         ) : null}
       </View>
       <Pressable
-        style={[styles.resultCheckBtn, { backgroundColor: theme.accent }]}
+        style={styles.resultCheckBtn}
         onPress={() => onCheckOne(account)}
         disabled={running || !hasSelected}
       >
         <Text style={styles.resultCheckText}>Check</Text>
       </Pressable>
-      <View style={[styles.resultIpoBadge, { borderColor: theme.accent }]}>
-        <Text style={[styles.resultIpoText, { color: theme.accent }]}>IPO</Text>
-        <MaterialCommunityIcons
-          name="chart-line"
-          size={rs(10)}
-          color={theme.accent}
-        />
-      </View>
     </View>
   );
 });
@@ -280,7 +244,6 @@ export function PublicIpoResultScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const tabClearance = floatingTabBarClearance(insets.bottom);
   const { updateAccountMeta } = useAccounts();
   const { operationalAccounts: accounts } = useActiveAccounts();
   const { colors, isDark } = useTheme();
@@ -898,24 +861,17 @@ export function PublicIpoResultScreen() {
         : `Select Category (${checkAccounts.length} accounts)`;
 
   return (
-    <GlassClusterBackground variant="default" style={{ paddingTop: insets.top }}>
+    <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
-        <View style={styles.headerTitleRow}>
-          <MaterialCommunityIcons
-            name="chart-bar"
-            size={rs(20)}
-            color={isDark ? '#67E8F9' : '#1565C0'}
-          />
-          <Text style={styles.title}>IPO Result</Text>
-        </View>
+        <Text style={styles.title}>IPO Result</Text>
         <Pressable onPress={() => setHideBoids((v) => !v)} hitSlop={10}>
           <Ionicons
             name={hideBoids ? 'eye-off-outline' : 'eye-outline'}
             size={rs(22)}
-            color={isDark ? '#67E8F9' : '#1565C0'}
+            color={colors.text}
           />
         </Pressable>
       </View>
@@ -926,43 +882,22 @@ export function PublicIpoResultScreen() {
 
       <View style={styles.controls}>
         <Pressable
+          style={styles.companyPicker}
           onPress={() => setCheckPickerOpen(true)}
           disabled={!accounts.length || running}
         >
-          <GlassSurface style={styles.companyPicker} borderRadius={rs(18)}>
-          <View style={styles.pickerIconWell}>
-            <MaterialCommunityIcons
-              name="view-grid-outline"
-              size={rs(16)}
-              color={isDark ? '#86EFAC' : NEPSE_GREEN}
-            />
-          </View>
           <Text style={styles.companyPickerText} numberOfLines={1}>
             {checkLabel}
           </Text>
           <Ionicons name="chevron-down" size={rs(16)} color={colors.textMuted} />
-          </GlassSurface>
         </Pressable>
 
         <Pressable
+          style={styles.companyPicker}
           onPress={() => setCompanyPickerOpen(true)}
           disabled={loadingCompanies || companies.length === 0 || running}
         >
-          <GlassSurface style={styles.companyPicker} borderRadius={rs(18)}>
-          <View style={styles.pickerIconWell}>
-            <MaterialCommunityIcons
-              name="calendar-month-outline"
-              size={rs(16)}
-              color={isDark ? '#67E8F9' : '#1565C0'}
-            />
-          </View>
-          <Text
-            style={[
-              styles.companyPickerText,
-              !selected && styles.companyPickerPlaceholder,
-            ]}
-            numberOfLines={1}
-          >
+          <Text style={styles.companyPickerText} numberOfLines={1}>
             {selected ? selected.name : 'Select IPO / FPO / Debenture'}
           </Text>
           {loadingCompanies || loadingCdsc ? (
@@ -970,7 +905,6 @@ export function PublicIpoResultScreen() {
           ) : (
             <Ionicons name="chevron-down" size={rs(16)} color={colors.textMuted} />
           )}
-          </GlassSurface>
         </Pressable>
 
         {running ? (
@@ -1011,22 +945,13 @@ export function PublicIpoResultScreen() {
         ) : (
           <Pressable
             style={[
-              styles.checkNowWrap,
+              styles.checkNowBtn,
               (running || !selected) && styles.checkNowDisabled,
             ]}
             onPress={onCheckAll}
             disabled={running || !selected}
           >
-            <LinearGradient
-              colors={CHECK_BTN_GRADIENT}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={styles.checkNowBtn}
-            >
-              <Ionicons name="search" size={rs(18)} color="#FFFFFF" />
-              <Text style={styles.checkNowText}>Check Now</Text>
-              <Ionicons name="chevron-forward" size={rs(18)} color="#FFFFFF" />
-            </LinearGradient>
+            <Text style={styles.checkNowText}>Check Now</Text>
           </Pressable>
         )}
 
@@ -1110,10 +1035,7 @@ export function PublicIpoResultScreen() {
 
       <FlatList
         style={styles.accountList}
-        contentContainerStyle={[
-          styles.accountListContent,
-          { paddingBottom: tabClearance },
-        ]}
+        contentContainerStyle={styles.accountListContent}
         data={displayRows}
         keyExtractor={(item) => item.account.id}
         {...ACCOUNT_LIST_FLAT_PROPS}
@@ -1135,7 +1057,6 @@ export function PublicIpoResultScreen() {
             running={running}
             hasSelected={Boolean(selected)}
             onCheckOne={onCheckOne}
-            isDark={isDark}
             styles={styles}
             colors={colors}
           />
@@ -1339,42 +1260,37 @@ export function PublicIpoResultScreen() {
           </View>
         </View>
       </Modal>
-    </GlassClusterBackground>
+    </View>
   );
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const pageBg = isDark ? c.bg : GLASS_PAGE_BG;
-  const cardBg = isDark ? c.surface : GLASS_CARD_BG;
-  const fieldBorder = isDark ? c.border : 'rgba(186,230,253,0.9)';
-  const cardBorder = isDark ? c.borderMuted : GLASS_CARD_BORDER;
-  const mutedText = isDark ? c.textMuted : '#64748B';
+  const pageBg = isDark ? c.bg : '#F2F4ED';
+  const cardBg = isDark ? c.surface : '#F9F8F4';
+  const fieldBorder = isDark ? c.border : '#B8B8B8';
+  const cardBorder = isDark ? c.borderMuted : '#E0E0E0';
+  const mutedText = isDark ? c.textMuted : '#757575';
   const checkBtnBg = isDark ? '#0A3A14' : '#F0EEEA';
   const forestGreen = isDark ? '#FFFFFF' : '#2D5A27';
   const checkBtnBorder = isDark ? '#06280E' : cardBorder;
 
   return StyleSheet.create({
-    root: { flex: 1 },
+    root: { flex: 1, backgroundColor: pageBg },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: rs(16),
       paddingVertical: rs(12),
-      backgroundColor: 'transparent',
-    },
-    headerTitleRow: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: rs(8),
-      marginHorizontal: rs(8),
+      backgroundColor: pageBg,
     },
     title: {
-      color: isDark ? c.text : NEPSE_NAVY,
-      fontSize: rs(17),
-      fontWeight: '800',
+      color: c.text,
+      fontSize: rs(16),
+      fontWeight: '700',
+      flex: 1,
+      textAlign: 'center',
+      marginHorizontal: rs(8),
     },
     controls: {
       paddingHorizontal: rs(16),
@@ -1385,36 +1301,27 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     accountListContent: {
       paddingHorizontal: rs(16),
       paddingTop: rs(8),
+      paddingBottom: rs(40),
     },
     companyPicker: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: rs(12),
-      paddingVertical: rs(12),
-      marginBottom: rs(10),
-      gap: rs(10),
-      minHeight: rs(48),
-    },
-    pickerIconWell: {
-      width: rs(32),
-      height: rs(32),
-      borderRadius: rs(10),
-      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.9)',
-      alignItems: 'center',
-      justifyContent: 'center',
       borderWidth: 1,
       borderColor: fieldBorder,
+      borderRadius: rs(18),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(9),
+      backgroundColor: cardBg,
+      marginBottom: rs(8),
+      gap: rs(8),
+      minHeight: rs(40),
     },
     companyPickerText: {
       flex: 1,
-      color: isDark ? c.text : NEPSE_NAVY,
-      fontWeight: '700',
+      color: c.text,
+      fontWeight: '500',
       fontSize: rs(13),
       lineHeight: rs(18),
-    },
-    companyPickerPlaceholder: {
-      color: mutedText,
-      fontWeight: '600',
     },
     summaryBox: {
       borderWidth: 1,
@@ -1494,31 +1401,26 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontWeight: '700',
       fontSize: rs(12),
     },
-    checkNowWrap: {
-      borderRadius: rs(22),
-      overflow: 'hidden',
-      marginBottom: rs(10),
-      shadowColor: '#1565C0',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0 : 0.28,
-      shadowRadius: 8,
-      elevation: isDark ? 0 : 3,
-    },
     checkNowBtn: {
-      flexDirection: 'row',
+      borderWidth: 1,
+      borderColor: checkBtnBorder,
+      borderRadius: rs(20),
+      minHeight: rs(40),
       alignItems: 'center',
       justifyContent: 'center',
-      gap: rs(10),
-      minHeight: rs(48),
-      paddingHorizontal: rs(16),
+      marginBottom: rs(8),
+      backgroundColor: checkBtnBg,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0 : 0.06,
+      shadowRadius: 3,
+      elevation: isDark ? 0 : 2,
     },
     checkNowDisabled: { opacity: 0.55 },
     checkNowText: {
-      color: '#FFFFFF',
-      fontWeight: '800',
-      fontSize: rs(15),
-      flex: 1,
-      textAlign: 'center',
+      color: forestGreen,
+      fontWeight: '700',
+      fontSize: rs(13),
     },
     checkingBlock: {
       marginBottom: rs(8),
@@ -1604,48 +1506,39 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     resultCard: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       gap: rs(8),
       borderWidth: 1,
-      borderRadius: rs(16),
-      paddingHorizontal: rs(10),
-      paddingVertical: rs(12),
-      minHeight: rs(72),
-      marginBottom: rs(8),
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0 : 0.06,
-      shadowRadius: 4,
-      elevation: isDark ? 0 : 2,
-    },
-    resultIndexBadge: {
-      width: rs(32),
-      height: rs(32),
+      borderColor: cardBorder,
       borderRadius: rs(10),
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    resultIndexText: {
-      color: '#FFFFFF',
-      fontWeight: '800',
-      fontSize: rs(14),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(10),
+      minHeight: rs(66),
+      backgroundColor: cardBg,
+      marginBottom: rs(6),
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0 : 0.05,
+      shadowRadius: 2,
+      elevation: isDark ? 0 : 1,
     },
     resultIconWrap: {
-      width: rs(24),
-      height: rs(24),
+      width: rs(30),
+      height: rs(30),
       alignItems: 'center',
       justifyContent: 'center',
+      alignSelf: 'center',
     },
-    resultBody: { flex: 1, minWidth: 0 },
+    resultBody: { flex: 1, minWidth: 0, paddingTop: rs(1) },
     resultName: {
-      color: isDark ? c.text : NEPSE_NAVY,
+      color: c.text,
       fontWeight: '800',
-      fontSize: rs(13),
-      lineHeight: rs(17),
+      fontSize: rs(14),
+      lineHeight: rs(18),
       letterSpacing: 0.15,
     },
     resultBoid: {
-      color: isDark ? c.textSecondary : '#64748B',
+      color: isDark ? c.textSecondary : '#4A4A4A',
       fontSize: rs(11),
       lineHeight: rs(15),
       marginTop: rs(2),
@@ -1659,30 +1552,18 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontWeight: '600',
     },
     resultCheckBtn: {
-      borderRadius: rs(16),
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(8),
+      borderWidth: 1,
+      borderColor: cardBorder,
+      borderRadius: rs(6),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(6),
+      backgroundColor: checkBtnBg,
       alignSelf: 'center',
     },
     resultCheckText: {
-      color: '#FFFFFF',
-      fontWeight: '800',
-      fontSize: rs(12),
-    },
-    resultIpoBadge: {
-      width: rs(36),
-      height: rs(36),
-      borderRadius: rs(18),
-      borderWidth: 1.5,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#FFFFFF',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: rs(1),
-    },
-    resultIpoText: {
-      fontSize: rs(8),
-      fontWeight: '800',
-      letterSpacing: 0.3,
+      color: c.text,
+      fontWeight: '600',
+      fontSize: rs(11),
     },
     resultModalBackdrop: {
       flex: 1,

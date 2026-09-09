@@ -4,6 +4,17 @@ export const STATUS_UNVERIFIED = '#EF6C00';
 export const STATUS_REJECTED = '#E53935';
 export const STATUS_NOT_APPLIED = '#F57C00';
 
+/** Brighter chip/filter colors (not dark forest tones). */
+export const CHIP_GREEN = '#43A047';
+export const CHIP_BLUE = '#1E88E5';
+export const CHIP_RED = '#E53935';
+export const CHIP_ORANGE = '#FB8C00';
+export const CHIP_PURPLE = '#5C6BC0';
+
+export function chipTint(accent: string, isDark: boolean): string {
+  return isDark ? `${accent}33` : `${accent}1F`;
+}
+
 export type StatusCardStyle = {
   accent: string;
   borderColor: string;

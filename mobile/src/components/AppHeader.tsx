@@ -5,8 +5,6 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
-import { GHAR_TEAL, HOME_TAGLINE, NEPSE_GREEN, NEPSE_NAVY, TAB_ACTIVE_GRADIENT } from '../theme/glassUi';
-import { LinearGradient } from 'expo-linear-gradient';
 import type { RootStackParamList } from '../navigation/types';
 import { rs } from '../utils/responsive';
 import { BrandLogo } from './BrandLogo';
@@ -20,10 +18,6 @@ type Props = {
   right?: React.ReactNode;
   /** Show NEPSE GHAR mark beside title */
   showLogo?: boolean;
-  /** Home-only branded header (split wordmark, tagline, glass action wells). */
-  variant?: 'default' | 'branded';
-  /** Glass Calendar/News wells while keeping the default title layout. */
-  glassActions?: boolean;
   onCalendarPress?: () => void;
   onNewsPress?: () => void;
   /** When set, shows a 3-dot options button in the actions row. */
@@ -38,18 +32,12 @@ export function AppHeader({
   onBack,
   right,
   showLogo = false,
-  variant = 'default',
-  glassActions = false,
   onCalendarPress,
   onNewsPress,
   onOptionsPress,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { colors, isDark } = useTheme();
-  const branded = variant === 'branded';
-  const glassWells = branded || glassActions;
-  const headerBg =
-    glassWells && !isDark ? 'transparent' : colors.bgElevated;
+  const { colors } = useTheme();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
@@ -75,9 +63,8 @@ export function AppHeader({
         styles.wrap,
         {
           paddingTop: Math.max(insets.top, rs(8)),
-          backgroundColor: headerBg,
-          borderBottomColor: branded ? 'transparent' : colors.borderMuted,
-          borderBottomWidth: branded ? 0 : StyleSheet.hairlineWidth,
+          backgroundColor: colors.bgElevated,
+          borderBottomColor: colors.borderMuted,
         },
       ]}
     >
@@ -96,44 +83,15 @@ export function AppHeader({
           />
         </Pressable>
 
-        {branded ? (
-          <View style={styles.brandBlock}>
+        {showLogo ? (
+          <View style={styles.logoWrap}>
             <BrandLogo variant="mark" height={rs(28)} />
-            <View style={styles.brandTextCol}>
-              <Text numberOfLines={1}>
-                <Text
-                  style={[
-                    styles.brandNepse,
-                    { color: isDark ? '#86EFAC' : NEPSE_GREEN },
-                  ]}
-                >
-                  NEPSE{' '}
-                </Text>
-                <Text style={styles.brandGhar}>GHAR</Text>
-              </Text>
-              <Text
-                style={[
-                  styles.tagline,
-                  { color: isDark ? colors.textMuted : '#90A4AE' },
-                ]}
-                numberOfLines={1}
-              >
-                {HOME_TAGLINE}
-              </Text>
-            </View>
           </View>
-        ) : (
-          <>
-            {showLogo ? (
-              <View style={styles.logoWrap}>
-                <BrandLogo variant="mark" height={rs(28)} />
-              </View>
-            ) : null}
-            <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
-              {title}
-            </Text>
-          </>
-        )}
+        ) : null}
+
+        <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
+          {title}
+        </Text>
 
         {right ??
           (showActions ? (
@@ -173,34 +131,14 @@ export function AppHeader({
                 accessibilityRole="button"
                 accessibilityLabel="NEPSE Calendar"
               >
-                {glassWells ? (
-                  <LinearGradient
-                    colors={[...TAB_ACTIVE_GRADIENT]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.actionCardLarge}
-                  >
-                    <MaterialCommunityIcons
-                      name="calendar-month-outline"
-                      size={rs(18)}
-                      color="#FFFFFF"
-                    />
-                  </LinearGradient>
-                ) : (
-                  <View style={[styles.calWrap, { backgroundColor: colors.primary }]}>
-                    <MaterialCommunityIcons
-                      name="calendar-month"
-                      size={rs(20)}
-                      color="#FFFFFF"
-                    />
-                  </View>
-                )}
-                <Text
-                  style={[
-                    styles.actionLabel,
-                    { color: isDark ? colors.textMuted : NEPSE_NAVY },
-                  ]}
-                >
+                <View style={[styles.calWrap, { backgroundColor: colors.primary }]}>
+                  <MaterialCommunityIcons
+                    name="calendar-month"
+                    size={rs(20)}
+                    color="#FFFFFF"
+                  />
+                </View>
+                <Text style={[styles.actionLabel, { color: colors.textMuted }]}>
                   Calendar
                 </Text>
               </Pressable>
@@ -211,54 +149,19 @@ export function AppHeader({
                 accessibilityRole="button"
                 accessibilityLabel="Financial News"
               >
-                {glassWells ? (
-                  <View
-                    style={[
-                      styles.actionCardLarge,
-                      styles.actionCardNews,
-                      {
-                        backgroundColor: isDark
-                          ? 'rgba(255,255,255,0.12)'
-                          : '#FFFFFF',
-                        borderColor: isDark
-                          ? 'rgba(255,255,255,0.16)'
-                          : 'rgba(255,255,255,0.98)',
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name="newspaper-outline"
-                      size={rs(17)}
-                      color={isDark ? '#E2E8F0' : NEPSE_NAVY}
-                    />
-                    <View style={styles.newsCountBadge}>
-                      <Text style={styles.newsCountText}>3</Text>
-                    </View>
-                  </View>
-                ) : (
-                  <View
-                    style={[
-                      styles.newsWrap,
-                      {
-                        backgroundColor: colors.surface,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name="newspaper-outline"
-                      size={rs(18)}
-                      color={colors.text}
-                    />
-                    <View style={[styles.dot, { backgroundColor: colors.badgeNew }]} />
-                  </View>
-                )}
-                <Text
+                <View
                   style={[
-                    styles.actionLabel,
-                    { color: isDark ? colors.textMuted : NEPSE_NAVY },
+                    styles.newsWrap,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
                   ]}
                 >
+                  <Ionicons name="newspaper-outline" size={rs(18)} color={colors.text} />
+                  <View style={[styles.dot, { backgroundColor: colors.badgeNew }]} />
+                </View>
+                <Text style={[styles.actionLabel, { color: colors.textMuted }]}>
                   News
                 </Text>
               </Pressable>
@@ -275,6 +178,7 @@ const styles = StyleSheet.create({
   wrap: {
     paddingBottom: rs(8),
     paddingHorizontal: rs(12),
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   row: {
     flexDirection: 'row',
@@ -287,100 +191,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: rs(2),
-  },
-  brandBlock: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: rs(8),
-    minWidth: 0,
-    marginBottom: rs(4),
-  },
-  brandLogoWell: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: rs(10),
-    padding: rs(3),
-    overflow: 'hidden',
-  },
-  brandLogoWellDark: {
-    backgroundColor: '#1A1A1A',
-  },
-  brandTextCol: {
-    flex: 1,
-    minWidth: 0,
-  },
-  brandNepse: {
-    fontSize: rs(15),
-    fontWeight: '800',
-    letterSpacing: 0.2,
-  },
-  brandGhar: {
-    fontSize: rs(15),
-    fontWeight: '800',
-    color: GHAR_TEAL,
-    letterSpacing: 0.2,
-  },
-  tagline: {
-    fontSize: rs(9),
-    fontWeight: '600',
-    marginTop: rs(1),
-    letterSpacing: 0.2,
-  },
-  actionCard: {
-    width: rs(40),
-    height: rs(40),
-    borderRadius: rs(12),
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#67E8F9',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.28,
-    shadowRadius: 5,
-    elevation: 3,
-  },
-  actionCardLarge: {
-    width: rs(40),
-    height: rs(40),
-    borderRadius: rs(12),
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.85)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#4ADE80',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.28,
-    shadowRadius: 6,
-    elevation: 4,
-    overflow: 'hidden',
-  },
-  actionCardNews: {
-    shadowColor: '#94A3B8',
-    borderColor: 'rgba(255,255,255,0.98)',
-  },
-  actionWell: {
-    width: rs(28),
-    height: rs(28),
-    borderRadius: rs(8),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  newsCountBadge: {
-    position: 'absolute',
-    top: rs(-3),
-    right: rs(-3),
-    minWidth: rs(12),
-    height: rs(12),
-    borderRadius: rs(6),
-    backgroundColor: '#E53935',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: rs(3),
-  },
-  newsCountText: {
-    color: '#FFFFFF',
-    fontSize: rs(7),
-    fontWeight: '800',
   },
   logoWrap: {
     backgroundColor: '#FFFFFF',
@@ -401,22 +211,21 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: rs(6),
+    gap: rs(12),
     paddingBottom: rs(2),
-    flexShrink: 0,
   },
   actionItem: {
     alignItems: 'center',
-    gap: rs(1),
-    minWidth: rs(36),
+    gap: rs(2),
+    minWidth: rs(44),
   },
   actionLabel: {
     fontSize: rs(9),
     fontWeight: '700',
-    letterSpacing: 0.1,
+    letterSpacing: 0.2,
   },
   actionsPlaceholder: {
-    width: rs(80),
+    width: rs(96),
   },
   calWrap: {
     width: rs(34),

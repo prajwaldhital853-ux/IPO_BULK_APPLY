@@ -605,27 +605,48 @@ export function HomeMarketPanel({ active }: Props) {
   const isOpen = data?.status === 'open';
 
   const indexHeader = (
-    <View style={styles.indexCard}>
-      <View style={styles.indexCopy}>
-        <Text style={styles.indexHeadline} numberOfLines={1}>
-          <Text style={styles.indexName}>{indexQuote.name} </Text>
-          <Text style={styles.indexValue}>{fmtNum(indexQuote.current)}</Text>
+    <View style={styles.indexBar}>
+      <View
+        style={[
+          styles.indexPill,
+          {
+            backgroundColor: isDark
+              ? indexUp
+                ? '#1B3320'
+                : '#3A1B1B'
+              : indexUp
+                ? '#E8F5E9'
+                : '#FFEBEE',
+            borderColor: indexTint,
+          },
+        ]}
+      >
+        <Text
+          style={[
+            styles.indexName,
+            { color: isDark ? indexTint : '#1A1A1A' },
+          ]}
+        >
+          {indexQuote.name}
         </Text>
-        <View style={styles.indexChangeRow}>
-          <MaterialCommunityIcons
-            name={indexUp ? 'arrow-up' : 'arrow-down'}
-            size={rs(14)}
-            color={indexTint}
-          />
-          <Text style={[styles.indexChange, { color: indexTint }]}>
-            {indexQuote.change != null
-              ? `${indexQuote.change >= 0 ? '+' : ''}${fmtNum(indexQuote.change)}`
-              : '—'}
-            {indexQuote.pct != null
-              ? ` (${indexQuote.pct >= 0 ? '+' : ''}${fmtNum(indexQuote.pct)}%)`
-              : ''}
-          </Text>
-        </View>
+        <Text
+          style={[
+            styles.indexValue,
+            { color: isDark ? '#F5F5F5' : '#1A1A1A' },
+          ]}
+        >
+          {fmtNum(indexQuote.current)}
+        </Text>
+        <Text style={[styles.indexChange, { color: indexTint }]}>
+          {indexQuote.change != null
+            ? `${indexQuote.change >= 0 ? '+ ' : ''}${fmtNum(indexQuote.change)}`
+            : '—'}
+        </Text>
+        <Text style={[styles.indexPct, { color: indexTint }]}>
+          {indexQuote.pct != null
+            ? `${indexQuote.pct >= 0 ? '+ ' : ''}${fmtNum(indexQuote.pct)}%`
+            : ''}
+        </Text>
       </View>
       <Pressable
         style={[styles.shortcutBtn, styles.shortcutUp]}
@@ -636,7 +657,7 @@ export function HomeMarketPanel({ active }: Props) {
           })
         }
       >
-        <MaterialCommunityIcons name="trending-up" size={rs(20)} color="#fff" />
+        <MaterialCommunityIcons name="trending-up" size={rs(24)} color="#fff" />
       </Pressable>
       <Pressable
         style={[styles.shortcutBtn, styles.shortcutDown]}
@@ -647,7 +668,7 @@ export function HomeMarketPanel({ active }: Props) {
           })
         }
       >
-        <MaterialCommunityIcons name="trending-down" size={rs(20)} color="#fff" />
+        <MaterialCommunityIcons name="trending-down" size={rs(24)} color="#fff" />
       </Pressable>
     </View>
   );
@@ -703,7 +724,7 @@ export function HomeMarketPanel({ active }: Props) {
                 backgroundColor: isDark
                   ? isOpen
                     ? '#1B3320'
-                    : '#4A1C1C'
+                    : '#3A1B1B'
                   : isOpen
                     ? '#E8F5E9'
                     : '#FFEBEE',
@@ -732,64 +753,28 @@ export function HomeMarketPanel({ active }: Props) {
 
         <View style={styles.kpiGrid}>
           <View style={styles.kpiBox}>
-            <View style={styles.kpiIcon}>
-              <MaterialCommunityIcons
-                name="cash-multiple"
-                size={rs(18)}
-                color={colors.accentGreen}
-              />
-            </View>
-            <View style={styles.kpiCopy}>
-              <Text style={styles.kpiLabel}>Total Turnover</Text>
-              <Text style={styles.kpiValue}>
-                {fmtMcap(data?.summary.turnover ?? null)}
-              </Text>
-            </View>
+            <Text style={styles.kpiLabel}>TOTAL TURNOVER</Text>
+            <Text style={styles.kpiValue}>
+              {fmtMcap(data?.summary.turnover ?? null)}
+            </Text>
           </View>
           <View style={styles.kpiBox}>
-            <View style={styles.kpiIcon}>
-              <MaterialCommunityIcons
-                name="chart-bubble"
-                size={rs(18)}
-                color={colors.accentGreen}
-              />
-            </View>
-            <View style={styles.kpiCopy}>
-              <Text style={styles.kpiLabel}>Total Traded Shares</Text>
-              <Text style={styles.kpiValue}>
-                {fmtMcap(data?.summary.tradedShares ?? null)}
-              </Text>
-            </View>
+            <Text style={styles.kpiLabel}>TOTAL TRADED SHARES</Text>
+            <Text style={styles.kpiValue}>
+              {fmtMcap(data?.summary.tradedShares ?? null)}
+            </Text>
           </View>
           <View style={styles.kpiBox}>
-            <View style={styles.kpiIcon}>
-              <MaterialCommunityIcons
-                name="swap-horizontal"
-                size={rs(18)}
-                color={colors.accentGreen}
-              />
-            </View>
-            <View style={styles.kpiCopy}>
-              <Text style={styles.kpiLabel}>Total Transactions</Text>
-              <Text style={styles.kpiValue}>
-                {fmtQty(data?.summary.transactions ?? null)}
-              </Text>
-            </View>
+            <Text style={styles.kpiLabel}>TOTAL TRANSACTIONS</Text>
+            <Text style={styles.kpiValue}>
+              {fmtQty(data?.summary.transactions ?? null)}
+            </Text>
           </View>
           <View style={styles.kpiBox}>
-            <View style={styles.kpiIcon}>
-              <MaterialCommunityIcons
-                name="file-document-outline"
-                size={rs(18)}
-                color={colors.accentGreen}
-              />
-            </View>
-            <View style={styles.kpiCopy}>
-              <Text style={styles.kpiLabel}>Total Scripts Traded</Text>
-              <Text style={styles.kpiValue}>
-                {fmtQty(data?.summary.scripsTraded ?? null)}
-              </Text>
-            </View>
+            <Text style={styles.kpiLabel}>TOTAL SCRIPTS TRADED</Text>
+            <Text style={styles.kpiValue}>
+              {fmtQty(data?.summary.scripsTraded ?? null)}
+            </Text>
           </View>
         </View>
 
@@ -978,12 +963,12 @@ export function HomeMarketPanel({ active }: Props) {
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: isDark ? c.bg : 'transparent' },
+    root: { flex: 1 },
     indexSticky: {
       paddingHorizontal: HOME_H_PAD,
       paddingTop: rs(8),
       paddingBottom: rs(6),
-      backgroundColor: isDark ? c.bg : 'transparent',
+      backgroundColor: c.bg,
       zIndex: 4,
       elevation: 4,
     },
@@ -1000,7 +985,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       zIndex: 0,
       paddingHorizontal: HOME_H_PAD,
       paddingTop: rs(2),
-      backgroundColor: isDark ? c.bg : 'transparent',
+      backgroundColor: isDark ? c.bg : '#F9FAF2',
     },
     controlsOverlay: {
       position: 'absolute',
@@ -1010,7 +995,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       zIndex: 10,
       paddingHorizontal: HOME_H_PAD,
       paddingTop: rs(2),
-      backgroundColor: isDark ? c.bg : 'transparent',
+      backgroundColor: isDark ? c.bg : '#F9FAF2',
     },
     chartHitLayer: {
       position: 'absolute',
@@ -1028,12 +1013,17 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       flexGrow: 1,
     },
     coverSheet: {
-      backgroundColor: isDark ? c.bg : 'transparent',
+      backgroundColor: c.bg,
       paddingHorizontal: HOME_H_PAD,
       paddingTop: rs(10),
       paddingBottom: rs(8),
       borderTopLeftRadius: rs(16),
       borderTopRightRadius: rs(16),
+      shadowColor: '#000',
+      shadowOpacity: isDark ? 0.35 : 0.12,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: -4 },
+      elevation: 6,
     },
     center: {
       flex: 1,
@@ -1043,67 +1033,47 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     loadingText: { color: c.textMuted, marginTop: rs(12), fontSize: rs(13) },
 
-    indexCard: {
+    indexBar: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(8),
-      paddingHorizontal: rs(14),
-      paddingVertical: rs(12),
-      borderRadius: rs(18),
-      backgroundColor: isDark ? 'rgba(38,38,38,0.9)' : 'rgba(255,255,255,0.82)',
-      borderWidth: 1.5,
-      borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.98)',
-      shadowColor: isDark ? '#000' : '#67E8F9',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0.2 : 0.2,
-      shadowRadius: 8,
-      elevation: 3,
     },
-    indexCopy: { flex: 1, minWidth: 0 },
-    indexHeadline: { flexShrink: 1 },
-    indexName: {
-      fontWeight: '800',
-      fontSize: rs(16),
-      color: c.text,
-    },
-    indexValue: {
-      fontWeight: '800',
-      fontSize: rs(16),
-      color: c.text,
-    },
-    indexChangeRow: {
+    indexPill: {
+      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(4),
-      marginTop: rs(4),
+      flexWrap: 'wrap',
+      gap: rs(6),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(10),
+      borderRadius: rs(22),
+      borderWidth: 1.5,
     },
+    indexName: { fontWeight: '800', fontSize: rs(13) },
+    indexValue: { fontWeight: '800', fontSize: rs(15) },
     indexChange: { fontWeight: '700', fontSize: rs(12) },
+    indexPct: { fontWeight: '700', fontSize: rs(12) },
     shortcutBtn: {
-      width: rs(40),
-      height: rs(40),
+      width: rs(44),
+      height: rs(44),
       borderRadius: rs(12),
       alignItems: 'center',
       justifyContent: 'center',
     },
     shortcutUp: {
-      backgroundColor: '#22C55E',
+      backgroundColor: '#2E7D32',
     },
     shortcutDown: {
-      backgroundColor: '#EF4444',
+      backgroundColor: '#C62828',
     },
 
     summaryCard: {
       marginTop: rs(4),
-      borderRadius: rs(20),
-      borderWidth: 1.5,
-      borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.98)',
-      backgroundColor: isDark ? 'rgba(38,38,38,0.9)' : 'rgba(255,255,255,0.82)',
+      borderRadius: rs(16),
+      borderWidth: 1,
+      borderColor: isDark ? '#3A3A3A' : '#E8C4C4',
+      backgroundColor: isDark ? '#1C1C1C' : c.surface,
       padding: rs(14),
-      shadowColor: isDark ? '#000' : '#67E8F9',
-      shadowOpacity: isDark ? 0.2 : 0.18,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 2 },
-      elevation: 3,
     },
     summaryHead: {
       flexDirection: 'row',
@@ -1141,35 +1111,22 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     kpiBox: {
       width: '48%',
       flexGrow: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(8),
-      backgroundColor: isDark ? '#262626' : 'rgba(255,255,255,0.92)',
-      borderRadius: rs(14),
-      paddingHorizontal: rs(10),
-      paddingVertical: rs(10),
-      borderWidth: 1,
-      borderColor: isDark ? '#3A3A3A' : 'rgba(255,255,255,0.95)',
+      backgroundColor: isDark ? '#262626' : '#F3F5F0',
+      borderRadius: rs(12),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(12),
     },
-    kpiIcon: {
-      width: rs(32),
-      height: rs(32),
-      borderRadius: rs(16),
-      backgroundColor: isDark ? '#1B3320' : '#DCFCE7',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    kpiCopy: { flex: 1, minWidth: 0 },
     kpiLabel: {
       color: c.textMuted,
-      fontSize: rs(10),
+      fontSize: rs(9),
       fontWeight: '700',
+      letterSpacing: 0.3,
     },
     kpiValue: {
       color: c.text,
       fontWeight: '800',
-      fontSize: rs(14),
-      marginTop: rs(2),
+      fontSize: rs(15),
+      marginTop: rs(4),
     },
     breadthLabels: {
       flexDirection: 'row',

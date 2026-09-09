@@ -8,65 +8,44 @@ import {
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   interpolate,
+  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
 import { useTheme } from '../context/ThemeContext';
 import { pausePrefetch } from '../services/nepse/prefetchGate';
-import { GHAR_GREEN, GLASS_GRADIENT, NEPSE_NAVY } from '../theme/glassUi';
 import { rs } from '../utils/responsive';
 
 const ICONS: Record<
   string,
-  {
-    ion?: keyof typeof Ionicons.glyphMap;
-    ionOutline?: keyof typeof Ionicons.glyphMap;
-    mci?: keyof typeof MaterialCommunityIcons.glyphMap;
-    mciOutline?: keyof typeof MaterialCommunityIcons.glyphMap;
-  }
+  { ion?: keyof typeof Ionicons.glyphMap; mci?: keyof typeof MaterialCommunityIcons.glyphMap }
 > = {
-  Home: { ion: 'home', ionOutline: 'home-outline' },
-  Apply: { mci: 'bank', mciOutline: 'bank-outline' },
-  Services: { ion: 'options', ionOutline: 'options-outline' },
-  Check: { ion: 'checkmark-circle', ionOutline: 'checkmark-circle-outline' },
-  Profile: { ion: 'person', ionOutline: 'person-outline' },
+  Home: { ion: 'home' },
+  Apply: { mci: 'bank-outline' },
+  Services: { ion: 'options-outline' },
+  Check: { ion: 'checkmark-circle-outline' },
+  Profile: { ion: 'person-outline' },
 };
 
 const SPRING = { damping: 26, stiffness: 420, mass: 0.4 };
-const INK = NEPSE_NAVY;
-const MUTED = '#64748B';
-
-/** Pill height excluding safe-area inset — keep FAB/list padding in sync. */
-export const FLOATING_TAB_BAR_HEIGHT = rs(52) + rs(6) + rs(5);
-/** Extra lift so the pill clears the Android system navigation bar. */
-export const TAB_BAR_BOTTOM_EXTRA = rs(6);
-/** Gap between scroll content and the top of the floating tab bar. */
-export const TAB_BAR_CONTENT_GAP = rs(14);
-
-export function floatingTabBarClearance(bottomInset: number) {
-  return (
-    Math.max(bottomInset, rs(8)) +
-    TAB_BAR_BOTTOM_EXTRA +
-    FLOATING_TAB_BAR_HEIGHT +
-    TAB_BAR_CONTENT_GAP
-  );
-}
 
 function TabItem({
   label,
   focused,
   onPress,
   icon,
+  activeBg,
+  ink,
 }: {
   label: string;
   focused: boolean;
   onPress: () => void;
   icon: React.ReactNode;
+  activeBg: string;
+  ink: string;
 }) {
   const progress = useSharedValue(focused ? 1 : 0);
   const press = useSharedValue(1);
@@ -75,13 +54,17 @@ function TabItem({
     progress.value = withSpring(focused ? 1 : 0, SPRING);
   }, [focused, progress]);
 
-  const wrapStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: press.value }],
+  const pillStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      progress.value,
+      [0, 1],
+      ['rgba(0,0,0,0)', activeBg],
+    ),
+    transform: [{ scale: interpolate(progress.value, [0, 1], [0.92, 1]) }],
   }));
 
-  const glowStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0, 1], [0, 1]),
-    transform: [{ scale: interpolate(progress.value, [0, 1], [0.7, 1]) }],
+  const wrapStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: press.value }],
   }));
 
   return (
@@ -99,30 +82,16 @@ function TabItem({
       accessibilityLabel={label}
     >
       <Animated.View style={[styles.itemInner, wrapStyle]}>
-        <View style={styles.iconStage}>
-          <Animated.View style={[styles.glow, glowStyle]} pointerEvents="none">
-            <LinearGradient
-              colors={GLASS_GRADIENT}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.glowFill}
-            />
-          </Animated.View>
-          {icon}
-        </View>
+        <Animated.View style={[styles.iconPill, pillStyle]}>{icon}</Animated.View>
         <Animated.Text
           style={[
             styles.label,
-            {
-              color: focused ? GHAR_GREEN : MUTED,
-              fontWeight: focused ? '800' : '600',
-            },
+            { color: ink, fontWeight: focused ? '800' : '700' },
           ]}
           numberOfLines={1}
         >
           {label}
         </Animated.Text>
-        {focused ? <View style={styles.activeDot} /> : <View style={styles.activeDotSpacer} />}
       </Animated.View>
     </Pressable>
   );
@@ -131,41 +100,30 @@ function TabItem({
 export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
-  const iconSize = rs(20);
-  const bottomPad = Math.max(insets.bottom, rs(8)) + TAB_BAR_BOTTOM_EXTRA;
 
-  const pill = (
-    <View style={[styles.pillShell, isDark && styles.pillShellDark]}>
-      {Platform.OS === 'web' ? (
-        <View
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              backgroundColor: isDark
-                ? 'rgba(30,30,30,0.96)'
-                : 'rgba(255,255,255,0.94)',
-              borderRadius: rs(28),
-            },
-          ]}
-        />
-      ) : (
-        <BlurView
-          intensity={isDark ? 55 : 85}
-          tint={isDark ? 'dark' : 'light'}
-          style={[StyleSheet.absoluteFill, { borderRadius: rs(28) }]}
-        />
-      )}
-      <LinearGradient
-        colors={
-          isDark
-            ? ['rgba(40,40,40,0.92)', 'rgba(30,30,30,0.96)']
-            : ['rgba(255,255,255,0.96)', 'rgba(255,255,255,0.9)']
-        }
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[StyleSheet.absoluteFill, { borderRadius: rs(28) }]}
-        pointerEvents="none"
-      />
+  // Keep full system-nav inset so labels are never covered by Android buttons.
+  const systemNav =
+    insets.bottom > 0
+      ? insets.bottom
+      : Platform.OS === 'android'
+        ? rs(48)
+        : 0;
+
+  const barBg = isDark ? '#252724' : '#F8FBF2';
+  const ink = isDark ? '#F2F2F2' : '#000000';
+  const pill = isDark ? '#3A5340' : '#C5DCC8';
+  const iconSize = rs(24);
+
+  return (
+    <View
+      style={[
+        styles.wrap,
+        {
+          backgroundColor: barBg,
+          borderTopColor: isDark ? '#3A3A3A' : '#E0E0DC',
+        },
+      ]}
+    >
       <View style={styles.row}>
         {state.routes.map((route, index) => {
           const focused = state.index === index;
@@ -188,23 +146,10 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
           };
 
           const def = ICONS[route.name] ?? {};
-          const ink = focused ? '#FFFFFF' : isDark ? '#B0BEC5' : INK;
           const icon = def.mci ? (
-            <MaterialCommunityIcons
-              name={(focused ? def.mci : def.mciOutline) ?? def.mci}
-              size={iconSize}
-              color={ink}
-            />
+            <MaterialCommunityIcons name={def.mci} size={iconSize} color={ink} />
           ) : (
-            <Ionicons
-              name={
-                (focused ? def.ion : def.ionOutline) ??
-                def.ion ??
-                'ellipse-outline'
-              }
-              size={iconSize}
-              color={ink}
-            />
+            <Ionicons name={def.ion ?? 'ellipse-outline'} size={iconSize} color={ink} />
           );
 
           return (
@@ -214,55 +159,30 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
               focused={focused}
               onPress={onPress}
               icon={icon}
+              activeBg={pill}
+              ink={ink}
             />
           );
         })}
       </View>
-    </View>
-  );
-
-  return (
-    <View style={[styles.outer, { paddingBottom: bottomPad }]} pointerEvents="box-none">
-      {pill}
+      <View style={{ height: systemNav, backgroundColor: barBg }} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  outer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: rs(16),
-    backgroundColor: 'transparent',
-  },
-  pillShell: {
-    borderRadius: rs(28),
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.98)',
-    backgroundColor: 'rgba(255,255,255,0.88)',
-    overflow: 'hidden',
-    shadowColor: '#67E8F9',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.32,
-    shadowRadius: 14,
-    elevation: 8,
-  },
-  pillShellDark: {
-    borderColor: 'rgba(255,255,255,0.14)',
-    backgroundColor: 'rgba(30,30,30,0.92)',
-    shadowColor: '#000',
-    shadowOpacity: 0.35,
+  wrap: {
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
     paddingTop: rs(6),
-    paddingBottom: rs(5),
-    paddingHorizontal: rs(4),
-    minHeight: rs(52),
+    paddingBottom: rs(4),
+    paddingHorizontal: rs(2),
+    minHeight: rs(58),
+    backgroundColor: 'transparent',
   },
   item: {
     flex: 1,
@@ -273,38 +193,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: rs(2),
   },
-  iconStage: {
-    width: rs(40),
-    height: rs(30),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  glow: {
-    position: 'absolute',
-    width: rs(32),
+  iconPill: {
+    minWidth: rs(58),
     height: rs(32),
     borderRadius: rs(16),
-    overflow: 'hidden',
-  },
-  glowFill: {
-    flex: 1,
-    opacity: 0.95,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: rs(14),
   },
   label: {
-    fontSize: rs(9),
-    marginBottom: 0,
+    fontSize: rs(12),
+    marginBottom: rs(1),
     letterSpacing: 0.1,
-  },
-  activeDot: {
-    width: rs(5),
-    height: rs(5),
-    borderRadius: rs(3),
-    backgroundColor: GHAR_GREEN,
-    marginTop: rs(1),
-  },
-  activeDotSpacer: {
-    width: rs(5),
-    height: rs(5),
-    marginTop: rs(1),
   },
 });

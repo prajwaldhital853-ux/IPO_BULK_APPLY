@@ -12,7 +12,7 @@ export class MeroshareError extends Error {
 
 /** User-facing copy when MeroShare reports an existing or in-flight application. */
 export const ALREADY_APPLIED_USER_MSG =
-  'This IPO is already applied. You cannot apply again.';
+  'You have already applied for this account.';
 
 /** User-facing copy when a previous application was rejected by the bank. */
 export const REJECTED_APPLICANT_USER_MSG =
@@ -58,10 +58,20 @@ export function isRoleRestrictedMeroshareMessage(message: string): boolean {
   );
 }
 
-/** Account already has an application for this company share (or bank is still processing it). */
+/**
+ * Account already has an application for this company share (or bank is still processing it).
+ *
+ * CDSC also returns vague technical lines on repeat apply (same account + same IPO), e.g.
+ * "You are not permitted for this activity." — same handling as IPO BULK on Play Store.
+ */
 export function isAlreadyAppliedMeroshareMessage(message: string): boolean {
-  return /already\s*applied|has already been applied|duplicate application|application already exist|you have already applied|cannot apply again|already submitted|application\s+in\s+process|application\s+is\s+in\s+process|apply\s+in\s+process|this ipo is already applied/i.test(
-    message,
+  const m = String(message ?? '').trim();
+  if (!m) return false;
+  return (
+    /already\s*applied|has already been applied|duplicate application|application already exist|you have already applied|cannot apply again|already submitted|application\s+in\s+process|application\s+is\s+in\s+process|apply\s+in\s+process|this ipo is already applied/i.test(
+      m,
+    ) ||
+    /not\s*permitted\s*for\s*this\s*activity/i.test(m)
   );
 }
 

@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { PromoBanner, type PromoBannerArt } from './PromoBanner';
+import { PromoBanner } from './PromoBanner';
 import { useAccounts } from '../context/AccountsContext';
 import { useAppBranding } from '../context/AppBrandingContext';
 import { useAuth } from '../context/AuthContext';
@@ -17,13 +17,12 @@ const TAB_ACTIONS = new Set(['Apply', 'Services', 'Profile', 'Home', 'Check']);
 
 type Props = {
   page: HomePromoPageKey;
-  art?: PromoBannerArt;
 };
 
 /**
  * Promo strip controlled from Admin → Home card (per page).
  */
-export function AdminPromoBanner({ page, art }: Props) {
+export function AdminPromoBanner({ page }: Props) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { homePromos } = useAppBranding();
@@ -85,7 +84,6 @@ export function AdminPromoBanner({ page, art }: Props) {
     <PromoBanner
       text={promo.text}
       color={promo.color}
-      art={art}
       onPress={clickable ? onPress : undefined}
     />
   );
