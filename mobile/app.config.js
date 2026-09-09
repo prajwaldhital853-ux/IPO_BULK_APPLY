@@ -10,7 +10,7 @@ module.exports = {
     slug: 'hellou',
     owner: 'helloys-team',
     scheme: 'nepseghar',
-    version: '3.4.87',
+    version: '3.4.88',
     orientation: 'portrait',
     icon: './assets/nepse-ghar-app-icon.png',
     userInterfaceStyle: 'dark',
@@ -26,7 +26,7 @@ module.exports = {
     android: {
       package: 'com.nepse.ghar',
       googleServicesFile: './google-services.json',
-      versionCode: 133,
+      versionCode: 135,
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',
         foregroundImage: './assets/nepse-ghar-adaptive-foreground.png',

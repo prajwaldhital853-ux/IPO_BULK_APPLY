@@ -59,6 +59,25 @@ export function GlassClusterBackground({
   if (isDark) {
     return (
       <View style={[styles.root, { backgroundColor: colors.bg }, style]}>
+        {blobs.map((blob, i) => (
+          <View
+            key={i}
+            pointerEvents="none"
+            style={[
+              styles.blob,
+              {
+                width: blob.size,
+                height: blob.size,
+                borderRadius: blob.size / 2,
+                backgroundColor: blob.color.replace(/[\d.]+\)$/, '0.12)'),
+                top: blob.top,
+                left: blob.left,
+                right: blob.right,
+                bottom: blob.bottom,
+              },
+            ]}
+          />
+        ))}
         {children}
       </View>
     );

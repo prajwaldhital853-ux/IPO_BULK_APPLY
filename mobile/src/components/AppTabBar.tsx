@@ -41,6 +41,22 @@ const SPRING = { damping: 26, stiffness: 420, mass: 0.4 };
 const INK = NEPSE_NAVY;
 const MUTED = '#64748B';
 
+/** Pill height excluding safe-area inset — keep FAB/list padding in sync. */
+export const FLOATING_TAB_BAR_HEIGHT = rs(52) + rs(6) + rs(5);
+/** Extra lift so the pill clears the Android system navigation bar. */
+export const TAB_BAR_BOTTOM_EXTRA = rs(6);
+/** Gap between scroll content and the top of the floating tab bar. */
+export const TAB_BAR_CONTENT_GAP = rs(14);
+
+export function floatingTabBarClearance(bottomInset: number) {
+  return (
+    Math.max(bottomInset, rs(8)) +
+    TAB_BAR_BOTTOM_EXTRA +
+    FLOATING_TAB_BAR_HEIGHT +
+    TAB_BAR_CONTENT_GAP
+  );
+}
+
 function TabItem({
   label,
   focused,
@@ -115,8 +131,8 @@ function TabItem({
 export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
-  const iconSize = rs(22);
-  const bottomPad = Math.max(insets.bottom, rs(10));
+  const iconSize = rs(20);
+  const bottomPad = Math.max(insets.bottom, rs(8)) + TAB_BAR_BOTTOM_EXTRA;
 
   const pill = (
     <View style={[styles.pillShell, isDark && styles.pillShellDark]}>
@@ -128,7 +144,7 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
               backgroundColor: isDark
                 ? 'rgba(30,30,30,0.96)'
                 : 'rgba(255,255,255,0.94)',
-              borderRadius: rs(32),
+              borderRadius: rs(28),
             },
           ]}
         />
@@ -136,7 +152,7 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
         <BlurView
           intensity={isDark ? 55 : 85}
           tint={isDark ? 'dark' : 'light'}
-          style={[StyleSheet.absoluteFill, { borderRadius: rs(32) }]}
+          style={[StyleSheet.absoluteFill, { borderRadius: rs(28) }]}
         />
       )}
       <LinearGradient
@@ -147,7 +163,7 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
         }
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={[StyleSheet.absoluteFill, { borderRadius: rs(32) }]}
+        style={[StyleSheet.absoluteFill, { borderRadius: rs(28) }]}
         pointerEvents="none"
       />
       <View style={styles.row}>
@@ -218,11 +234,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: rs(14),
+    paddingHorizontal: rs(16),
     backgroundColor: 'transparent',
   },
   pillShell: {
-    borderRadius: rs(32),
+    borderRadius: rs(28),
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.98)',
     backgroundColor: 'rgba(255,255,255,0.88)',
@@ -243,10 +259,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    paddingTop: rs(10),
-    paddingBottom: rs(8),
-    paddingHorizontal: rs(6),
-    minHeight: rs(64),
+    paddingTop: rs(6),
+    paddingBottom: rs(5),
+    paddingHorizontal: rs(4),
+    minHeight: rs(52),
   },
   item: {
     flex: 1,
@@ -258,16 +274,16 @@ const styles = StyleSheet.create({
     gap: rs(2),
   },
   iconStage: {
-    width: rs(44),
-    height: rs(36),
+    width: rs(40),
+    height: rs(30),
     alignItems: 'center',
     justifyContent: 'center',
   },
   glow: {
     position: 'absolute',
-    width: rs(36),
-    height: rs(36),
-    borderRadius: rs(18),
+    width: rs(32),
+    height: rs(32),
+    borderRadius: rs(16),
     overflow: 'hidden',
   },
   glowFill: {
@@ -275,8 +291,8 @@ const styles = StyleSheet.create({
     opacity: 0.95,
   },
   label: {
-    fontSize: rs(10),
-    marginBottom: rs(1),
+    fontSize: rs(9),
+    marginBottom: 0,
     letterSpacing: 0.1,
   },
   activeDot: {

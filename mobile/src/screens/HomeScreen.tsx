@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import DraggableFlatList, {
   ScaleDecorator,
@@ -24,6 +25,7 @@ import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { AppHeader } from '../components/AppHeader';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { HomeMarketPanel } from '../components/home/HomeMarketPanel';
+import { floatingTabBarClearance } from '../components/AppTabBar';
 import { HomeTabSwitcher } from '../components/home/HomeTabSwitcher';
 import { HOME_CARD_GAP, HOME_H_PAD } from '../components/home/homeLayout';
 import { SwipeTabGesture } from '../components/SwipeTabGesture';
@@ -54,7 +56,13 @@ import {
   isMinorAccount,
 } from '../utils/minorAccount';
 import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
-import { accountRailColor, GLASS_GRADIENT } from '../theme/glassUi';
+import {
+  accountRailColor,
+  GLASS_GRADIENT,
+  NEPSE_GREEN,
+  NEPSE_NAVY,
+  TAB_ACTIVE_GRADIENT,
+} from '../theme/glassUi';
 import { rs } from '../utils/responsive';
 import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
@@ -72,6 +80,7 @@ function AccountCard({
   onDrag,
   styles,
   colors,
+  isDark,
 }: {
   item: AccountMeta;
   index: number;
@@ -83,6 +92,7 @@ function AccountCard({
   onDrag?: () => void;
   styles: ReturnType<typeof makeStyles>;
   colors: ThemeColors;
+  isDark: boolean;
 }) {
   const verified = item.verified !== false;
   const userInactive = item.inactive === true;
@@ -90,13 +100,16 @@ function AccountCard({
   const indexLabel = String(index + 1).padStart(2, '0');
   const canDrag = !searching && Boolean(onDrag);
   const rail = accountRailColor(index);
+  const statusActive = verified && !userInactive && !locked;
+  const ink = isDark ? colors.text : NEPSE_NAVY;
 
   return (
     <ScaleDecorator>
       <Pressable
         style={[
           styles.card,
-          isActive && styles.cardActive,
+          statusActive && styles.cardStatusActive,
+          isActive && styles.cardDragging,
           locked && styles.cardLocked,
         ]}
         onPress={onOpen}
@@ -105,19 +118,30 @@ function AccountCard({
         disabled={isActive}
       >
         <View style={styles.cardLeft}>
-          <View style={[styles.flag, { backgroundColor: rail }]}>
+          <LinearGradient
+            colors={
+              statusActive ? [...TAB_ACTIVE_GRADIENT] : [rail, `${rail}DD`]
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.flag}
+          >
             <Text style={styles.railIndex}>{indexLabel}</Text>
-          </View>
+          </LinearGradient>
           <View style={styles.avatarWrap}>
             <View style={styles.avatarRing}>
-              <Ionicons name="person" size={rs(16)} color="#546E7A" />
+              <Ionicons
+                name="person"
+                size={rs(16)}
+                color={statusActive ? NEPSE_GREEN : rail}
+              />
             </View>
           </View>
         </View>
 
         <View style={styles.cardBody}>
           <View style={styles.nameRow}>
-            <Text style={styles.name} numberOfLines={1}>
+            <Text style={[styles.name, { color: ink }]} numberOfLines={1}>
               {item.name.toUpperCase()}
             </Text>
             {verified ? (
@@ -132,11 +156,15 @@ function AccountCard({
               </View>
             ) : null}
           </View>
-          <Text style={styles.username} numberOfLines={1}>
+          <Text style={[styles.username, { color: isDark ? colors.textMuted : '#64748B' }]} numberOfLines={1}>
             Username : {item.username}
           </Text>
           <View
-            style={[styles.statusBadge, locked && styles.statusBadgeLocked]}
+            style={[
+              styles.statusBadge,
+              statusActive && styles.statusBadgeActive,
+              locked && styles.statusBadgeLocked,
+            ]}
           >
             <View
               style={[
@@ -167,7 +195,7 @@ function AccountCard({
             <Ionicons
               name="ellipsis-vertical"
               size={rs(16)}
-              color={searching ? colors.textDim : colors.textMuted}
+              color={searching ? colors.textDim : isDark ? colors.textMuted : NEPSE_NAVY}
             />
           </Pressable>
           <Pressable
@@ -178,7 +206,7 @@ function AccountCard({
             <Ionicons
               name="chevron-forward"
               size={rs(14)}
-              color={rail}
+              color={isDark ? colors.text : NEPSE_NAVY}
             />
           </Pressable>
         </View>
@@ -204,7 +232,10 @@ export function HomeScreen() {
   const { isAccountActive } = useActiveAccounts();
   const { refresh: refreshBranding } = useAppBranding();
   const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const tabClearance = floatingTabBarClearance(insets.bottom);
+  const fabBottom = tabClearance + rs(8);
 
   const goAddCapital = useCallback(() => {
     void (async () => {
@@ -498,10 +529,11 @@ export function HomeScreen() {
           onDrag={drag}
           styles={styles}
           colors={colors}
+          isDark={isDark}
         />
       );
     },
-    [colors, isAccountActive, openSheet, searching, showAccountMenu, styles],
+    [colors, isAccountActive, isDark, openSheet, searching, showAccountMenu, styles],
   );
 
   return (
@@ -664,7 +696,9 @@ export function HomeScreen() {
               />
             }
             contentContainerStyle={
-              filteredAccounts.length === 0 ? styles.listEmpty : styles.list
+              filteredAccounts.length === 0
+                ? [styles.listEmpty, { paddingBottom: tabClearance + rs(56) }]
+                : [styles.list, { paddingBottom: tabClearance + rs(56) }]
             }
             ListEmptyComponent={
               <View style={styles.emptyMarket}>
@@ -684,14 +718,17 @@ export function HomeScreen() {
             renderItem={renderAccount}
           />
 
-          <Pressable style={styles.fabWrap} onPress={goAddCapital}>
+          <Pressable
+            style={[styles.fabWrap, { bottom: fabBottom }]}
+            onPress={goAddCapital}
+          >
             <LinearGradient
               colors={GLASS_GRADIENT}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.fab}
             >
-              <Ionicons name="add" size={rs(28)} color="#FFFFFF" />
+              <Ionicons name="add" size={rs(22)} color="#FFFFFF" />
             </LinearGradient>
           </Pressable>
 
@@ -725,10 +762,16 @@ export function HomeScreen() {
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const cardBg = isDark ? 'rgba(38,38,38,0.92)' : 'rgba(255,255,255,0.52)';
+  const cardBg = isDark ? 'rgba(38,38,38,0.82)' : 'rgba(255,255,255,0.78)';
   const cardBorder = isDark
-    ? 'rgba(255,255,255,0.12)'
-    : 'rgba(74,222,128,0.28)';
+    ? 'rgba(255,255,255,0.14)'
+    : 'rgba(255,255,255,0.96)';
+  const cardActiveBg = isDark
+    ? 'rgba(34,197,94,0.14)'
+    : 'rgba(255,255,255,0.88)';
+  const cardActiveBorder = isDark
+    ? 'rgba(74,222,128,0.4)'
+    : 'rgba(74,222,128,0.5)';
   const minorBadgeBg = isDark ? 'rgba(229,57,53,0.22)' : '#FFEBEE';
   const minorBadgeFg = isDark ? '#FF8A80' : '#C62828';
   const minorBadgeBorder = isDark ? '#E57373' : '#E53935';
@@ -820,10 +863,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     listFlex: { flex: 1 },
     list: {
       paddingHorizontal: HOME_H_PAD,
-      paddingBottom: rs(100),
       paddingTop: rs(4),
     },
-    listEmpty: { flexGrow: 1, paddingBottom: rs(100) },
+    listEmpty: { flexGrow: 1 },
     card: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -831,48 +873,53 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderRadius: rs(18),
       marginBottom: HOME_CARD_GAP,
       backgroundColor: cardBg,
-      minHeight: rs(76),
+      minHeight: rs(78),
       overflow: 'hidden',
       borderWidth: 1.5,
       borderColor: cardBorder,
-      shadowColor: isDark ? '#000' : '#4ADE80',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0.2 : 0.16,
-      shadowRadius: 8,
-      elevation: 2,
+      shadowColor: isDark ? '#000' : '#94A3B8',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: isDark ? 0.22 : 0.12,
+      shadowRadius: 10,
+      elevation: 3,
     },
-    cardActive: {
-      opacity: 0.94,
-      borderColor: c.primary,
+    cardStatusActive: {
+      backgroundColor: cardActiveBg,
+      borderColor: cardActiveBorder,
+      shadowColor: isDark ? '#22C55E' : '#4ADE80',
+      shadowOpacity: isDark ? 0.18 : 0.2,
+    },
+    cardDragging: {
+      opacity: 0.92,
+      transform: [{ scale: 1.02 }],
     },
     cardLeft: {
-      width: rs(58),
+      width: rs(54),
+      alignSelf: 'stretch',
       position: 'relative',
       flexShrink: 0,
-      alignSelf: 'stretch',
     },
     flag: {
       position: 'absolute',
       left: 0,
       top: 0,
-      width: rs(38),
-      height: rs(38),
-      borderBottomRightRadius: rs(16),
-      paddingTop: rs(8),
+      width: rs(40),
+      height: rs(40),
+      borderBottomRightRadius: rs(22),
+      paddingTop: rs(7),
       paddingLeft: rs(8),
     },
     railIndex: {
       color: '#FFFFFF',
       fontWeight: '800',
-      fontSize: rs(11),
+      fontSize: rs(10),
       letterSpacing: 0.2,
     },
     avatarWrap: {
       position: 'absolute',
-      left: rs(18),
+      left: rs(14),
       top: 0,
       bottom: 0,
-      width: rs(34),
       justifyContent: 'center',
       zIndex: 2,
     },
@@ -883,11 +930,13 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       backgroundColor: '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: '#FFFFFF',
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.12,
-      shadowRadius: 3,
-      elevation: 3,
+      shadowOpacity: 0.08,
+      shadowRadius: 2,
+      elevation: 2,
     },
     cardBody: {
       flex: 1,
@@ -904,7 +953,6 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     name: {
       flexShrink: 1,
-      color: c.text,
       fontWeight: '800',
       fontSize: rs(13),
       letterSpacing: 0.15,
@@ -938,9 +986,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       textTransform: 'uppercase',
     },
     username: {
-      color: c.textMuted,
       fontSize: rs(11),
       marginTop: rs(1),
+      fontWeight: '500',
     },
     cardLocked: {
       opacity: 0.88,
@@ -954,7 +1002,13 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       paddingHorizontal: rs(8),
       paddingVertical: rs(2),
       borderRadius: rs(10),
-      backgroundColor: c.primarySoft,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.72)',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.9)',
+    },
+    statusBadgeActive: {
+      backgroundColor: isDark ? 'rgba(74,222,128,0.15)' : 'rgba(236,253,245,0.9)',
+      borderColor: isDark ? 'rgba(74,222,128,0.25)' : 'rgba(187,247,208,0.9)',
     },
     statusBadgeLocked: {
       backgroundColor: c.minorSoft,
@@ -998,30 +1052,39 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       justifyContent: 'center',
     },
     chevronBtn: {
-      width: rs(26),
-      height: rs(26),
-      borderRadius: rs(13),
-      backgroundColor: c.primarySoft,
+      width: rs(28),
+      height: rs(28),
+      borderRadius: rs(14),
+      backgroundColor: isDark
+        ? 'rgba(255,255,255,0.1)'
+        : 'rgba(224,242,254,0.85)',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.95)',
       alignItems: 'center',
       justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.06,
+      shadowRadius: 2,
+      elevation: 1,
     },
     fabWrap: {
       position: 'absolute',
       right: HOME_H_PAD,
-      bottom: rs(20),
-      width: rs(56),
-      height: rs(56),
-      borderRadius: rs(28),
-      elevation: 8,
+      width: rs(48),
+      height: rs(48),
+      borderRadius: rs(24),
+      zIndex: 20,
+      elevation: 12,
       shadowColor: '#22C55E',
       shadowOpacity: 0.45,
       shadowRadius: 10,
       shadowOffset: { width: 0, height: 4 },
     },
     fab: {
-      width: rs(56),
-      height: rs(56),
-      borderRadius: rs(28),
+      width: rs(48),
+      height: rs(48),
+      borderRadius: rs(24),
       alignItems: 'center',
       justifyContent: 'center',
     },

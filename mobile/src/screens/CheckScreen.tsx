@@ -4,6 +4,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { floatingTabBarClearance } from '../components/AppTabBar';
 import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { GlassClusterBackground } from '../components/GlassClusterBackground';
@@ -40,6 +41,7 @@ export function CheckScreen() {
   const { usableAccounts } = useActiveAccounts();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const tabClearance = floatingTabBarClearance(insets.bottom);
 
   const needAccounts = (go: () => void, requireActive = true) => {
     if (accounts.length === 0) {
@@ -120,7 +122,7 @@ export function CheckScreen() {
           <ScrollView
             contentContainerStyle={[
               styles.scrollContent,
-              { paddingBottom: insets.bottom + rs(100) },
+              { paddingBottom: tabClearance },
             ]}
             showsVerticalScrollIndicator={false}
           >

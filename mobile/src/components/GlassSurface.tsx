@@ -24,7 +24,8 @@ type Props = {
 };
 
 /**
- * Frosted glass panel — blur + translucent white + soft border.
+ * Frosted glass panel — blur + translucent fill + soft border.
+ * `style` applies to the inner content row/box (flex layout), not the outer shell.
  */
 export function GlassSurface({
   children,
@@ -37,31 +38,35 @@ export function GlassSurface({
 
   if (isDark) {
     return (
-      <View
-        style={[
-          styles.darkShell,
-          { borderRadius: radius },
-          style,
-        ]}
-      >
-        {children}
+      <View style={[styles.darkShell, { borderRadius: radius }]}>
+        {Platform.OS !== 'web' ? (
+          <BlurView
+            intensity={48}
+            tint="dark"
+            style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
+          />
+        ) : null}
+        <LinearGradient
+          colors={['rgba(40,40,40,0.88)', 'rgba(28,28,28,0.78)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
+          pointerEvents="none"
+        />
+        <View style={[styles.content, style]}>{children}</View>
       </View>
     );
   }
 
-  const shellStyle = [
-    styles.shell,
-    {
-      borderRadius: radius,
-      borderColor: GLASS_CARD_BORDER,
-      shadowColor: GLASS_CYAN_GLOW,
-    },
-    style,
-  ];
+  const shellVisual = {
+    borderRadius: radius,
+    borderColor: GLASS_CARD_BORDER,
+    shadowColor: GLASS_CYAN_GLOW,
+  };
 
   if (Platform.OS === 'web') {
     return (
-      <View style={[shellStyle, { backgroundColor: GLASS_CARD_BG }]}>
+      <View style={[styles.shell, shellVisual, { backgroundColor: GLASS_CARD_BG }]}>
         <LinearGradient
           colors={['rgba(255,255,255,0.82)', 'rgba(255,255,255,0.45)']}
           start={{ x: 0, y: 0 }}
@@ -69,13 +74,13 @@ export function GlassSurface({
           style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
           pointerEvents="none"
         />
-        <View style={styles.content}>{children}</View>
+        <View style={[styles.content, style]}>{children}</View>
       </View>
     );
   }
 
   return (
-    <View style={shellStyle}>
+    <View style={[styles.shell, shellVisual]}>
       <BlurView
         intensity={intensity}
         tint="light"
@@ -88,7 +93,7 @@ export function GlassSurface({
         style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
         pointerEvents="none"
       />
-      <View style={styles.content}>{children}</View>
+      <View style={[styles.content, style]}>{children}</View>
     </View>
   );
 }
@@ -105,8 +110,8 @@ const styles = StyleSheet.create({
   },
   darkShell: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(30,30,30,0.72)',
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(30,30,30,0.75)',
     overflow: 'hidden',
   },
   content: {

@@ -17,8 +17,10 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { floatingTabBarClearance } from '../components/AppTabBar';
 import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { ApplyInvestmentSummaryCard } from '../components/ApplyInvestmentSummaryCard';
@@ -154,8 +156,10 @@ export function ApplyScreen() {
   const { user, isAuthenticated, signInWithGoogle } = useAuth();
   const { isPremium, maxAccounts } = useSubscription();
   const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const tabClearance = floatingTabBarClearance(insets.bottom);
 
   const goAddCapital = useCallback(() => {
     void (async () => {
@@ -1098,7 +1102,10 @@ export function ApplyScreen() {
       ) : (
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: tabClearance },
+          ]}
           refreshControl={refreshControl}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator
@@ -1401,7 +1408,6 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     scroll: { flex: 1 },
     scrollContent: {
       padding: rs(16),
-      paddingBottom: rs(100),
     },
     resultsBox: {
       height: rs(400),

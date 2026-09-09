@@ -98,7 +98,7 @@ export function AppHeader({
 
         {branded ? (
           <View style={styles.brandBlock}>
-            <BrandLogo variant="mark" height={rs(32)} />
+            <BrandLogo variant="mark" height={rs(28)} />
             <View style={styles.brandTextCol}>
               <Text numberOfLines={1}>
                 <Text
@@ -182,7 +182,7 @@ export function AppHeader({
                   >
                     <MaterialCommunityIcons
                       name="calendar-month-outline"
-                      size={rs(22)}
+                      size={rs(18)}
                       color="#FFFFFF"
                     />
                   </LinearGradient>
@@ -228,7 +228,7 @@ export function AppHeader({
                   >
                     <Ionicons
                       name="newspaper-outline"
-                      size={rs(20)}
+                      size={rs(17)}
                       color={isDark ? '#E2E8F0' : NEPSE_NAVY}
                     />
                     <View style={styles.newsCountBadge}>
@@ -310,12 +310,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   brandNepse: {
-    fontSize: rs(16),
+    fontSize: rs(15),
     fontWeight: '800',
     letterSpacing: 0.2,
   },
   brandGhar: {
-    fontSize: rs(16),
+    fontSize: rs(15),
     fontWeight: '800',
     color: GHAR_TEAL,
     letterSpacing: 0.2,
@@ -340,9 +340,9 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   actionCardLarge: {
-    width: rs(50),
-    height: rs(50),
-    borderRadius: rs(14),
+    width: rs(40),
+    height: rs(40),
+    borderRadius: rs(12),
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.85)',
     alignItems: 'center',
@@ -367,11 +367,11 @@ const styles = StyleSheet.create({
   },
   newsCountBadge: {
     position: 'absolute',
-    top: rs(-4),
-    right: rs(-4),
-    minWidth: rs(14),
-    height: rs(14),
-    borderRadius: rs(7),
+    top: rs(-3),
+    right: rs(-3),
+    minWidth: rs(12),
+    height: rs(12),
+    borderRadius: rs(6),
     backgroundColor: '#E53935',
     alignItems: 'center',
     justifyContent: 'center',
@@ -379,7 +379,7 @@ const styles = StyleSheet.create({
   },
   newsCountText: {
     color: '#FFFFFF',
-    fontSize: rs(8),
+    fontSize: rs(7),
     fontWeight: '800',
   },
   logoWrap: {
@@ -401,21 +401,22 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: rs(12),
+    gap: rs(6),
     paddingBottom: rs(2),
+    flexShrink: 0,
   },
   actionItem: {
     alignItems: 'center',
-    gap: rs(2),
-    minWidth: rs(44),
+    gap: rs(1),
+    minWidth: rs(36),
   },
   actionLabel: {
-    fontSize: rs(10),
+    fontSize: rs(9),
     fontWeight: '700',
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
   },
   actionsPlaceholder: {
-    width: rs(96),
+    width: rs(80),
   },
   calWrap: {
     width: rs(34),

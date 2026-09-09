@@ -17,6 +17,10 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { floatingTabBarClearance } from '../components/AppTabBar';
+import { GlassClusterBackground } from '../components/GlassClusterBackground';
+import { GlassIpoPickerField } from '../components/GlassIpoPickerField';
+import { GlassPrimaryButton } from '../components/GlassPrimaryButton';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
@@ -65,8 +69,6 @@ import { useSensitiveAction } from '../hooks/useSensitiveAction';
 const ACCENT = '#2D5A27';
 /** Deep forest green for check CTAs in dark mode */
 const ACCENT_DARK = '#0A3A14';
-const HEADER_BG = '#E8F0E6';
-const BODY_BG = '#F6F8F2';
 /** Pure status colors — high contrast on light (and dark) backgrounds */
 const GREEN = '#2E7D32';
 const RED = '#C62828';
@@ -194,6 +196,7 @@ export function IpoBulkStatusScreen() {
   const { colors, isDark } = useTheme();
   const sensitive = useSensitiveAction();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const tabClearance = floatingTabBarClearance(insets.bottom);
   const ready = useAfterInteractions();
   const modalListHeight = useMemo(
     () => Math.max(rs(160), Dimensions.get('window').height * 0.38),
@@ -584,13 +587,26 @@ export function IpoBulkStatusScreen() {
     }
   };
 
+  const companyLabel = selected
+    ? `${selected.companyName}${selected.scrip ? ` (${selected.scrip})` : ''}`
+    : loadingList
+      ? 'Loading…'
+      : 'No listed IPO/FPO';
+
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
+    <GlassClusterBackground variant="default" style={{ paddingTop: insets.top }}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
         </Pressable>
-        <Text style={styles.title}>IPO Bulk Status</Text>
+        <View style={styles.headerTitleRow}>
+          <MaterialCommunityIcons
+            name="format-list-checks"
+            size={rs(20)}
+            color={isDark ? '#67E8F9' : '#1565C0'}
+          />
+          <Text style={styles.title}>IPO Bulk Status</Text>
+        </View>
         <Pressable
           hitSlop={10}
           onPress={() =>
@@ -603,7 +619,7 @@ export function IpoBulkStatusScreen() {
           <Ionicons
             name="information-circle-outline"
             size={rs(22)}
-            color={isDark ? colors.text : ACCENT}
+            color={isDark ? '#67E8F9' : '#1565C0'}
           />
         </Pressable>
       </View>
@@ -619,76 +635,26 @@ export function IpoBulkStatusScreen() {
       </View>
 
       <View style={styles.controls}>
-        <Pressable
-          style={styles.dropdown}
+        <GlassIpoPickerField
+          icon="accounts"
+          label={checkLabel}
+          placeholder={checkAccounts.length === accounts.length}
           onPress={() => setCheckPickerOpen(true)}
-        >
-          <Text
-            style={[
-              styles.dropdownText,
-              checkAccounts.length === accounts.length && styles.dropdownPlaceholder,
-            ]}
-            numberOfLines={1}
-          >
-            {checkLabel}
-          </Text>
-          <Ionicons
-            name="caret-down"
-            size={rs(14)}
-            color={isDark ? colors.textMuted : '#6B726B'}
-          />
-        </Pressable>
-
-        <View style={styles.labelRow}>
-          <MaterialCommunityIcons
-            name="bank"
-            size={rs(16)}
-            color={isDark ? colors.text : '#1B2E1B'}
-          />
-          <Text style={styles.label}>Listed IPO/FPO</Text>
-        </View>
-
-        <Pressable
-          style={styles.dropdown}
+        />
+        <GlassIpoPickerField
+          icon="ipo"
+          label={companyLabel}
+          placeholder={!selected}
           onPress={() => setCompanyPickerOpen(true)}
           disabled={loadingList || companies.length === 0}
-        >
-          <Text
-            style={[
-              styles.dropdownText,
-              styles.dropdownValue,
-              !selected && styles.dropdownPlaceholder,
-            ]}
-            numberOfLines={1}
-          >
-            {selected
-              ? `${selected.companyName}${selected.scrip ? ` (${selected.scrip})` : ''}`
-              : loadingList
-                ? 'Loading…'
-                : 'No listed IPO/FPO'}
-          </Text>
-          {loadingList ? (
-            <ActivityIndicator size="small" color={ACCENT} />
-          ) : (
-            <Ionicons
-              name="caret-down"
-              size={rs(14)}
-              color={isDark ? colors.textMuted : '#6B726B'}
-            />
-          )}
-        </Pressable>
-
-        <Pressable
-          style={[styles.actionBtn, running && { opacity: 0.6 }]}
+          loading={loadingList}
+        />
+        <GlassPrimaryButton
+          label="IPO Bulk Status"
           onPress={runCheck}
-          disabled={running || !selected}
-        >
-          {running ? (
-            <ActivityIndicator color={isDark ? '#FFFFFF' : ACCENT} />
-          ) : (
-            <Text style={styles.actionText}>IPO Bulk Status</Text>
-          )}
-        </Pressable>
+          disabled={!selected}
+          loading={running}
+        />
 
         {running && progress ? (
           <View style={styles.progressWrap}>
@@ -767,7 +733,10 @@ export function IpoBulkStatusScreen() {
               style={styles.resultsList}
               data={visibleResults}
               keyExtractor={(row) => row.accountId}
-              contentContainerStyle={styles.resultsListBody}
+              contentContainerStyle={[
+                styles.resultsListBody,
+                { paddingBottom: tabClearance },
+              ]}
               refreshControl={refreshControl}
               {...ACCOUNT_LIST_FLAT_PROPS}
               ListEmptyComponent={
@@ -881,13 +850,21 @@ export function IpoBulkStatusScreen() {
                         { backgroundColor: allotmentCard.iconBackground },
                       ]}
                     >
-                      <Ionicons name={icon} size={rs(20)} color={allotmentCard.iconColor} />
+                      <Ionicons
+                        name={icon}
+                        size={rs(20)}
+                        color={allotmentCard.iconColor}
+                      />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.resultName, { color: allotmentCard.textColor }]}>
+                      <Text
+                        style={[styles.resultName, { color: allotmentCard.textColor }]}
+                      >
                         {idx + 1}. {row.accountName.toUpperCase()}
                       </Text>
-                      <Text style={[styles.resultStatus, { color: allotmentCard.textColor }]}>
+                      <Text
+                        style={[styles.resultStatus, { color: allotmentCard.textColor }]}
+                      >
                         {statusLine(row)}
                       </Text>
                       <View
@@ -896,7 +873,9 @@ export function IpoBulkStatusScreen() {
                           { backgroundColor: allotmentCard.pillBackground },
                         ]}
                       >
-                        <Text style={[styles.remarkText, { color: allotmentCard.textColor }]}>
+                        <Text
+                          style={[styles.remarkText, { color: allotmentCard.textColor }]}
+                        >
                           {amountStatusLine(row)}
                         </Text>
                       </View>
@@ -977,13 +956,13 @@ export function IpoBulkStatusScreen() {
               )}
             />
             <Pressable
-              style={[styles.modalDone, styles.actionBtn]}
+              style={styles.modalDone}
               onPress={() => {
                 setCheckPickerOpen(false);
                 setAccountPickerFilter('');
               }}
             >
-              <Text style={styles.actionText}>Done</Text>
+              <Text style={styles.modalDoneText}>Done</Text>
             </Pressable>
           </View>
         </View>
@@ -1032,47 +1011,48 @@ export function IpoBulkStatusScreen() {
               )}
             />
             <Pressable
-              style={[styles.modalDone, styles.actionBtn]}
+              style={styles.modalDone}
               onPress={() => setCompanyPickerOpen(false)}
             >
-              <Text style={styles.actionText}>Close</Text>
+              <Text style={styles.modalDoneText}>Close</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
 
       <SensitiveActionModals action={sensitive} />
-    </View>
+    </GlassClusterBackground>
   );
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const fieldBg = isDark ? c.surface : BODY_BG;
-  const fieldBorder = isDark ? c.border : '#8E968E';
-  const fieldText = isDark ? c.text : '#1B2E1B';
-  const cardBg = isDark ? c.surface : '#FFFFFF';
-  const boxBorder = isDark ? c.border : '#C5CBC5';
+  const boxBorder = isDark ? c.borderMuted : 'rgba(186,230,253,0.55)';
 
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: isDark ? c.bg : BODY_BG },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: rs(14),
+      paddingHorizontal: rs(16),
       paddingVertical: rs(12),
-      backgroundColor: isDark ? c.bgElevated : HEADER_BG,
+      backgroundColor: 'transparent',
+    },
+    headerTitleRow: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(8),
+      marginHorizontal: rs(8),
     },
     title: {
-      color: c.text,
-      fontSize: rs(16),
-      fontWeight: '700',
-      flex: 1,
-      textAlign: 'center',
+      color: isDark ? c.text : '#1B2A4A',
+      fontSize: rs(17),
+      fontWeight: '800',
     },
     controls: {
-      paddingHorizontal: rs(18),
-      paddingTop: rs(18),
+      paddingHorizontal: rs(16),
+      paddingTop: rs(6),
       paddingBottom: rs(4),
     },
     resultsPane: {
@@ -1082,87 +1062,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       minHeight: 0,
     },
     resultsList: { flex: 1 },
-    resultsListBody: { paddingBottom: rs(16) },
-    dropdown: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      borderWidth: 1,
-      borderColor: fieldBorder,
-      borderRadius: rs(22),
-      paddingHorizontal: rs(16),
-      paddingVertical: rs(12),
-      minHeight: rs(46),
-      backgroundColor: fieldBg,
-      marginBottom: rs(14),
-      gap: rs(8),
-    },
-    dropdownText: {
-      flex: 1,
-      color: fieldText,
-      fontSize: rs(13),
-      fontWeight: '500',
-    },
-    dropdownPlaceholder: {
-      color: isDark ? c.textMuted : '#8A938A',
-      fontWeight: '500',
-    },
-    dropdownValue: {
-      color: isDark ? c.text : '#1B2E1B',
-      fontWeight: '600',
-    },
-    labelRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(6),
-      marginBottom: rs(10),
-    },
-    label: {
-      color: isDark ? c.text : '#1B2E1B',
-      fontSize: rs(13),
-      fontWeight: '700',
-    },
-    companyRow: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: rs(8),
-    },
-    ipoBadge: {
-      backgroundColor: isDark ? GREEN : ACCENT,
-      borderRadius: rs(4),
-      paddingHorizontal: rs(6),
-      paddingVertical: rs(2),
-    },
-    ipoBadgeText: { color: '#FFF', fontWeight: '800', fontSize: rs(10) },
-    companyText: {
-      flex: 1,
-      color: isDark ? c.text : '#1B2E1B',
-      fontSize: rs(13),
-      fontWeight: '600',
-    },
-    actionBtn: {
-      alignSelf: 'center',
-      borderWidth: 1,
-      borderColor: isDark ? ACCENT_DARK : '#C5D0C5',
-      borderRadius: rs(24),
-      paddingHorizontal: rs(28),
-      paddingVertical: rs(12),
-      marginTop: rs(10),
-      marginBottom: rs(10),
-      minWidth: rs(168),
-      alignItems: 'center',
-      backgroundColor: isDark ? ACCENT_DARK : BODY_BG,
-      shadowColor: '#000',
-      shadowOpacity: isDark ? 0 : 0.06,
-      shadowRadius: 3,
-      shadowOffset: { width: 0, height: 1 },
-      elevation: isDark ? 0 : 1,
-    },
-    actionText: {
-      color: isDark ? '#FFFFFF' : ACCENT,
-      fontWeight: '700',
-      fontSize: rs(14),
-    },
+    resultsListBody: {},
     progressWrap: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1192,12 +1092,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     chip: {
       flex: 1,
       minWidth: 0,
-      borderWidth: isDark ? 1 : 1.5,
-      borderColor: isDark ? c.border : '#5F6B5F',
+      borderWidth: 1,
+      borderColor: isDark ? c.border : 'rgba(186,230,253,0.7)',
       borderRadius: rs(16),
       paddingHorizontal: rs(8),
       paddingVertical: rs(6),
-      backgroundColor: isDark ? c.surface : '#FFFFFF',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.55)',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1209,12 +1109,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     chipText: { fontSize: rs(11), fontWeight: '700', textAlign: 'center' },
     updatesBox: {
       flex: 1,
-      borderWidth: isDark ? 1 : 1.5,
+      borderWidth: 1,
       borderColor: boxBorder,
-      borderRadius: rs(14),
+      borderRadius: rs(16),
       padding: rs(12),
       minHeight: 0,
-      backgroundColor: isDark ? 'transparent' : '#FFFFFF',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.35)',
     },
     updatesHead: {
       flexDirection: 'row',
@@ -1318,6 +1218,24 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       gap: rs(10),
     },
     modalRowTitle: { flex: 1, color: c.text, fontWeight: '600', fontSize: rs(13) },
+    companyRow: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(8),
+    },
+    ipoBadge: {
+      backgroundColor: isDark ? GREEN : ACCENT,
+      borderRadius: rs(4),
+      paddingHorizontal: rs(6),
+      paddingVertical: rs(2),
+    },
+    ipoBadgeText: { color: '#FFF', fontWeight: '800', fontSize: rs(10) },
     modalDone: { alignItems: 'center', paddingVertical: rs(14) },
+    modalDoneText: {
+      color: c.primary,
+      fontWeight: '800',
+      fontSize: rs(15),
+    },
   });
 }

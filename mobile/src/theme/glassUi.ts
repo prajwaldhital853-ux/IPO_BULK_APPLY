@@ -40,10 +40,26 @@ export const RESULT_CARD_THEMES: readonly ResultCardTheme[] = [
   { bg: '#FFEBEE', accent: '#E53935' },
 ];
 
+export const RESULT_CARD_THEMES_DARK: readonly ResultCardTheme[] = [
+  { bg: 'rgba(21,101,192,0.28)', accent: '#64B5F6' },
+  { bg: 'rgba(46,125,50,0.28)', accent: '#81C784' },
+  { bg: 'rgba(123,31,162,0.28)', accent: '#CE93D8' },
+  { bg: 'rgba(239,108,0,0.28)', accent: '#FFB74D' },
+  { bg: 'rgba(0,131,143,0.28)', accent: '#4DD0E1' },
+  { bg: 'rgba(194,24,91,0.28)', accent: '#F48FB1' },
+  { bg: 'rgba(57,73,171,0.28)', accent: '#9FA8DA' },
+  { bg: 'rgba(104,159,56,0.28)', accent: '#AED581' },
+  { bg: 'rgba(229,57,53,0.28)', accent: '#EF9A9A' },
+];
+
 export function accountRailColor(index: number): string {
   return ACCOUNT_RAIL_COLORS[index % ACCOUNT_RAIL_COLORS.length];
 }
 
-export function resultCardTheme(index: number): ResultCardTheme {
-  return RESULT_CARD_THEMES[(index - 1) % RESULT_CARD_THEMES.length];
+export function resultCardTheme(
+  index: number,
+  isDark = false,
+): ResultCardTheme {
+  const themes = isDark ? RESULT_CARD_THEMES_DARK : RESULT_CARD_THEMES;
+  return themes[(index - 1) % themes.length];
 }

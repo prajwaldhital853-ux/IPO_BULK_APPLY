@@ -18,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { floatingTabBarClearance } from '../components/AppTabBar';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { GlassClusterBackground } from '../components/GlassClusterBackground';
 import { GlassSurface } from '../components/GlassSurface';
@@ -129,6 +130,7 @@ type AccountResultRowProps = {
   running: boolean;
   hasSelected: boolean;
   onCheckOne: (account: AccountMeta) => void;
+  isDark: boolean;
   styles: ResultCardStyles;
   colors: ThemeColors;
 };
@@ -142,6 +144,7 @@ const AccountResultRow = React.memo(function AccountResultRow({
   running,
   hasSelected,
   onCheckOne,
+  isDark,
   styles,
   colors,
 }: AccountResultRowProps) {
@@ -172,7 +175,7 @@ const AccountResultRow = React.memo(function AccountResultRow({
   const showHourglass =
     !isChecking && !result && !isAllotted && !isError && !isNotAllotted;
   const showStatusLine = Boolean(statusMessage);
-  const theme = resultCardTheme(index);
+  const theme = resultCardTheme(index, isDark);
 
   return (
     <View
@@ -194,7 +197,10 @@ const AccountResultRow = React.memo(function AccountResultRow({
         ) : isNotAllotted ? (
           <Ionicons name="close-circle" size={rs(18)} color="#E57373" />
         ) : showHourglass ? (
-          <PendingHourglass size={rs(18)} color={NEPSE_NAVY} />
+          <PendingHourglass
+            size={rs(18)}
+            color={isDark ? colors.textSecondary : NEPSE_NAVY}
+          />
         ) : null}
       </View>
       <View style={styles.resultBody}>
@@ -274,6 +280,7 @@ export function PublicIpoResultScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
+  const tabClearance = floatingTabBarClearance(insets.bottom);
   const { updateAccountMeta } = useAccounts();
   const { operationalAccounts: accounts } = useActiveAccounts();
   const { colors, isDark } = useTheme();
@@ -949,7 +956,13 @@ export function PublicIpoResultScreen() {
               color={isDark ? '#67E8F9' : '#1565C0'}
             />
           </View>
-          <Text style={styles.companyPickerText} numberOfLines={1}>
+          <Text
+            style={[
+              styles.companyPickerText,
+              !selected && styles.companyPickerPlaceholder,
+            ]}
+            numberOfLines={1}
+          >
             {selected ? selected.name : 'Select IPO / FPO / Debenture'}
           </Text>
           {loadingCompanies || loadingCdsc ? (
@@ -1097,7 +1110,10 @@ export function PublicIpoResultScreen() {
 
       <FlatList
         style={styles.accountList}
-        contentContainerStyle={styles.accountListContent}
+        contentContainerStyle={[
+          styles.accountListContent,
+          { paddingBottom: tabClearance },
+        ]}
         data={displayRows}
         keyExtractor={(item) => item.account.id}
         {...ACCOUNT_LIST_FLAT_PROPS}
@@ -1119,6 +1135,7 @@ export function PublicIpoResultScreen() {
             running={running}
             hasSelected={Boolean(selected)}
             onCheckOne={onCheckOne}
+            isDark={isDark}
             styles={styles}
             colors={colors}
           />
@@ -1368,7 +1385,6 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     accountListContent: {
       paddingHorizontal: rs(16),
       paddingTop: rs(8),
-      paddingBottom: rs(40),
     },
     companyPicker: {
       flexDirection: 'row',
@@ -1395,6 +1411,10 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontWeight: '700',
       fontSize: rs(13),
       lineHeight: rs(18),
+    },
+    companyPickerPlaceholder: {
+      color: mutedText,
+      fontWeight: '600',
     },
     summaryBox: {
       borderWidth: 1,
@@ -1654,7 +1674,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       height: rs(36),
       borderRadius: rs(18),
       borderWidth: 1.5,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
       gap: rs(1),
