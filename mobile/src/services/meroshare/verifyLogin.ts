@@ -119,16 +119,25 @@ function isTransientMeroShareError(msg: string): boolean {
  * CRN/PIN are validated via a safe apply probe (kitta `0` / already-applied issue)
  * that must NOT succeed as a real IPO application.
  */
-export async function verifyAccountForSave(args: {
-  dpId: string;
-  dpCode?: string;
-  username: string;
-  password: string;
-  crn: string;
-  pin: string;
-  /** Bank from My Details / form when ASBA list API is blocked for this role. */
-  fallbackBankName?: string;
-}): Promise<VerifyAccountResult> {
+export type VerifyAccountOptions = {
+  /** Update flow: verify login/bank only; CRN/PIN are stored locally without MeroShare probe. */
+  skipCrnPinProbe?: boolean;
+};
+
+export async function verifyAccountForSave(
+  args: {
+    dpId: string;
+    dpCode?: string;
+    username: string;
+    password: string;
+    crn: string;
+    pin: string;
+    /** Bank from My Details / form when ASBA list API is blocked for this role. */
+    fallbackBankName?: string;
+  },
+  options?: VerifyAccountOptions,
+): Promise<VerifyAccountResult> {
+  const skipCrnPinProbe = options?.skipCrnPinProbe ?? false;
   const username = args.username.trim();
   const crn = args.crn.trim();
   const pin = args.pin.trim();
@@ -157,29 +166,31 @@ export async function verifyAccountForSave(args: {
       stage: 'login',
     };
   }
-  if (!crn) {
-    return {
-      ok: false,
-      field: 'crn',
-      message: 'CRN number is required (from your bank / ASBA).',
-      stage: 'crn_pin',
-    };
-  }
-  if (crn.length < 4) {
-    return {
-      ok: false,
-      field: 'crn',
-      message: 'CRN looks too short to be valid.',
-      stage: 'crn_pin',
-    };
-  }
-  if (!/^\d{4}$/.test(pin)) {
-    return {
-      ok: false,
-      field: 'pin',
-      message: 'Transaction PIN must be exactly 4 digits.',
-      stage: 'crn_pin',
-    };
+  if (!skipCrnPinProbe) {
+    if (!crn) {
+      return {
+        ok: false,
+        field: 'crn',
+        message: 'CRN number is required (from your bank / ASBA).',
+        stage: 'crn_pin',
+      };
+    }
+    if (crn.length < 4) {
+      return {
+        ok: false,
+        field: 'crn',
+        message: 'CRN looks too short to be valid.',
+        stage: 'crn_pin',
+      };
+    }
+    if (!/^\d{4}$/.test(pin)) {
+      return {
+        ok: false,
+        field: 'pin',
+        message: 'Transaction PIN must be exactly 4 digits.',
+        stage: 'crn_pin',
+      };
+    }
   }
 
   const client = new MeroshareClient();
@@ -323,8 +334,25 @@ export async function verifyAccountForSave(args: {
       return {
         ok: true,
         field: null,
+        message: skipCrnPinProbe
+          ? 'Login OK. MeroShare bank list is temporarily unavailable. Your CRN and PIN will be saved on this device.'
+          : 'Login OK. MeroShare bank list is temporarily unavailable. Account can be saved — CRN/PIN will be confirmed on first live IPO apply.',
+        stage: 'complete',
+        boid: session.boid,
+        demat: session.demat,
+        bankName,
+        accountNumber,
+        accountHolderName,
+        crnPinDeferred: true,
+      };
+    }
+
+    if (skipCrnPinProbe) {
+      return {
+        ok: true,
+        field: null,
         message:
-          'Login OK. MeroShare bank list is temporarily unavailable. Account can be saved — CRN/PIN will be confirmed on first live IPO apply.',
+          'Login OK (DP, username, password). CRN and PIN will be saved on this device and used for IPO apply.',
         stage: 'complete',
         boid: session.boid,
         demat: session.demat,
@@ -426,6 +454,27 @@ export async function verifyAccountForSave(args: {
   } finally {
     client.clearSession();
   }
+}
+
+/**
+ * Verify DP + username + password when updating an existing account.
+ * CRN/PIN are not checked against MeroShare — store whatever the user entered.
+ */
+export async function verifyAccountForUpdate(args: {
+  dpId: string;
+  dpCode?: string;
+  username: string;
+  password: string;
+  fallbackBankName?: string;
+}): Promise<VerifyAccountResult> {
+  return verifyAccountForSave(
+    {
+      ...args,
+      crn: '',
+      pin: '0000',
+    },
+    { skipCrnPinProbe: true },
+  );
 }
 
 /** @deprecated Prefer verifyAccountForSave */

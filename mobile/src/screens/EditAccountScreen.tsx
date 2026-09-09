@@ -31,7 +31,7 @@ import {
   MeroshareError,
   fetchCapitalList,
   isTransientMeroshareError,
-  verifyAccountForSave,
+  verifyAccountForUpdate,
   type CapitalDp,
   type VerifyField,
 } from '../services/meroshare';
@@ -453,13 +453,11 @@ export function EditAccountScreen() {
       setErrorField(null);
       setErrorMsg('');
       try {
-        const verify = await verifyAccountForSave({
+        const verify = await verifyAccountForUpdate({
           dpId: dp.id,
           dpCode: dp.code,
           username: username.trim(),
           password,
-          crn: crn.trim(),
-          pin,
           fallbackBankName: linkedBank,
         });
         if (!verify.ok) {
@@ -491,17 +489,13 @@ export function EditAccountScreen() {
             dpCode: dp.code,
             demat,
             boid: verify.boid,
-            crn: crn.trim(),
           },
-          loadCrn: async (id) => (await loadSecrets(id))?.crn,
         });
         if (duplicate) {
           setErrorField(
-            duplicate.reason === 'crn'
-              ? 'crn'
-              : duplicate.reason === 'username'
-                ? 'username'
-                : 'dp',
+            duplicate.reason === 'username'
+              ? 'username'
+              : 'dp',
           );
           setErrorMsg('This account is already saved. You cannot add it again.');
           showDuplicateAccountAlert(duplicate);
@@ -522,7 +516,7 @@ export function EditAccountScreen() {
               bankName: verify.bankName || linkedBank || account.bankName || dp.name,
               accountNumber: verify.accountNumber || account.accountNumber,
               verified: true,
-              crnPinVerified: !verify.crnPinDeferred,
+              crnPinVerified: false,
               demat: demat || undefined,
               boidHint: demat ? String(demat).slice(-4) : account.boidHint,
               isPrimary: makePrimary && !makeInactive,
@@ -536,9 +530,7 @@ export function EditAccountScreen() {
 
           Alert.alert(
             'Account updated',
-            verify.crnPinDeferred
-              ? `${verify.message}\n\nNo IPO is open, so CRN/PIN were not confirmed yet. They will be checked on your next Live Apply.`
-              : `${verify.message}\n\nChanges stay on this device only.`,
+            `${verify.message}\n\nYour CRN and PIN are saved on this device and will be used for IPO apply.`,
             [{ text: 'OK', onPress: () => navigation.goBack() }],
           );
         } catch (e) {
@@ -770,7 +762,7 @@ export function EditAccountScreen() {
                 {saving ? (
                   <View style={styles.saveRow}>
                     <ActivityIndicator color={colors.primary} />
-                    <Text style={styles.outlineBtnText}> Verifying…</Text>
+                    <Text style={styles.outlineBtnText}> Updating…</Text>
                   </View>
                 ) : (
                   <Text style={styles.outlineBtnText}>Update</Text>

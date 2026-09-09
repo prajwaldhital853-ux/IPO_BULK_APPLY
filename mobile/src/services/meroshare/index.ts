@@ -9,6 +9,7 @@ export {
 export {
   verifyMeroshareLogin,
   verifyAccountForSave,
+  verifyAccountForUpdate,
 } from './verifyLogin';
 export type { VerifyAccountResult, VerifyField } from './verifyLogin';
 export {

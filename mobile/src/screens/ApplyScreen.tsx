@@ -910,7 +910,7 @@ export function ApplyScreen() {
     disabled?: boolean,
   ) => {
     const shell = (
-      <GlassSurface style={styles.glassFieldCard} borderRadius={rs(18)}>
+      <GlassSurface style={styles.glassFieldCard} borderRadius={rs(16)}>
         {children}
       </GlassSurface>
     );
@@ -1112,9 +1112,11 @@ export function ApplyScreen() {
         >
           <OverQuotaBanner />
           {renderFormTopSection()}
-          {renderCategoryDropdown()}
-          {renderIpoFieldSection()}
-          {renderQuantityField()}
+          <View style={styles.formFields}>
+            {renderCategoryDropdown()}
+            {renderIpoFieldSection()}
+            {renderQuantityField()}
+          </View>
           {mode === 'Bulk' ? renderBulkAutoApply() : null}
           {mode === 'Bulk' ? (
             showBulkUpdates ? (
@@ -1652,20 +1654,23 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderWidth: 1.5,
       borderColor: cardBorder,
     },
+    formFields: {
+      gap: rs(12),
+      marginBottom: rs(4),
+    },
     glassFieldCard: {
-      marginBottom: rs(10),
-      paddingHorizontal: rs(12),
-      paddingVertical: rs(12),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(9),
     },
     glassFieldRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(10),
+      gap: rs(8),
     },
     fieldIconWell: {
-      width: rs(32),
-      height: rs(32),
-      borderRadius: rs(10),
+      width: rs(28),
+      height: rs(28),
+      borderRadius: rs(8),
       backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.9)',
       alignItems: 'center',
       justifyContent: 'center',
@@ -1673,16 +1678,16 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderColor: fieldBorder,
     },
     innerDropdown: {
-      minHeight: rs(40),
-      borderRadius: rs(14),
+      minHeight: rs(34),
+      borderRadius: rs(12),
       borderWidth: 1,
       borderColor: fieldBorder,
-      paddingHorizontal: rs(12),
+      paddingHorizontal: rs(10),
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       backgroundColor: fieldBg,
-      marginTop: rs(8),
+      marginTop: rs(6),
     },
     fieldBlock: { marginBottom: rs(12) },
     labelRow: {
@@ -1696,7 +1701,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: rs(6),
+      marginBottom: rs(4),
       gap: rs(6),
     },
     labelRowLeft: {
@@ -1715,10 +1720,10 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     label: { color: c.textSecondary, fontSize: rs(12) },
     fieldLabel: {
       color: ink,
-      fontSize: rs(13),
+      fontSize: rs(12),
       fontWeight: '700',
     },
-    hash: { color: isDark ? '#86EFAC' : NEPSE_GREEN, fontWeight: '800', fontSize: rs(14) },
+    hash: { color: isDark ? '#86EFAC' : NEPSE_GREEN, fontWeight: '800', fontSize: rs(13) },
     dropdown: {
       minHeight: rs(36),
       borderRadius: rs(14),
@@ -1740,7 +1745,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     dropdownValueText: {
       flex: 1,
       color: ink,
-      fontSize: rs(12),
+      fontSize: rs(11),
       fontWeight: '700',
       marginRight: rs(6),
     },
@@ -1757,9 +1762,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     qtyInput: {
       flex: 1,
       color: ink,
-      fontSize: rs(14),
+      fontSize: rs(13),
       fontWeight: '700',
-      paddingVertical: rs(7),
+      paddingVertical: rs(5),
     },
     selectActions: {
       flexDirection: 'row',
@@ -1802,8 +1807,8 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'rgba(255,183,77,0.12)' : '#FFF8F0',
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,183,77,0.35)' : '#E8C9A8',
-      borderRadius: rs(12),
-      paddingHorizontal: rs(8),
+      borderRadius: rs(10),
+      paddingHorizontal: rs(6),
       paddingVertical: rs(3),
       flexShrink: 0,
     },

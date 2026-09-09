@@ -282,8 +282,6 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     ) => {
       const list = await loadAccountMeta();
       const current = list.find((a) => a.id === id);
-      const crn =
-        secrets?.crn ?? (await getSecrets(id))?.crn ?? '';
       const hit = await findDuplicateAccountAsync({
         accounts: list,
         excludeId: id,
@@ -292,9 +290,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
           dpId: patch.dpId ?? current?.dpId,
           dpCode: patch.dpCode ?? current?.dpCode,
           demat: patch.demat ?? current?.demat,
-          crn,
         },
-        loadCrn: async (accId) => (await getSecrets(accId))?.crn,
       });
       if (hit) throw new DuplicateAccountError(hit);
       if (secrets && Object.keys(secrets).length) {
