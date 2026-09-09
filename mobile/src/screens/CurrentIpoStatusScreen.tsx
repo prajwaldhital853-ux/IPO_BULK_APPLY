@@ -44,6 +44,13 @@ import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
+import {
+  buildStatusCardStyle,
+  chipActiveBackground,
+  STATUS_NOT_APPLIED,
+  STATUS_REJECTED,
+  STATUS_VERIFIED,
+} from '../utils/statusCardStyle';
 
 const ACCENT = '#2D5A27';
 /** Deep forest green for check CTAs in dark mode */
@@ -51,12 +58,8 @@ const ACCENT_DARK = '#0A3A14';
 const HEADER_BG = '#E8F0E6';
 const BODY_BG = '#F6F8F2';
 const GREEN = '#2E7D32';
-const RED = '#C62828';
-const REJECT = '#E66A5C';
-const CHIP_ORANGE = '#EF6C00';
-const UNVERIFIED_AMBER = '#F57F17';
-const VERIFIED_TEAL = '#00838F';
-const APPLY_GREEN = '#66BB6A';
+/** Blue for unverified application status on this screen only. */
+const UNVERIFIED_BLUE = '#1976D2';
 
 type ResultKind = 'verified' | 'unverified' | 'rejected' | 'not_applied';
 type StatusFilter = 'all' | ResultKind;
@@ -107,11 +110,15 @@ function statusRemarks(row: ResultAccountStatus): string | null {
 }
 
 function kindColor(kind: ResultKind): string {
-  if (kind === 'verified') return VERIFIED_TEAL;
-  if (kind === 'unverified') return UNVERIFIED_AMBER;
-  if (kind === 'rejected') return REJECT;
-  if (kind === 'not_applied') return RED;
-  return RED;
+  if (kind === 'verified') return STATUS_VERIFIED;
+  if (kind === 'unverified') return UNVERIFIED_BLUE;
+  if (kind === 'rejected') return STATUS_REJECTED;
+  if (kind === 'not_applied') return STATUS_NOT_APPLIED;
+  return STATUS_REJECTED;
+}
+
+function kindCardTheme(kind: ResultKind, isDark: boolean) {
+  return buildStatusCardStyle(kindColor(kind), isDark);
 }
 
 export function CurrentIpoStatusScreen() {
@@ -156,10 +163,10 @@ export function CurrentIpoStatusScreen() {
   const chips = useMemo(() => {
     const kinds = (
       [
-        { key: 'verified', label: 'Verified', color: VERIFIED_TEAL },
-        { key: 'unverified', label: 'Unverified', color: UNVERIFIED_AMBER },
-        { key: 'rejected', label: 'Rejected', color: REJECT },
-        { key: 'not_applied', label: 'Not Applied', color: CHIP_ORANGE },
+        { key: 'verified', label: 'Verified', color: STATUS_VERIFIED },
+        { key: 'unverified', label: 'Unverified', color: UNVERIFIED_BLUE },
+        { key: 'rejected', label: 'Rejected', color: STATUS_REJECTED },
+        { key: 'not_applied', label: 'Not Applied', color: STATUS_NOT_APPLIED },
       ] as const
     )
       .map((chip) => ({ ...chip, count: counts[chip.key] }))
@@ -230,9 +237,9 @@ export function CurrentIpoStatusScreen() {
     try {
       const list = await loadCurrentOpenIssuesForUi(accounts);
       const real = list.filter((i) => i.companyShareId !== 9001);
-      setIssues(real);
+      setIssues((prev) => (real.length ? real : prev));
       setSelected((prev) => {
-        if (!real.length) return null;
+        if (!real.length) return prev;
         const still = prev
           ? real.find((i) => i.companyShareId === prev.companyShareId)
           : null;
@@ -457,36 +464,39 @@ export function CurrentIpoStatusScreen() {
               </Pressable>
             </View>
 
-            <View style={styles.chipRow}>
-              {chips.map((chip) => {
-                const active =
-                  filter === chip.key || (filter === 'all' && chips.length === 1);
-                return (
-                  <Pressable
-                    key={chip.key}
-                    onPress={() => setFilter(chip.key)}
-                    style={[
-                      styles.chip,
-                      {
-                        borderColor: active ? chip.color : colors.borderMuted,
-                        backgroundColor: active
-                          ? `${chip.color}1A`
-                          : 'transparent',
-                      },
-                    ]}
-                  >
-                    <Text
+            {chips.length > 0 ? (
+              <View style={styles.chipRow}>
+                {chips.map((chip) => {
+                  const active =
+                    filter === chip.key ||
+                    (filter === 'all' && chips.length === 1);
+                  return (
+                    <Pressable
+                      key={chip.key}
+                      onPress={() => setFilter(chip.key)}
                       style={[
-                        styles.chipText,
-                        { color: active ? chip.color : colors.textMuted },
+                        styles.chip,
+                        {
+                          borderColor: active ? chip.color : colors.borderMuted,
+                          backgroundColor: active
+                            ? chipActiveBackground(chip.color, isDark)
+                            : 'transparent',
+                        },
                       ]}
                     >
-                      {chip.label} ({chip.count})
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+                      <Text
+                        style={[
+                          styles.chipText,
+                          { color: active ? chip.color : colors.textMuted },
+                        ]}
+                      >
+                        {chip.label} ({chip.count})
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
 
             <FlatList
               style={styles.resultsList}
@@ -501,19 +511,18 @@ export function CurrentIpoStatusScreen() {
               renderItem={({ item: row }) => {
                 const idx = resultIndexByAccountId.get(row.accountId) ?? 0;
                 const kind = classify(row);
-                const color = kindColor(kind);
+                const theme = kindCardTheme(kind, isDark);
                 const reason = statusRemarks(row);
-                const showApply =
-                  kind === 'not_applied' || kind === 'rejected';
+                const showApply = kind === 'not_applied' || kind === 'rejected';
                 const applyBtnColor =
-                  kind === 'not_applied' ? APPLY_GREEN : color;
+                  kind === 'not_applied' ? STATUS_NOT_APPLIED : theme.accent;
                 return (
                   <View
                     style={[
                       styles.resultCard,
                       {
-                        borderColor: `${color}55`,
-                        backgroundColor: isDark ? colors.surface : `${color}12`,
+                        borderColor: theme.borderColor,
+                        backgroundColor: theme.backgroundColor,
                       },
                     ]}
                   >
@@ -521,7 +530,7 @@ export function CurrentIpoStatusScreen() {
                       style={[
                         styles.resultIcon,
                         styles.resultIconSquare,
-                        { backgroundColor: `${color}26` },
+                        { backgroundColor: theme.iconBackground },
                       ]}
                     >
                       <MaterialCommunityIcons
@@ -535,25 +544,25 @@ export function CurrentIpoStatusScreen() {
                                 : 'cancel'
                         }
                         size={rs(19)}
-                        color={color}
+                        color={theme.iconColor}
                       />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.resultName, { color }]}>
+                      <Text style={[styles.resultName, { color: theme.textColor }]}>
                         {idx + 1}. {row.accountName.toUpperCase()}
                       </Text>
-                      <Text style={[styles.resultStatus, { color }]}>
+                      <Text style={[styles.resultStatus, { color: theme.textColor }]}>
                         {statusLine(row)}
                       </Text>
                       {reason ? (
                         <View
                           style={[
                             styles.reasonPill,
-                            { backgroundColor: `${color}22` },
+                            { backgroundColor: theme.pillBackground },
                           ]}
                         >
                           <Text
-                            style={[styles.reasonPillText, { color }]}
+                            style={[styles.reasonPillText, { color: theme.textColor }]}
                             numberOfLines={4}
                           >
                             {reason}

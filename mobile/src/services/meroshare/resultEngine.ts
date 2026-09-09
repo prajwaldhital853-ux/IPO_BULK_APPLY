@@ -3,8 +3,11 @@ import { isMockAccountId } from '../../data/mockAccounts';
 import { getSecrets } from '../../storage/accountsStorage';
 import { MeroshareClient } from './client';
 import {
+  ALREADY_APPLIED_USER_MSG,
   isTransientMeroshareError,
   isTransientMeroshareMessage,
+  isAlreadyAppliedMeroshareMessage,
+  isRoleRestrictedMeroshareMessage,
   MeroshareError,
 } from './errors';
 import type {
@@ -16,8 +19,8 @@ import type {
 } from './types';
 
 /** Parallel workers + adaptive gap between MeroShare session starts. */
-const BULK_RESULT_CONCURRENCY = 6;
-const BULK_RESULT_GAP_MS = 350;
+const BULK_RESULT_CONCURRENCY = 2;
+const BULK_RESULT_GAP_MS = 500;
 const BULK_RESULT_GAP_MAX_MS = 2800;
 const BULK_RESULT_PAUSE_MS = 2200;
 const DEMO_ACCOUNT_GAP_MS = 120;
@@ -27,8 +30,14 @@ function sleep(ms: number) {
 }
 
 function friendlyResultError(msg: string): string {
+  if (isAlreadyAppliedMeroshareMessage(msg)) {
+    return ALREADY_APPLIED_USER_MSG;
+  }
+  if (isRoleRestrictedMeroshareMessage(msg)) {
+    return 'Role Not Authorized — MeroShare blocked this account from this API (common for minor or restricted accounts).';
+  }
   if (isTransientMeroshareMessage(msg)) {
-    return 'MeroShare is busy right now. Retry this account in a moment.';
+    return `MeroShare is busy right now. Retry this account in a moment. (${msg})`;
   }
   if (
     /insufficient|not enough|low balance|block[_\s-]?fail/i.test(msg)
@@ -43,6 +52,7 @@ function makeDemoResult(
   account: AccountMeta,
   index: number,
   issue: OpenIssue,
+  applicationPhase?: boolean,
 ): ResultAccountStatus {
   const base = {
     accountId: account.id,
@@ -52,6 +62,51 @@ function makeDemoResult(
     companyName: issue.companyName,
     appliedKitta: 10,
   };
+
+  if (applicationPhase) {
+    const phase = index % 6;
+    if (phase === 0 || phase === 3) {
+      return {
+        ...base,
+        ok: true,
+        status: 'VERIFIED',
+        allotmentStatus: 'Verified',
+        message: 'Verified',
+        remarks: 'Block Amount Status - Amount Blocked',
+      };
+    }
+    if (phase === 1 || phase === 4) {
+      return {
+        ...base,
+        ok: true,
+        status: 'UNVERIFIED',
+        allotmentStatus: 'Unverified',
+        message: 'Unverified',
+        remarks:
+          'Block Amount Status - Unverified (Application In-Process at Bank End)',
+      };
+    }
+    if (phase === 2) {
+      return {
+        ...base,
+        ok: false,
+        status: 'REJECTED',
+        allotmentStatus: 'Rejected',
+        message: 'Rejected',
+        remarks:
+          'Block Amount Status - Amount Rejected (Insufficient Balance)',
+      };
+    }
+    return {
+      ...base,
+      ok: false,
+      status: 'REJECTED',
+      allotmentStatus: 'Rejected',
+      message: 'Rejected',
+      remarks: 'Block Amount Status - Amount Rejected (Wrong CRN)',
+    };
+  }
+
   const oneBased = index + 1;
 
   if (oneBased === 8) {
@@ -340,7 +395,7 @@ export async function runBulkResultCheck(
 
     if (account.id.startsWith('demo_') || isMockAccountId(account.id)) {
       await sleep(DEMO_ACCOUNT_GAP_MS);
-      const row = makeDemoResult(account, i, opts.issue);
+      const row = makeDemoResult(account, i, opts.issue, opts.applicationPhase);
       emit(row, i);
       return row;
     }
@@ -395,14 +450,27 @@ export async function loadCheckableIssuesForUi(
   source: 'mixed' | 'reports' | 'open' | 'empty';
   reportCount: number;
   reports: ApplicationReportRow[];
+  openCompanyShareIds: number[];
 }> {
   if (!account) {
-    return { issues: [], source: 'empty', reportCount: 0, reports: [] };
+    return {
+      issues: [],
+      source: 'empty',
+      reportCount: 0,
+      reports: [],
+      openCompanyShareIds: [],
+    };
   }
 
   const secrets = await getSecrets(account.id);
   if (!secrets?.password) {
-    return { issues: [], source: 'empty', reportCount: 0, reports: [] };
+    return {
+      issues: [],
+      source: 'empty',
+      reportCount: 0,
+      reports: [],
+      openCompanyShareIds: [],
+    };
   }
 
   const client = new MeroshareClient();
@@ -455,9 +523,21 @@ export async function loadCheckableIssuesForUi(
             ? 'open'
             : 'reports';
 
-    return { issues, source, reportCount: reports.length, reports };
+    return {
+      issues,
+      source,
+      reportCount: reports.length,
+      reports,
+      openCompanyShareIds: open.map((o) => o.companyShareId),
+    };
   } catch {
-    return { issues: [], source: 'empty', reportCount: 0, reports: [] };
+    return {
+      issues: [],
+      source: 'empty',
+      reportCount: 0,
+      reports: [],
+      openCompanyShareIds: [],
+    };
   } finally {
     client.clearSession();
   }

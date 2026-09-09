@@ -8,6 +8,12 @@ import {
 } from '../../utils/accountOperational';
 import { MeroshareClient, DEMO_OPENINGS } from './client';
 import {
+  ALREADY_APPLIED_USER_MSG,
+  isAlreadyAppliedMeroshareMessage,
+  isAlreadyAppliedApplyMessage,
+  isRejectedApplicantMeroshareMessage,
+  isRejectedApplicantApplyMessage,
+  isRoleRestrictedMeroshareMessage,
   isTransientMeroshareError,
   isTransientMeroshareMessage,
   MeroshareError,
@@ -28,26 +34,82 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+const ALREADY_APPLIED_MSG = ALREADY_APPLIED_USER_MSG;
+
+const ROLE_RESTRICTED_MSG =
+  'Role Not Authorized — MeroShare blocked this account from the bank/apply API (common for minor or restricted accounts). This is a CDSC permission, not bulk speed.';
+
+function finalizeApplyRow(row: ApplyAccountResult): ApplyAccountResult {
+  if (
+    isAlreadyAppliedMeroshareMessage(row.message) ||
+    isAlreadyAppliedApplyMessage(row.message)
+  ) {
+    return { ...row, message: ALREADY_APPLIED_MSG };
+  }
+  return row;
+}
+
+function buildApplyResultRow(
+  account: AccountMeta,
+  applyRes: {
+    ok: boolean;
+    message: string;
+    dryRun: boolean;
+    rejectedPrevious?: boolean;
+    canReapply?: boolean;
+  },
+  issue: OpenIssue,
+  kitta: number,
+): ApplyAccountResult {
+  const message = applyRes.ok
+    ? sanitizeMeroshareMessage(applyRes.message)
+    : applyRes.rejectedPrevious
+      ? applyRes.message
+      : formatApplyError(applyRes.message);
+  return finalizeApplyRow({
+    accountId: account.id,
+    accountName: account.name,
+    username: account.username,
+    ok: applyRes.ok,
+    dryRun: applyRes.dryRun,
+    message,
+    companyName: issue.companyName,
+    kitta,
+    rejectedPrevious: applyRes.rejectedPrevious,
+    canReapply: applyRes.canReapply,
+  });
+}
+
 /** Make MeroShare CRN/PIN apply failures obvious in results UI */
 function formatApplyError(msg: string): string {
-  const m = msg.toLowerCase();
+  const clean = sanitizeMeroshareMessage(msg);
+  if (isAlreadyAppliedMeroshareMessage(clean)) {
+    return ALREADY_APPLIED_MSG;
+  }
+  if (isRejectedApplicantMeroshareMessage(clean)) {
+    return clean;
+  }
+  if (isRoleRestrictedMeroshareMessage(clean)) {
+    return ROLE_RESTRICTED_MSG;
+  }
+  const m = clean.toLowerCase();
   if (
     /transaction\s*pin|invalid\s*pin|incorrect\s*pin|wrong\s*pin|pin\s*(code|number)?/i.test(
       m,
     )
   ) {
-    return `Wrong transaction PIN — ${sanitizeMeroshareMessage(msg)}`;
+    return `Wrong transaction PIN — ${clean}`;
   }
-  if (/crn/i.test(m)) {
-    return `Wrong CRN — ${sanitizeMeroshareMessage(msg)}`;
+  if (/\bcrn\b/i.test(m)) {
+    return `Wrong CRN — ${clean}`;
   }
-  if (isTransientMeroshareMessage(msg)) {
-    return 'MeroShare is busy right now. Retry this account in a moment.';
+  if (isTransientMeroshareMessage(clean)) {
+    return `MeroShare is busy right now. Retry this account in a moment. (${clean})`;
   }
-  if (/insufficient|not enough|low balance|block[_\s-]?fail/i.test(msg)) {
+  if (/insufficient|not enough|low balance|block[_\s-]?fail/i.test(m)) {
     return 'Rejected — you have insufficient amount in your bank account';
   }
-  return sanitizeMeroshareMessage(msg);
+  return clean;
 }
 
 export type BulkApplyOptions = {
@@ -87,8 +149,9 @@ export async function runBulkApply(
   }
 
   const pushResult = (row: ApplyAccountResult, index: number) => {
-    results.push(row);
-    opts.onAccountResult?.(row, index, opts.accounts.length);
+    const finalized = finalizeApplyRow(row);
+    results.push(finalized);
+    opts.onAccountResult?.(finalized, index, opts.accounts.length);
   };
 
   for (let i = 0; i < opts.accounts.length; i++) {
@@ -127,7 +190,7 @@ export async function runBulkApply(
           username: account.username,
           password: secrets.password,
         },
-        { simulate: simulateLogin },
+        { simulate: simulateLogin, skipOwnDetail: true },
       );
 
       const applyRes = await client.applyShare(
@@ -142,20 +205,11 @@ export async function runBulkApply(
           dpId: account.dpId,
           dpCode: account.dpCode,
         },
-        { dryRun },
+        { dryRun, ipoStillOpen: true },
       );
 
       pushResult(
-        {
-          accountId: account.id,
-          accountName: account.name,
-          username: account.username,
-          ok: applyRes.ok,
-          dryRun: applyRes.dryRun,
-          message: sanitizeMeroshareMessage(applyRes.message),
-          companyName: opts.issue.companyName,
-          kitta: opts.kitta,
-        },
+        buildApplyResultRow(account, applyRes, opts.issue, opts.kitta),
         i,
       );
 
@@ -175,7 +229,13 @@ export async function runBulkApply(
     } catch (e) {
       const raw = e instanceof Error ? e.message : 'Unknown error';
       const code = e instanceof MeroshareError ? e.code : 'UNKNOWN';
-      if (isTransientMeroshareError(e)) {
+      const shouldRetry =
+        isTransientMeroshareError(e) &&
+        !isAlreadyAppliedMeroshareMessage(raw) &&
+        !isAlreadyAppliedApplyMessage(raw) &&
+        !isRejectedApplicantMeroshareMessage(raw) &&
+        !isRoleRestrictedMeroshareMessage(raw);
+      if (shouldRetry) {
         try {
           client.clearSession();
           await sleep(1400);
@@ -186,7 +246,7 @@ export async function runBulkApply(
               username: account.username,
               password: secrets.password,
             },
-            { simulate: simulateLogin },
+            { simulate: simulateLogin, skipOwnDetail: true },
           );
           const applyRes = await client.applyShare(
             {
@@ -200,19 +260,10 @@ export async function runBulkApply(
               dpId: account.dpId,
               dpCode: account.dpCode,
             },
-            { dryRun },
+            { dryRun, ipoStillOpen: true },
           );
           pushResult(
-            {
-              accountId: account.id,
-              accountName: account.name,
-              username: account.username,
-              ok: applyRes.ok,
-              dryRun: applyRes.dryRun,
-              message: sanitizeMeroshareMessage(applyRes.message),
-              companyName: opts.issue.companyName,
-              kitta: opts.kitta,
-            },
+            buildApplyResultRow(account, applyRes, opts.issue, opts.kitta),
             i,
           );
           if (applyRes.ok && !applyRes.dryRun) {
@@ -228,32 +279,28 @@ export async function runBulkApply(
           }
         } catch (e2) {
           const raw2 = e2 instanceof Error ? e2.message : raw;
+          const applyRes = {
+            ok: false,
+            dryRun,
+            message: formatApplyError(raw2),
+            rejectedPrevious: isRejectedApplicantMeroshareMessage(raw2),
+            canReapply: isRejectedApplicantMeroshareMessage(raw2),
+          };
           pushResult(
-            {
-              accountId: account.id,
-              accountName: account.name,
-              username: account.username,
-              ok: false,
-              dryRun,
-              message: formatApplyError(raw2),
-              companyName: opts.issue.companyName,
-              kitta: opts.kitta,
-            },
+            buildApplyResultRow(account, applyRes, opts.issue, opts.kitta),
             i,
           );
         }
       } else {
+        const applyRes = {
+          ok: false,
+          dryRun,
+          message: formatApplyError(raw),
+          rejectedPrevious: isRejectedApplicantMeroshareMessage(raw),
+          canReapply: isRejectedApplicantMeroshareMessage(raw),
+        };
         pushResult(
-          {
-            accountId: account.id,
-            accountName: account.name,
-            username: account.username,
-            ok: false,
-            dryRun,
-            message: formatApplyError(raw),
-            companyName: opts.issue.companyName,
-            kitta: opts.kitta,
-          },
+          buildApplyResultRow(account, applyRes, opts.issue, opts.kitta),
           i,
         );
         // AUTH / other failures: record and continue to next account

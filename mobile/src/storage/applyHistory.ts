@@ -75,6 +75,18 @@ export async function markAppliedMany(
   await saveMap(map);
 }
 
+/** Forget one live apply lock so a rejected account can be reapplied. */
+export async function unmarkApplied(
+  accountId: string,
+  companyShareId: number,
+): Promise<void> {
+  const map = await loadMap();
+  const key = entryKey(accountId, companyShareId);
+  if (!map[key]) return;
+  delete map[key];
+  await saveMap(map);
+}
+
 export function isAppliedInMap(
   map: HistoryMap,
   accountId: string,

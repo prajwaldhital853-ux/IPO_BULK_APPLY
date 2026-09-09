@@ -8,44 +8,49 @@ import {
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   interpolate,
-  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
 import { useTheme } from '../context/ThemeContext';
 import { pausePrefetch } from '../services/nepse/prefetchGate';
+import { GHAR_GREEN, GLASS_GRADIENT, NEPSE_NAVY } from '../theme/glassUi';
 import { rs } from '../utils/responsive';
 
 const ICONS: Record<
   string,
-  { ion?: keyof typeof Ionicons.glyphMap; mci?: keyof typeof MaterialCommunityIcons.glyphMap }
+  {
+    ion?: keyof typeof Ionicons.glyphMap;
+    ionOutline?: keyof typeof Ionicons.glyphMap;
+    mci?: keyof typeof MaterialCommunityIcons.glyphMap;
+    mciOutline?: keyof typeof MaterialCommunityIcons.glyphMap;
+  }
 > = {
-  Home: { ion: 'home' },
-  Apply: { mci: 'bank-outline' },
-  Services: { ion: 'options-outline' },
-  Check: { ion: 'checkmark-circle-outline' },
-  Profile: { ion: 'person-outline' },
+  Home: { ion: 'home', ionOutline: 'home-outline' },
+  Apply: { mci: 'bank', mciOutline: 'bank-outline' },
+  Services: { ion: 'options', ionOutline: 'options-outline' },
+  Check: { ion: 'checkmark-circle', ionOutline: 'checkmark-circle-outline' },
+  Profile: { ion: 'person', ionOutline: 'person-outline' },
 };
 
 const SPRING = { damping: 26, stiffness: 420, mass: 0.4 };
+const INK = NEPSE_NAVY;
+const MUTED = '#64748B';
 
 function TabItem({
   label,
   focused,
   onPress,
   icon,
-  activeBg,
-  ink,
 }: {
   label: string;
   focused: boolean;
   onPress: () => void;
   icon: React.ReactNode;
-  activeBg: string;
-  ink: string;
 }) {
   const progress = useSharedValue(focused ? 1 : 0);
   const press = useSharedValue(1);
@@ -54,17 +59,13 @@ function TabItem({
     progress.value = withSpring(focused ? 1 : 0, SPRING);
   }, [focused, progress]);
 
-  const pillStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      progress.value,
-      [0, 1],
-      ['rgba(0,0,0,0)', activeBg],
-    ),
-    transform: [{ scale: interpolate(progress.value, [0, 1], [0.92, 1]) }],
-  }));
-
   const wrapStyle = useAnimatedStyle(() => ({
     transform: [{ scale: press.value }],
+  }));
+
+  const glowStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 1], [0, 1]),
+    transform: [{ scale: interpolate(progress.value, [0, 1], [0.7, 1]) }],
   }));
 
   return (
@@ -82,16 +83,30 @@ function TabItem({
       accessibilityLabel={label}
     >
       <Animated.View style={[styles.itemInner, wrapStyle]}>
-        <Animated.View style={[styles.iconPill, pillStyle]}>{icon}</Animated.View>
+        <View style={styles.iconStage}>
+          <Animated.View style={[styles.glow, glowStyle]} pointerEvents="none">
+            <LinearGradient
+              colors={GLASS_GRADIENT}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.glowFill}
+            />
+          </Animated.View>
+          {icon}
+        </View>
         <Animated.Text
           style={[
             styles.label,
-            { color: ink, fontWeight: focused ? '800' : '700' },
+            {
+              color: focused ? GHAR_GREEN : MUTED,
+              fontWeight: focused ? '800' : '600',
+            },
           ]}
           numberOfLines={1}
         >
           {label}
         </Animated.Text>
+        {focused ? <View style={styles.activeDot} /> : <View style={styles.activeDotSpacer} />}
       </Animated.View>
     </Pressable>
   );
@@ -100,30 +115,41 @@ function TabItem({
 export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
+  const iconSize = rs(22);
+  const bottomPad = Math.max(insets.bottom, rs(10));
 
-  // Keep full system-nav inset so labels are never covered by Android buttons.
-  const systemNav =
-    insets.bottom > 0
-      ? insets.bottom
-      : Platform.OS === 'android'
-        ? rs(48)
-        : 0;
-
-  const barBg = isDark ? '#252724' : '#F8FBF2';
-  const ink = isDark ? '#F2F2F2' : '#000000';
-  const pill = isDark ? '#3A5340' : '#C5DCC8';
-  const iconSize = rs(24);
-
-  return (
-    <View
-      style={[
-        styles.wrap,
-        {
-          backgroundColor: barBg,
-          borderTopColor: isDark ? '#3A3A3A' : '#E0E0DC',
-        },
-      ]}
-    >
+  const pill = (
+    <View style={[styles.pillShell, isDark && styles.pillShellDark]}>
+      {Platform.OS === 'web' ? (
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: isDark
+                ? 'rgba(30,30,30,0.96)'
+                : 'rgba(255,255,255,0.94)',
+              borderRadius: rs(32),
+            },
+          ]}
+        />
+      ) : (
+        <BlurView
+          intensity={isDark ? 55 : 85}
+          tint={isDark ? 'dark' : 'light'}
+          style={[StyleSheet.absoluteFill, { borderRadius: rs(32) }]}
+        />
+      )}
+      <LinearGradient
+        colors={
+          isDark
+            ? ['rgba(40,40,40,0.92)', 'rgba(30,30,30,0.96)']
+            : ['rgba(255,255,255,0.96)', 'rgba(255,255,255,0.9)']
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[StyleSheet.absoluteFill, { borderRadius: rs(32) }]}
+        pointerEvents="none"
+      />
       <View style={styles.row}>
         {state.routes.map((route, index) => {
           const focused = state.index === index;
@@ -146,10 +172,23 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
           };
 
           const def = ICONS[route.name] ?? {};
+          const ink = focused ? '#FFFFFF' : isDark ? '#B0BEC5' : INK;
           const icon = def.mci ? (
-            <MaterialCommunityIcons name={def.mci} size={iconSize} color={ink} />
+            <MaterialCommunityIcons
+              name={(focused ? def.mci : def.mciOutline) ?? def.mci}
+              size={iconSize}
+              color={ink}
+            />
           ) : (
-            <Ionicons name={def.ion ?? 'ellipse-outline'} size={iconSize} color={ink} />
+            <Ionicons
+              name={
+                (focused ? def.ion : def.ionOutline) ??
+                def.ion ??
+                'ellipse-outline'
+              }
+              size={iconSize}
+              color={ink}
+            />
           );
 
           return (
@@ -159,30 +198,55 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
               focused={focused}
               onPress={onPress}
               icon={icon}
-              activeBg={pill}
-              ink={ink}
             />
           );
         })}
       </View>
-      <View style={{ height: systemNav, backgroundColor: barBg }} />
+    </View>
+  );
+
+  return (
+    <View style={[styles.outer, { paddingBottom: bottomPad }]} pointerEvents="box-none">
+      {pill}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    borderTopWidth: StyleSheet.hairlineWidth,
+  outer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: rs(14),
+    backgroundColor: 'transparent',
+  },
+  pillShell: {
+    borderRadius: rs(32),
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.98)',
+    backgroundColor: 'rgba(255,255,255,0.88)',
+    overflow: 'hidden',
+    shadowColor: '#67E8F9',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.32,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  pillShellDark: {
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(30,30,30,0.92)',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    paddingTop: rs(6),
-    paddingBottom: rs(4),
-    paddingHorizontal: rs(2),
-    minHeight: rs(58),
-    backgroundColor: 'transparent',
+    paddingTop: rs(10),
+    paddingBottom: rs(8),
+    paddingHorizontal: rs(6),
+    minHeight: rs(64),
   },
   item: {
     flex: 1,
@@ -193,17 +257,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: rs(2),
   },
-  iconPill: {
-    minWidth: rs(58),
-    height: rs(32),
-    borderRadius: rs(16),
+  iconStage: {
+    width: rs(44),
+    height: rs(36),
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: rs(14),
+  },
+  glow: {
+    position: 'absolute',
+    width: rs(36),
+    height: rs(36),
+    borderRadius: rs(18),
+    overflow: 'hidden',
+  },
+  glowFill: {
+    flex: 1,
+    opacity: 0.95,
   },
   label: {
-    fontSize: rs(12),
+    fontSize: rs(10),
     marginBottom: rs(1),
     letterSpacing: 0.1,
+  },
+  activeDot: {
+    width: rs(5),
+    height: rs(5),
+    borderRadius: rs(3),
+    backgroundColor: GHAR_GREEN,
+    marginTop: rs(1),
+  },
+  activeDotSpacer: {
+    width: rs(5),
+    height: rs(5),
+    marginTop: rs(1),
   },
 });

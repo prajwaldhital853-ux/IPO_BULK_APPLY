@@ -13,6 +13,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
+import { GlassClusterBackground } from '../components/GlassClusterBackground';
 import { SoftBadge } from '../components/SoftBadge';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import type { RootStackParamList } from '../navigation/types';
@@ -730,8 +731,9 @@ export function ServicesScreen() {
   );
 
   return (
-    <View style={[styles.root, { backgroundColor: isDark ? colors.bg : SS.cream }]}>
-      <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
+    <View style={styles.root}>
+      <GlassClusterBackground variant="check">
+      <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} glassActions />
       <AdminPromoBanner page="services" />
 
       <View style={styles.searchWrap}>
@@ -739,8 +741,8 @@ export function ServicesScreen() {
           style={[
             styles.searchInner,
             {
-              backgroundColor: isDark ? colors.searchBg : SS.cream,
-              borderColor: isDark ? colors.border : SS.cardBorder,
+              backgroundColor: isDark ? colors.searchBg : 'rgba(255,255,255,0.58)',
+              borderColor: isDark ? colors.border : 'rgba(255,255,255,0.95)',
             },
           ]}
         >
@@ -788,6 +790,7 @@ export function ServicesScreen() {
           </Text>
         }
       />
+      </GlassClusterBackground>
     </View>
   );
 }
@@ -825,7 +828,7 @@ function makeStyles(c: ThemeColors, isDark: boolean, layout: ServiceGridLayout) 
     },
     scroll: {
       paddingHorizontal: layout.hPad,
-      paddingBottom: rs(28),
+      paddingBottom: rs(100),
       paddingTop: rs(10),
     },
     section: {
@@ -898,25 +901,25 @@ function makeStyles(c: ThemeColors, isDark: boolean, layout: ServiceGridLayout) 
     },
     tile: {
       flexShrink: 0,
-      backgroundColor: isDark ? c.surface : SS.cream,
+      backgroundColor: isDark ? c.surface : 'rgba(255,255,255,0.58)',
       borderRadius: rs(14),
-      borderWidth: 1,
-      borderColor: isDark ? c.border : SS.cardBorder,
+      borderWidth: 1.5,
+      borderColor: isDark ? c.border : 'rgba(255,255,255,0.95)',
       paddingTop: rs(10),
       paddingBottom: rs(6),
       paddingHorizontal: rs(4),
       alignItems: 'center',
       justifyContent: 'flex-start',
+      shadowColor: isDark ? '#000' : '#67E8F9',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.15 : 0.14,
+      shadowRadius: 5,
+      elevation: 2,
     },
     tileLight: {
-      backgroundColor: SS.cream,
-      borderColor: SS.cardBorder,
-      borderWidth: 1,
-      shadowColor: '#000000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.04,
-      shadowRadius: 2,
-      elevation: 1,
+      backgroundColor: 'rgba(255,255,255,0.58)',
+      borderColor: 'rgba(255,255,255,0.95)',
+      borderWidth: 1.5,
     },
     tileFeatured: {
       borderColor: SS.featuredBorder,

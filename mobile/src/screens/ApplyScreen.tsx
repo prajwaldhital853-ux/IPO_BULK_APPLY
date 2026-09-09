@@ -15,11 +15,15 @@ import {
   View,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
+import { ApplyInvestmentSummaryCard } from '../components/ApplyInvestmentSummaryCard';
+import { GlassClusterBackground } from '../components/GlassClusterBackground';
+import { GlassSurface } from '../components/GlassSurface';
 import {
   ApplyModalAccountRow,
   ApplySingleAccountRow,
@@ -36,6 +40,16 @@ import {
   type InvestmentSummary,
 } from '../services/nepse/premiumAnalytics';
 import type { ThemeColors } from '../theme/colors';
+import {
+  GLASS_CARD_BG,
+  GLASS_CARD_BORDER,
+  GLASS_CYAN_GLOW,
+  GLASS_GRADIENT,
+  GLASS_PAGE_BG,
+  GHAR_TEAL,
+  NEPSE_GREEN,
+  NEPSE_NAVY,
+} from '../theme/glassUi';
 import { useOpenDrawer } from '../navigation/useOpenDrawer';
 import {
   ensureGoogleSignedInForAddAccount,
@@ -44,6 +58,8 @@ import {
 import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
 import { isUserInactive } from '../utils/accountOperational';
 import {
+  isAlreadyAppliedApplyMessage,
+  isRejectedApplicantApplyMessage,
   loadOpenIssuesForUi,
   runBulkApply,
   sanitizeMeroshareMessage,
@@ -55,6 +71,7 @@ import {
   isAppliedInMap,
   loadApplyHistory,
   markAppliedMany,
+  unmarkApplied,
 } from '../storage/applyHistory';
 import {
   daysLeftForIssue,
@@ -81,20 +98,26 @@ type ApplyRoute = RouteProp<MainTabParamList, 'Apply'>;
 
 function classifyApplyResult(r: ApplyAccountResult): Exclude<ApplyFilter, 'all'> {
   if (r.ok) return 'applied';
+  if (isAlreadyAppliedApplyMessage(r.message)) return 'applied';
+  if (isRejectedApplicantApplyMessage(r.message, r.rejectedPrevious)) {
+    return 'other';
+  }
   const m = r.message.toLowerCase();
   if (
     /invalid username|password|credential|unauthorized|wrong depository|auth/i.test(
       m,
-    )
+    ) &&
+    !/role not authorized/i.test(m)
   ) {
     return 'auth';
   }
-  if (/missing password|crn|pin/i.test(m)) return 'missing';
+  if (/missing password|crn|pin/i.test(m) && !/wrong crn/i.test(m)) return 'missing';
   if (/insufficient|balance|block.?fail/i.test(m)) return 'balance';
   return 'other';
 }
 
 function reasonLabel(r: ApplyAccountResult): string {
+  if (isAlreadyAppliedApplyMessage(r.message)) return 'Already applied';
   const kind = classifyApplyResult(r);
   if (kind === 'applied') return 'Applied';
   if (kind === 'auth') return 'Invalid login';
@@ -215,9 +238,9 @@ export function ApplyScreen() {
       const list = await enrichIssuesWithClosingDates(
         await loadOpenIssuesForUi(accounts),
       );
-      setIssues(list);
+      setIssues((prev) => (list.length ? list : prev));
       setSelected((prev) => {
-        if (!list.length) return null;
+        if (!list.length) return prev;
         if (highlightSymbol || highlightName) {
           const fromPush = list.find((i) => {
             const sym = (i.scrip || '').toUpperCase();
@@ -366,7 +389,11 @@ export function ApplyScreen() {
   ) => {
     // Only lock accounts after a real live apply
     const rows = result.results
-      .filter((r) => r.ok && !r.dryRun)
+      .filter(
+        (r) =>
+          !r.dryRun &&
+          (r.ok || isAlreadyAppliedApplyMessage(r.message)),
+      )
       .map((r) => ({
         accountId: r.accountId,
         companyShareId: companyId,
@@ -400,59 +427,47 @@ export function ApplyScreen() {
       return;
     }
 
-    const title = 'Confirm bulk apply';
-    const body = `${selected.companyName} (${selected.scrip || '—'})\nKitta: ${kitta}\nAccounts: ${checkedEligible.length}\n\nThis submits real applications to MeroShare. Start with one account if you are unsure.`;
-
-    Alert.alert(title, body, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Apply',
-        style: 'destructive',
-        onPress: () => {
-          const execute = () => {
-            void (async () => {
-              issuesRefreshPausedRef.current = true;
-              setRunning(true);
-              resultModalBatchKeyRef.current = null;
-              setSummary(null);
-              setApplyResults([]);
-              setApplyProgress({ done: 0, total: checkedEligible.length });
-              try {
-                const result = await runBulkApply({
-                  accounts: checkedEligible,
-                  issue: selected,
-                  kitta,
-                  dryRun: false,
-                  simulateLogin: false,
-                  onProgress: (_msg, index, total) => {
-                    setApplyProgress({ done: index, total });
-                  },
-                  onAccountResult: (row, index, total) => {
-                    setApplyResults((prev) => [...prev, row]);
-                    setApplyProgress({ done: index + 1, total });
-                  },
-                });
-                setSummary(result);
-                await persistSuccessful(result, selected.companyShareId);
-              } catch (e) {
-                Alert.alert(
-                  'Bulk apply failed',
-                  e instanceof Error ? e.message : 'Unknown error',
-                );
-              } finally {
-                setRunning(false);
-                setApplyProgress(null);
-              }
-            })();
-          };
-          void sensitive.requestSensitiveAction(execute);
-        },
-      },
-    ]);
+    const execute = () => {
+      void (async () => {
+        issuesRefreshPausedRef.current = true;
+        setRunning(true);
+        resultModalBatchKeyRef.current = null;
+        setSummary(null);
+        setApplyResults([]);
+        setApplyProgress({ done: 0, total: checkedEligible.length });
+        try {
+          const result = await runBulkApply({
+            accounts: checkedEligible,
+            issue: selected,
+            kitta,
+            dryRun: false,
+            simulateLogin: false,
+            onProgress: (_msg, index, total) => {
+              setApplyProgress({ done: index, total });
+            },
+            onAccountResult: (row, index, total) => {
+              setApplyResults((prev) => [...prev, row]);
+              setApplyProgress({ done: index + 1, total });
+            },
+          });
+          setSummary(result);
+          await persistSuccessful(result, selected.companyShareId);
+        } catch (e) {
+          Alert.alert(
+            'Bulk apply failed',
+            e instanceof Error ? e.message : 'Unknown error',
+          );
+        } finally {
+          setRunning(false);
+          setApplyProgress(null);
+        }
+      })();
+    };
+    void sensitive.requestSensitiveAction(execute);
   }, [checkedEligible, kitta, selected, sensitive]);
 
   const runSingle = useCallback(
-    (accountId: string) => {
+    (accountId: string, opts?: { reapply?: boolean }) => {
       const acc = accounts.find((a) => a.id === accountId);
       if (!acc || !isAccountActive(accountId) || isUserInactive(acc)) {
         promptLocked();
@@ -469,7 +484,7 @@ export function ApplyScreen() {
         );
         return;
       }
-      if (alreadyApplied(accountId)) {
+      if (!opts?.reapply && alreadyApplied(accountId)) {
         Alert.alert(
           'Already applied',
           'This account already applied for this IPO (one apply per account per IPO).',
@@ -478,48 +493,47 @@ export function ApplyScreen() {
       }
       const one = accounts.filter((a) => a.id === accountId);
       if (!one.length) return;
-      Alert.alert(
-        'Confirm apply',
-        `${selected.companyName}\nKitta: ${kitta}\nAccount: ${one[0].name}\n\nSubmits a real MeroShare application.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Apply',
-            style: 'destructive',
-            onPress: () => {
-              const execute = () => {
-                void (async () => {
-                  setRunning(true);
-                  resultModalBatchKeyRef.current = null;
-                  setApplyResults([]);
-                  setApplyProgress({ done: 0, total: 1 });
-                  try {
-                    const result = await runBulkApply({
-                      accounts: one,
-                      issue: selected,
-                      kitta,
-                      dryRun: false,
-                      simulateLogin: false,
-                      onAccountResult: (row, index, total) => {
-                        setApplyResults((prev) => [...prev, row]);
-                        setApplyProgress({ done: index + 1, total });
-                      },
-                    });
-                    setSummary(result);
-                    await persistSuccessful(result, selected.companyShareId);
-                  } finally {
-                    setRunning(false);
-                    setApplyProgress(null);
-                  }
-                })();
-              };
-              void sensitive.requestSensitiveAction(execute);
-            },
-          },
-        ],
-      );
+      const execute = () => {
+        void (async () => {
+          if (opts?.reapply) {
+            await unmarkApplied(accountId, selected.companyShareId);
+            setHistoryTick((t) => t + 1);
+          }
+          setRunning(true);
+          resultModalBatchKeyRef.current = null;
+          setApplyResults([]);
+          setApplyProgress({ done: 0, total: 1 });
+          try {
+            const result = await runBulkApply({
+              accounts: one,
+              issue: selected,
+              kitta,
+              dryRun: false,
+              simulateLogin: false,
+              onAccountResult: (row, index, total) => {
+                setApplyResults((prev) => [...prev, row]);
+                setApplyProgress({ done: index + 1, total });
+              },
+            });
+            setSummary(result);
+            await persistSuccessful(result, selected.companyShareId);
+          } finally {
+            setRunning(false);
+            setApplyProgress(null);
+          }
+        })();
+      };
+      void sensitive.requestSensitiveAction(execute);
     },
-    [accounts, alreadyApplied, isAccountActive, kitta, promptLocked, selected, sensitive],
+    [
+      accounts,
+      alreadyApplied,
+      isAccountActive,
+      kitta,
+      promptLocked,
+      selected,
+      sensitive,
+    ],
   );
 
   const openingLabel = useMemo(() => {
@@ -558,7 +572,16 @@ export function ApplyScreen() {
     return counts;
   }, [applyResults]);
 
-  const failedApplyCount = applyResults.length - applyCounts.applied;
+  const failedApplyCount = useMemo(
+    () =>
+      applyResults.filter(
+        (r) =>
+          !r.ok &&
+          !isAlreadyAppliedApplyMessage(r.message) &&
+          !isRejectedApplicantApplyMessage(r.message, r.rejectedPrevious),
+      ).length,
+    [applyResults],
+  );
   const showBulkUpdates = running || applyResults.length > 0;
   const daysLeft = daysLeftForIssue(selected);
 
@@ -595,7 +618,13 @@ export function ApplyScreen() {
     modalTotal > 0 ? Math.round((modalSuccess / modalTotal) * 100) : 0;
   const modalNeedsAttention = modalIssues > 0;
   const modalIssueRows = useMemo(
-    () => applyResults.filter((r) => !r.ok),
+    () =>
+      applyResults.filter(
+        (r) =>
+          !r.ok &&
+          !isAlreadyAppliedApplyMessage(r.message) &&
+          !isRejectedApplicantApplyMessage(r.message, r.rejectedPrevious),
+      ),
     [applyResults],
   );
 
@@ -635,18 +664,46 @@ export function ApplyScreen() {
   );
 
   const renderUpdateCard = (r: ApplyAccountResult, index: number) => {
+    const alreadyAppliedRow = isAlreadyAppliedApplyMessage(r.message);
+    const rejectedRow = isRejectedApplicantApplyMessage(
+      r.message,
+      r.rejectedPrevious,
+    );
+    const canReapply = Boolean(r.canReapply);
     const ok = r.ok;
-    const cardStyle = ok ? styles.updateCardOk : styles.updateCardFail;
+    const cardStyle = ok
+      ? styles.updateCardOk
+      : alreadyAppliedRow
+        ? styles.updateCardInfo
+        : rejectedRow
+          ? styles.updateCardRejected
+          : styles.updateCardFail;
     const acc = accounts.find((a) => a.id === r.accountId);
     const label = (acc?.name || r.accountName || r.username || '').trim();
     const rowTitle = `IPO@${label.toUpperCase()}`;
+    const iconName = ok
+      ? 'checkmark-circle'
+      : alreadyAppliedRow
+        ? 'information-circle'
+        : rejectedRow
+          ? 'alert-circle-outline'
+          : 'alert-circle';
+    const iconColor = ok
+      ? colors.accentGreen
+      : alreadyAppliedRow
+        ? colors.primary
+        : rejectedRow
+          ? colors.chipOrange ?? '#EF6C00'
+          : colors.danger;
+    const displayMsg =
+      ok || alreadyAppliedRow || rejectedRow
+        ? applyDisplayMessage(r)
+        : applyDisplayMessage(r);
+    const showAction =
+      !ok && !alreadyAppliedRow && !running && (rejectedRow ? canReapply : true);
     return (
       <View key={r.accountId} style={cardStyle}>
-        <Ionicons
-          name={ok ? 'checkmark-circle' : 'alert-circle'}
-          size={rs(22)}
-          color={ok ? colors.accentGreen : colors.danger}
-        />
+        <Ionicons name={iconName} size={rs(22)} color={iconColor} />
         <View style={styles.updateBody}>
           <Text style={styles.updateName}>
             {index + 1}. {rowTitle}
@@ -654,19 +711,37 @@ export function ApplyScreen() {
           <Text
             style={[
               styles.updateMsg,
-              ok ? styles.updateMsgOk : styles.updateMsgFail,
+              ok
+                ? styles.updateMsgOk
+                : alreadyAppliedRow
+                  ? styles.updateMsgInfo
+                  : rejectedRow
+                    ? styles.updateMsgRejected
+                    : styles.updateMsgFail,
             ]}
-            numberOfLines={3}
+            numberOfLines={4}
           >
-            {ok ? reasonLabel(r) : applyDisplayMessage(r)}
+            {displayMsg}
           </Text>
         </View>
-        {!ok && !running ? (
+        {showAction ? (
           <Pressable
-            style={styles.updateApplyBtn}
-            onPress={() => runSingle(r.accountId)}
+            style={[
+              styles.updateApplyBtn,
+              rejectedRow && canReapply && styles.updateReapplyBtn,
+            ]}
+            onPress={() =>
+              runSingle(r.accountId, { reapply: rejectedRow && canReapply })
+            }
           >
-            <Text style={styles.updateApplyText}>Apply</Text>
+            <Text
+              style={[
+                styles.updateApplyText,
+                rejectedRow && canReapply && styles.updateReapplyText,
+              ]}
+            >
+              {rejectedRow && canReapply ? 'Reapply' : 'Apply'}
+            </Text>
           </Pressable>
         ) : null}
       </View>
@@ -714,47 +789,43 @@ export function ApplyScreen() {
   const renderBulkAutoApply = () =>
     mode === 'Bulk' ? (
       <Pressable
-        style={[styles.autoApply, running && styles.autoApplyDisabled]}
+        style={[styles.autoApplyWrap, running && styles.autoApplyDisabled]}
         onPress={confirmBulkApply}
         disabled={running}
       >
-        {running ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text style={styles.autoApplyText}>Auto Apply</Text>
-        )}
+        <LinearGradient
+          colors={GLASS_GRADIENT}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.autoApply}
+        >
+          {running ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <>
+              <MaterialCommunityIcons
+                name="lightning-bolt"
+                size={rs(18)}
+                color="#FFFFFF"
+              />
+              <Text style={styles.autoApplyText}>Auto Apply</Text>
+              <Ionicons name="chevron-forward" size={rs(18)} color="#FFFFFF" />
+            </>
+          )}
+        </LinearGradient>
       </Pressable>
     ) : null;
 
   const renderFormTopSection = () => (
     <>
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryName}>{displayName}</Text>
-        <View style={styles.summaryValueRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.summaryLabel}>Total current value</Text>
-            <Text style={styles.summaryValue}>{currentValueText}</Text>
-          </View>
-          <View style={styles.summarySide}>
-            <View style={styles.plPill}>
-              <Text style={styles.plPillText}>{plText}</Text>
-              <Pressable onPress={() => setHideValues((v) => !v)} hitSlop={8}>
-                <Ionicons
-                  name={hideValues ? 'eye-off-outline' : 'eye-outline'}
-                  size={rs(14)}
-                  color={colors.text}
-                />
-              </Pressable>
-            </View>
-          </View>
-        </View>
-        <Pressable
-          style={styles.summaryBtn}
-          onPress={() => navigation.navigate('InvestmentSummary')}
-        >
-          <Text style={styles.summaryBtnText}>Current Investment Summary</Text>
-        </Pressable>
-      </View>
+      <ApplyInvestmentSummaryCard
+        displayName={displayName}
+        currentValueText={currentValueText}
+        plText={plText}
+        hideValues={hideValues}
+        onToggleHide={() => setHideValues((v) => !v)}
+        onOpenSummary={() => navigation.navigate('InvestmentSummary')}
+      />
 
       <View style={styles.modeBar}>
         <Pressable
@@ -772,22 +843,42 @@ export function ApplyScreen() {
           />
         </Pressable>
         <View style={styles.modeToggle}>
-          {(['Bulk', 'Single'] as const).map((m) => (
-            <Pressable
-              key={m}
-              onPress={() => setMode(m)}
-              style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
-            >
-              <Text
-                style={[
-                  styles.modeText,
-                  mode === m && styles.modeTextActive,
-                ]}
+          {(['Bulk', 'Single'] as const).map((m) => {
+            const active = mode === m;
+            const color = active ? '#FFFFFF' : isDark ? '#9AA0A6' : '#64748B';
+            return (
+              <Pressable
+                key={m}
+                onPress={() => setMode(m)}
+                style={styles.modeBtn}
               >
-                {m}
-              </Text>
-            </Pressable>
-          ))}
+                {active ? (
+                  <LinearGradient
+                    colors={GLASS_GRADIENT}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                ) : null}
+                {m === 'Bulk' ? (
+                  <MaterialCommunityIcons
+                    name={active ? 'account-group' : 'account-group-outline'}
+                    size={rs(15)}
+                    color={color}
+                  />
+                ) : (
+                  <Ionicons
+                    name={active ? 'person' : 'person-outline'}
+                    size={rs(15)}
+                    color={color}
+                  />
+                )}
+                <Text style={[styles.modeText, active && styles.modeTextActive]}>
+                  {m}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
         <Pressable
           onPress={() =>
@@ -797,39 +888,66 @@ export function ApplyScreen() {
             )
           }
           hitSlop={8}
-          style={styles.modeSideBtn}
+          style={styles.modeInfoBtn}
         >
           <Ionicons
             name="information-circle-outline"
-            size={rs(18)}
-            color={colors.textSecondary}
+            size={rs(20)}
+            color={isDark ? colors.text : NEPSE_NAVY}
           />
         </Pressable>
       </View>
     </>
   );
 
+  const renderGlassField = (
+    children: React.ReactNode,
+    onPress?: () => void,
+    disabled?: boolean,
+  ) => {
+    const shell = (
+      <GlassSurface style={styles.glassFieldCard} borderRadius={rs(18)}>
+        {children}
+      </GlassSurface>
+    );
+    if (onPress) {
+      return (
+        <Pressable onPress={onPress} disabled={disabled}>
+          {shell}
+        </Pressable>
+      );
+    }
+    return shell;
+  };
+
   const renderCategoryDropdown = () =>
-    mode === 'Bulk' ? (
-      <Pressable
-        style={styles.dropdown}
-        onPress={() => setAccountsModalOpen(true)}
-      >
-        <Text style={styles.dropdownText} numberOfLines={1}>
-          {checkedEligible.length === operationalAccounts.length ||
-          checkedEligible.length === eligibleCount
-            ? 'Select Category (All Accounts)'
-            : checkedEligible.length === 1
-              ? `${checkedEligible[0].name.toUpperCase()} - ${checkedEligible[0].username}`
-              : `Select Category (${checkedEligible.length} accounts)`}
-        </Text>
-        <Ionicons
-          name="chevron-down"
-          size={rs(18)}
-          color={colors.textMuted}
-        />
-      </Pressable>
-    ) : null;
+    mode === 'Bulk'
+      ? renderGlassField(
+          <View style={styles.glassFieldRow}>
+            <View style={styles.fieldIconWell}>
+              <MaterialCommunityIcons
+                name="view-grid-outline"
+                size={rs(16)}
+                color={isDark ? '#86EFAC' : NEPSE_GREEN}
+              />
+            </View>
+            <Text style={styles.dropdownValueText} numberOfLines={1}>
+              {checkedEligible.length === operationalAccounts.length ||
+              checkedEligible.length === eligibleCount
+                ? 'Select Category (All Accounts)'
+                : checkedEligible.length === 1
+                  ? `${checkedEligible[0].name.toUpperCase()} - ${checkedEligible[0].username}`
+                  : `Select Category (${checkedEligible.length} accounts)`}
+            </Text>
+            <Ionicons
+              name="chevron-down"
+              size={rs(18)}
+              color={colors.textMuted}
+            />
+          </View>,
+          () => setAccountsModalOpen(true),
+        )
+      : null;
 
   const renderDaysLeftBadge = () =>
     daysLeft ? (
@@ -843,64 +961,68 @@ export function ApplyScreen() {
       </View>
     ) : null;
 
-  const renderIpoFieldSection = () => (
-    <View style={styles.fieldBlock}>
-      <View style={styles.labelRowBetween}>
-        <View style={styles.labelRowLeftInline}>
-          <MaterialCommunityIcons
-            name="bank-outline"
-            size={rs(16)}
-            color={colors.text}
-          />
-          <Text style={styles.fieldLabel}>Current Opening IPO/FPO/Right</Text>
+  const renderIpoFieldSection = () =>
+    renderGlassField(
+      <>
+        <View style={styles.labelRowBetween}>
+          <View style={styles.labelRowLeftInline}>
+            <View style={styles.fieldIconWell}>
+              <MaterialCommunityIcons
+                name="bank-outline"
+                size={rs(16)}
+                color={isDark ? '#86EFAC' : NEPSE_GREEN}
+              />
+            </View>
+            <Text style={styles.fieldLabel}>Current Opening IPO/FPO/Right</Text>
+          </View>
+          {renderDaysLeftBadge()}
         </View>
-        {renderDaysLeftBadge()}
-      </View>
-      <Pressable
-        style={styles.dropdown}
-        onPress={() => setPickerOpen(true)}
-        disabled={loadingIssues}
-      >
-        <Text
-          style={[
-            styles.dropdownValueText,
-            !hasRealOpening && styles.dropdownPlaceholder,
-          ]}
-          numberOfLines={1}
-        >
-          {openingLabel}
-        </Text>
-        {loadingIssues ? (
-          <ActivityIndicator size="small" color={colors.primary} />
-        ) : (
-          <Ionicons
-            name="chevron-down"
-            size={rs(18)}
-            color={colors.textMuted}
-          />
-        )}
-      </Pressable>
-    </View>
-  );
+        <View style={styles.innerDropdown}>
+          <Text
+            style={[
+              styles.dropdownValueText,
+              !hasRealOpening && styles.dropdownPlaceholder,
+            ]}
+            numberOfLines={1}
+          >
+            {openingLabel}
+          </Text>
+          {loadingIssues ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Ionicons
+              name="chevron-down"
+              size={rs(18)}
+              color={colors.textMuted}
+            />
+          )}
+        </View>
+      </>,
+      () => setPickerOpen(true),
+      loadingIssues,
+    );
 
-  const renderQuantityField = () => (
-    <View style={styles.fieldBlock}>
-      <View style={styles.labelRowLeftInline}>
-        <Text style={styles.hash}>#</Text>
-        <Text style={styles.fieldLabel}>Quantity</Text>
-      </View>
-      <View style={styles.dropdown}>
-        <TextInput
-          value={qty}
-          onChangeText={setQty}
-          keyboardType="number-pad"
-          style={styles.qtyInput}
-          placeholder="10"
-          placeholderTextColor={colors.textMuted}
-        />
-      </View>
-    </View>
-  );
+  const renderQuantityField = () =>
+    renderGlassField(
+      <>
+        <View style={styles.labelRowLeftInline}>
+          <View style={styles.fieldIconWell}>
+            <Text style={styles.hash}>#</Text>
+          </View>
+          <Text style={styles.fieldLabel}>Quantity</Text>
+        </View>
+        <View style={styles.innerDropdown}>
+          <TextInput
+            value={qty}
+            onChangeText={setQty}
+            keyboardType="number-pad"
+            style={styles.qtyInput}
+            placeholder="10"
+            placeholderTextColor={colors.textMuted}
+          />
+        </View>
+      </>,
+    );
 
   useEffect(() => {
     if (!running && summary && applyResults.length > 0) {
@@ -938,42 +1060,15 @@ export function ApplyScreen() {
     }
   }, [applyResults, selected?.companyName, summary?.companyName]);
 
-  const headerActions = (
-    <View style={styles.headerActions}>
-      <Pressable
-        onPress={() => navigation.navigate('NepseCalendar')}
-        hitSlop={8}
-        style={[styles.headerIconBtn, { backgroundColor: colors.primary }]}
-      >
-        <MaterialCommunityIcons name="calendar-month" size={rs(20)} color="#FFFFFF" />
-      </Pressable>
-      <Pressable
-        onPress={() => navigation.navigate('FinancialNews')}
-        hitSlop={8}
-        style={[
-          styles.headerIconBtn,
-          { backgroundColor: colors.surface, borderColor: colors.border },
-        ]}
-      >
-        <Ionicons name="newspaper-outline" size={rs(18)} color={colors.text} />
-        <View style={[styles.headerDot, { backgroundColor: colors.badgeNew }]} />
-      </Pressable>
-    </View>
-  );
-
   return (
     <ProtectedPersonalScreen
       title="Sign in to bulk apply"
       subtitle="Sign in with Google to add accounts and sync them across your phones."
     >
-    <View style={[styles.root, { backgroundColor: colors.bg }]}>
-      <AppHeader
-        onMenuPress={openDrawer}
-        title="IPO Bulk Apply"
-        showLogo={false}
-        right={headerActions}
-      />
-      <AdminPromoBanner page="apply" />
+    <View style={styles.root}>
+      <GlassClusterBackground variant="apply">
+      <AppHeader onMenuPress={openDrawer} variant="branded" />
+      <AdminPromoBanner page="apply" art="home" />
 
       {accounts.length === 0 ? (
         <View style={styles.emptyWrap}>
@@ -1286,24 +1381,27 @@ export function ApplyScreen() {
       </Modal>
 
       <SensitiveActionModals action={sensitive} />
+      </GlassClusterBackground>
     </View>
     </ProtectedPersonalScreen>
   );
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const cardBg = c.bg;
-  const fieldBg = c.bg;
-  const fieldBorder = isDark ? c.borderMuted : '#B8B8B8';
-  const ink = isDark ? c.text : '#1B1B1B';
-  const inkMuted = isDark ? c.textSecondary : '#5A6556';
+  const pageBg = isDark ? c.bg : GLASS_PAGE_BG;
+  const cardBg = isDark ? c.surface : GLASS_CARD_BG;
+  const cardBorder = isDark ? c.borderMuted : GLASS_CARD_BORDER;
+  const fieldBg = isDark ? c.surfaceAlt : 'rgba(255,255,255,0.55)';
+  const fieldBorder = isDark ? c.borderMuted : 'rgba(186,230,253,0.9)';
+  const ink = isDark ? c.text : NEPSE_NAVY;
+  const inkMuted = isDark ? c.textSecondary : '#64748B';
 
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: c.bg },
+    root: { flex: 1 },
     scroll: { flex: 1 },
     scrollContent: {
       padding: rs(16),
-      paddingBottom: rs(32),
+      paddingBottom: rs(100),
     },
     resultsBox: {
       height: rs(400),
@@ -1389,21 +1487,40 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       borderRadius: rs(4),
     },
     summaryCard: {
-      borderWidth: 1,
-      borderColor: isDark ? c.borderMuted : '#D8D6CF',
-      borderRadius: rs(11),
-      paddingHorizontal: rs(12),
-      paddingTop: rs(10),
-      paddingBottom: rs(10),
+      borderWidth: 1.5,
+      borderColor: cardBorder,
+      borderRadius: rs(20),
+      paddingHorizontal: rs(14),
+      paddingTop: rs(14),
+      paddingBottom: rs(12),
       backgroundColor: cardBg,
-      marginBottom: rs(10),
+      marginBottom: rs(12),
+      shadowColor: GLASS_CYAN_GLOW,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0 : 0.3,
+      shadowRadius: 10,
+      elevation: isDark ? 0 : 3,
+    },
+    summaryTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      marginBottom: rs(8),
+    },
+    summaryIconWell: {
+      width: rs(34),
+      height: rs(34),
+      borderRadius: rs(17),
+      backgroundColor: isDark ? NEPSE_GREEN : GHAR_TEAL,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     summaryName: {
+      flex: 1,
       color: ink,
       fontWeight: '800',
-      fontSize: rs(12),
+      fontSize: rs(13),
       letterSpacing: 0.3,
-      marginBottom: rs(5),
     },
     summaryValueRow: {
       flexDirection: 'row',
@@ -1417,9 +1534,9 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(1),
     },
     summaryValue: {
-      color: ink,
+      color: isDark ? '#86EFAC' : NEPSE_GREEN,
       fontWeight: '800',
-      fontSize: rs(19),
+      fontSize: rs(24),
       letterSpacing: -0.2,
     },
     summarySide: {
@@ -1432,12 +1549,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: rs(4),
-      backgroundColor: isDark ? c.surface : c.surfaceAlt,
+      backgroundColor: isDark ? c.surfaceAlt : 'rgba(255,255,255,0.9)',
       borderRadius: rs(12),
-      paddingHorizontal: rs(7),
-      paddingVertical: rs(3),
-      borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
-      borderColor: c.borderMuted,
+      paddingHorizontal: rs(8),
+      paddingVertical: rs(4),
+      borderWidth: 1,
+      borderColor: fieldBorder,
     },
     plPillText: {
       color: ink,
@@ -1448,22 +1565,26 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       padding: rs(3),
     },
     summaryBtn: {
-      alignSelf: 'flex-start',
-      borderWidth: 1,
-      borderColor: c.primary,
-      borderRadius: rs(12),
-      paddingVertical: rs(6),
-      paddingHorizontal: rs(14),
+      alignSelf: 'stretch',
+      borderRadius: rs(22),
+      overflow: 'hidden',
+      marginTop: rs(4),
+    },
+    summaryBtnGradient: {
+      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: c.bg,
+      gap: rs(8),
+      paddingVertical: rs(10),
+      paddingHorizontal: rs(14),
     },
     summaryBtnText: {
-      color: isDark ? c.sage : c.primary,
-      fontWeight: '700',
-      fontSize: rs(11),
+      color: '#FFFFFF',
+      fontWeight: '800',
+      fontSize: rs(12),
       textAlign: 'center',
       includeFontPadding: false,
+      flex: 1,
     },
     modeBar: {
       flexDirection: 'row',
@@ -1484,29 +1605,79 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(12),
     },
     modeToggle: {
-      flexGrow: 0,
+      flexGrow: 1,
       flexShrink: 1,
-      width: rs(180),
+      maxWidth: rs(240),
       flexDirection: 'row',
-      backgroundColor: isDark ? c.surface : c.primarySoft,
-      borderRadius: rs(16),
-      padding: rs(3),
-      borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
-      borderColor: c.borderMuted,
+      backgroundColor: isDark ? c.surface : 'rgba(255,255,255,0.55)',
+      borderRadius: rs(28),
+      padding: rs(4),
+      borderWidth: 1.5,
+      borderColor: cardBorder,
+      shadowColor: GLASS_CYAN_GLOW,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0 : 0.2,
+      shadowRadius: 6,
+      elevation: isDark ? 0 : 2,
     },
     modeBtn: {
       flex: 1,
-      paddingVertical: rs(6),
-      borderRadius: rs(13),
+      flexDirection: 'row',
+      paddingVertical: rs(8),
+      borderRadius: rs(24),
       alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(6),
+      overflow: 'hidden',
     },
-    modeBtnActive: { backgroundColor: c.primary },
     modeText: {
-      color: isDark ? c.sage : c.primary,
-      fontWeight: '700',
-      fontSize: rs(12),
+      color: isDark ? c.sage : '#64748B',
+      fontWeight: '800',
+      fontSize: rs(13),
     },
     modeTextActive: { color: '#FFFFFF' },
+    modeInfoBtn: {
+      width: rs(36),
+      height: rs(36),
+      borderRadius: rs(18),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? c.surface : 'rgba(255,255,255,0.72)',
+      borderWidth: 1.5,
+      borderColor: cardBorder,
+    },
+    glassFieldCard: {
+      marginBottom: rs(10),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(12),
+    },
+    glassFieldRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+    },
+    fieldIconWell: {
+      width: rs(32),
+      height: rs(32),
+      borderRadius: rs(10),
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.9)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: fieldBorder,
+    },
+    innerDropdown: {
+      minHeight: rs(40),
+      borderRadius: rs(14),
+      borderWidth: 1,
+      borderColor: fieldBorder,
+      paddingHorizontal: rs(12),
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: fieldBg,
+      marginTop: rs(8),
+    },
     fieldBlock: { marginBottom: rs(12) },
     labelRow: {
       flexDirection: 'row',
@@ -1538,10 +1709,10 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     label: { color: c.textSecondary, fontSize: rs(12) },
     fieldLabel: {
       color: ink,
-      fontSize: rs(12),
-      fontWeight: '600',
+      fontSize: rs(13),
+      fontWeight: '700',
     },
-    hash: { color: ink, fontWeight: '700', fontSize: rs(12) },
+    hash: { color: isDark ? '#86EFAC' : NEPSE_GREEN, fontWeight: '800', fontSize: rs(14) },
     dropdown: {
       minHeight: rs(36),
       borderRadius: rs(14),
@@ -1590,22 +1761,33 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(6),
     },
     linkAction: { color: c.primary, fontWeight: '700', fontSize: rs(12) },
-    autoApply: {
+    autoApplyWrap: {
       alignSelf: 'stretch',
-      marginTop: rs(8),
-      backgroundColor: c.promoBanner,
-      borderRadius: rs(16),
-      paddingVertical: rs(8),
-      paddingHorizontal: rs(16),
+      marginTop: rs(10),
+      borderRadius: rs(22),
+      overflow: 'hidden',
+      shadowColor: GLASS_CYAN_GLOW,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0 : 0.35,
+      shadowRadius: 10,
+      elevation: isDark ? 0 : 4,
+    },
+    autoApply: {
+      flexDirection: 'row',
       alignItems: 'center',
-      minHeight: rs(36),
       justifyContent: 'center',
+      gap: rs(10),
+      paddingVertical: rs(14),
+      paddingHorizontal: rs(16),
+      minHeight: rs(50),
     },
     autoApplyDisabled: { opacity: 0.7 },
     autoApplyText: {
       color: '#FFFFFF',
       fontWeight: '800',
-      fontSize: rs(13),
+      fontSize: rs(16),
+      flex: 1,
+      textAlign: 'center',
     },
     daysBadge: {
       flexDirection: 'row',
@@ -1696,6 +1878,28 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       marginBottom: rs(8),
       backgroundColor: cardBg,
     },
+    updateCardInfo: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: rs(10),
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(100,181,246,0.35)' : 'rgba(25,118,210,0.25)',
+      borderRadius: rs(10),
+      padding: rs(12),
+      marginBottom: rs(8),
+      backgroundColor: cardBg,
+    },
+    updateCardRejected: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: rs(10),
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,183,77,0.4)' : 'rgba(239,108,0,0.35)',
+      borderRadius: rs(10),
+      padding: rs(12),
+      marginBottom: rs(8),
+      backgroundColor: cardBg,
+    },
     updateBody: { flex: 1, minWidth: 0 },
     updateName: {
       color: c.text,
@@ -1708,6 +1912,8 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       lineHeight: rs(16),
     },
     updateMsgFail: { color: c.danger },
+    updateMsgInfo: { color: isDark ? '#90CAF9' : '#1565C0' },
+    updateMsgRejected: { color: isDark ? '#FFB74D' : '#E65100' },
     updateMsgOk: { color: c.textSecondary },
     updateApplyBtn: {
       borderWidth: 1,
@@ -1721,6 +1927,13 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       color: isDark ? '#FFB74D' : '#E65100',
       fontWeight: '700',
       fontSize: rs(12),
+    },
+    updateReapplyBtn: {
+      borderColor: isDark ? '#66BB6A' : '#2E7D32',
+      backgroundColor: isDark ? 'rgba(102,187,106,0.12)' : '#F1F8F4',
+    },
+    updateReapplyText: {
+      color: isDark ? '#81C784' : '#2E7D32',
     },
     accountRow: {
       marginTop: rs(10),

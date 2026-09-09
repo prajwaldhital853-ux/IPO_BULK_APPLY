@@ -52,6 +52,9 @@ export type ApplyAccountResult = {
   message: string;
   companyName?: string;
   kitta?: number;
+  /** Previous application was rejected — user may reapply while IPO is open. */
+  rejectedPrevious?: boolean;
+  canReapply?: boolean;
 };
 
 export type BulkApplySummary = {

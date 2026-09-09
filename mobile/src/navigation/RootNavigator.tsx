@@ -117,6 +117,12 @@ function MainTabs() {
         headerShown: false,
         tabBarHideOnKeyboard: true,
         animation: 'none',
+        tabBarStyle: {
+          position: 'absolute',
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
+          elevation: 0,
+        },
         // Mount each tab on first visit only — never keep all five warm.
         lazy: true,
         freezeOnBlur: true,
@@ -278,7 +284,7 @@ export function RootNavigator() {
           swipeEnabled: true,
           drawerStyle: {
             width: drawerWidth,
-            backgroundColor: isDark ? colors.bg : '#F8FBF2',
+            backgroundColor: isDark ? colors.bg : '#CFFAFE',
             borderTopRightRadius: rs(28),
             borderBottomRightRadius: rs(28),
             overflow: 'hidden',

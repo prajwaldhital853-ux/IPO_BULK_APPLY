@@ -1,7 +1,8 @@
 import { Alert } from 'react-native';
 import { showAccountLimitBlocked } from '../context/AccountLimitBlockedContext';
 import { checkCanAddAcrossDevices } from '../services/accountSlots';
-import { AUTH_ENABLED, GUEST_CAN_ADD_ACCOUNTS } from '../services/auth/config';
+import { AUTH_ENABLED } from '../services/auth/config';
+import { allowsLocalGuestAccess } from './expoGo';
 import { getAccessToken } from '../services/auth/tokenStorage';
 import { loadAccountMeta } from '../storage/accountsStorage';
 import {
@@ -81,7 +82,7 @@ export async function ensureGoogleSignedInForAddAccount(
   if (
     !AUTH_ENABLED ||
     isAuthenticated ||
-    GUEST_CAN_ADD_ACCOUNTS
+    allowsLocalGuestAccess()
   ) {
     return true;
   }
@@ -106,7 +107,7 @@ export async function guardAddAccountAsync(opts: {
   }
 
   const guestLocalOnly =
-    GUEST_CAN_ADD_ACCOUNTS && !getAccessToken();
+    allowsLocalGuestAccess() && !getAccessToken();
 
   if (guestLocalOnly) {
     return guardAddAccount(opts);
@@ -126,7 +127,7 @@ export async function guardAddAccountAsync(opts: {
       candidateKey(opts.candidate),
     );
     if (!status) {
-      if (GUEST_CAN_ADD_ACCOUNTS) {
+      if (allowsLocalGuestAccess()) {
         return guardAddAccount({
           ...opts,
           currentCount: Math.max(opts.currentCount, accounts.length),
@@ -145,7 +146,7 @@ export async function guardAddAccountAsync(opts: {
     });
     return false;
   } catch {
-    if (GUEST_CAN_ADD_ACCOUNTS) {
+    if (allowsLocalGuestAccess()) {
       return guardAddAccount(opts);
     }
     Alert.alert(

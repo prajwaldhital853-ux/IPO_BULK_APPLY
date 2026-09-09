@@ -16,12 +16,15 @@ import DraggableFlatList, {
   type RenderItemParams,
 } from 'react-native-draggable-flatlist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { LinearGradient } from 'expo-linear-gradient';
+import { GlassClusterBackground } from '../components/GlassClusterBackground';
 import { AccountDetailSheet } from '../components/AccountDetailSheet';
 import { BusyOverlay } from '../components/BusyOverlay';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { AppHeader } from '../components/AppHeader';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { HomeMarketPanel } from '../components/home/HomeMarketPanel';
+import { HomeTabSwitcher } from '../components/home/HomeTabSwitcher';
 import { HOME_CARD_GAP, HOME_H_PAD } from '../components/home/homeLayout';
 import { SwipeTabGesture } from '../components/SwipeTabGesture';
 import {
@@ -51,12 +54,11 @@ import {
   isMinorAccount,
 } from '../utils/minorAccount';
 import { showLockedAccountAlert } from '../utils/lockedAccountAlert';
+import { accountRailColor, GLASS_GRADIENT } from '../theme/glassUi';
 import { rs } from '../utils/responsive';
 import { usePullToRefresh } from '../utils/usePullToRefresh';
 import type { RootStackParamList } from '../navigation/types';
 import type { AccountMeta } from '../types/account';
-
-const RAIL_GREEN = '#1a4d08';
 
 /** Home account row — green rail, avatar, status badge, menu + chevron. */
 function AccountCard({
@@ -87,6 +89,7 @@ function AccountCard({
   const isMinor = isMinorAccount(item);
   const indexLabel = String(index + 1).padStart(2, '0');
   const canDrag = !searching && Boolean(onDrag);
+  const rail = accountRailColor(index);
 
   return (
     <ScaleDecorator>
@@ -102,12 +105,12 @@ function AccountCard({
         disabled={isActive}
       >
         <View style={styles.cardLeft}>
-          <View style={styles.leftRail}>
+          <View style={[styles.flag, { backgroundColor: rail }]}>
             <Text style={styles.railIndex}>{indexLabel}</Text>
           </View>
           <View style={styles.avatarWrap}>
             <View style={styles.avatarRing}>
-              <Ionicons name="person" size={rs(16)} color={RAIL_GREEN} />
+              <Ionicons name="person" size={rs(16)} color="#546E7A" />
             </View>
           </View>
         </View>
@@ -124,7 +127,8 @@ function AccountCard({
             ) : null}
             {isMinor ? (
               <View style={styles.minorBadge}>
-                <Text style={styles.minorBadgeText}>Minor</Text>
+                <Ionicons name="shield" size={rs(9)} color={colors.danger} />
+                <Text style={styles.minorBadgeText}>MINOR</Text>
               </View>
             ) : null}
           </View>
@@ -174,7 +178,7 @@ function AccountCard({
             <Ionicons
               name="chevron-forward"
               size={rs(14)}
-              color={colors.primary}
+              color={rail}
             />
           </Pressable>
         </View>
@@ -501,32 +505,14 @@ export function HomeScreen() {
   );
 
   return (
-    <GestureHandlerRootView style={styles.root}>
-      <AppHeader onMenuPress={openDrawer} title="NEPSE GHAR" showLogo={false} />
-      <AdminPromoBanner page="home" />
+    <GlassClusterBackground variant="apply" style={styles.root}>
+    <GestureHandlerRootView style={styles.rootInner}>
+      <AppHeader onMenuPress={openDrawer} variant="branded" />
+      {tab === 'Accounts' ? (
+        <AdminPromoBanner page="home" art="home" />
+      ) : null}
 
-      <View style={styles.tabs}>
-        <Pressable
-          onPress={() => setTab('Accounts')}
-          style={[styles.tabBtn, tab === 'Accounts' && styles.tabBtnOn]}
-        >
-          <Text
-            style={[styles.tabText, tab === 'Accounts' && styles.tabActive]}
-          >
-            Accounts
-          </Text>
-          {tab === 'Accounts' ? <View style={styles.tabUnderline} /> : null}
-        </Pressable>
-        <Pressable
-          onPress={() => setTab('Market')}
-          style={[styles.tabBtn, tab === 'Market' && styles.tabBtnOn]}
-        >
-          <Text style={[styles.tabText, tab === 'Market' && styles.tabActive]}>
-            Market
-          </Text>
-          {tab === 'Market' ? <View style={styles.tabUnderline} /> : null}
-        </Pressable>
-      </View>
+      <HomeTabSwitcher tab={tab} onChange={setTab} />
 
       <SwipeTabGesture
         index={tab === 'Accounts' ? 0 : 1}
@@ -548,7 +534,7 @@ export function HomeScreen() {
           <View style={styles.stickyHead}>
             <View style={styles.totalCard}>
               <View style={styles.totalIconWrap}>
-                <Ionicons name="people" size={rs(16)} color={colors.primary} />
+                <Ionicons name="people" size={rs(20)} color={colors.primary} />
               </View>
               <View style={styles.totalWrap}>
                 <Text style={styles.totalLabel}>Total Accounts</Text>
@@ -561,37 +547,46 @@ export function HomeScreen() {
                 <Pressable
                   onPress={() => setSearchOpen((v) => !v)}
                   hitSlop={6}
-                  style={styles.iconBtn}
+                  style={styles.actionCol}
                 >
-                  <Ionicons name="search" size={rs(15)} color={colors.text} />
+                  <View style={styles.iconBtn}>
+                    <Ionicons name="search" size={rs(15)} color={colors.text} />
+                  </View>
+                  <Text style={styles.actionCaption}>Search</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => void exportAccounts()}
                   hitSlop={6}
-                  style={styles.iconBtn}
+                  style={styles.actionCol}
                   disabled={!accounts.length || exporting}
                 >
-                  <Ionicons
-                    name={exporting ? 'hourglass-outline' : 'share-outline'}
-                    size={rs(15)}
-                    color={
-                      accounts.length && !exporting
-                        ? colors.text
-                        : colors.textMuted
-                    }
-                  />
+                  <View style={styles.iconBtn}>
+                    <Ionicons
+                      name={exporting ? 'hourglass-outline' : 'share-outline'}
+                      size={rs(15)}
+                      color={
+                        accounts.length && !exporting
+                          ? colors.text
+                          : colors.textMuted
+                      }
+                    />
+                  </View>
+                  <Text style={styles.actionCaption}>Share</Text>
                 </Pressable>
                 <Pressable
                   onPress={toggleDemoAccounts}
                   hitSlop={6}
-                  style={styles.iconBtn}
+                  style={styles.actionCol}
                   disabled={demoBusy}
                 >
-                  <Ionicons
-                    name={hasMockAccounts ? 'flask' : 'flask-outline'}
-                    size={rs(15)}
-                    color={demoBusy ? colors.textMuted : colors.text}
-                  />
+                  <View style={styles.iconBtn}>
+                    <Ionicons
+                      name={hasMockAccounts ? 'flask' : 'flask-outline'}
+                      size={rs(15)}
+                      color={demoBusy ? colors.textMuted : colors.text}
+                    />
+                  </View>
+                  <Text style={styles.actionCaption}>Demo</Text>
                 </Pressable>
                 <Pressable
                   onPress={() =>
@@ -601,13 +596,16 @@ export function HomeScreen() {
                     )
                   }
                   hitSlop={6}
-                  style={styles.iconBtn}
+                  style={styles.actionCol}
                 >
-                  <Ionicons
-                    name="information-circle-outline"
-                    size={rs(15)}
-                    color={colors.text}
-                  />
+                  <View style={styles.iconBtn}>
+                    <Ionicons
+                      name="information-circle-outline"
+                      size={rs(15)}
+                      color={colors.text}
+                    />
+                  </View>
+                  <Text style={styles.actionCaption}>Info</Text>
                 </Pressable>
               </View>
             </View>
@@ -686,8 +684,15 @@ export function HomeScreen() {
             renderItem={renderAccount}
           />
 
-          <Pressable style={styles.fab} onPress={goAddCapital}>
-            <Ionicons name="add" size={rs(28)} color={colors.fabIcon} />
+          <Pressable style={styles.fabWrap} onPress={goAddCapital}>
+            <LinearGradient
+              colors={GLASS_GRADIENT}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.fab}
+            >
+              <Ionicons name="add" size={rs(28)} color="#FFFFFF" />
+            </LinearGradient>
           </Pressable>
 
           <AccountDetailSheet
@@ -715,53 +720,26 @@ export function HomeScreen() {
       </SwipeTabGesture>
       <BusyOverlay visible={Boolean(demoBusy)} message={demoBusyLabel} />
     </GestureHandlerRootView>
+    </GlassClusterBackground>
   );
 }
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
-  const cardBg = c.bg;
-  const railGreen = RAIL_GREEN;
+  const cardBg = isDark ? 'rgba(38,38,38,0.92)' : 'rgba(255,255,255,0.52)';
+  const cardBorder = isDark
+    ? 'rgba(255,255,255,0.12)'
+    : 'rgba(74,222,128,0.28)';
   const minorBadgeBg = isDark ? 'rgba(229,57,53,0.22)' : '#FFEBEE';
   const minorBadgeFg = isDark ? '#FF8A80' : '#C62828';
   const minorBadgeBorder = isDark ? '#E57373' : '#E53935';
 
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: c.bg },
+    root: { flex: 1 },
+    rootInner: { flex: 1, backgroundColor: 'transparent' },
     tabPane: { flex: 1 },
     tabPaneHidden: { display: 'none' },
-    tabs: {
-      flexDirection: 'row',
-      alignItems: 'stretch',
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
-      backgroundColor: c.bgElevated,
-    },
-    tabBtn: {
-      flex: 1,
-      paddingTop: rs(12),
-      paddingBottom: rs(10),
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    tabBtnOn: {
-      backgroundColor: c.primarySoft,
-    },
-    tabText: {
-      color: c.textMuted,
-      fontSize: rs(15),
-      fontWeight: '600',
-      lineHeight: rs(20),
-    },
-    tabActive: { color: c.primary, fontWeight: '800' },
-    tabUnderline: {
-      marginTop: rs(8),
-      height: rs(3),
-      width: '42%',
-      borderRadius: 2,
-      backgroundColor: c.primary,
-    },
     stickyHead: {
-      backgroundColor: c.bg,
+      backgroundColor: 'transparent',
       paddingHorizontal: HOME_H_PAD,
       paddingTop: rs(10),
       paddingBottom: rs(8),
@@ -772,21 +750,21 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       gap: rs(10),
       paddingHorizontal: rs(12),
-      paddingVertical: rs(10),
-      borderRadius: rs(12),
-      backgroundColor: cardBg,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: isDark ? c.borderMuted : '#E8ECE6',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: rs(1) },
-      shadowOpacity: isDark ? 0.2 : 0.06,
-      shadowRadius: rs(4),
-      elevation: 2,
+      paddingVertical: rs(12),
+      borderRadius: rs(20),
+      backgroundColor: isDark ? cardBg : 'rgba(255,255,255,0.58)',
+      borderWidth: 1.5,
+      borderColor: cardBorder,
+      shadowColor: isDark ? '#000' : '#4ADE80',
+      shadowOffset: { width: 0, height: rs(2) },
+      shadowOpacity: isDark ? 0.2 : 0.2,
+      shadowRadius: rs(10),
+      elevation: 3,
     },
     totalIconWrap: {
-      width: rs(34),
-      height: rs(34),
-      borderRadius: rs(17),
+      width: rs(42),
+      height: rs(42),
+      borderRadius: rs(21),
       backgroundColor: c.primarySoft,
       alignItems: 'center',
       justifyContent: 'center',
@@ -822,14 +800,20 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontSize: rs(13),
       fontWeight: '600',
     },
-    listActions: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
+    listActions: { flexDirection: 'row', alignItems: 'flex-end', gap: rs(8) },
+    actionCol: { alignItems: 'center', gap: rs(2) },
+    actionCaption: {
+      color: c.textMuted,
+      fontSize: rs(8),
+      fontWeight: '700',
+    },
     iconBtn: {
-      width: rs(28),
-      height: rs(28),
-      borderRadius: rs(7),
-      borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: isDark ? c.surfaceAlt : '#F3F7F2',
+      width: rs(30),
+      height: rs(30),
+      borderRadius: rs(15),
+      borderWidth: 1.5,
+      borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.95)',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.7)',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -842,69 +826,74 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     listEmpty: { flexGrow: 1, paddingBottom: rs(100) },
     card: {
       flexDirection: 'row',
-      alignItems: 'stretch',
+      alignItems: 'center',
       position: 'relative',
-      borderRadius: rs(10),
+      borderRadius: rs(18),
       marginBottom: HOME_CARD_GAP,
       backgroundColor: cardBg,
-      minHeight: rs(64),
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: isDark ? c.borderMuted : '#E8ECE6',
+      minHeight: rs(76),
+      overflow: 'hidden',
+      borderWidth: 1.5,
+      borderColor: cardBorder,
+      shadowColor: isDark ? '#000' : '#4ADE80',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.2 : 0.16,
+      shadowRadius: 8,
+      elevation: 2,
     },
     cardActive: {
       opacity: 0.94,
       borderColor: c.primary,
     },
     cardLeft: {
-      width: rs(50),
+      width: rs(58),
       position: 'relative',
       flexShrink: 0,
+      alignSelf: 'stretch',
     },
-    leftRail: {
+    flag: {
       position: 'absolute',
       left: 0,
-      top: rs(6),
-      bottom: rs(6),
-      width: rs(34),
-      backgroundColor: railGreen,
-      borderTopLeftRadius: rs(10),
-      borderBottomLeftRadius: rs(10),
-      paddingTop: rs(7),
+      top: 0,
+      width: rs(38),
+      height: rs(38),
+      borderBottomRightRadius: rs(16),
+      paddingTop: rs(8),
       paddingLeft: rs(8),
     },
     railIndex: {
       color: '#FFFFFF',
-      fontWeight: '700',
+      fontWeight: '800',
       fontSize: rs(11),
       letterSpacing: 0.2,
     },
     avatarWrap: {
       position: 'absolute',
-      left: rs(16),
+      left: rs(18),
       top: 0,
       bottom: 0,
-      width: rs(32),
+      width: rs(34),
       justifyContent: 'center',
       zIndex: 2,
     },
     avatarRing: {
-      width: rs(32),
-      height: rs(32),
-      borderRadius: rs(16),
+      width: rs(34),
+      height: rs(34),
+      borderRadius: rs(17),
       backgroundColor: '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: rs(1) },
+      shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.12,
-      shadowRadius: rs(3),
+      shadowRadius: 3,
       elevation: 3,
     },
     cardBody: {
       flex: 1,
       minWidth: 0,
       paddingLeft: rs(10),
-      paddingVertical: rs(8),
+      paddingVertical: rs(10),
       paddingRight: rs(40),
     },
     nameRow: {
@@ -930,9 +919,12 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       flexShrink: 0,
     },
     minorBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(3),
       paddingHorizontal: rs(7),
       paddingVertical: rs(2),
-      borderRadius: rs(6),
+      borderRadius: rs(8),
       backgroundColor: minorBadgeBg,
       borderWidth: 1,
       borderColor: minorBadgeBorder,
@@ -1006,28 +998,32 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       justifyContent: 'center',
     },
     chevronBtn: {
-      width: rs(24),
-      height: rs(24),
-      borderRadius: rs(6),
+      width: rs(26),
+      height: rs(26),
+      borderRadius: rs(13),
       backgroundColor: c.primarySoft,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    fab: {
+    fabWrap: {
       position: 'absolute',
       right: HOME_H_PAD,
       bottom: rs(20),
       width: rs(56),
       height: rs(56),
       borderRadius: rs(28),
-      backgroundColor: c.fab,
+      elevation: 8,
+      shadowColor: '#22C55E',
+      shadowOpacity: 0.45,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+    },
+    fab: {
+      width: rs(56),
+      height: rs(56),
+      borderRadius: rs(28),
       alignItems: 'center',
       justifyContent: 'center',
-      elevation: 4,
-      shadowColor: '#000',
-      shadowOpacity: 0.15,
-      shadowRadius: 6,
-      shadowOffset: { width: 0, height: 2 },
     },
     emptyMarket: {
       flex: 1,

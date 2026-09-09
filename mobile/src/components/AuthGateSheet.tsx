@@ -9,14 +9,18 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { allowsLocalGuestAccess } from '../utils/expoGo';
 import { rs } from '../utils/responsive';
 
 export function useAuthGate() {
   const auth = useAuth();
+  const guestAccess = allowsLocalGuestAccess();
   return {
     enabled: auth.enabled,
     loading: auth.loading,
-    isAuthenticated: auth.enabled ? auth.isAuthenticated : true,
+    isAuthenticated: auth.enabled
+      ? auth.isAuthenticated || guestAccess
+      : true,
     signIn: auth.signInWithGoogle,
     user: auth.user,
   };
