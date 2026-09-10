@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useAuth } from './AuthContext';
+import { resolveAccountLimit } from '../utils/accountLimits';
 import {
-  accountLimitForPlan,
   cachePremiumFromServer,
   clearSubscription,
   isPremiumActive,
@@ -291,10 +291,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     auth.isAuthenticated &&
     (auth.premium.status === 'pending' || serverStatus?.status === 'pending');
 
-  const maxAccounts = accountLimitForPlan(
+  const maxAccounts = resolveAccountLimit({
     isPremium,
-    serverStatus?.maxAccounts ?? auth.premium?.maxAccounts ?? null,
-  );
+    isAuthenticated: auth.isAuthenticated,
+    maxAccounts:
+      serverStatus?.maxAccounts ?? auth.premium?.maxAccounts ?? null,
+  });
 
   const value = useMemo(
     () => ({

@@ -70,4 +70,7 @@ export type DraftCapital = {
   dpCode?: string;
   username: string;
   password: string;
+  /** From step-1 MeroShare login — avoids re-verify on Bank Detail save. */
+  boid?: string;
+  demat?: string;
 };

@@ -25,6 +25,7 @@ import {
   APPLY_TEST_MOCK_ACCOUNT_COUNT,
   DEFAULT_MOCK_ACCOUNT_COUNT,
   LOAD_TEST_MOCK_ACCOUNT_COUNT,
+  MEDIUM_LOAD_TEST_MOCK_ACCOUNT_COUNT,
   isMockAccountId,
 } from '../data/mockAccounts';
 import { useAccounts } from '../context/AccountsContext';
@@ -291,52 +292,101 @@ export function HomeScreen() {
   );
 
   const toggleDemoAccounts = useCallback(() => {
-    const add36 = () =>
+    const prefix = hasMockAccounts ? 'Replace' : 'Add';
+    const seed = (count: number, done: string) =>
       void runDemoJob(
-        `Adding ${DEFAULT_MOCK_ACCOUNT_COUNT} demo accounts…`,
-        () => seedMockAccounts(DEFAULT_MOCK_ACCOUNT_COUNT),
-        `Added ${DEFAULT_MOCK_ACCOUNT_COUNT} sample accounts.`,
-      );
-    const add50Apply = () =>
-      void runDemoJob(
-        `Adding ${APPLY_TEST_MOCK_ACCOUNT_COUNT} apply-test accounts…`,
-        () => seedMockAccounts(APPLY_TEST_MOCK_ACCOUNT_COUNT),
-        `Added ${APPLY_TEST_MOCK_ACCOUNT_COUNT} demo accounts with mixed apply outcomes (success, already applied, invalid CRN/PIN). Use the DEMO IPO on Apply.`,
-      );
-    const add200 = () =>
-      void runDemoJob(
-        `Adding ${LOAD_TEST_MOCK_ACCOUNT_COUNT} demo accounts…`,
-        () => seedMockAccounts(LOAD_TEST_MOCK_ACCOUNT_COUNT),
-        `Added ${LOAD_TEST_MOCK_ACCOUNT_COUNT} demo accounts. Scroll Accounts, Apply, and Result to test performance.`,
+        `${prefix === 'Replace' ? 'Replacing' : 'Adding'} ${count} demo accounts…`,
+        () => seedMockAccounts(count),
+        done,
       );
 
-    if (hasMockAccounts) {
+    const showSmallSizes = () => {
       Alert.alert(
-        'Demo accounts',
-        `You currently have ${mockCount} demo accounts.\n\n${APPLY_TEST_MOCK_ACCOUNT_COUNT} = mixed apply outcomes. ${LOAD_TEST_MOCK_ACCOUNT_COUNT} = performance testing.`,
+        'Smaller demo batches',
+        `${DEFAULT_MOCK_ACCOUNT_COUNT} = sample UI. ${APPLY_TEST_MOCK_ACCOUNT_COUNT} = mixed apply errors.`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: 'Remove',
+            text: `${prefix} ${DEFAULT_MOCK_ACCOUNT_COUNT}`,
+            onPress: () =>
+              seed(
+                DEFAULT_MOCK_ACCOUNT_COUNT,
+                `${prefix === 'Replace' ? 'Replaced' : 'Added'} ${DEFAULT_MOCK_ACCOUNT_COUNT} sample accounts.`,
+              ),
+          },
+          {
+            text: `${prefix} ${APPLY_TEST_MOCK_ACCOUNT_COUNT}`,
+            onPress: () =>
+              seed(
+                APPLY_TEST_MOCK_ACCOUNT_COUNT,
+                `${prefix === 'Replace' ? 'Replaced' : 'Added'} ${APPLY_TEST_MOCK_ACCOUNT_COUNT} apply-test accounts.`,
+              ),
+          },
+        ],
+      );
+    };
+
+    const showMoreSizes = () => {
+      Alert.alert(
+        'More demo sizes',
+        `${MEDIUM_LOAD_TEST_MOCK_ACCOUNT_COUNT} = save-speed test.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: `${prefix} ${MEDIUM_LOAD_TEST_MOCK_ACCOUNT_COUNT}`,
+            onPress: () =>
+              seed(
+                MEDIUM_LOAD_TEST_MOCK_ACCOUNT_COUNT,
+                `${prefix === 'Replace' ? 'Replaced' : 'Added'} ${MEDIUM_LOAD_TEST_MOCK_ACCOUNT_COUNT} demo accounts.`,
+              ),
+          },
+          { text: '36 / 50…', onPress: showSmallSizes },
+        ],
+      );
+    };
+
+    const showManageMocks = () => {
+      Alert.alert(
+        'Manage demo accounts',
+        `You have ${mockCount} demo accounts.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: `${prefix} ${MEDIUM_LOAD_TEST_MOCK_ACCOUNT_COUNT}`,
+            onPress: () =>
+              seed(
+                MEDIUM_LOAD_TEST_MOCK_ACCOUNT_COUNT,
+                `${prefix === 'Replace' ? 'Replaced' : 'Added'} ${MEDIUM_LOAD_TEST_MOCK_ACCOUNT_COUNT} demo accounts.`,
+              ),
+          },
+          {
+            text: 'Remove all',
             style: 'destructive',
             onPress: () =>
               void runDemoJob('Removing demo accounts…', removeMockAccounts),
           },
-          { text: `Replace ${APPLY_TEST_MOCK_ACCOUNT_COUNT}`, onPress: add50Apply },
-          { text: `Replace ${LOAD_TEST_MOCK_ACCOUNT_COUNT}`, onPress: add200 },
         ],
       );
-      return;
-    }
+    };
 
     Alert.alert(
-      'Add demo accounts?',
-      `${DEFAULT_MOCK_ACCOUNT_COUNT} = normal sample. ${APPLY_TEST_MOCK_ACCOUNT_COUNT} = mixed apply errors. ${LOAD_TEST_MOCK_ACCOUNT_COUNT} = performance.`,
+      hasMockAccounts ? 'Demo accounts' : 'Add demo accounts?',
+      hasMockAccounts
+        ? `Tap ${prefix} ${LOAD_TEST_MOCK_ACCOUNT_COUNT} for the performance test, or Manage for 100 / remove.`
+        : `${LOAD_TEST_MOCK_ACCOUNT_COUNT} = performance test. More sizes = 100 / 36 / 50.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: `Add ${DEFAULT_MOCK_ACCOUNT_COUNT}`, onPress: add36 },
-        { text: `Add ${APPLY_TEST_MOCK_ACCOUNT_COUNT}`, onPress: add50Apply },
-        { text: `Add ${LOAD_TEST_MOCK_ACCOUNT_COUNT}`, onPress: add200 },
+        {
+          text: `${prefix} ${LOAD_TEST_MOCK_ACCOUNT_COUNT}`,
+          onPress: () =>
+            seed(
+              LOAD_TEST_MOCK_ACCOUNT_COUNT,
+              `${prefix === 'Replace' ? 'Replaced' : 'Added'} ${LOAD_TEST_MOCK_ACCOUNT_COUNT} demo accounts.`,
+            ),
+        },
+        hasMockAccounts
+          ? { text: 'Manage…', onPress: showManageMocks }
+          : { text: 'More sizes…', onPress: showMoreSizes },
       ],
     );
   }, [

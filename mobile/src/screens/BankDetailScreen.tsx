@@ -23,18 +23,18 @@ import {
   MeroshareClient,
   MeroshareError,
   isTransientMeroshareError,
-  verifyAccountForSave,
   type VerifyField,
 } from '../services/meroshare';
 import type { ThemeColors } from '../theme/colors';
 import { guardAddAccountAsync } from '../utils/accountLimits';
 import {
-  DuplicateAccountError,
-  findDuplicateAccountAsync,
+  findDuplicateAccount,
   showDuplicateAccountAlert,
 } from '../utils/duplicateAccount';
+import { buildDematFromParts, isValidBoid } from '../utils/boid';
 import {
   buildMinorMetaFields,
+  extractBankAccountNumberFromProfile,
   extractBankWithBranchFromProfile,
   extractDobFromOwnDetail,
   extractGuardianFromProfile,
@@ -52,6 +52,26 @@ function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function pickAccountHolderName(
+  profile: Record<string, unknown>,
+): string | undefined {
+  for (const key of [
+    'name',
+    'accountName',
+    'clientName',
+    'fullName',
+    'accountHolderName',
+    'customerName',
+    'dematAccountName',
+  ]) {
+    const v = profile[key];
+    if (typeof v === 'string' && v.trim().length >= 2) {
+      return v.trim();
+    }
+  }
+  return undefined;
+}
+
 async function loadBankAndDobFromMeroshare(
   draft: DraftCapital,
   attempt: number,
@@ -60,6 +80,8 @@ async function loadBankAndDobFromMeroshare(
   bankFromProfile: boolean;
   dob: string | null;
   guardianName: string | null;
+  accountHolderName?: string;
+  accountNumber?: string;
 }> {
   const client = new MeroshareClient();
   try {
@@ -78,16 +100,39 @@ async function loadBankAndDobFromMeroshare(
     const dob = extractDobFromOwnDetail(profile);
     const guardianName = extractGuardianFromProfile(profile);
     const fromProfile = extractBankWithBranchFromProfile(profile);
+    let accountHolderName = pickAccountHolderName(profile);
+    let accountNumber =
+      extractBankAccountNumberFromProfile(profile) ?? undefined;
+
+    if (!accountHolderName) {
+      try {
+        const me = await client.fetchOwnDetailRaw();
+        accountHolderName = pickAccountHolderName(me);
+      } catch {
+        // optional
+      }
+    }
 
     let bankName = fromProfile || '';
-    if (!bankName) {
-      try {
-        const banks = await client.listBanksWithRetry();
-        if (banks.length) {
+    let bankId: number | undefined;
+    try {
+      const banks = await client.listBanksWithRetry();
+      if (banks.length) {
+        bankId = banks[0].id;
+        if (!bankName) {
           bankName = banks[0].name || `Bank #${banks[0].id}`;
         }
+      }
+    } catch {
+      // My Details is the source of truth; bank list is only a fallback.
+    }
+
+    if (!accountNumber && bankId != null) {
+      try {
+        const branch = await client.getBankBranchDetails(bankId);
+        accountNumber = branch.accountNumber || accountNumber;
       } catch {
-        // My Details is the source of truth; bank list is only a fallback.
+        // profile account number may still be enough
       }
     }
 
@@ -103,6 +148,8 @@ async function loadBankAndDobFromMeroshare(
       bankFromProfile: Boolean(fromProfile),
       dob,
       guardianName,
+      accountHolderName,
+      accountNumber,
     };
   } finally {
     client.clearSession();
@@ -137,7 +184,7 @@ export function BankDetailScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { draft, addAccount, accounts, loadSecrets } = useAccounts();
+  const { draft, addAccount, accounts } = useAccounts();
   const { isPremium, maxAccounts } = useSubscription();
   const sensitive = useSensitiveAction();
   const { colors } = useTheme();
@@ -162,6 +209,8 @@ export function BankDetailScreen() {
   const submitLockRef = useRef(false);
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const holderNameRef = useRef<string | undefined>();
+  const bankAccountNumberRef = useRef<string | undefined>();
   const dobTouchedRef = useRef(false);
 
   const releaseSubmitLock = useCallback(() => {
@@ -197,6 +246,8 @@ export function BankDetailScreen() {
       let bestFromProfile = false;
       let bestDob: string | null = null;
       let bestGuardian: string | null = null;
+      let bestHolderName: string | undefined;
+      let bestAccountNumber: string | undefined;
 
       try {
         for (let attempt = 0; attempt < BANK_LOAD_ATTEMPTS; attempt++) {
@@ -213,7 +264,16 @@ export function BankDetailScreen() {
               bestDob = result.dob;
               bestGuardian = result.guardianName;
             }
+            if (result.accountHolderName) {
+              bestHolderName = result.accountHolderName;
+            }
+            if (result.accountNumber) {
+              bestAccountNumber = result.accountNumber;
+            }
 
+            if (bestFromProfile && bestDob && bestHolderName && bestAccountNumber) {
+              break;
+            }
             if (bestFromProfile && bestDob) break;
           } catch (e) {
             lastError = e;
@@ -235,6 +295,9 @@ export function BankDetailScreen() {
         }
 
         if (!mounted) return;
+
+        holderNameRef.current = bestHolderName;
+        bankAccountNumberRef.current = bestAccountNumber;
 
         if (bestBank) {
           setLinkedBank(bestBank);
@@ -284,13 +347,46 @@ export function BankDetailScreen() {
       ]);
       return;
     }
-    if (!crn.trim() || pin.length !== 4) {
-      setErrorField(!crn.trim() ? 'crn' : 'pin');
-      setErrorMsg(
-        !crn.trim()
-          ? 'Enter your CRN number.'
-          : 'Transaction PIN must be 4 digits.',
-      );
+    const crnTrim = crn.trim();
+    if (!crnTrim) {
+      setErrorField('crn');
+      setErrorMsg('Enter your CRN number.');
+      return;
+    }
+    if (crnTrim.length < 4) {
+      setErrorField('crn');
+      setErrorMsg('CRN looks too short to be valid.');
+      return;
+    }
+    if (!/^\d{4}$/.test(pin)) {
+      setErrorField('pin');
+      setErrorMsg('Transaction PIN must be exactly 4 digits.');
+      return;
+    }
+
+    const builtDemat =
+      capital.dpCode && capital.username
+        ? buildDematFromParts(capital.dpCode, capital.username)
+        : '';
+    const demat =
+      (capital.demat && isValidBoid(capital.demat) ? capital.demat : undefined) ||
+      (capital.boid && isValidBoid(capital.boid) ? capital.boid : undefined) ||
+      (isValidBoid(builtDemat) ? builtDemat : undefined);
+
+    const duplicate = findDuplicateAccount({
+      accounts,
+      candidate: {
+        username: capital.username,
+        dpId: capital.dpId,
+        dpCode: capital.dpCode,
+        demat,
+        boid: capital.boid,
+      },
+    });
+    if (duplicate) {
+      setErrorField(duplicate.reason === 'username' ? 'username' : null);
+      setErrorMsg('This account is already saved. You cannot add it again.');
+      showDuplicateAccountAlert(duplicate);
       return;
     }
 
@@ -300,77 +396,6 @@ export function BankDetailScreen() {
       setErrorField(null);
       setErrorMsg('');
       try {
-        const verify = await verifyAccountForSave(
-          {
-            dpId: capital.dpId,
-            dpCode: capital.dpCode,
-            username: capital.username,
-            password: capital.password,
-            crn: crn.trim(),
-            pin,
-            fallbackBankName: linkedBank,
-          },
-          { skipCrnPinProbe: true },
-        );
-
-        if (!verify.ok) {
-          setErrorField(verify.field);
-          setErrorMsg(verify.message);
-          Alert.alert(
-            verify.field === 'unknown' || !verify.field
-              ? 'Could not verify'
-              : `${fieldLabel(verify.field)} incorrect`,
-            `${verify.message}\n\nAccount was NOT saved. Fix the highlighted field and try again.`,
-            verify.field === 'dp' ||
-              verify.field === 'username' ||
-              verify.field === 'password'
-              ? [
-                  {
-                    text: 'Edit Capital',
-                    onPress: () => navigation.navigate('AddCapital'),
-                  },
-                  { text: 'OK' },
-                ]
-              : [{ text: 'OK' }],
-          );
-          return;
-        }
-
-        const demat =
-          verify.demat?.trim() ||
-          (verify.boid && /^\d{16}$/.test(verify.boid.trim())
-            ? verify.boid.trim()
-            : capital.dpCode && capital.username
-              ? `130${capital.dpCode}${capital.username.trim()}`
-              : undefined);
-
-        const duplicate = await findDuplicateAccountAsync({
-          accounts,
-          candidate: {
-            username: capital.username,
-            dpId: capital.dpId,
-            dpCode: capital.dpCode,
-            demat,
-            boid: verify.boid,
-            crn: crn.trim(),
-          },
-          loadCrn: async (id) => (await loadSecrets(id))?.crn,
-        });
-        if (duplicate) {
-          setErrorField(
-            duplicate.reason === 'crn'
-              ? 'crn'
-              : duplicate.reason === 'username'
-                ? 'username'
-                : null,
-          );
-          setErrorMsg(
-            'This account is already saved. You cannot add it again.',
-          );
-          showDuplicateAccountAlert(duplicate);
-          return;
-        }
-
         if (
           !(await guardAddAccountAsync({
             currentCount: accounts.length,
@@ -381,11 +406,7 @@ export function BankDetailScreen() {
               dpId: capital.dpId,
               dpCode: capital.dpCode,
               username: capital.username,
-              demat:
-                verify.demat?.trim() ||
-                (verify.boid && /^\d{16}$/.test(verify.boid.trim())
-                  ? verify.boid.trim()
-                  : undefined),
+              demat,
             },
           }))
         ) {
@@ -394,46 +415,29 @@ export function BankDetailScreen() {
 
         savingDoneRef.current = true;
 
-        try {
-          await addAccount({
-          name: (verify.accountHolderName || capital.username)
-            .trim()
-            .toUpperCase(),
-          dpId: capital.dpId,
-          dpCode: capital.dpCode,
-          dpName: capital.dpName,
-          username: capital.username,
-          password: capital.password,
-          bankName: verify.bankName || linkedBank || capital.dpName,
-          accountNumber: verify.accountNumber,
-          crn: crn.trim(),
-          pin,
-          verified: true,
-          crnPinVerified: false,
-          demat,
-          boidHint: (() => {
-            const full =
-              demat ||
-              (verify.boid && /^\d{16}$/.test(verify.boid.trim())
-                ? verify.boid.trim()
-                : verify.boid);
-            return full ? String(full).slice(-4) : undefined;
-          })(),
-          ...buildMinorMetaFields(dateOfBirth, guardianName),
-        });
-        } catch (e) {
-          savingDoneRef.current = false;
-          if (e instanceof DuplicateAccountError) {
-            setErrorMsg(
-              'This account is already saved. You cannot add it again.',
-            );
-            showDuplicateAccountAlert(e.hit);
-            return;
-          }
-          throw e;
-        }
+        await addAccount(
+          {
+            name: (holderNameRef.current || capital.username)
+              .trim()
+              .toUpperCase(),
+            dpId: capital.dpId,
+            dpCode: capital.dpCode,
+            dpName: capital.dpName,
+            username: capital.username,
+            password: capital.password,
+            bankName: linkedBank || capital.dpName,
+            accountNumber: bankAccountNumberRef.current,
+            crn: crnTrim,
+            pin,
+            verified: true,
+            crnPinVerified: false,
+            demat,
+            boidHint: demat ? demat.slice(-4) : undefined,
+            ...buildMinorMetaFields(dateOfBirth, guardianName),
+          },
+          { skipDuplicateCheck: true },
+        );
 
-        // Go straight to Bulk IPO Apply — do not bounce to Add Capital.
         navigation.reset({
           index: 0,
           routes: [
@@ -445,12 +449,13 @@ export function BankDetailScreen() {
         });
 
         Alert.alert(
-          'Verified & saved',
-          `${verify.message}\n\nCRN and PIN are saved on this device. MeroShare will verify them when you apply for an IPO.`,
+          'Saved',
+          'CRN and PIN are saved on this device. MeroShare will verify them when you apply for an IPO.',
         );
       } catch (e) {
+        savingDoneRef.current = false;
         const msg =
-          e instanceof Error ? e.message : 'Could not verify or save account.';
+          e instanceof Error ? e.message : 'Could not save account.';
         setErrorField('unknown');
         setErrorMsg(msg);
         Alert.alert('Could not save account', msg);
@@ -577,7 +582,7 @@ export function BankDetailScreen() {
             {submitting ? (
               <View style={styles.submitRow}>
                 <ActivityIndicator color="#FFFFFF" />
-                <Text style={styles.submitText}> Verifying…</Text>
+                <Text style={styles.submitText}> Saving…</Text>
               </View>
             ) : (
               <Text style={styles.submitText}>Submit</Text>

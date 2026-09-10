@@ -164,18 +164,27 @@ export async function findDuplicateAccountAsync(opts: {
   accounts: AccountMeta[];
   candidate: DuplicateCandidate;
   excludeId?: string;
+  /** When false (default), only BOID / DP+username — no SecureStore CRN reads. */
+  checkCrn?: boolean;
   loadCrn?: (id: string) => Promise<string | null | undefined>;
 }): Promise<DuplicateAccountHit | null> {
-  const crnById: Record<string, string> = {};
+  const identityHit = findDuplicateAccount({
+    accounts: opts.accounts,
+    candidate: opts.candidate,
+    excludeId: opts.excludeId,
+  });
+  if (identityHit) return identityHit;
+
   const wantCrn = normCrn(opts.candidate.crn);
-  if (wantCrn.length >= 4 && opts.loadCrn) {
-    await Promise.all(
-      opts.accounts.map(async (account) => {
-        if (!account?.id || account.id === opts.excludeId) return;
-        const crn = await opts.loadCrn!(account.id);
-        if (crn) crnById[account.id] = crn;
-      }),
-    );
+  if (!opts.checkCrn || wantCrn.length < 4 || !opts.loadCrn) return null;
+
+  for (const account of opts.accounts) {
+    if (!account?.id || account.id === opts.excludeId) continue;
+    const crn = await opts.loadCrn(account.id);
+    if (!crn) continue;
+    if (normCrn(crn) === wantCrn) {
+      return { account, reason: 'crn' };
+    }
   }
-  return findDuplicateAccount({ ...opts, crnById });
+  return null;
 }

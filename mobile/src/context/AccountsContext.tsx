@@ -46,7 +46,10 @@ type AccountsContextValue = {
   reloadAccounts: () => Promise<void>;
   draft: DraftCapital | null;
   setDraft: (d: DraftCapital | null) => void;
-  addAccount: (account: Omit<LinkedAccount, 'id'>) => Promise<void>;
+  addAccount: (
+    account: Omit<LinkedAccount, 'id'>,
+    opts?: { skipDuplicateCheck?: boolean },
+  ) => Promise<void>;
   removeAccount: (id: string) => Promise<void>;
   clearAll: () => Promise<void>;
   reorderAccounts: (orderedIds: string[]) => Promise<void>;
@@ -121,9 +124,17 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     void reloadAccounts();
   }, [reloadAccounts, auth.user?.id, auth.loading]);
 
-  const addAccount = useCallback(async (account: Omit<LinkedAccount, 'id'>) => {
+  const addAccount = useCallback(
+    async (
+      account: Omit<LinkedAccount, 'id'>,
+      opts?: { skipDuplicateCheck?: boolean },
+    ) => {
     const { password = '', crn = '', pin = '', ...meta } = account;
-    await addAccountWithSecrets(meta, { password, crn, pin });
+    await addAccountWithSecrets(
+      meta,
+      { password, crn, pin },
+      { skipDuplicateCheck: opts?.skipDuplicateCheck },
+    );
     setAccounts(await loadAccountMeta());
     setDraft(null);
     if (AUTH_ENABLED) {
@@ -135,7 +146,9 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       const keys = keysForAccountIds(list, list.map((a) => a.id));
       void syncAccountSlots(keys, list.length);
     }
-  }, [setDraft]);
+  },
+  [setDraft],
+  );
 
   const removeAccount = useCallback(async (id: string) => {
     setAccounts(await removeAccountFully(id));

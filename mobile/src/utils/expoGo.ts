@@ -10,3 +10,13 @@ export function isExpoGo(): boolean {
 export function allowsLocalGuestAccess(): boolean {
   return GUEST_CAN_ADD_ACCOUNTS || isExpoGo();
 }
+
+/**
+ * Expo Go without Google sign-in — high local cap for dev/load testing.
+ * Standalone APK / dev builds keep normal free/premium limits.
+ */
+export const EXPO_GO_DEV_ACCOUNT_LIMIT = 99_999;
+
+export function expoGoDevAccountLimitActive(isAuthenticated: boolean): boolean {
+  return isExpoGo() && !isAuthenticated;
+}

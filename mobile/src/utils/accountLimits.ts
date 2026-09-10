@@ -2,7 +2,11 @@ import { Alert } from 'react-native';
 import { showAccountLimitBlocked } from '../context/AccountLimitBlockedContext';
 import { checkCanAddAcrossDevices } from '../services/accountSlots';
 import { AUTH_ENABLED } from '../services/auth/config';
-import { allowsLocalGuestAccess } from './expoGo';
+import {
+  EXPO_GO_DEV_ACCOUNT_LIMIT,
+  allowsLocalGuestAccess,
+  expoGoDevAccountLimitActive,
+} from './expoGo';
 import { getAccessToken } from '../services/auth/tokenStorage';
 import { loadAccountMeta } from '../storage/accountsStorage';
 import {
@@ -26,17 +30,30 @@ export type CandidateAccount = {
   demat?: string;
 };
 
+export function resolveAccountLimit(opts: {
+  isPremium: boolean;
+  isAuthenticated?: boolean;
+  maxAccounts?: number;
+}): number {
+  if (expoGoDevAccountLimitActive(opts.isAuthenticated === true)) {
+    return EXPO_GO_DEV_ACCOUNT_LIMIT;
+  }
+  if (opts.maxAccounts != null && opts.maxAccounts > 0) {
+    return opts.maxAccounts;
+  }
+  return accountLimitForPlan(opts.isPremium);
+}
+
 /** Returns true if the user may add another account. Shows Alert when blocked. */
 export function guardAddAccount(opts: {
   currentCount: number;
   isPremium: boolean;
   maxAccounts?: number;
+  isAuthenticated?: boolean;
   onUpgrade?: () => void;
 }): boolean {
-  const max =
-    opts.maxAccounts != null && opts.maxAccounts > 0
-      ? opts.maxAccounts
-      : accountLimitForPlan(opts.isPremium);
+  const isAuthenticated = opts.isAuthenticated ?? Boolean(getAccessToken());
+  const max = resolveAccountLimit({ ...opts, isAuthenticated });
   if (isUnlimitedAccountLimit(max) || opts.currentCount < max) return true;
 
   if (opts.isPremium) {
@@ -98,19 +115,22 @@ export async function guardAddAccountAsync(opts: {
   currentCount: number;
   isPremium: boolean;
   maxAccounts?: number;
+  isAuthenticated?: boolean;
   onUpgrade?: () => void;
   /** The account being added, when its DP + username are already known. */
   candidate?: CandidateAccount;
 }): Promise<boolean> {
+  const isAuthenticated =
+    opts.isAuthenticated ?? Boolean(getAccessToken());
+
   if (!AUTH_ENABLED) {
-    return guardAddAccount(opts);
+    return guardAddAccount({ ...opts, isAuthenticated });
   }
 
-  const guestLocalOnly =
-    allowsLocalGuestAccess() && !getAccessToken();
+  const guestLocalOnly = allowsLocalGuestAccess() && !isAuthenticated;
 
   if (guestLocalOnly) {
-    return guardAddAccount(opts);
+    return guardAddAccount({ ...opts, isAuthenticated });
   }
 
   try {
@@ -130,6 +150,7 @@ export async function guardAddAccountAsync(opts: {
       if (allowsLocalGuestAccess()) {
         return guardAddAccount({
           ...opts,
+          isAuthenticated,
           currentCount: Math.max(opts.currentCount, accounts.length),
         });
       }
@@ -147,7 +168,7 @@ export async function guardAddAccountAsync(opts: {
     return false;
   } catch {
     if (allowsLocalGuestAccess()) {
-      return guardAddAccount(opts);
+      return guardAddAccount({ ...opts, isAuthenticated });
     }
     Alert.alert(
       'Could not verify limit',

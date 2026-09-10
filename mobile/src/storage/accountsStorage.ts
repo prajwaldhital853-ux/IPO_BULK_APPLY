@@ -158,9 +158,7 @@ export async function addAccountWithSecrets(
         dpId: meta.dpId,
         dpCode: meta.dpCode,
         demat: meta.demat,
-        crn: secrets.crn,
       },
-      loadCrn: async (id) => (await getSecrets(id))?.crn,
     });
     if (hit) throw new DuplicateAccountError(hit);
   }

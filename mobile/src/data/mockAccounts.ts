@@ -492,8 +492,10 @@ function registerSeeds(seeds: MockAccountSeed[]): void {
 export const DEFAULT_MOCK_ACCOUNT_COUNT = 36;
 /** Mixed apply outcomes for testing bulk/single apply UI. */
 export const APPLY_TEST_MOCK_ACCOUNT_COUNT = 50;
+/** Quick save-path test (~100 accounts) from the flask menu. */
+export const MEDIUM_LOAD_TEST_MOCK_ACCOUNT_COUNT = 100;
 /** Performance-test size from the flask menu. */
-export const LOAD_TEST_MOCK_ACCOUNT_COUNT = 400;
+export const LOAD_TEST_MOCK_ACCOUNT_COUNT = 1000;
 
 export type MockApplyScenario =
   | 'success'

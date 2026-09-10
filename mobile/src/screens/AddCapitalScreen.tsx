@@ -207,6 +207,8 @@ export function AddCapitalScreen() {
         dpName: dp.name,
         username: username.trim(),
         password,
+        boid: verify.boid,
+        demat: isValidBoid(builtDemat) ? builtDemat : verify.boid,
       });
       navigation.navigate('BankDetail');
     } finally {
