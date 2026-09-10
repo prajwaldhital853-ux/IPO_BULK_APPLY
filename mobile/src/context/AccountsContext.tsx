@@ -165,80 +165,84 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       })),
     );
 
-    const { createManyPortfoliosWithHoldings, listPortfolios, replaceAllPortfolios } =
-      await import('../storage/portfolioStorage');
-    const { saveBulkPortfolioSnapshot } = await import(
-      '../storage/bulkPortfolioStorage'
-    );
+    try {
+      const { createManyPortfoliosWithHoldings, listPortfolios, replaceAllPortfolios } =
+        await import('../storage/portfolioStorage');
+      const { saveBulkPortfolioSnapshot } = await import(
+        '../storage/bulkPortfolioStorage'
+      );
 
-    const existing = await listPortfolios();
-    const kept = existing.filter(
-      (x) =>
-        !x.name.includes('(MeroShare)') &&
-        !x.name.includes('(Sample)') &&
-        !(x.sourceAccountId && isMockAccountId(x.sourceAccountId)),
-    );
-    if (kept.length !== existing.length) {
-      await replaceAllPortfolios(kept);
-    }
-
-    await createManyPortfoliosWithHoldings(
-      seeds.map((seed) => ({
-        name: `${seed.meta.name} (Sample)`,
-        sourceAccountId: seed.meta.id,
-        holdings: seed.holdings.map((h) => ({
-          symbol: h.symbol,
-          name: h.name,
-          qty: h.qty,
-          wacc: h.wacc,
-        })),
-      })),
-    );
-
-    const snapRows: Array<{
-      accountId: string;
-      accountName: string;
-      symbol: string;
-      name?: string;
-      qty: number;
-      wacc: number;
-      ltp: number | null;
-      previousClosingPrice: number | null;
-      value: number;
-      dayChange: number;
-    }> = [];
-
-    for (const seed of seeds) {
-      for (const h of seed.holdings) {
-        const value =
-          h.qty * (h.ltp ?? h.previousClosingPrice ?? h.wacc ?? 0);
-        const dayChange =
-          h.ltp != null && h.previousClosingPrice != null
-            ? h.qty * (h.ltp - h.previousClosingPrice)
-            : 0;
-        snapRows.push({
-          accountId: seed.meta.id,
-          accountName: seed.meta.name,
-          symbol: h.symbol,
-          name: h.name,
-          qty: h.qty,
-          wacc: h.wacc,
-          ltp: h.ltp,
-          previousClosingPrice: h.previousClosingPrice,
-          value,
-          dayChange,
-        });
+      const existing = await listPortfolios();
+      const kept = existing.filter(
+        (x) =>
+          !x.name.includes('(MeroShare)') &&
+          !x.name.includes('(Sample)') &&
+          !(x.sourceAccountId && isMockAccountId(x.sourceAccountId)),
+      );
+      if (kept.length !== existing.length) {
+        await replaceAllPortfolios(kept);
       }
-    }
 
-    await saveBulkPortfolioSnapshot({
-      updatedAt: new Date().toISOString(),
-      totalValue: snapRows.reduce((s, r) => s + r.value, 0),
-      dayChange: snapRows.reduce((s, r) => s + r.dayChange, 0),
-      accounts: seeds.length,
-      holdings: snapRows.length,
-      rows: snapRows,
-    });
+      await createManyPortfoliosWithHoldings(
+        seeds.map((seed) => ({
+          name: `${seed.meta.name} (Sample)`,
+          sourceAccountId: seed.meta.id,
+          holdings: seed.holdings.map((h) => ({
+            symbol: h.symbol,
+            name: h.name,
+            qty: h.qty,
+            wacc: h.wacc,
+          })),
+        })),
+      );
+
+      const snapRows: Array<{
+        accountId: string;
+        accountName: string;
+        symbol: string;
+        name?: string;
+        qty: number;
+        wacc: number;
+        ltp: number | null;
+        previousClosingPrice: number | null;
+        value: number;
+        dayChange: number;
+      }> = [];
+
+      for (const seed of seeds) {
+        for (const h of seed.holdings) {
+          const value =
+            h.qty * (h.ltp ?? h.previousClosingPrice ?? h.wacc ?? 0);
+          const dayChange =
+            h.ltp != null && h.previousClosingPrice != null
+              ? h.qty * (h.ltp - h.previousClosingPrice)
+              : 0;
+          snapRows.push({
+            accountId: seed.meta.id,
+            accountName: seed.meta.name,
+            symbol: h.symbol,
+            name: h.name,
+            qty: h.qty,
+            wacc: h.wacc,
+            ltp: h.ltp,
+            previousClosingPrice: h.previousClosingPrice,
+            value,
+            dayChange,
+          });
+        }
+      }
+
+      await saveBulkPortfolioSnapshot({
+        updatedAt: new Date().toISOString(),
+        totalValue: snapRows.reduce((s, r) => s + r.value, 0),
+        dayChange: snapRows.reduce((s, r) => s + r.dayChange, 0),
+        accounts: seeds.length,
+        holdings: snapRows.length,
+        rows: snapRows,
+      });
+    } catch {
+      // Demo accounts are still usable without sample portfolio snapshot.
+    }
 
     setAccounts(await loadAccountMeta());
   }, []);

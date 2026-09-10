@@ -2,6 +2,7 @@ export { MeroshareClient, DEMO_OPENINGS, humanizeApplicationStatus, humanizeAppl
 export { runBulkApply, loadOpenIssuesForUi, loadAllOpenIssuesForUi, loadCurrentOpenIssuesForUi } from './applyEngine';
 export {
   runBulkResultCheck,
+  refreshAccountStatusRow,
   loadCheckableIssuesForUi,
   loadApplicationReportDetailForUi,
   loadAllApplicationDetailsForUi,

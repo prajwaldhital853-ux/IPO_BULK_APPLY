@@ -251,6 +251,9 @@ export class MeroshareClient {
     if (softMsg && isRoleRestrictedMeroshareMessage(softMsg)) {
       throw new MeroshareError('UNKNOWN', sanitizeMeroshareMessage(softMsg));
     }
+    if (softMsg && isRejectedApplicantMeroshareMessage(softMsg)) {
+      throw new MeroshareError('APPLY', sanitizeMeroshareMessage(softMsg));
+    }
     if (softMsg && isTransientMeroshareMessage(softMsg)) {
       const softCode =
         typeof data === 'object' &&
@@ -991,9 +994,310 @@ export class MeroshareClient {
     };
   }
 
+  private buildApplyPayload(
+    req: ApplyRequest,
+    branch: BankBranch,
+    demat: string,
+  ) {
+    return {
+      demat,
+      boid: req.username,
+      accountNumber: branch.accountNumber,
+      customerId: branch.id,
+      accountBranchId: branch.accountBranchId,
+      accountTypeId: branch.accountTypeId,
+      appliedKitta: String(req.appliedKitta),
+      crnNumber: req.crnNumber,
+      transactionPIN: req.transactionPIN,
+      companyShareId: String(req.companyShareId),
+      bankId: branch.bankId,
+    };
+  }
+
+  private parseApplyResponse(
+    req: ApplyRequest,
+    data: { message?: string; referenceNo?: string } | null | undefined,
+    opts?: { reapply?: boolean },
+  ): {
+    ok: boolean;
+    message: string;
+    rejected?: boolean;
+  } {
+    const applyMsg = String(data?.message ?? '').trim();
+    if (applyMsg && isAlreadyAppliedMeroshareMessage(applyMsg)) {
+      return { ok: false, message: ALREADY_APPLIED_USER_MSG };
+    }
+    if (applyMsg && isRejectedApplicantMeroshareMessage(applyMsg)) {
+      return {
+        ok: false,
+        message: sanitizeMeroshareMessage(applyMsg),
+        rejected: true,
+      };
+    }
+    const refNo = String(data?.referenceNo ?? '').trim();
+    const looksSuccess =
+      Boolean(refNo) ||
+      (/success|applied successfully|transaction.?success|re-?applied/i.test(
+        applyMsg,
+      ) &&
+        applyMsg.length > 0);
+    if (!looksSuccess) {
+      return {
+        ok: false,
+        message:
+          applyMsg ||
+          'MeroShare did not confirm the application. Check Application Report on meroshare.cdsc.com.np.',
+        rejected: isRejectedApplicantMeroshareMessage(applyMsg),
+      };
+    }
+    const ref = refNo ? ` · ref ${refNo}` : '';
+    return {
+      ok: true,
+      message: `Applied ${req.appliedKitta} kitta for ${req.accountName}${ref}`,
+    };
+  }
+
+  /** After apply/reapply POST, confirm report status moved off rejected / not applied. */
+  private async confirmApplyStatusChange(
+    companyShareId: number,
+    opts?: { retries?: number; delayMs?: number },
+  ): Promise<{ ok: boolean; message?: string }> {
+    const retries = Math.max(1, opts?.retries ?? 1);
+    const delayMs = opts?.delayMs ?? 0;
+    let last: { ok: boolean; message?: string } = {
+      ok: false,
+      message: 'Could not verify application status with MeroShare.',
+    };
+    for (let attempt = 0; attempt < retries; attempt++) {
+      if (attempt > 0 && delayMs > 0) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+      last = await this.confirmApplyStatusChangeOnce(companyShareId);
+      if (last.ok) return last;
+    }
+    return last;
+  }
+
+  private async confirmApplyStatusChangeOnce(
+    companyShareId: number,
+  ): Promise<{ ok: boolean; message?: string }> {
+    try {
+      const status = await this.checkApplicationStatus(companyShareId, {
+        applicationPhase: true,
+        bulkFast: true,
+      });
+      const label = String(
+        status.allotmentStatus ?? status.message ?? status.status ?? '',
+      ).trim();
+      if (
+        status.status === 'NOT_APPLIED' ||
+        /^not applied|have not applied/i.test(status.message)
+      ) {
+        return {
+          ok: false,
+          message:
+            'MeroShare did not register a new application yet. Check Application Report.',
+        };
+      }
+      if (
+        status.status === 'REJECTED' ||
+        /^rejected$/i.test(label)
+      ) {
+        const remarks = String(status.remarks ?? status.message ?? '').trim();
+        return {
+          ok: false,
+          message: buildRejectedApplicantUserMessage(remarks),
+        };
+      }
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        message: 'Could not verify application status with MeroShare.',
+      };
+    }
+  }
+
+  private async fetchApplicantFormForReapply(
+    companyShareId: number,
+  ): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>(
+      PATHS.reapplyForm(companyShareId),
+      { method: 'GET', auth: true },
+    );
+  }
+
+  private buildReapplyPayload(
+    req: ApplyRequest,
+    branch: BankBranch,
+    demat: string,
+    form: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const formId =
+      nestedNumber(form, 'id', 'applicantFormId', 'applicantFormID') ?? null;
+    const shareCriteriaId = nestedNumber(form, 'shareCriteriaId', 'shareCriteriaID');
+    return {
+      id: formId,
+      appliedKitta: String(req.appliedKitta),
+      companyShareId: String(req.companyShareId),
+      customerId: nestedNumber(form, 'customerId', 'customerID') ?? branch.id,
+      shareCriteriaId: shareCriteriaId ?? form.shareCriteriaId ?? null,
+      boid: req.username,
+      crnNumber: req.crnNumber,
+      bankId: nestedNumber(form, 'bankId', 'bankID') ?? branch.bankId,
+      accountNumber:
+        String(form.accountNumber ?? branch.accountNumber ?? '').trim() ||
+        branch.accountNumber,
+      demat,
+      accountBranchId:
+        nestedNumber(form, 'accountBranchId', 'accountBranchID') ??
+        branch.accountBranchId,
+      transactionPIN: req.transactionPIN,
+      accountTypeId:
+        nestedNumber(form, 'accountTypeId', 'accountTypeID') ??
+        branch.accountTypeId,
+    };
+  }
+
+  /** CDSC reapply: GET rejected form, POST share/reapply/{applicantFormId}. */
+  private async reapplyShareFlow(
+    req: ApplyRequest,
+    branch: BankBranch,
+    demat: string,
+    ipoStillOpen = true,
+  ): Promise<{
+    ok: boolean;
+    message: string;
+    dryRun: boolean;
+    rejectedPrevious?: boolean;
+    canReapply?: boolean;
+  }> {
+    let form: Record<string, unknown>;
+    try {
+      form = await this.fetchApplicantFormForReapply(req.companyShareId);
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : 'Could not load rejected application';
+      if (isRejectedApplicantMeroshareMessage(raw)) {
+        return this.rejectedApplicantApplyResponse(
+          req.companyShareId,
+          null,
+          ipoStillOpen,
+        );
+      }
+      return {
+        ok: false,
+        dryRun: false,
+        message:
+          sanitizeMeroshareMessage(raw) ||
+          'Could not load your rejected application from MeroShare. Try again on meroshare.cdsc.com.np.',
+        rejectedPrevious: true,
+        canReapply: ipoStillOpen,
+      };
+    }
+
+    const applicantFormId = nestedNumber(
+      form,
+      'id',
+      'applicantFormId',
+      'applicantFormID',
+    );
+    if (!applicantFormId) {
+      return {
+        ok: false,
+        dryRun: false,
+        message:
+          'MeroShare did not return the previous application ID. Reapply from meroshare.cdsc.com.np.',
+        rejectedPrevious: true,
+        canReapply: ipoStillOpen,
+      };
+    }
+
+    const payload = this.buildReapplyPayload(req, branch, demat, form);
+    const result = await this.postApplyPayload(
+      PATHS.reapplyShare(applicantFormId),
+      payload,
+      req,
+      { reapply: true },
+    );
+
+    if (!result.ok) {
+      return {
+        ok: false,
+        dryRun: false,
+        message: result.message,
+        rejectedPrevious: true,
+        canReapply: ipoStillOpen,
+      };
+    }
+
+    const confirmed = await this.confirmApplyStatusChange(req.companyShareId, {
+      retries: 4,
+      delayMs: 1500,
+    });
+    if (!confirmed.ok) {
+      return {
+        ok: false,
+        dryRun: false,
+        message:
+          confirmed.message ??
+          'MeroShare did not confirm the reapply. Check Application Report.',
+        rejectedPrevious: true,
+        canReapply: ipoStillOpen,
+      };
+    }
+
+    return {
+      ok: true,
+      dryRun: false,
+      message: result.message.replace(/^Applied/, 'Re-applied'),
+    };
+  }
+
+  private async postApplyPayload(
+    path: string,
+    payload: Record<string, unknown>,
+    req: ApplyRequest,
+    opts?: { browserLike?: boolean; reapply?: boolean },
+  ): Promise<{
+    ok: boolean;
+    message: string;
+    rejected?: boolean;
+  }> {
+    try {
+      const data = await this.request<{ message?: string; referenceNo?: string }>(
+        path,
+        {
+          method: 'POST',
+          auth: true,
+          browserLike: opts?.browserLike,
+          body: JSON.stringify(payload),
+        },
+      );
+      return this.parseApplyResponse(req, data, { reapply: opts?.reapply });
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : 'Apply failed';
+      if (isAlreadyAppliedMeroshareMessage(raw)) {
+        return { ok: false, message: ALREADY_APPLIED_USER_MSG };
+      }
+      if (isRejectedApplicantMeroshareMessage(raw)) {
+        return {
+          ok: false,
+          message: sanitizeMeroshareMessage(raw),
+          rejected: true,
+        };
+      }
+      throw e;
+    }
+  }
+
   async applyShare(
     req: ApplyRequest,
-    opts: { dryRun?: boolean; ipoStillOpen?: boolean } = { dryRun: true },
+    opts: {
+      dryRun?: boolean;
+      ipoStillOpen?: boolean;
+      /** True when user is re-applying after bank rejection or not-applied retry. */
+      reapply?: boolean;
+    } = { dryRun: true },
   ): Promise<{
     ok: boolean;
     message: string;
@@ -1028,112 +1332,74 @@ export class MeroshareClient {
       throw e;
     }
 
-    try {
-      const can = await this.request<{ message?: string }>(
-        PATHS.canApply(req.companyShareId, demat),
-        { method: 'GET', auth: true },
-      );
-      const canMsg = String(can?.message ?? '').trim();
-      // customerType often returns vague errors on repeat apply — map to already-applied.
-      if (canMsg && isAlreadyAppliedMeroshareMessage(canMsg)) {
+    const payload = this.buildApplyPayload(req, branch, demat);
+    const ipoOpen = opts.ipoStillOpen !== false;
+
+    if (opts.reapply) {
+      return this.reapplyShareFlow(req, branch, demat, ipoOpen);
+    }
+
+    let result = await this.postApplyPayload(PATHS.apply, payload, req);
+
+    if (!result.ok && result.rejected) {
+      return this.reapplyShareFlow(req, branch, demat, ipoOpen);
+    }
+
+    if (result.ok) {
+      const confirmed = await this.confirmApplyStatusChange(req.companyShareId, {
+        retries: 2,
+        delayMs: 1000,
+      });
+      if (!confirmed.ok) {
         return {
           ok: false,
           dryRun: false,
-          message: ALREADY_APPLIED_USER_MSG,
+          message: confirmed.message ?? 'Apply could not be verified.',
+          rejectedPrevious: true,
+          canReapply: ipoOpen,
         };
       }
-      // canApply may still mention an old rejected record — let apply POST decide.
-      if (
-        canMsg &&
-        !/can apply/i.test(canMsg) &&
-        !isRoleRestrictedMeroshareMessage(canMsg) &&
-        !isRejectedApplicantMeroshareMessage(canMsg) &&
-        !isAlreadyAppliedMeroshareMessage(canMsg)
-      ) {
-        throw new MeroshareError('UNKNOWN', canMsg);
+    }
+
+    if (!result.ok && result.rejected) {
+      if (opts.reapply) {
+        return {
+          ok: false,
+          dryRun: false,
+          message: result.message,
+          rejectedPrevious: true,
+          canReapply: opts.ipoStillOpen !== false,
+        };
       }
-    } catch (e) {
-      if (e instanceof MeroshareError) {
-        if (isAlreadyAppliedMeroshareMessage(e.message)) {
-          return {
-            ok: false,
-            dryRun: false,
-            message: ALREADY_APPLIED_USER_MSG,
-          };
-        }
-        // customerType often returns Role Not Authorized or stale rejection even when apply POST works.
+      let remarks: string | undefined;
+      try {
+        const status = await this.checkApplicationStatus(req.companyShareId, {
+          applicationPhase: true,
+          bulkFast: true,
+        });
         if (
-          isRejectedApplicantMeroshareMessage(e.message) ||
-          isRoleRestrictedMeroshareMessage(e.message) ||
-          e.code === 'NETWORK' ||
-          e.code === 'RATE'
+          status.status === 'REJECTED' ||
+          /^rejected$/i.test(status.allotmentStatus || '')
         ) {
-          // continue to apply POST
-        } else {
-          throw e;
+          remarks = String(status.remarks ?? status.message ?? '').trim();
         }
-      } else {
-        throw e;
+      } catch {
+        // optional
       }
-    }
-
-    const payload = {
-      demat,
-      boid: req.username,
-      accountNumber: branch.accountNumber,
-      customerId: branch.id,
-      accountBranchId: branch.accountBranchId,
-      accountTypeId: branch.accountTypeId,
-      appliedKitta: String(req.appliedKitta),
-      crnNumber: req.crnNumber,
-      transactionPIN: req.transactionPIN,
-      companyShareId: String(req.companyShareId),
-      bankId: branch.bankId,
-    };
-
-    try {
-      const data = await this.request<{ message?: string; referenceNo?: string }>(
-        PATHS.apply,
-        {
-          method: 'POST',
-          auth: true,
-          body: JSON.stringify(payload),
-        },
-      );
-
-      const applyMsg = String(data?.message ?? '').trim();
-      if (applyMsg && isAlreadyAppliedMeroshareMessage(applyMsg)) {
-        return {
-          ok: false,
-          dryRun: false,
-          message: ALREADY_APPLIED_USER_MSG,
-        };
-      }
-
-      const ref = data?.referenceNo ? ` · ref ${data.referenceNo}` : '';
       return {
-        ok: true,
+        ok: false,
         dryRun: false,
-        message: `Applied ${req.appliedKitta} kitta for ${req.accountName}${ref}`,
+        message: buildRejectedApplicantUserMessage(remarks),
+        rejectedPrevious: true,
+        canReapply: opts.ipoStillOpen !== false,
       };
-    } catch (e) {
-      const raw = e instanceof Error ? e.message : 'Apply failed';
-      if (isAlreadyAppliedMeroshareMessage(raw)) {
-        return {
-          ok: false,
-          dryRun: false,
-          message: ALREADY_APPLIED_USER_MSG,
-        };
-      }
-      if (isRejectedApplicantMeroshareMessage(raw)) {
-        return {
-          ok: false,
-          dryRun: false,
-          message: sanitizeMeroshareMessage(raw),
-        };
-      }
-      throw e;
     }
+
+    return {
+      ok: result.ok,
+      dryRun: false,
+      message: result.message,
+    };
   }
 
   /**

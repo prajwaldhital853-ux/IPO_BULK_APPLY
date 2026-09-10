@@ -1,5 +1,6 @@
 import type { AccountMeta } from '../../types/account';
 import { getSecrets } from '../../storage/accountsStorage';
+import { unmarkApplied } from '../../storage/applyHistory';
 import { recordIpoApply } from '../../storage/bankTrackerStorage';
 import {
   filterRealOperationalAccounts,
@@ -191,6 +192,8 @@ export type BulkApplyOptions = {
   kitta: number;
   /** Default false — live apply to MeroShare */
   dryRun?: boolean;
+  /** Clear local apply lock + use CDSC reApply flow (status-screen retries). */
+  reapply?: boolean;
   /** Default false when dryRun is false; true only for offline demo */
   simulateLogin?: boolean;
   onProgress?: (msg: string, index: number, total: number) => void;
@@ -274,7 +277,31 @@ export async function runBulkApply(
       continue;
     }
 
+    if (opts.reapply && !dryRun) {
+      try {
+        await unmarkApplied(account.id, opts.issue.companyShareId);
+      } catch {
+        // never block apply on local history cleanup
+      }
+    }
+
     const client = new MeroshareClient();
+    const applyReq = {
+      companyShareId: opts.issue.companyShareId,
+      appliedKitta: opts.kitta,
+      crnNumber: secrets.crn,
+      transactionPIN: secrets.pin,
+      accountId: account.id,
+      accountName: account.name,
+      username: account.username,
+      dpId: account.dpId,
+      dpCode: account.dpCode,
+    };
+    const applyOpts = {
+      dryRun,
+      ipoStillOpen: true,
+      reapply: opts.reapply === true,
+    };
     try {
       await client.loginOrSimulate(
         {
@@ -283,23 +310,13 @@ export async function runBulkApply(
           username: account.username,
           password: secrets.password,
         },
-        { simulate: simulateLogin, skipOwnDetail: true },
+        {
+          simulate: simulateLogin,
+          skipOwnDetail: false,
+        },
       );
 
-      let applyRes = await client.applyShare(
-        {
-          companyShareId: opts.issue.companyShareId,
-          appliedKitta: opts.kitta,
-          crnNumber: secrets.crn,
-          transactionPIN: secrets.pin,
-          accountId: account.id,
-          accountName: account.name,
-          username: account.username,
-          dpId: account.dpId,
-          dpCode: account.dpCode,
-        },
-        { dryRun, ipoStillOpen: true },
-      );
+      const applyRes = await client.applyShare(applyReq, applyOpts);
 
       if (!applyRes.ok && !applyRes.rejectedPrevious && !dryRun) {
         const resolved = await finalizeFailedApplyMessage(
@@ -351,22 +368,12 @@ export async function runBulkApply(
               username: account.username,
               password: secrets.password,
             },
-            { simulate: simulateLogin, skipOwnDetail: true },
-          );
-          let applyRes = await client.applyShare(
             {
-              companyShareId: opts.issue.companyShareId,
-              appliedKitta: opts.kitta,
-              crnNumber: secrets.crn,
-              transactionPIN: secrets.pin,
-              accountId: account.id,
-              accountName: account.name,
-              username: account.username,
-              dpId: account.dpId,
-              dpCode: account.dpCode,
+              simulate: simulateLogin,
+              skipOwnDetail: opts.reapply !== true,
             },
-            { dryRun, ipoStillOpen: true },
           );
+          let applyRes = await client.applyShare(applyReq, applyOpts);
           if (!applyRes.ok && !applyRes.rejectedPrevious && !dryRun) {
             const resolved = await finalizeFailedApplyMessage(
               client,

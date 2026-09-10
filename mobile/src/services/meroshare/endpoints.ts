@@ -23,6 +23,12 @@ export const PATHS = {
   /** POST filter body — searchable applicable issues */
   applicable: '/api/meroShare/companyShare/applicableIssue/',
   apply: '/api/meroShare/applicantForm/share/apply',
+  /** GET — prefilled rejected application before reapply (portal: getApplicantFormForReapply). */
+  reapplyForm: (companyShareId: number | string) =>
+    `/api/meroShare/applicantForm/reapply/${companyShareId}`,
+  /** POST — submit reapply after bank rejection (portal: reApplyShare). */
+  reapplyShare: (applicantFormId: number | string) =>
+    `/api/meroShare/applicantForm/share/reapply/${applicantFormId}`,
   banks: '/api/meroShare/bank/',
   bankById: (bankId: number | string) => `/api/meroShare/bank/${bankId}`,
   canApply: (companyShareId: number | string, demat: string) =>

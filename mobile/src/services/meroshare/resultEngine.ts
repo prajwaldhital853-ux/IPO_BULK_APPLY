@@ -286,6 +286,57 @@ async function mapPool<T, R>(
   return out;
 }
 
+/** Live status refresh for one account after apply/reapply (no bulk throttle). */
+export async function refreshAccountStatusRow(
+  account: AccountMeta,
+  issue: OpenIssue,
+  applicationPhase = true,
+): Promise<ResultAccountStatus> {
+  const secrets = await getSecrets(account.id);
+  if (!secrets?.password) {
+    return {
+      accountId: account.id,
+      accountName: account.name,
+      username: account.username,
+      ok: false,
+      dryRun: false,
+      status: 'MISSING_SECRETS',
+      message: 'Missing password in SecureStore',
+      companyName: issue.companyName,
+    };
+  }
+
+  const client = new MeroshareClient();
+  const loginArgs = {
+    clientId: account.dpId,
+    dpCode: account.dpCode,
+    username: account.username,
+    password: secrets.password,
+  };
+  const statusOpts = {
+    dryRun: false,
+    companyName: issue.companyName,
+    bulkFast: !applicationPhase,
+    applicationPhase,
+  };
+
+  try {
+    await client.loginOrSimulate(loginArgs, {
+      simulate: false,
+      skipOwnDetail: true,
+    });
+    const res = await client.checkApplicationStatus(
+      issue.companyShareId,
+      statusOpts,
+    );
+    return resultRowFromCheck(account, issue, false, res);
+  } catch (e) {
+    return resultRowFromError(account, issue, false, e);
+  } finally {
+    client.clearSession();
+  }
+}
+
 async function checkOneAccountResult(
   account: AccountMeta,
   issue: OpenIssue,

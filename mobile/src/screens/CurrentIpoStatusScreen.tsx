@@ -18,6 +18,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BusyOverlay } from '../components/BusyOverlay';
 import { OverQuotaBanner } from '../components/OverQuotaBanner';
 import { useActiveAccounts } from '../context/ActiveAccountsContext';
 import { useTheme } from '../context/ThemeContext';
@@ -25,6 +26,7 @@ import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
 import {
   loadCurrentOpenIssuesForUi,
+  refreshAccountStatusRow,
   runBulkApply,
   runBulkResultCheck,
   type OpenIssue,
@@ -137,20 +139,6 @@ function kindCardTheme(kind: ResultKind, isDark: boolean) {
   return buildStatusCardStyle(kindColor(kind), isDark);
 }
 
-function toUnverifiedAfterReapply(row: ResultAccountStatus): ResultAccountStatus {
-  const qty = row.appliedKitta;
-  return {
-    ...row,
-    ok: true,
-    status: 'UNVERIFIED',
-    allotmentStatus: 'Unverified',
-    message:
-      qty != null ? `Unverified ( quantity : ${qty} )` : 'Unverified',
-    remarks:
-      'Block Amount Status - Unverified (Application In-Process at Bank End)',
-  };
-}
-
 export function CurrentIpoStatusScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -179,6 +167,7 @@ export function CurrentIpoStatusScreen() {
     null,
   );
   const [applying, setApplying] = useState(false);
+  const [applyBusyLabel, setApplyBusyLabel] = useState('Applying…');
   const [toast, setToast] = useState<{
     text: string;
     kind: 'success' | 'error';
@@ -379,25 +368,44 @@ export function CurrentIpoStatusScreen() {
                 continue;
               }
               const kitta = row.appliedKitta ?? 10;
+              setApplyBusyLabel(
+                `Applying ${account.name} (${i + 1}/${queue.length})…`,
+              );
               try {
                 const summary = await runBulkApply({
                   accounts: [account],
                   issue,
                   kitta,
+                  reapply: true,
                 });
                 const applyResult = summary.results[0];
                 if (applyResult?.ok) {
+                  setApplyBusyLabel(`Verifying ${account.name}…`);
+                  const fresh = await refreshAccountStatusRow(account, issue, true);
                   setResults((prev) =>
                     prev.map((r) =>
-                      r.accountId === row.accountId
-                        ? toUnverifiedAfterReapply(r)
-                        : r,
+                      r.accountId === row.accountId ? fresh : r,
                     ),
                   );
-                  showToast(
-                    `${applyResult.accountName}: Applied successfully`,
-                    'success',
-                  );
+                  const verified =
+                    fresh.ok &&
+                    fresh.status !== 'REJECTED' &&
+                    fresh.status !== 'NOT_APPLIED';
+                  if (verified) {
+                    showToast(
+                      `${applyResult.accountName}: Applied successfully`,
+                      'success',
+                    );
+                  } else {
+                    showToast(
+                      `${applyResult.accountName}: ${
+                        fresh.remarks ??
+                        fresh.message ??
+                        'Still rejected on MeroShare'
+                      }`,
+                      'error',
+                    );
+                  }
                 } else {
                   showToast(
                     `${applyResult?.accountName ?? row.accountName}: ${
@@ -415,11 +423,12 @@ export function CurrentIpoStatusScreen() {
                 );
               }
               if (i < queue.length - 1) {
-                await new Promise((r) => setTimeout(r, 450));
+                await new Promise((r) => setTimeout(r, 200));
               }
             }
           } finally {
             setApplying(false);
+            setApplyBusyLabel('Applying…');
           }
         },
         { pinPolicy: 'skipIfUnlocked' },
@@ -908,6 +917,8 @@ export function CurrentIpoStatusScreen() {
           <Text style={styles.toastText}>{toast.text}</Text>
         </View>
       ) : null}
+
+      <BusyOverlay visible={applying} message={applyBusyLabel} />
 
       <SensitiveActionModals action={sensitive} />
     </View>
