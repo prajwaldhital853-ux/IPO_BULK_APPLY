@@ -7,10 +7,10 @@ const googleIosScheme = webClientId
 module.exports = {
   expo: {
     name: 'NEPSE GHAR',
-    slug: 'hellou',
-    owner: 'helloys-team',
+    slug: 'ipo_bulk_v2',
+    owner: 'ipo_bulk_v2',
     scheme: 'nepseghar',
-    version: '3.4.90',
+    version: '3.4.93',
     orientation: 'portrait',
     icon: './assets/nepse-ghar-app-icon.png',
     userInterfaceStyle: 'dark',
@@ -26,7 +26,7 @@ module.exports = {
     android: {
       package: 'com.nepse.ghar',
       googleServicesFile: './google-services.json',
-      versionCode: 137,
+      versionCode: 140,
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',
         foregroundImage: './assets/nepse-ghar-adaptive-foreground.png',
@@ -129,7 +129,7 @@ module.exports = {
     ],
     extra: {
       eas: {
-        projectId: '3845e698-899b-4bce-86da-e2b10ad2d521',
+        projectId: '38e22eba-7798-46d6-8ae2-0677940c4c35',
       },
     },
   },

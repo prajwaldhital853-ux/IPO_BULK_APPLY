@@ -34,6 +34,10 @@ import {
 } from '../services/meroshare';
 import { rs } from '../utils/responsive';
 import {
+  applyDisplayMessage,
+  resolveApplyOutcome,
+} from '../utils/applyResultUi';
+import {
   buildCheckAccountIdSet,
   isAllAccountsSelected,
   isCheckAccountSelected,
@@ -368,6 +372,7 @@ export function CurrentIpoStatusScreen() {
                 continue;
               }
               const kitta = row.appliedKitta ?? 10;
+              const reapply = classify(row) === 'rejected';
               setApplyBusyLabel(
                 `Applying ${account.name} (${i + 1}/${queue.length})…`,
               );
@@ -376,10 +381,24 @@ export function CurrentIpoStatusScreen() {
                   accounts: [account],
                   issue,
                   kitta,
-                  reapply: true,
+                  reapply,
                 });
                 const applyResult = summary.results[0];
-                if (applyResult?.ok) {
+                const outcome = applyResult
+                  ? resolveApplyOutcome(applyResult)
+                  : 'other';
+                if (outcome === 'already_applied') {
+                  const fresh = await refreshAccountStatusRow(account, issue, true);
+                  setResults((prev) =>
+                    prev.map((r) =>
+                      r.accountId === row.accountId ? fresh : r,
+                    ),
+                  );
+                  showToast(
+                    `${applyResult.accountName}: ${applyDisplayMessage(applyResult)}`,
+                    'success',
+                  );
+                } else if (applyResult?.ok) {
                   setApplyBusyLabel(`Verifying ${account.name}…`);
                   const fresh = await refreshAccountStatusRow(account, issue, true);
                   setResults((prev) =>
@@ -393,7 +412,7 @@ export function CurrentIpoStatusScreen() {
                     fresh.status !== 'NOT_APPLIED';
                   if (verified) {
                     showToast(
-                      `${applyResult.accountName}: Applied successfully`,
+                      `${applyResult.accountName}: ${applyDisplayMessage(applyResult)}`,
                       'success',
                     );
                   } else {

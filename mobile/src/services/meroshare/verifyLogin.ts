@@ -113,11 +113,9 @@ function isTransientMeroShareError(msg: string): boolean {
 }
 
 /**
- * Full live verify before saving an account.
- * Saves only when DP + username + password + CRN + PIN check out against MeroShare.
- *
- * CRN/PIN are validated via a safe apply probe (kitta `0` / already-applied issue)
- * that must NOT succeed as a real IPO application.
+ * Live verify before saving an account (Bank Detail screen).
+ * Default: DP + username + password + CRN + PIN probe against MeroShare.
+ * With skipCrnPinProbe: only DP + username + password (+ bank); CRN/PIN checked on apply.
  */
 export type VerifyAccountOptions = {
   /** Update flow: verify login/bank only; CRN/PIN are stored locally without MeroShare probe. */

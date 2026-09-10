@@ -1042,6 +1042,21 @@ export class MeroshareClient {
       ) &&
         applyMsg.length > 0);
     if (!looksSuccess) {
+      if (applyMsg) {
+        const credKind = classifyProbeMessage(applyMsg);
+        if (credKind === 'pin') {
+          return {
+            ok: false,
+            message: `Wrong transaction PIN — ${sanitizeMeroshareMessage(applyMsg)}`,
+          };
+        }
+        if (credKind === 'crn') {
+          return {
+            ok: false,
+            message: `Wrong CRN — ${sanitizeMeroshareMessage(applyMsg)}`,
+          };
+        }
+      }
       return {
         ok: false,
         message:
@@ -1076,6 +1091,31 @@ export class MeroshareClient {
       if (last.ok) return last;
     }
     return last;
+  }
+
+  /** True when Application Report shows an active application (not fresh / rejected). */
+  private async findExistingApplication(companyShareId: number): Promise<{
+    alreadyApplied: boolean;
+    status?: string;
+  }> {
+    try {
+      const status = await this.checkApplicationStatus(companyShareId, {
+        applicationPhase: true,
+        bulkFast: true,
+      });
+      if (
+        status.status === 'NOT_APPLIED' ||
+        /^not applied|have not applied/i.test(status.message)
+      ) {
+        return { alreadyApplied: false };
+      }
+      if (status.status === 'REJECTED' || /^rejected$/i.test(status.allotmentStatus || '')) {
+        return { alreadyApplied: false, status: status.status };
+      }
+      return { alreadyApplied: true, status: status.status };
+    } catch {
+      return { alreadyApplied: false };
+    }
   }
 
   private async confirmApplyStatusChangeOnce(
@@ -1253,11 +1293,77 @@ export class MeroshareClient {
     };
   }
 
+  /**
+   * One lightweight apply POST (kitta 0) to surface wrong CRN/PIN before a real apply.
+   * Skips the multi-step canary used at account save time.
+   */
+  private async fastCheckCrnPinForApply(
+    req: ApplyRequest,
+    branch: BankBranch,
+    demat: string,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    const payload = {
+      ...this.buildApplyPayload(req, branch, demat),
+      appliedKitta: '0',
+      companyShareId: String(req.companyShareId),
+    };
+
+    let res: Response;
+    try {
+      res = await fetch(`${this.base}${PATHS.apply}`, {
+        method: 'POST',
+        headers: {
+          ...DEFAULT_HEADERS,
+          Authorization: this.session!.token,
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      return { ok: true };
+    }
+
+    const text = await res.text();
+    let data: Record<string, unknown> = {};
+    try {
+      data = text
+        ? parseJsonBody<Record<string, unknown>>(text, 'CRN/PIN check')
+        : {};
+    } catch {
+      return { ok: true };
+    }
+
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : res.ok
+          ? ''
+          : `HTTP ${res.status}`;
+
+    if (!msg.trim()) {
+      return { ok: true };
+    }
+
+    const kind = classifyProbeMessage(msg);
+    if (kind === 'pin') {
+      return {
+        ok: false,
+        message: `Wrong transaction PIN — ${sanitizeMeroshareMessage(msg)}`,
+      };
+    }
+    if (kind === 'crn') {
+      return {
+        ok: false,
+        message: `Wrong CRN — ${sanitizeMeroshareMessage(msg)}`,
+      };
+    }
+    return { ok: true };
+  }
+
   private async postApplyPayload(
     path: string,
     payload: Record<string, unknown>,
     req: ApplyRequest,
-    opts?: { browserLike?: boolean; reapply?: boolean },
+    opts?: { browserLike?: boolean; reapply?: boolean; noRetry?: boolean },
   ): Promise<{
     ok: boolean;
     message: string;
@@ -1270,12 +1376,26 @@ export class MeroshareClient {
           method: 'POST',
           auth: true,
           browserLike: opts?.browserLike,
+          noRetry: opts?.noRetry,
           body: JSON.stringify(payload),
         },
       );
       return this.parseApplyResponse(req, data, { reapply: opts?.reapply });
     } catch (e) {
       const raw = e instanceof Error ? e.message : 'Apply failed';
+      const credKind = classifyProbeMessage(raw);
+      if (credKind === 'pin') {
+        return {
+          ok: false,
+          message: `Wrong transaction PIN — ${sanitizeMeroshareMessage(raw)}`,
+        };
+      }
+      if (credKind === 'crn') {
+        return {
+          ok: false,
+          message: `Wrong CRN — ${sanitizeMeroshareMessage(raw)}`,
+        };
+      }
       if (isAlreadyAppliedMeroshareMessage(raw)) {
         return { ok: false, message: ALREADY_APPLIED_USER_MSG };
       }
@@ -1297,6 +1417,8 @@ export class MeroshareClient {
       ipoStillOpen?: boolean;
       /** True when user is re-applying after bank rejection or not-applied retry. */
       reapply?: boolean;
+      /** Skip kitta-0 CRN/PIN pre-check (account already verified on a prior apply). */
+      skipCrnPinFastCheck?: boolean;
     } = { dryRun: true },
   ): Promise<{
     ok: boolean;
@@ -1339,7 +1461,34 @@ export class MeroshareClient {
       return this.reapplyShareFlow(req, branch, demat, ipoOpen);
     }
 
-    let result = await this.postApplyPayload(PATHS.apply, payload, req);
+    const existing = await this.findExistingApplication(req.companyShareId);
+    if (existing.alreadyApplied) {
+      return {
+        ok: false,
+        dryRun: false,
+        message: ALREADY_APPLIED_USER_MSG,
+      };
+    }
+
+    if (!opts.skipCrnPinFastCheck) {
+      const cred = await this.fastCheckCrnPinForApply(req, branch, demat);
+      if (!cred.ok) {
+        return { ok: false, dryRun: false, message: cred.message };
+      }
+    }
+
+    let result = await this.postApplyPayload(PATHS.apply, payload, req, {
+      noRetry: true,
+    });
+
+    if (
+      !result.ok &&
+      !result.rejected &&
+      (/^wrong transaction pin/i.test(result.message) ||
+        /^wrong crn/i.test(result.message))
+    ) {
+      return { ok: false, dryRun: false, message: result.message };
+    }
 
     if (!result.ok && result.rejected) {
       return this.reapplyShareFlow(req, branch, demat, ipoOpen);

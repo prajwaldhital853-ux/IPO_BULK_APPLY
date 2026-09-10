@@ -575,12 +575,14 @@ export function ApplyScreen() {
     (row: ApplyAccountResult, mode: 'single' | 'bulk') => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       const outcome = resolveApplyOutcome(row);
-      let kind: 'success' | 'error';
-      if (mode === 'single') {
-        kind = outcome === 'applied' && row.ok ? 'success' : 'error';
-      } else {
-        kind = isApplySuccessOutcome(outcome) ? 'success' : 'error';
-      }
+      const kind: 'success' | 'error' =
+        mode === 'single'
+          ? outcome === 'applied' && row.ok
+            ? 'success'
+            : 'error'
+          : isApplySuccessOutcome(outcome)
+            ? 'success'
+            : 'error';
       const variant =
         mode === 'single' && kind === 'error' ? 'single-bar' : 'default';
       setToast({ text: applyDisplayMessage(row), kind, variant });

@@ -300,15 +300,18 @@ export function BankDetailScreen() {
       setErrorField(null);
       setErrorMsg('');
       try {
-        const verify = await verifyAccountForSave({
-          dpId: capital.dpId,
-          dpCode: capital.dpCode,
-          username: capital.username,
-          password: capital.password,
-          crn: crn.trim(),
-          pin,
-          fallbackBankName: linkedBank,
-        });
+        const verify = await verifyAccountForSave(
+          {
+            dpId: capital.dpId,
+            dpCode: capital.dpCode,
+            username: capital.username,
+            password: capital.password,
+            crn: crn.trim(),
+            pin,
+            fallbackBankName: linkedBank,
+          },
+          { skipCrnPinProbe: true },
+        );
 
         if (!verify.ok) {
           setErrorField(verify.field);
@@ -406,7 +409,7 @@ export function BankDetailScreen() {
           crn: crn.trim(),
           pin,
           verified: true,
-          crnPinVerified: !verify.crnPinDeferred,
+          crnPinVerified: false,
           demat,
           boidHint: (() => {
             const full =
@@ -443,9 +446,7 @@ export function BankDetailScreen() {
 
         Alert.alert(
           'Verified & saved',
-          verify.crnPinDeferred
-            ? `${verify.message}\n\nImportant: No IPO is open, so CRN/PIN were not confirmed yet.\nWhen a real IPO opens and you tap Live Apply, MeroShare will check CRN + PIN.`
-            : `${verify.message}\n\nData stays on this device only. You can bulk-apply from this screen.`,
+          `${verify.message}\n\nCRN and PIN are saved on this device. MeroShare will verify them when you apply for an IPO.`,
         );
       } catch (e) {
         const msg =

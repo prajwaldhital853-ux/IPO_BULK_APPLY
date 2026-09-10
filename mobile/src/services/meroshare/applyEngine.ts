@@ -301,6 +301,7 @@ export async function runBulkApply(
       dryRun,
       ipoStillOpen: true,
       reapply: opts.reapply === true,
+      skipCrnPinFastCheck: account.crnPinVerified === true,
     };
     try {
       await client.loginOrSimulate(
@@ -312,13 +313,18 @@ export async function runBulkApply(
         },
         {
           simulate: simulateLogin,
-          skipOwnDetail: false,
+          skipOwnDetail: true,
         },
       );
 
       const applyRes = await client.applyShare(applyReq, applyOpts);
 
-      if (!applyRes.ok && !applyRes.rejectedPrevious && !dryRun) {
+      if (
+        !applyRes.ok &&
+        !applyRes.rejectedPrevious &&
+        !dryRun &&
+        !/^wrong (transaction pin|crn)/i.test(applyRes.message)
+      ) {
         const resolved = await finalizeFailedApplyMessage(
           client,
           opts.issue.companyShareId,
@@ -374,7 +380,12 @@ export async function runBulkApply(
             },
           );
           let applyRes = await client.applyShare(applyReq, applyOpts);
-          if (!applyRes.ok && !applyRes.rejectedPrevious && !dryRun) {
+          if (
+            !applyRes.ok &&
+            !applyRes.rejectedPrevious &&
+            !dryRun &&
+            !/^wrong (transaction pin|crn)/i.test(applyRes.message)
+          ) {
             const resolved = await finalizeFailedApplyMessage(
               client,
               opts.issue.companyShareId,

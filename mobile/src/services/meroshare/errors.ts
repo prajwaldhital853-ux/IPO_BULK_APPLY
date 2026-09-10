@@ -12,7 +12,7 @@ export class MeroshareError extends Error {
 
 /** User-facing copy when MeroShare reports an existing or in-flight application. */
 export const ALREADY_APPLIED_USER_MSG =
-  'You have already applied for this account.';
+  'This IPO has already been applied for this account.';
 
 /** Shown on apply cards / summary when inputs were already used for this IPO. */
 export const ALREADY_APPLIED_DISPLAY_MSG =
