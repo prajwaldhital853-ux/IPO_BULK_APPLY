@@ -23,8 +23,8 @@ const androidApi = require(path.join(
 ));
 
 const PROJECT = {
-  account: { name: 'helloys-team' },
-  projectName: 'hellou',
+  account: { name: 'ipo_bulk_v2' },
+  projectName: 'ipo_bulk_v2',
 };
 const PACKAGE = 'com.nepse.ghar';
 const KEY_PATH = path.join(__dirname, '..', 'credentials', 'fcm-v1-service-account.json');
