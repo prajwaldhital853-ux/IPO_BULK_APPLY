@@ -25,6 +25,7 @@ import type { ThemeColors } from '../theme/colors';
 import type { AccountMeta } from '../types/account';
 import {
   loadCurrentOpenIssuesForUi,
+  runBulkApply,
   runBulkResultCheck,
   type OpenIssue,
   type ResultAccountStatus,
@@ -136,6 +137,20 @@ function kindCardTheme(kind: ResultKind, isDark: boolean) {
   return buildStatusCardStyle(kindColor(kind), isDark);
 }
 
+function toUnverifiedAfterReapply(row: ResultAccountStatus): ResultAccountStatus {
+  const qty = row.appliedKitta;
+  return {
+    ...row,
+    ok: true,
+    status: 'UNVERIFIED',
+    allotmentStatus: 'Unverified',
+    message:
+      qty != null ? `Unverified ( quantity : ${qty} )` : 'Unverified',
+    remarks:
+      'Block Amount Status - Unverified (Application In-Process at Bank End)',
+  };
+}
+
 export function CurrentIpoStatusScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -162,6 +177,25 @@ export function CurrentIpoStatusScreen() {
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(
     null,
+  );
+  const [applying, setApplying] = useState(false);
+  const [toast, setToast] = useState<{
+    text: string;
+    kind: 'success' | 'error';
+  } | null>(null);
+  const toastTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((text: string, kind: 'success' | 'error') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ text, kind });
+    toastTimerRef.current = setTimeout(() => setToast(null), 2500);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    },
+    [],
   );
 
   const counts = useMemo(() => {
@@ -299,6 +333,100 @@ export function CurrentIpoStatusScreen() {
     : selected
       ? `${selected.companyName}${selected.scrip ? ` (${selected.scrip})` : ''}`
       : 'No Any Opening';
+
+  const bulkApplyEligible = useMemo(() => {
+    if (!selected) return [];
+    if (filter === 'rejected') {
+      return results.filter((row) => classify(row) === 'rejected');
+    }
+    if (filter === 'not_applied') {
+      return results.filter((row) => classify(row) === 'not_applied');
+    }
+    return [];
+  }, [filter, results, selected]);
+
+  const bulkApplyLabel =
+    filter === 'not_applied'
+      ? `Apply All Not Applied (${bulkApplyEligible.length})`
+      : `Re-apply All Rejected (${bulkApplyEligible.length})`;
+
+  const bulkApplyBtnColor =
+    filter === 'not_applied' ? STATUS_NOT_APPLIED : STATUS_REJECTED;
+
+  const applyRows = useCallback(
+    (targetRows: ResultAccountStatus[]) => {
+      if (!selected || !targetRows.length) return;
+      const issue: OpenIssue = {
+        id: selected.companyShareId,
+        companyShareId: selected.companyShareId,
+        companyName: selected.companyName,
+        scrip: selected.scrip,
+        shareTypeName: selected.shareTypeName,
+      };
+      const queue = [...targetRows];
+
+      void sensitive.requestSensitiveAction(
+        async () => {
+          setApplying(true);
+          try {
+            for (let i = 0; i < queue.length; i++) {
+              const row = queue[i];
+              const account =
+                checkAccounts.find((a) => a.id === row.accountId) ??
+                accounts.find((a) => a.id === row.accountId);
+              if (!account) {
+                showToast(`${row.accountName}: Account not found`, 'error');
+                continue;
+              }
+              const kitta = row.appliedKitta ?? 10;
+              try {
+                const summary = await runBulkApply({
+                  accounts: [account],
+                  issue,
+                  kitta,
+                });
+                const applyResult = summary.results[0];
+                if (applyResult?.ok) {
+                  setResults((prev) =>
+                    prev.map((r) =>
+                      r.accountId === row.accountId
+                        ? toUnverifiedAfterReapply(r)
+                        : r,
+                    ),
+                  );
+                  showToast(
+                    `${applyResult.accountName}: Applied successfully`,
+                    'success',
+                  );
+                } else {
+                  showToast(
+                    `${applyResult?.accountName ?? row.accountName}: ${
+                      applyResult?.message ?? 'Apply failed'
+                    }`,
+                    'error',
+                  );
+                }
+              } catch (e) {
+                showToast(
+                  `${row.accountName}: ${
+                    e instanceof Error ? e.message : 'Apply failed'
+                  }`,
+                  'error',
+                );
+              }
+              if (i < queue.length - 1) {
+                await new Promise((r) => setTimeout(r, 450));
+              }
+            }
+          } finally {
+            setApplying(false);
+          }
+        },
+        { pinPolicy: 'skipIfUnlocked' },
+      );
+    },
+    [accounts, checkAccounts, selected, sensitive, showToast],
+  );
 
   const runCheck = () => {
     if (!selected) {
@@ -515,6 +643,26 @@ export function CurrentIpoStatusScreen() {
               })}
             </ScrollView>
 
+            {(filter === 'rejected' || filter === 'not_applied') &&
+            bulkApplyEligible.length > 0 ? (
+              <Pressable
+                style={[
+                  styles.reapplyAllBtn,
+                  { backgroundColor: bulkApplyBtnColor },
+                  applying && { opacity: 0.65 },
+                ]}
+                onPress={() => applyRows(bulkApplyEligible)}
+                disabled={applying}
+              >
+                {applying ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Ionicons name="refresh" size={rs(18)} color="#FFFFFF" />
+                )}
+                <Text style={styles.reapplyAllText}>{bulkApplyLabel}</Text>
+              </Pressable>
+            ) : null}
+
             <FlatList
               style={styles.resultsList}
               data={visibleResults}
@@ -531,7 +679,7 @@ export function CurrentIpoStatusScreen() {
                 const card = kindCardTheme(kind, isDark);
                 const reason = statusRemarks(row);
                 const showApply =
-                  kind === 'not_applied' || kind === 'rejected';
+                  (kind === 'not_applied' || kind === 'rejected') && !applying;
                 const applyBtnColor =
                   kind === 'not_applied' ? STATUS_NOT_APPLIED : card.accent;
                 const mciIcon =
@@ -580,7 +728,10 @@ export function CurrentIpoStatusScreen() {
                           ]}
                         >
                           <Text
-                            style={[styles.remarkText, { color: card.textColor }]}
+                            style={[
+                              styles.remarkText,
+                              { color: card.pillTextColor },
+                            ]}
                             numberOfLines={4}
                           >
                             {reason}
@@ -597,9 +748,7 @@ export function CurrentIpoStatusScreen() {
                             backgroundColor: isDark ? applyBtnColor : '#FFFFFF',
                           },
                         ]}
-                        onPress={() =>
-                          navigation.navigate('MainTabs', { screen: 'Apply' })
-                        }
+                        onPress={() => applyRows([row])}
                       >
                         <Text
                           style={[
@@ -747,6 +896,18 @@ export function CurrentIpoStatusScreen() {
           </View>
         </View>
       </Modal>
+
+      {toast ? (
+        <View
+          style={[
+            styles.toast,
+            toast.kind === 'success' ? styles.toastSuccess : styles.toastError,
+            { marginBottom: Math.max(insets.bottom, rs(12)) },
+          ]}
+        >
+          <Text style={styles.toastText}>{toast.text}</Text>
+        </View>
+      ) : null}
 
       <SensitiveActionModals action={sensitive} />
     </View>
@@ -932,7 +1093,7 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     remarkText: {
       fontSize: rs(11),
       fontWeight: '600',
-      lineHeight: rs(15),
+      lineHeight: rs(16),
     },
     rowApplyBtn: {
       borderWidth: 1,
@@ -942,6 +1103,21 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       alignSelf: 'center',
     },
     rowApplyText: { fontSize: rs(11), fontWeight: '800' },
+    reapplyAllBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: rs(8),
+      borderRadius: rs(22),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(16),
+      marginBottom: rs(12),
+    },
+    reapplyAllText: {
+      color: '#FFFFFF',
+      fontWeight: '800',
+      fontSize: rs(13),
+    },
     emptyScroll: { flex: 1 },
     emptyWrap: { flexGrow: 1, justifyContent: 'flex-start', paddingTop: rs(24) },
     empty: { color: c.textMuted, textAlign: 'center', padding: rs(20) },
@@ -991,5 +1167,27 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     modalRowTitle: { flex: 1, color: c.text, fontWeight: '600', fontSize: rs(13) },
     modalDone: { alignItems: 'center', paddingVertical: rs(14) },
+    toast: {
+      position: 'absolute',
+      left: rs(16),
+      right: rs(16),
+      bottom: 0,
+      borderRadius: rs(10),
+      paddingVertical: rs(12),
+      paddingHorizontal: rs(14),
+      zIndex: 20,
+    },
+    toastSuccess: {
+      backgroundColor: '#43A047',
+    },
+    toastError: {
+      backgroundColor: '#EF5350',
+    },
+    toastText: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+      fontSize: rs(13),
+      textAlign: 'center',
+    },
   });
 }

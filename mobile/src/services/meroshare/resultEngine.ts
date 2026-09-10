@@ -1,5 +1,8 @@
 import type { AccountMeta } from '../../types/account';
-import { isMockAccountId } from '../../data/mockAccounts';
+import {
+  isMockAccountId,
+  mockStatusScenarioForAccount,
+} from '../../data/mockAccounts';
 import { getSecrets } from '../../storage/accountsStorage';
 import { MeroshareClient } from './client';
 import {
@@ -64,8 +67,21 @@ function makeDemoResult(
   };
 
   if (applicationPhase) {
-    const phase = index % 6;
-    if (phase === 0 || phase === 3) {
+    const scenario = isMockAccountId(account.id)
+      ? mockStatusScenarioForAccount(account.id)
+      : (['verified', 'unverified', 'rejected', 'verified', 'unverified', 'rejected'] as const)[
+          index % 6
+        ];
+
+    if (scenario === 'not_applied') {
+      return {
+        ...base,
+        ok: false,
+        status: 'NOT_APPLIED',
+        message: 'You have not applied for this IPO',
+      };
+    }
+    if (scenario === 'verified') {
       return {
         ...base,
         ok: true,
@@ -75,7 +91,7 @@ function makeDemoResult(
         remarks: 'Block Amount Status - Amount Blocked',
       };
     }
-    if (phase === 1 || phase === 4) {
+    if (scenario === 'unverified') {
       return {
         ...base,
         ok: true,
@@ -86,24 +102,16 @@ function makeDemoResult(
           'Block Amount Status - Unverified (Application In-Process at Bank End)',
       };
     }
-    if (phase === 2) {
-      return {
-        ...base,
-        ok: false,
-        status: 'REJECTED',
-        allotmentStatus: 'Rejected',
-        message: 'Rejected',
-        remarks:
-          'Block Amount Status - Amount Rejected (Insufficient Balance)',
-      };
-    }
     return {
       ...base,
       ok: false,
       status: 'REJECTED',
       allotmentStatus: 'Rejected',
       message: 'Rejected',
-      remarks: 'Block Amount Status - Amount Rejected (Wrong CRN)',
+      remarks:
+        index % 2 === 0
+          ? 'Block Amount Status - Amount Rejected (Insufficient Balance)'
+          : 'Block Amount Status - Amount Rejected (Wrong CRN)',
     };
   }
 

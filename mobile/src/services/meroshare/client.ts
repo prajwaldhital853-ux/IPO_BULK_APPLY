@@ -779,7 +779,19 @@ export class MeroshareClient {
     }
 
     const demat = this.dematFor(args.username, args.dpCode);
-    const branch = await this.fetchBankBranch();
+    let branch: BankBranch;
+    try {
+      branch = await this.fetchBankBranch();
+    } catch (e) {
+      const msg = sanitizeMeroshareMessage(
+        e instanceof Error ? e.message : 'No linked bank found',
+      );
+      return {
+        kind: 'skipped',
+        message:
+          `${msg} CRN/PIN will be confirmed on first live IPO apply. Login is verified.`,
+      };
+    }
     const companyShareId = await this.pickOpenProbeCompanyShareId();
 
     if (companyShareId == null) {
@@ -1030,17 +1042,13 @@ export class MeroshareClient {
           message: ALREADY_APPLIED_USER_MSG,
         };
       }
-      if (canMsg && isRejectedApplicantMeroshareMessage(canMsg)) {
-        return this.rejectedApplicantApplyResponse(
-          req.companyShareId,
-          null,
-          opts.ipoStillOpen !== false,
-        );
-      }
+      // canApply may still mention an old rejected record — let apply POST decide.
       if (
         canMsg &&
         !/can apply/i.test(canMsg) &&
-        !isRoleRestrictedMeroshareMessage(canMsg)
+        !isRoleRestrictedMeroshareMessage(canMsg) &&
+        !isRejectedApplicantMeroshareMessage(canMsg) &&
+        !isAlreadyAppliedMeroshareMessage(canMsg)
       ) {
         throw new MeroshareError('UNKNOWN', canMsg);
       }
@@ -1053,15 +1061,9 @@ export class MeroshareClient {
             message: ALREADY_APPLIED_USER_MSG,
           };
         }
-        if (isRejectedApplicantMeroshareMessage(e.message)) {
-          return this.rejectedApplicantApplyResponse(
-            req.companyShareId,
-            null,
-            opts.ipoStillOpen !== false,
-          );
-        }
-        // customerType often returns Role Not Authorized even when apply POST works.
+        // customerType often returns Role Not Authorized or stale rejection even when apply POST works.
         if (
+          isRejectedApplicantMeroshareMessage(e.message) ||
           isRoleRestrictedMeroshareMessage(e.message) ||
           e.code === 'NETWORK' ||
           e.code === 'RATE'
@@ -1124,11 +1126,11 @@ export class MeroshareClient {
         };
       }
       if (isRejectedApplicantMeroshareMessage(raw)) {
-        return this.rejectedApplicantApplyResponse(
-          req.companyShareId,
-          null,
-          opts.ipoStillOpen !== false,
-        );
+        return {
+          ok: false,
+          dryRun: false,
+          message: sanitizeMeroshareMessage(raw),
+        };
       }
       throw e;
     }

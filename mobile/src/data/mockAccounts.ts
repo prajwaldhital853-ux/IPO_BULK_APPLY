@@ -1,4 +1,7 @@
 import type { AccountMeta } from '../types/account';
+import type { ApplyAccountResult } from '../services/meroshare/types';
+import type { OpenIssue } from '../services/meroshare/types';
+import { ALREADY_APPLIED_DISPLAY_MSG } from '../services/meroshare/errors';
 import type { ImportedHolding } from '../services/meroshare/portfolioImport';
 import {
   dobWithDaysUntil18,
@@ -487,8 +490,124 @@ function registerSeeds(seeds: MockAccountSeed[]): void {
 
 /** Default flask demo: 30 adults + 6 minors. */
 export const DEFAULT_MOCK_ACCOUNT_COUNT = 36;
+/** Mixed apply outcomes for testing bulk/single apply UI. */
+export const APPLY_TEST_MOCK_ACCOUNT_COUNT = 50;
 /** Performance-test size from the flask menu. */
 export const LOAD_TEST_MOCK_ACCOUNT_COUNT = 400;
+
+export type MockApplyScenario =
+  | 'success'
+  | 'already_applied'
+  | 'invalid_crn'
+  | 'invalid_pin'
+  | 'invalid_login'
+  | 'insufficient';
+
+/** IPO status check outcomes for demo/mock accounts (application phase). */
+export type MockStatusScenario =
+  | 'verified'
+  | 'unverified'
+  | 'rejected'
+  | 'not_applied';
+
+const MOCK_STATUS_SCENARIOS: MockStatusScenario[] = [
+  'verified',
+  'unverified',
+  'rejected',
+  'not_applied',
+  'not_applied',
+  'not_applied',
+  'not_applied',
+  'verified',
+  'unverified',
+  'rejected',
+];
+
+const MOCK_APPLY_SCENARIOS: MockApplyScenario[] = [
+  'success',
+  'already_applied',
+  'invalid_crn',
+  'invalid_pin',
+  'invalid_login',
+  'insufficient',
+];
+
+export function mockApplyScenarioForAccount(accountId: string): MockApplyScenario {
+  let h = 0;
+  for (let i = 0; i < accountId.length; i += 1) {
+    h = (h * 33 + accountId.charCodeAt(i)) >>> 0;
+  }
+  return MOCK_APPLY_SCENARIOS[h % MOCK_APPLY_SCENARIOS.length];
+}
+
+export function mockStatusScenarioForAccount(
+  accountId: string,
+): MockStatusScenario {
+  let h = 0;
+  for (let i = 0; i < accountId.length; i += 1) {
+    h = (h * 33 + accountId.charCodeAt(i)) >>> 0;
+  }
+  return MOCK_STATUS_SCENARIOS[h % MOCK_STATUS_SCENARIOS.length];
+}
+
+export function buildMockApplyResult(
+  account: AccountMeta,
+  scenario: MockApplyScenario,
+  issue: OpenIssue,
+  kitta: number,
+  dryRun: boolean,
+): ApplyAccountResult {
+  const base = {
+    accountId: account.id,
+    accountName: account.name,
+    username: account.username,
+    dryRun,
+    companyName: issue.companyName,
+    kitta,
+  };
+  switch (scenario) {
+    case 'success':
+      return {
+        ...base,
+        ok: true,
+        message: dryRun
+          ? 'Dry run — would apply'
+          : 'Share application submitted successfully.',
+      };
+    case 'already_applied':
+      return {
+        ...base,
+        ok: true,
+        message: ALREADY_APPLIED_DISPLAY_MSG,
+      };
+    case 'invalid_crn':
+      return {
+        ...base,
+        ok: false,
+        message: 'Wrong CRN — Invalid CRN number',
+      };
+    case 'invalid_pin':
+      return {
+        ...base,
+        ok: false,
+        message: 'Wrong transaction PIN — Incorrect transaction PIN',
+      };
+    case 'invalid_login':
+      return {
+        ...base,
+        ok: false,
+        message: 'Invalid username or password',
+      };
+    case 'insufficient':
+      return {
+        ...base,
+        ok: false,
+        message: 'Rejected — you have insufficient amount in your bank account',
+      };
+    default:
+      return { ...base, ok: false, message: 'Could not apply' };
+  }
+}
 
 /**
  * Build `count` unique demo accounts (adults + the 6 minor samples when count >= 36).

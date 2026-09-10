@@ -22,6 +22,7 @@ import { HomeMarketPanel } from '../components/home/HomeMarketPanel';
 import { HOME_CARD_GAP, HOME_H_PAD } from '../components/home/homeLayout';
 import { SwipeTabGesture } from '../components/SwipeTabGesture';
 import {
+  APPLY_TEST_MOCK_ACCOUNT_COUNT,
   DEFAULT_MOCK_ACCOUNT_COUNT,
   LOAD_TEST_MOCK_ACCOUNT_COUNT,
   isMockAccountId,
@@ -296,6 +297,12 @@ export function HomeScreen() {
         () => seedMockAccounts(DEFAULT_MOCK_ACCOUNT_COUNT),
         `Added ${DEFAULT_MOCK_ACCOUNT_COUNT} sample accounts.`,
       );
+    const add50Apply = () =>
+      void runDemoJob(
+        `Adding ${APPLY_TEST_MOCK_ACCOUNT_COUNT} apply-test accounts…`,
+        () => seedMockAccounts(APPLY_TEST_MOCK_ACCOUNT_COUNT),
+        `Added ${APPLY_TEST_MOCK_ACCOUNT_COUNT} demo accounts with mixed apply outcomes (success, already applied, invalid CRN/PIN). Use the DEMO IPO on Apply.`,
+      );
     const add200 = () =>
       void runDemoJob(
         `Adding ${LOAD_TEST_MOCK_ACCOUNT_COUNT} demo accounts…`,
@@ -306,7 +313,7 @@ export function HomeScreen() {
     if (hasMockAccounts) {
       Alert.alert(
         'Demo accounts',
-        `You currently have ${mockCount} demo accounts.\n\nUse ${LOAD_TEST_MOCK_ACCOUNT_COUNT} to test how the app feels with a large list (scroll, apply, result, portfolio).`,
+        `You currently have ${mockCount} demo accounts.\n\n${APPLY_TEST_MOCK_ACCOUNT_COUNT} = mixed apply outcomes. ${LOAD_TEST_MOCK_ACCOUNT_COUNT} = performance testing.`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -315,6 +322,7 @@ export function HomeScreen() {
             onPress: () =>
               void runDemoJob('Removing demo accounts…', removeMockAccounts),
           },
+          { text: `Replace ${APPLY_TEST_MOCK_ACCOUNT_COUNT}`, onPress: add50Apply },
           { text: `Replace ${LOAD_TEST_MOCK_ACCOUNT_COUNT}`, onPress: add200 },
         ],
       );
@@ -323,10 +331,11 @@ export function HomeScreen() {
 
     Alert.alert(
       'Add demo accounts?',
-      `${DEFAULT_MOCK_ACCOUNT_COUNT} is the normal sample set. ${LOAD_TEST_MOCK_ACCOUNT_COUNT} is for performance testing.`,
+      `${DEFAULT_MOCK_ACCOUNT_COUNT} = normal sample. ${APPLY_TEST_MOCK_ACCOUNT_COUNT} = mixed apply errors. ${LOAD_TEST_MOCK_ACCOUNT_COUNT} = performance.`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: `Add ${DEFAULT_MOCK_ACCOUNT_COUNT}`, onPress: add36 },
+        { text: `Add ${APPLY_TEST_MOCK_ACCOUNT_COUNT}`, onPress: add50Apply },
         { text: `Add ${LOAD_TEST_MOCK_ACCOUNT_COUNT}`, onPress: add200 },
       ],
     );

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -164,17 +164,9 @@ export function BankDetailScreen() {
   draftRef.current = draft;
   const dobTouchedRef = useRef(false);
 
-  // Unlock Verify button if PIN/setup modal was cancelled.
-  useEffect(() => {
-    if (
-      !sensitive.promptVisible &&
-      !sensitive.setupVisible &&
-      !submitting &&
-      !savingDoneRef.current
-    ) {
-      submitLockRef.current = false;
-    }
-  }, [sensitive.promptVisible, sensitive.setupVisible, submitting]);
+  const releaseSubmitLock = useCallback(() => {
+    if (!savingDoneRef.current) submitLockRef.current = false;
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -302,8 +294,8 @@ export function BankDetailScreen() {
       return;
     }
 
-    submitLockRef.current = true;
     void sensitive.requestSensitiveAction(async () => {
+      submitLockRef.current = true;
       setSubmitting(true);
       setErrorField(null);
       setErrorMsg('');
@@ -455,9 +447,15 @@ export function BankDetailScreen() {
             ? `${verify.message}\n\nImportant: No IPO is open, so CRN/PIN were not confirmed yet.\nWhen a real IPO opens and you tap Live Apply, MeroShare will check CRN + PIN.`
             : `${verify.message}\n\nData stays on this device only. You can bulk-apply from this screen.`,
         );
+      } catch (e) {
+        const msg =
+          e instanceof Error ? e.message : 'Could not verify or save account.';
+        setErrorField('unknown');
+        setErrorMsg(msg);
+        Alert.alert('Could not save account', msg);
       } finally {
         setSubmitting(false);
-        if (!savingDoneRef.current) submitLockRef.current = false;
+        releaseSubmitLock();
       }
     });
   };
@@ -587,7 +585,7 @@ export function BankDetailScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <SensitiveActionModals action={sensitive} />
+      <SensitiveActionModals action={sensitive} onDismiss={releaseSubmitLock} />
     </View>
   );
 }

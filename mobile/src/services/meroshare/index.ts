@@ -49,5 +49,6 @@ export {
   isAlreadyAppliedApplyMessage,
   isRejectedApplicantApplyMessage,
   ALREADY_APPLIED_USER_MSG,
+  ALREADY_APPLIED_DISPLAY_MSG,
   REJECTED_APPLICANT_USER_MSG,
 } from './errors';

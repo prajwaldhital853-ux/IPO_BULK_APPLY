@@ -71,15 +71,14 @@ import {
 const ACCENT = '#2D5A27';
 /** Deep forest green for check CTAs in dark mode */
 const ACCENT_DARK = '#0A3A14';
-const HEADER_BG = '#E8F0E6';
 const BODY_BG = '#F6F8F2';
 /** Pure status colors — high contrast on light (and dark) backgrounds */
-const GREEN = '#2E7D32';
-const RED = '#C62828';
+const GREEN = '#43A047';
+const RED = '#EF5350';
 const REJECT_RED = STATUS_REJECTED;
 const VERIFIED_GREEN = STATUS_VERIFIED;
 /** Blue for unverified application rows. */
-const STATUS_BLUE = '#1976D2';
+const STATUS_BLUE = '#42A5F5';
 
 function badgeType(shareTypeName: string): string {
   const s = (shareTypeName || 'IPO').toUpperCase();
@@ -265,7 +264,7 @@ export function IpoBulkStatusScreen() {
   const showToast = useCallback((text: string, kind: 'success' | 'error') => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ text, kind });
-    toastTimerRef.current = setTimeout(() => setToast(null), 4500);
+    toastTimerRef.current = setTimeout(() => setToast(null), 2500);
   }, []);
 
   useEffect(
@@ -616,12 +615,28 @@ export function IpoBulkStatusScreen() {
     return results.filter((row) => resolveFilterBucket(row) === filter);
   }, [results, filter, applicationPhase]);
 
-  const reapplyEligible = useMemo(() => {
+  const bulkApplyEligible = useMemo(() => {
     if (!applicationPhase || !ipoStillOpen) return [];
-    return results.filter((row) => classifyApplicationPhase(row) === 'rejected');
-  }, [applicationPhase, ipoStillOpen, results]);
+    if (filter === 'rejected') {
+      return results.filter((row) => classifyApplicationPhase(row) === 'rejected');
+    }
+    if (filter === 'not_applied') {
+      return results.filter(
+        (row) => classifyApplicationPhase(row) === 'not_applied',
+      );
+    }
+    return [];
+  }, [applicationPhase, filter, ipoStillOpen, results]);
 
-  const reapplyRows = useCallback(
+  const bulkApplyLabel =
+    filter === 'not_applied'
+      ? `Apply All Not Applied (${bulkApplyEligible.length})`
+      : `Re-apply All Rejected (${bulkApplyEligible.length})`;
+
+  const bulkApplyBtnColor =
+    filter === 'not_applied' ? CHIP_ORANGE : REJECT_RED;
+
+  const applyRows = useCallback(
     (targetRows: ResultAccountStatus[]) => {
       if (!selected || !targetRows.length || !ipoStillOpen) return;
       const issue: OpenIssue = {
@@ -630,48 +645,62 @@ export function IpoBulkStatusScreen() {
         companyName: selected.companyName,
         scrip: selected.scrip,
         shareTypeName: selected.shareTypeName,
-        alreadyApplied: true,
       };
+      const queue = [...targetRows];
+
       void sensitive.requestSensitiveAction(
         async () => {
           setReapplying(true);
           try {
-            for (const row of targetRows) {
-              const account = checkAccounts.find((a) => a.id === row.accountId);
-              if (!account) continue;
+            for (let i = 0; i < queue.length; i++) {
+              const row = queue[i];
+              const account =
+                checkAccounts.find((a) => a.id === row.accountId) ??
+                accounts.find((a) => a.id === row.accountId);
+              if (!account) {
+                showToast(`${row.accountName}: Account not found`, 'error');
+                continue;
+              }
               const kitta = row.appliedKitta ?? 10;
-              const summary = await runBulkApply({
-                accounts: [account],
-                issue,
-                kitta,
-              });
-              const applyResult = summary.results[0];
-              if (applyResult?.ok) {
-                setResults((prev) =>
-                  prev.map((r) =>
-                    r.accountId === row.accountId
-                      ? toUnverifiedAfterReapply(r)
-                      : r,
-                  ),
-                );
+              try {
+                const summary = await runBulkApply({
+                  accounts: [account],
+                  issue,
+                  kitta,
+                });
+                const applyResult = summary.results[0];
+                if (applyResult?.ok) {
+                  setResults((prev) =>
+                    prev.map((r) =>
+                      r.accountId === row.accountId
+                        ? toUnverifiedAfterReapply(r)
+                        : r,
+                    ),
+                  );
+                  showToast(
+                    `${applyResult.accountName}: Applied successfully`,
+                    'success',
+                  );
+                } else {
+                  showToast(
+                    `${applyResult?.accountName ?? row.accountName}: ${
+                      applyResult?.message ?? 'Apply failed'
+                    }`,
+                    'error',
+                  );
+                }
+              } catch (e) {
                 showToast(
-                  `${applyResult.accountName}: Re-applied successfully`,
-                  'success',
-                );
-              } else {
-                showToast(
-                  `${applyResult?.accountName ?? row.accountName}: ${
-                    applyResult?.message ?? 'Re-apply failed'
+                  `${row.accountName}: ${
+                    e instanceof Error ? e.message : 'Apply failed'
                   }`,
                   'error',
                 );
               }
+              if (i < queue.length - 1) {
+                await new Promise((r) => setTimeout(r, 450));
+              }
             }
-          } catch (e) {
-            showToast(
-              e instanceof Error ? e.message : 'Re-apply failed',
-              'error',
-            );
           } finally {
             setReapplying(false);
           }
@@ -680,6 +709,7 @@ export function IpoBulkStatusScreen() {
       );
     },
     [
+      accounts,
       checkAccounts,
       ipoStillOpen,
       selected,
@@ -713,25 +743,29 @@ export function IpoBulkStatusScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
-        </Pressable>
+        <View style={styles.headerSide}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+            <Ionicons name="arrow-back" size={rs(22)} color={colors.text} />
+          </Pressable>
+        </View>
         <Text style={styles.title}>IPO Bulk Status</Text>
-        <Pressable
-          hitSlop={10}
-          onPress={() =>
-            Alert.alert(
-              'IPO Bulk Status',
-              'Open IPOs (result not out) show Verified / Unverified / Rejected like Current IPO Status. Closed IPOs with published results show Alloted / Not Allot filters. Rejected accounts can be re-applied while the IPO is still open.',
-            )
-          }
-        >
-          <Ionicons
-            name="information-circle-outline"
-            size={rs(22)}
-            color={isDark ? colors.text : ACCENT}
-          />
-        </Pressable>
+        <View style={styles.headerSide}>
+          <Pressable
+            hitSlop={10}
+            onPress={() =>
+              Alert.alert(
+                'IPO Bulk Status',
+                'Open IPOs (result not out) show Verified / Unverified / Rejected like Current IPO Status. Closed IPOs with published results show Alloted / Not Allot filters. Rejected accounts can be re-applied while the IPO is still open.',
+              )
+            }
+          >
+            <Ionicons
+              name="information-circle-outline"
+              size={rs(22)}
+              color={isDark ? colors.text : ACCENT}
+            />
+          </Pressable>
+        </View>
       </View>
 
       <View style={{ paddingHorizontal: rs(16) }}>
@@ -892,11 +926,15 @@ export function IpoBulkStatusScreen() {
             ) : null}
 
             {applicationPhase &&
-            filter === 'rejected' &&
-            reapplyEligible.length > 0 ? (
+            (filter === 'rejected' || filter === 'not_applied') &&
+            bulkApplyEligible.length > 0 ? (
               <Pressable
-                style={[styles.reapplyAllBtn, reapplying && { opacity: 0.65 }]}
-                onPress={() => reapplyRows(reapplyEligible)}
+                style={[
+                  styles.reapplyAllBtn,
+                  { backgroundColor: bulkApplyBtnColor },
+                  reapplying && { opacity: 0.65 },
+                ]}
+                onPress={() => applyRows(bulkApplyEligible)}
                 disabled={reapplying}
               >
                 {reapplying ? (
@@ -904,9 +942,7 @@ export function IpoBulkStatusScreen() {
                 ) : (
                   <Ionicons name="refresh" size={rs(18)} color="#FFFFFF" />
                 )}
-                <Text style={styles.reapplyAllText}>
-                  Re-apply All Rejected ({reapplyEligible.length})
-                </Text>
+                <Text style={styles.reapplyAllText}>{bulkApplyLabel}</Text>
               </Pressable>
             ) : null}
 
@@ -944,7 +980,9 @@ export function IpoBulkStatusScreen() {
                           ? 'alert-octagon'
                           : 'cancel';
                   const showReapply =
-                    appKind === 'rejected' && ipoStillOpen && !reapplying;
+                    (appKind === 'rejected' || appKind === 'not_applied') &&
+                    ipoStillOpen &&
+                    !reapplying;
                   return (
                     <View
                       style={[
@@ -983,7 +1021,10 @@ export function IpoBulkStatusScreen() {
                             ]}
                           >
                             <Text
-                              style={[styles.remarkText, { color: card.textColor }]}
+                              style={[
+                                styles.remarkText,
+                                { color: card.pillTextColor },
+                              ]}
                               numberOfLines={4}
                             >
                               {remarks}
@@ -1000,7 +1041,7 @@ export function IpoBulkStatusScreen() {
                               backgroundColor: isDark ? card.accent : '#FFFFFF',
                             },
                           ]}
-                          onPress={() => reapplyRows([row])}
+                          onPress={() => applyRows([row])}
                         >
                           <Text
                             style={[
@@ -1070,7 +1111,12 @@ export function IpoBulkStatusScreen() {
                           { backgroundColor: card.pillBackground },
                         ]}
                       >
-                        <Text style={[styles.remarkText, { color: card.textColor }]}>
+                        <Text
+                          style={[
+                            styles.remarkText,
+                            { color: card.pillTextColor },
+                          ]}
+                        >
                           {amountStatusLine(row)}
                         </Text>
                       </View>
@@ -1243,17 +1289,22 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
       paddingHorizontal: rs(14),
-      paddingVertical: rs(12),
-      backgroundColor: isDark ? c.bgElevated : HEADER_BG,
+      paddingTop: rs(8),
+      paddingBottom: rs(10),
+      backgroundColor: isDark ? c.bg : BODY_BG,
     },
     title: {
+      flex: 1,
       color: c.text,
       fontSize: rs(16),
       fontWeight: '700',
-      flex: 1,
       textAlign: 'center',
+    },
+    headerSide: {
+      width: rs(32),
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     controls: {
       paddingHorizontal: rs(18),
@@ -1458,11 +1509,16 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     resultStatus: { fontSize: rs(11), fontWeight: '700', marginBottom: rs(6) },
     remarkPill: {
       alignSelf: 'stretch',
-      borderRadius: rs(12),
-      paddingHorizontal: rs(10),
-      paddingVertical: rs(6),
+      borderRadius: rs(8),
+      paddingHorizontal: rs(8),
+      paddingVertical: rs(4),
+      marginTop: rs(2),
     },
-    remarkText: { fontSize: rs(11), fontWeight: '600', lineHeight: rs(15) },
+    remarkText: {
+      fontSize: rs(11),
+      fontWeight: '600',
+      lineHeight: rs(16),
+    },
     rowApplyBtn: {
       borderWidth: 1,
       borderRadius: rs(14),

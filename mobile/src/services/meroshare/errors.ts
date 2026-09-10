@@ -14,6 +14,10 @@ export class MeroshareError extends Error {
 export const ALREADY_APPLIED_USER_MSG =
   'You have already applied for this account.';
 
+/** Shown on apply cards / summary when inputs were already used for this IPO. */
+export const ALREADY_APPLIED_DISPLAY_MSG =
+  'Share with provided inputs has been applied already.';
+
 /** User-facing copy when a previous application was rejected by the bank. */
 export const REJECTED_APPLICANT_USER_MSG =
   'Your bank rejected the previous application for this IPO. Check Current IPO Status for the reason, fix the issue, then tap Reapply if the IPO is still open.';
@@ -77,9 +81,11 @@ export function isAlreadyAppliedMeroshareMessage(message: string): boolean {
 
 /** True for bulk-apply result rows that mean "already applied" (not a real failure). */
 export function isAlreadyAppliedApplyMessage(message: string): boolean {
+  const m = message.trim();
   return (
     isAlreadyAppliedMeroshareMessage(message) ||
-    message.trim() === ALREADY_APPLIED_USER_MSG
+    m === ALREADY_APPLIED_USER_MSG ||
+    m === ALREADY_APPLIED_DISPLAY_MSG
   );
 }
 

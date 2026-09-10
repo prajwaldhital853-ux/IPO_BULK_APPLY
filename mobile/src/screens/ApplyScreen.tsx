@@ -47,11 +47,19 @@ import { isUserInactive } from '../utils/accountOperational';
 import {
   loadOpenIssuesForUi,
   runBulkApply,
-  sanitizeMeroshareMessage,
   type ApplyAccountResult,
   type BulkApplySummary,
   type OpenIssue,
 } from '../services/meroshare';
+import {
+  applyDisplayMessage,
+  applyOutcomeLabel,
+  applyOutcomeNeedsUpdate,
+  countApplyOutcomes,
+  isApplySuccessOutcome,
+  resolveApplyOutcome,
+  type ApplyOutcome,
+} from '../utils/applyResultUi';
 import {
   isAppliedInMap,
   loadApplyHistory,
@@ -63,55 +71,34 @@ import {
   parseIssueDate,
 } from '../utils/ipoIssues';
 import { rs } from '../utils/responsive';
+import { isMockAccountId } from '../data/mockAccounts';
 import { filterAccountsByQuery } from '../utils/filterAccounts';
 import { ACCOUNT_LIST_FLAT_PROPS } from '../utils/flatListPerf';
 import type { RootStackParamList, MainTabParamList } from '../navigation/types';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
 import { SensitiveActionModals } from '../components/SensitiveActionModals';
 import { useSensitiveAction } from '../hooks/useSensitiveAction';
-
-type ApplyFilter =
-  | 'all'
-  | 'applied'
-  | 'auth'
-  | 'balance'
-  | 'missing'
-  | 'other';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type ApplyRoute = RouteProp<MainTabParamList, 'Apply'>;
-
-function classifyApplyResult(r: ApplyAccountResult): Exclude<ApplyFilter, 'all'> {
-  if (r.ok) return 'applied';
-  const m = r.message.toLowerCase();
-  if (
-    /invalid username|password|credential|unauthorized|wrong depository|auth/i.test(
-      m,
-    )
-  ) {
-    return 'auth';
-  }
-  if (/missing password|crn|pin/i.test(m)) return 'missing';
-  if (/insufficient|balance|block.?fail/i.test(m)) return 'balance';
-  return 'other';
-}
-
-function reasonLabel(r: ApplyAccountResult): string {
-  const kind = classifyApplyResult(r);
-  if (kind === 'applied') return 'Applied';
-  if (kind === 'auth') return 'Invalid login';
-  if (kind === 'missing') return 'Missing CRN/PIN';
-  if (kind === 'balance') return 'Insufficient balance';
-  return 'Not applied';
-}
-
-function applyDisplayMessage(r: ApplyAccountResult): string {
-  return sanitizeMeroshareMessage(r.message);
-}
 
 /** @deprecated use daysLeftForIssue — kept for hot-reload compatibility */
 function daysLeftLabel(closeDate?: string): string | null {
   if (!closeDate) return null;
   return daysLeftForIssue({ issueCloseDate: closeDate } as OpenIssue);
+}
+
+function mergeApplyResult(
+  prev: ApplyAccountResult[],
+  row: ApplyAccountResult,
+): ApplyAccountResult[] {
+  const idx = prev.findIndex((r) => r.accountId === row.accountId);
+  if (idx >= 0) {
+    const next = [...prev];
+    next[idx] = row;
+    return next;
+  }
+  return [...prev, row];
 }
 
 function csvEscape(v: string): string {
@@ -122,9 +109,7 @@ function csvEscape(v: string): string {
 
 type ApplySinglePaneProps = {
   accounts: AccountMeta[];
-  appliedIds: Set<string>;
   applyingAccountId: string | null;
-  singleResults: Record<string, ApplyAccountResult>;
   isAccountActive: (id: string) => boolean;
   onApply: (id: string) => void;
   styles: ReturnType<typeof makeStyles>;
@@ -135,9 +120,7 @@ type ApplySinglePaneProps = {
 /** Virtualized account list — only visible rows mount (safe for 200–500 accounts). */
 const ApplySingleAccountsPane = React.memo(function ApplySingleAccountsPane({
   accounts,
-  appliedIds,
   applyingAccountId,
-  singleResults,
   isAccountActive,
   onApply,
   styles,
@@ -145,38 +128,18 @@ const ApplySingleAccountsPane = React.memo(function ApplySingleAccountsPane({
   listBoxStyle,
 }: ApplySinglePaneProps) {
   const renderItem = useCallback(
-    ({ item, index }: { item: AccountMeta; index: number }) => {
-      const rowResult = singleResults[item.id];
-      const applied = appliedIds.has(item.id);
-      const resultMessage = rowResult
-        ? rowResult.ok
-          ? reasonLabel(rowResult)
-          : applyDisplayMessage(rowResult)
-        : null;
-      return (
-        <ApplySingleAccountRow
-          account={item}
-          index={index}
-          applied={applied}
-          locked={!isAccountActive(item.id) || isUserInactive(item)}
-          applying={applyingAccountId === item.id}
-          resultMessage={resultMessage}
-          resultOk={rowResult?.ok}
-          onApply={onApply}
-          styles={styles}
-          colors={colors}
-        />
-      );
-    },
-    [
-      appliedIds,
-      applyingAccountId,
-      colors,
-      isAccountActive,
-      onApply,
-      singleResults,
-      styles,
-    ],
+    ({ item, index }: { item: AccountMeta; index: number }) => (
+      <ApplySingleAccountRow
+        account={item}
+        index={index}
+        locked={!isAccountActive(item.id) || isUserInactive(item)}
+        applying={applyingAccountId === item.id}
+        onApply={onApply}
+        styles={styles}
+        colors={colors}
+      />
+    ),
+    [applyingAccountId, colors, isAccountActive, onApply, styles],
   );
 
   return (
@@ -197,9 +160,11 @@ const ApplySingleAccountsPane = React.memo(function ApplySingleAccountsPane({
 
 type BulkUpdatesPaneProps = {
   results: ApplyAccountResult[];
-  running: boolean;
+  applyingAccountId: string | null;
+  processingAccountId: string | null;
   accounts: AccountMeta[];
   onRetry: (accountId: string) => void;
+  onEditAccount: (accountId: string) => void;
   styles: ReturnType<typeof makeStyles>;
   colors: ThemeColors;
   listBoxStyle: object;
@@ -208,26 +173,33 @@ type BulkUpdatesPaneProps = {
 /** Virtualized bulk apply result cards — safe for 300–400 accounts. */
 const BulkApplyUpdatesPane = React.memo(function BulkApplyUpdatesPane({
   results,
-  running,
+  applyingAccountId,
+  processingAccountId,
   accounts,
   onRetry,
+  onEditAccount,
   styles,
   colors,
   listBoxStyle,
 }: BulkUpdatesPaneProps) {
   const renderItem = useCallback(
     ({ item, index }: { item: ApplyAccountResult; index: number }) => {
-      const ok = item.ok;
-      const cardStyle = ok ? styles.updateCardOk : styles.updateCardFail;
+      const outcome = resolveApplyOutcome(item);
+      const success = isApplySuccessOutcome(outcome);
+      const cardStyle = success ? styles.updateCardOk : styles.updateCardFail;
       const acc = accounts.find((a) => a.id === item.accountId);
       const label = (acc?.name || item.accountName || item.username || '').trim();
       const rowTitle = `IPO@${label.toUpperCase()}`;
+      const needsUpdate = applyOutcomeNeedsUpdate(outcome);
+      const isApplying =
+        applyingAccountId === item.accountId ||
+        processingAccountId === item.accountId;
       return (
         <View style={cardStyle}>
           <Ionicons
-            name={ok ? 'checkmark-circle' : 'alert-circle'}
+            name={success ? 'checkmark-circle' : 'alert-circle'}
             size={rs(22)}
-            color={ok ? colors.accentGreen : colors.danger}
+            color={success ? APPLY_GREEN_LIGHT : colors.danger}
           />
           <View style={styles.updateBody}>
             <Text style={styles.updateName}>
@@ -236,14 +208,28 @@ const BulkApplyUpdatesPane = React.memo(function BulkApplyUpdatesPane({
             <Text
               style={[
                 styles.updateMsg,
-                ok ? styles.updateMsgOk : styles.updateMsgFail,
+                success ? styles.updateMsgOkGreen : styles.updateMsgFail,
               ]}
               numberOfLines={3}
             >
-              {ok ? reasonLabel(item) : applyDisplayMessage(item)}
+              {applyDisplayMessage(item)}
             </Text>
           </View>
-          {!ok && !running ? (
+          {isApplying ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : outcome === 'already_applied' ? (
+            <View style={styles.appliedBadge}>
+              <Text style={styles.appliedBadgeText}>Applied</Text>
+            </View>
+          ) : needsUpdate ? (
+            <Pressable
+              onPress={() => onEditAccount(item.accountId)}
+              hitSlop={8}
+              style={styles.updateBlueBtn}
+            >
+              <Text style={styles.updateBlueText}>Update</Text>
+            </Pressable>
+          ) : !success ? (
             <Pressable
               style={styles.updateApplyBtn}
               onPress={() => onRetry(item.accountId)}
@@ -254,7 +240,15 @@ const BulkApplyUpdatesPane = React.memo(function BulkApplyUpdatesPane({
         </View>
       );
     },
-    [accounts, colors, onRetry, running, styles],
+    [
+      accounts,
+      applyingAccountId,
+      colors,
+      onEditAccount,
+      onRetry,
+      processingAccountId,
+      styles,
+    ],
   );
 
   return (
@@ -266,7 +260,7 @@ const BulkApplyUpdatesPane = React.memo(function BulkApplyUpdatesPane({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator
         renderItem={renderItem}
-        extraData={running}
+        extraData={{ applyingAccountId, processingAccountId, results }}
         {...ACCOUNT_LIST_FLAT_PROPS}
       />
     </View>
@@ -330,9 +324,16 @@ export function ApplyScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [applyingAccountId, setApplyingAccountId] = useState<string | null>(null);
-  const [singleResults, setSingleResults] = useState<
-    Record<string, ApplyAccountResult>
-  >({});
+  const [processingAccountId, setProcessingAccountId] = useState<string | null>(
+    null,
+  );
+  const [toast, setToast] = useState<{
+    text: string;
+    kind: 'success' | 'error';
+    variant: 'single-bar' | 'default';
+  } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const insets = useSafeAreaInsets();
   const [summary, setSummary] = useState<BulkApplySummary | null>(null);
   const [applyResults, setApplyResults] = useState<ApplyAccountResult[]>([]);
   const [applyProgress, setApplyProgress] = useState<{
@@ -477,10 +478,8 @@ export function ApplyScreen() {
 
   const checkedEligible = useMemo(() => {
     if (!selected) return [];
-    return operationalAccounts.filter(
-      (a) => selectedIds[a.id] && !appliedAccountIds.has(a.id),
-    );
-  }, [appliedAccountIds, operationalAccounts, selectedIds, selected]);
+    return operationalAccounts.filter((a) => selectedIds[a.id]);
+  }, [operationalAccounts, selectedIds, selected]);
 
   const openResultModal = useCallback((result: BulkApplySummary) => {
     const batchKey = `${result.companyShareId}-${result.kitta}-${result.results.length}`;
@@ -504,7 +503,6 @@ export function ApplyScreen() {
 
   const toggleAccount = useCallback(
     (id: string) => {
-      if (alreadyApplied(id)) return;
       const acc = accounts.find((a) => a.id === id);
       if (!acc || !isAccountActive(id) || isUserInactive(acc)) {
         promptLocked();
@@ -512,14 +510,14 @@ export function ApplyScreen() {
       }
       setSelectedIds((prev) => ({ ...prev, [id]: !prev[id] }));
     },
-    [accounts, alreadyApplied, isAccountActive, promptLocked],
+    [accounts, isAccountActive, promptLocked],
   );
 
   const selectAllEligible = () => {
     setSelectedIds((prev) => {
       const next = { ...prev };
       for (const a of operationalAccounts) {
-        if (!alreadyApplied(a.id)) next[a.id] = true;
+        if (isAccountActive(a.id) && !isUserInactive(a)) next[a.id] = true;
       }
       return next;
     });
@@ -529,7 +527,7 @@ export function ApplyScreen() {
     setSelectedIds((prev) => {
       const next = { ...prev };
       for (const a of operationalAccounts) {
-        if (!alreadyApplied(a.id)) next[a.id] = false;
+        next[a.id] = false;
       }
       return next;
     });
@@ -555,12 +553,58 @@ export function ApplyScreen() {
     }
   };
 
+  const persistSuccessfulRow = async (
+    row: ApplyAccountResult,
+    companyId: number,
+    kittaValue: number,
+  ) => {
+    if (!row.ok || row.dryRun) return;
+    await markAppliedMany([
+      {
+        accountId: row.accountId,
+        companyShareId: companyId,
+        kitta: kittaValue,
+        dryRun: false,
+      },
+    ]);
+    await markCrnPinVerifiedMany([row.accountId]);
+    setHistoryTick((t) => t + 1);
+  };
+
+  const showApplyToast = useCallback(
+    (row: ApplyAccountResult, mode: 'single' | 'bulk') => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      const outcome = resolveApplyOutcome(row);
+      let kind: 'success' | 'error';
+      if (mode === 'single') {
+        kind = outcome === 'applied' && row.ok ? 'success' : 'error';
+      } else {
+        kind = isApplySuccessOutcome(outcome) ? 'success' : 'error';
+      }
+      const variant =
+        mode === 'single' && kind === 'error' ? 'single-bar' : 'default';
+      setToast({ text: applyDisplayMessage(row), kind, variant });
+      const durationMs = mode === 'single' ? 2000 : 5000;
+      toastTimerRef.current = setTimeout(() => setToast(null), durationMs);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   const confirmBulkApply = useCallback(() => {
     if (!selected) {
       Alert.alert('No IPO', 'Select a Current Opening IPO first.');
       return;
     }
-    if (selected.companyShareId === 9001) {
+    if (
+      selected.companyShareId === 9001 &&
+      !checkedEligible.every((a) => isMockAccountId(a.id))
+    ) {
       Alert.alert(
         'No open IPO',
         'No live opening is available right now. Pull to refresh after MeroShare login, or check allotment on the Check tab.',
@@ -570,7 +614,7 @@ export function ApplyScreen() {
     if (checkedEligible.length === 0) {
       Alert.alert(
         'No accounts selected',
-        'Check at least one account that has not already applied for this IPO.',
+        'Check at least one account to apply.',
       );
       return;
     }
@@ -583,6 +627,7 @@ export function ApplyScreen() {
         setSummary(null);
         setApplyResults([]);
         setApplyProgress({ done: 0, total: checkedEligible.length });
+        setProcessingAccountId(checkedEligible[0]?.id ?? null);
         try {
           const result = await runBulkApply({
             accounts: checkedEligible,
@@ -592,10 +637,16 @@ export function ApplyScreen() {
             simulateLogin: false,
             onProgress: (_msg, index, total) => {
               setApplyProgress({ done: index, total });
+              setProcessingAccountId(checkedEligible[index]?.id ?? null);
             },
             onAccountResult: (row, index, total) => {
-              setApplyResults((prev) => [...prev, row]);
+              setApplyResults((prev) => mergeApplyResult(prev, row));
               setApplyProgress({ done: index + 1, total });
+              setProcessingAccountId(
+                index + 1 < total
+                  ? (checkedEligible[index + 1]?.id ?? null)
+                  : null,
+              );
             },
           });
           setSummary(result);
@@ -608,11 +659,99 @@ export function ApplyScreen() {
         } finally {
           setRunning(false);
           setApplyProgress(null);
+          setProcessingAccountId(null);
         }
       })();
     };
     void sensitive.requestSensitiveAction(execute);
   }, [checkedEligible, kitta, selected, sensitive]);
+
+  const applyOneAccount = useCallback(
+    async (accountId: string): Promise<ApplyAccountResult | null> => {
+      const acc = accounts.find((a) => a.id === accountId);
+      if (!acc || !selected) return null;
+      const result = await runBulkApply({
+        accounts: [acc],
+        issue: selected,
+        kitta,
+        dryRun: false,
+        simulateLogin: false,
+      });
+      return result.results[0] ?? null;
+    },
+    [accounts, kitta, selected],
+  );
+
+  const retryBulkAccount = useCallback(
+    (accountId: string) => {
+      const acc = accounts.find((a) => a.id === accountId);
+      if (!acc || !isAccountActive(accountId) || isUserInactive(acc)) {
+        promptLocked();
+        return;
+      }
+      if (!selected) {
+        Alert.alert('No IPO', 'Select a Current Opening IPO first.');
+        return;
+      }
+      if (selected.companyShareId === 9001 && !isMockAccountId(accountId)) {
+        Alert.alert(
+          'No open IPO',
+          'No live opening is available right now. Refresh openings after login.',
+        );
+        return;
+      }
+
+      setApplyingAccountId(accountId);
+
+      const execute = () => {
+        void (async () => {
+          try {
+            const row = await applyOneAccount(accountId);
+            if (row) {
+              setApplyResults((prev) => mergeApplyResult(prev, row));
+              showApplyToast(row, 'bulk');
+              if (row.ok) {
+                void persistSuccessfulRow(
+                  row,
+                  selected.companyShareId,
+                  kitta,
+                );
+              }
+            }
+          } catch {
+            showApplyToast(
+              {
+                accountId,
+                accountName: acc.name,
+                username: acc.username,
+                ok: false,
+                dryRun: false,
+                message: 'Apply failed. Try again.',
+                companyName: selected.companyName,
+                kitta,
+              },
+              'bulk',
+            );
+          } finally {
+            setApplyingAccountId(null);
+          }
+        })();
+      };
+      void sensitive.requestSensitiveAction(execute, {
+        pinPolicy: 'skipIfUnlocked',
+      });
+    },
+    [
+      accounts,
+      applyOneAccount,
+      isAccountActive,
+      kitta,
+      promptLocked,
+      selected,
+      sensitive,
+      showApplyToast,
+    ],
+  );
 
   const runSingle = useCallback(
     (accountId: string) => {
@@ -625,54 +764,50 @@ export function ApplyScreen() {
         Alert.alert('No IPO', 'Select a Current Opening IPO first.');
         return;
       }
-      if (selected.companyShareId === 9001) {
+      if (selected.companyShareId === 9001 && !isMockAccountId(accountId)) {
         Alert.alert(
           'No open IPO',
           'No live opening is available right now. Refresh openings after login.',
         );
         return;
       }
-      if (alreadyApplied(accountId)) {
-        Alert.alert(
-          'Already applied',
-          'This account already applied for this IPO (one apply per account per IPO).',
-        );
-        return;
-      }
-      const one = accounts.filter((a) => a.id === accountId);
-      if (!one.length) return;
 
-      resultModalBatchKeyRef.current = null;
       setApplyingAccountId(accountId);
-      setSingleResults((prev) => {
-        const next = { ...prev };
-        delete next[accountId];
-        return next;
-      });
 
       const execute = () => {
         void (async () => {
+          issuesRefreshPausedRef.current = true;
           try {
-            const result = await runBulkApply({
-              accounts: one,
-              issue: selected,
-              kitta,
-              dryRun: false,
-              simulateLogin: false,
-            });
-            const row = result.results[0];
-            setSummary(result);
-            setApplyResults(result.results);
+            const row = await applyOneAccount(accountId);
             if (row) {
-              setSingleResults((prev) => ({ ...prev, [accountId]: row }));
-            }
-            setApplyingAccountId(null);
-            openResultModal(result);
-            if (row?.ok) {
-              void persistSuccessful(result, selected.companyShareId);
+              showApplyToast(row, 'single');
+              if (row.ok) {
+                await persistSuccessfulRow(
+                  row,
+                  selected.companyShareId,
+                  kitta,
+                );
+              }
             }
           } catch {
+            showApplyToast(
+              {
+                accountId,
+                accountName: acc.name,
+                username: acc.username,
+                ok: false,
+                dryRun: false,
+                message: 'Apply failed. Try again.',
+                companyName: selected.companyName,
+                kitta,
+              },
+              'single',
+            );
+          } finally {
             setApplyingAccountId(null);
+            setTimeout(() => {
+              issuesRefreshPausedRef.current = false;
+            }, 600);
           }
         })();
       };
@@ -682,25 +817,34 @@ export function ApplyScreen() {
     },
     [
       accounts,
-      alreadyApplied,
+      applyOneAccount,
       isAccountActive,
       kitta,
-      openResultModal,
       promptLocked,
       selected,
       sensitive,
+      showApplyToast,
     ],
+  );
+
+  const hasMockAccounts = useMemo(
+    () => accounts.some((a) => isMockAccountId(a.id)),
+    [accounts],
   );
 
   const openingLabel = useMemo(() => {
     if (loadingIssues) return 'Loading openings…';
-    if (!selected || selected.companyShareId === 9001) return 'No Any Opening';
+    if (!selected) return 'No Any Opening';
+    if (selected.companyShareId === 9001 && !hasMockAccounts) {
+      return 'No Any Opening';
+    }
     const suffix = selected.scrip ? ` (${selected.scrip})` : '';
     return `${selected.companyName}${suffix}`;
-  }, [loadingIssues, selected]);
+  }, [hasMockAccounts, loadingIssues, selected]);
 
   const hasRealOpening =
-    Boolean(selected) && selected!.companyShareId !== 9001;
+    Boolean(selected) &&
+    (selected!.companyShareId !== 9001 || hasMockAccounts);
 
   const currentValueText = hideValues
     ? 'Rs. ••••'
@@ -713,27 +857,18 @@ export function ApplyScreen() {
 
   const eligibleCount = operationalAccounts.filter((a) => !alreadyApplied(a.id)).length;
 
-  const applyCounts = useMemo(() => {
-    const counts = {
-      all: applyResults.length,
-      applied: 0,
-      auth: 0,
-      balance: 0,
-      missing: 0,
-      other: 0,
-    };
-    for (const r of applyResults) {
-      counts[classifyApplyResult(r)] += 1;
-    }
-    return counts;
-  }, [applyResults]);
+  const outcomeCounts = useMemo(
+    () => countApplyOutcomes(applyResults),
+    [applyResults],
+  );
 
-  const failedApplyCount = applyResults.length - applyCounts.applied;
+  const modalSuccessCount =
+    outcomeCounts.applied + outcomeCounts.already_applied;
+  const failedApplyCount = applyResults.length - modalSuccessCount;
   const showBulkUpdates = running || applyResults.length > 0;
   const daysLeft = daysLeftForIssue(selected);
 
   useEffect(() => {
-    setSingleResults({});
     setApplyingAccountId(null);
   }, [companyShareId]);
 
@@ -764,14 +899,32 @@ export function ApplyScreen() {
     };
   }, [selected?.companyShareId]);
   const modalTotal = applyResults.length;
-  const modalSuccess = applyCounts.applied;
+  const modalSuccess = modalSuccessCount;
   const modalIssues = failedApplyCount;
   const modalPct =
     modalTotal > 0 ? Math.round((modalSuccess / modalTotal) * 100) : 0;
   const modalNeedsAttention = modalIssues > 0;
-  const modalIssueRows = useMemo(
-    () => applyResults.filter((r) => !r.ok),
-    [applyResults],
+  const modalAttentionOutcomes = useMemo(
+    () =>
+      (
+        [
+          'invalid_crn',
+          'invalid_pin',
+          'invalid_login',
+          'insufficient_balance',
+          'missing_secrets',
+          'other',
+        ] as ApplyOutcome[]
+      ).filter((o) => outcomeCounts[o] > 0),
+    [outcomeCounts],
+  );
+
+  const goEditAccount = useCallback(
+    (accountId: string) => {
+      setResultModalOpen(false);
+      navigation.navigate('EditAccount', { accountId });
+    },
+    [navigation],
   );
 
   const refreshControl = (
@@ -796,7 +949,7 @@ export function ApplyScreen() {
           <Text style={styles.updatesTitleLine} numberOfLines={2}>
             <Text style={styles.updatesTitleLabel}>Bulk Apply Updates </Text>
             <Text style={styles.updatesParen}>(</Text>
-            <Text style={styles.updatesCountOk}>{applyCounts.applied}</Text>
+            <Text style={styles.updatesCountOk}>{modalSuccessCount}</Text>
             <Text style={styles.updatesParen}>/</Text>
             <Text style={styles.updatesCountTotal}>{total}</Text>
             <Text style={styles.updatesParen}>)</Text>
@@ -822,9 +975,6 @@ export function ApplyScreen() {
         <ActivityIndicator size="small" color={colors.primary} />
       </View>
     ) : null;
-
-  const renderBulkUpdateCards = () =>
-    applyResults.map((r, index) => renderUpdateCard(r, index));
 
   const renderBulkAutoApply = () =>
     mode === 'Bulk' ? (
@@ -1032,7 +1182,7 @@ export function ApplyScreen() {
         i + 1,
         csvEscape(r.accountName),
         csvEscape(r.username),
-        csvEscape(reasonLabel(r)),
+        csvEscape(applyOutcomeLabel(resolveApplyOutcome(r))),
         csvEscape(applyDisplayMessage(r)),
       ].join(','),
     );
@@ -1139,9 +1289,11 @@ export function ApplyScreen() {
                 {renderBulkUpdatesWaiting()}
                 <BulkApplyUpdatesPane
                   results={applyResults}
-                  running={running}
+                  applyingAccountId={applyingAccountId}
+                  processingAccountId={processingAccountId}
                   accounts={accounts}
-                  onRetry={runSingle}
+                  onRetry={retryBulkAccount}
+                  onEditAccount={goEditAccount}
                   styles={styles}
                   colors={colors}
                   listBoxStyle={styles.resultsBox}
@@ -1151,9 +1303,7 @@ export function ApplyScreen() {
           ) : (
             <ApplySingleAccountsPane
               accounts={operationalAccounts}
-              appliedIds={appliedAccountIds}
               applyingAccountId={applyingAccountId}
-              singleResults={singleResults}
               isAccountActive={isAccountActive}
               onApply={runSingle}
               styles={styles}
@@ -1185,9 +1335,9 @@ export function ApplyScreen() {
               </Pressable>
             </View>
             <Text style={styles.hint}>
-              Already-applied accounts are locked (1 apply / account / IPO).
-              Over-limit accounts stay saved but cannot apply until you include
-              them in the active set.
+              Select accounts to include in bulk apply. Already-applied accounts
+              can be selected to verify again. Over-limit accounts stay saved but
+              cannot apply until you include them in the active set.
             </Text>
             {accounts.length > 40 ? (
               <TextInput
@@ -1211,11 +1361,10 @@ export function ApplyScreen() {
                 <ApplyModalAccountRow
                   account={item}
                   index={idx}
-                  applied={alreadyApplied(item.id)}
+                  applied={false}
                   locked={!isAccountActive(item.id) || isUserInactive(item)}
                   checked={
                     Boolean(selectedIds[item.id]) &&
-                    !alreadyApplied(item.id) &&
                     isAccountActive(item.id) &&
                     !isUserInactive(item)
                   }
@@ -1306,7 +1455,7 @@ export function ApplyScreen() {
                   >
                     {modalNeedsAttention
                       ? 'Apply Needs Attention'
-                      : 'Apply Complete'}
+                      : 'Bulk Apply Complete'}
                   </Text>
                   <Text style={styles.resultModalSub} numberOfLines={2}>
                     {summary?.companyName ?? selected?.companyName ?? 'IPO'} ·{' '}
@@ -1356,7 +1505,28 @@ export function ApplyScreen() {
               </View>
             </View>
 
-            {modalNeedsAttention ? (
+            {outcomeCounts.already_applied > 0 ? (
+              <View style={styles.modalSection}>
+                <Text style={styles.modalSectionLabel}>SUCCESSFUL</Text>
+                <View style={styles.modalCategoryChipOk}>
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={rs(20)}
+                    color={colors.accentGreen}
+                  />
+                  <Text style={styles.modalCategoryChipTextOk}>
+                    Already Applied
+                  </Text>
+                  <View style={styles.modalCategoryCountOk}>
+                    <Text style={styles.modalCategoryCountTextOk}>
+                      {outcomeCounts.already_applied}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+
+            {modalAttentionOutcomes.length > 0 ? (
               <ScrollView
                 style={styles.attentionScroll}
                 contentContainerStyle={styles.attentionScrollContent}
@@ -1365,18 +1535,30 @@ export function ApplyScreen() {
                 keyboardShouldPersistTaps="handled"
               >
                 <Text style={styles.attentionLabel}>NEEDS ATTENTION</Text>
-                {modalIssueRows.map((r) => (
-                  <View key={r.accountId} style={styles.attentionRow}>
-                    <Ionicons
-                      name="alert-circle"
-                      size={rs(18)}
-                      color={colors.danger}
-                    />
-                    <Text style={styles.attentionText}>
-                      {r.accountName || r.username}: {applyDisplayMessage(r)}
-                    </Text>
-                  </View>
-                ))}
+                {modalAttentionOutcomes.map((outcome) => {
+                  const count = outcomeCounts[outcome];
+                  return (
+                    <View key={outcome} style={styles.modalCategoryChipFail}>
+                      <Ionicons
+                        name={
+                          outcome === 'invalid_crn' || outcome === 'invalid_pin'
+                            ? 'key-outline'
+                            : 'alert-circle'
+                        }
+                        size={rs(20)}
+                        color={colors.danger}
+                      />
+                      <Text style={styles.modalCategoryChipTextFail}>
+                        {applyOutcomeLabel(outcome)}
+                      </Text>
+                      <View style={styles.modalCategoryCountFail}>
+                        <Text style={styles.modalCategoryCountTextFail}>
+                          {count}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
               </ScrollView>
             ) : null}
 
@@ -1399,6 +1581,31 @@ export function ApplyScreen() {
         </View>
       </Modal>
 
+      {toast ? (
+        <View
+          style={[
+            toast.variant === 'single-bar' ? styles.toastSingleBar : styles.toast,
+            toast.kind === 'success' ? styles.toastSuccess : styles.toastError,
+            toast.variant === 'single-bar' && toast.kind === 'error'
+              ? styles.toastErrorSingle
+              : null,
+            toast.variant === 'single-bar'
+              ? { paddingBottom: insets.bottom + rs(14) }
+              : { bottom: insets.bottom + rs(16) },
+          ]}
+        >
+          <Text
+            style={
+              toast.variant === 'single-bar'
+                ? styles.toastSingleBarText
+                : styles.toastText
+            }
+          >
+            {toast.text}
+          </Text>
+        </View>
+      ) : null}
+
       <SensitiveActionModals
         action={sensitive}
         onDismiss={clearApplyingState}
@@ -1407,6 +1614,9 @@ export function ApplyScreen() {
     </ProtectedPersonalScreen>
   );
 }
+
+const APPLY_GREEN_LIGHT = '#81C784';
+const APPLY_GREEN_TEXT = '#66BB6A';
 
 function makeStyles(c: ThemeColors, isDark: boolean) {
   const cardBg = c.bg;
@@ -1807,11 +2017,11 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       alignItems: 'flex-start',
       gap: rs(10),
       borderWidth: 1,
-      borderColor: 'rgba(76,175,80,0.35)',
+      borderColor: 'rgba(129,199,132,0.4)',
       borderRadius: rs(10),
       padding: rs(12),
       marginBottom: rs(8),
-      backgroundColor: cardBg,
+      backgroundColor: isDark ? 'rgba(129,199,132,0.08)' : '#F6FBF6',
     },
     updateBody: { flex: 1, minWidth: 0 },
     updateName: {
@@ -1826,16 +2036,45 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     },
     updateMsgFail: { color: c.danger },
     updateMsgOk: { color: c.textSecondary },
-    updateApplyBtn: {
+    updateMsgOkGreen: { color: APPLY_GREEN_TEXT, fontWeight: '600' },
+    appliedBadge: {
+      borderRadius: rs(14),
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(5),
+      backgroundColor: isDark ? 'rgba(129,199,132,0.22)' : 'rgba(129,199,132,0.18)',
       borderWidth: 1,
-      borderColor: isDark ? '#FFB74D' : '#FB8C00',
+      borderColor: 'rgba(129,199,132,0.45)',
+      alignSelf: 'center',
+    },
+    appliedBadgeText: {
+      color: APPLY_GREEN_TEXT,
+      fontWeight: '800',
+      fontSize: rs(11),
+    },
+    updateBlueBtn: {
       borderRadius: rs(8),
       paddingHorizontal: rs(12),
       paddingVertical: rs(6),
-      backgroundColor: isDark ? 'rgba(255,183,77,0.12)' : '#FFF8F0',
+      backgroundColor: isDark ? 'rgba(100,181,246,0.18)' : '#E8F4FD',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(100,181,246,0.45)' : '#BBDEFB',
+      alignSelf: 'center',
+    },
+    updateBlueText: {
+      color: isDark ? '#90CAF9' : '#42A5F5',
+      fontWeight: '700',
+      fontSize: rs(12),
+    },
+    updateApplyBtn: {
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(129,199,132,0.5)' : '#A5D6A7',
+      borderRadius: rs(8),
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(6),
+      backgroundColor: isDark ? 'rgba(129,199,132,0.15)' : '#F1F8F2',
     },
     updateApplyText: {
-      color: isDark ? '#FFB74D' : '#E65100',
+      color: APPLY_GREEN_TEXT,
       fontWeight: '700',
       fontSize: rs(12),
     },
@@ -1862,14 +2101,41 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
     indexText: { color: c.text, fontWeight: '700' },
     accName: { color: c.text, fontWeight: '700', fontSize: rs(14) },
     accBank: { color: c.textSecondary, fontSize: rs(12), marginTop: rs(2) },
+    accBankApplying: {
+      color: APPLY_GREEN_TEXT,
+      fontWeight: '700',
+    },
     applyBtn: {
       paddingHorizontal: rs(14),
       paddingVertical: rs(8),
-      borderRadius: rs(8),
-      backgroundColor: c.primarySoft,
+      borderRadius: rs(10),
+      backgroundColor: isDark ? 'rgba(129,199,132,0.2)' : '#E8F5E9',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(129,199,132,0.4)' : '#C8E6C9',
     },
-    applyBtnDisabled: { backgroundColor: c.surfaceAlt },
-    applyBtnText: { color: c.primary, fontWeight: '700' },
+    applyBtnSingle: {
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(7),
+      borderRadius: rs(9),
+      minWidth: rs(62),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? '#388E3C' : '#43A047',
+      borderWidth: 1,
+      borderColor: isDark ? '#2E7D32' : '#388E3C',
+    },
+    applyBtnSingleApplying: {
+      backgroundColor: isDark ? '#388E3C' : '#43A047',
+      borderColor: isDark ? '#2E7D32' : '#388E3C',
+      opacity: 0.92,
+    },
+    applyBtnDisabled: { backgroundColor: c.surfaceAlt, borderColor: c.border },
+    applyBtnText: { color: APPLY_GREEN_TEXT, fontWeight: '700', fontSize: rs(12) },
+    applyBtnSingleText: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+      fontSize: rs(11),
+    },
     statRow: {
       flexDirection: 'row',
       gap: rs(8),
@@ -1965,6 +2231,134 @@ function makeStyles(c: ThemeColors, isDark: boolean) {
       fontWeight: '700',
       letterSpacing: 0.6,
       marginBottom: rs(8),
+    },
+    modalSection: {
+      marginBottom: rs(12),
+    },
+    modalSectionLabel: {
+      color: c.textMuted,
+      fontSize: rs(11),
+      fontWeight: '700',
+      letterSpacing: 0.6,
+      marginBottom: rs(8),
+    },
+    modalCategoryChipOk: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: 'rgba(76,175,80,0.35)',
+      backgroundColor: isDark ? 'rgba(76,175,80,0.12)' : '#E8F5E9',
+      padding: rs(12),
+    },
+    modalCategoryChipTextOk: {
+      flex: 1,
+      color: c.accentGreen,
+      fontWeight: '700',
+      fontSize: rs(14),
+    },
+    modalCategoryCountOk: {
+      minWidth: rs(28),
+      height: rs(28),
+      borderRadius: rs(14),
+      backgroundColor: c.accentGreen,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: rs(6),
+    },
+    modalCategoryCountTextOk: {
+      color: '#FFFFFF',
+      fontWeight: '800',
+      fontSize: rs(12),
+    },
+    modalCategoryChipFail: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(10),
+      borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(229,57,53,0.35)' : '#FFCDD2',
+      backgroundColor: isDark ? 'rgba(229,57,53,0.12)' : '#FFEBEE',
+      padding: rs(12),
+      marginBottom: rs(8),
+    },
+    modalCategoryChipTextFail: {
+      flex: 1,
+      color: c.danger,
+      fontWeight: '700',
+      fontSize: rs(14),
+    },
+    modalCategoryCountFail: {
+      minWidth: rs(28),
+      height: rs(28),
+      borderRadius: rs(14),
+      backgroundColor: c.danger,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: rs(6),
+    },
+    modalCategoryCountTextFail: {
+      color: '#FFFFFF',
+      fontWeight: '800',
+      fontSize: rs(12),
+    },
+    toast: {
+      position: 'absolute',
+      left: rs(12),
+      right: rs(12),
+      borderRadius: rs(12),
+      paddingVertical: rs(18),
+      paddingHorizontal: rs(18),
+      minHeight: rs(64),
+      justifyContent: 'center',
+      zIndex: 20,
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.18,
+      shadowRadius: 8,
+    },
+    toastSingleBar: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      borderTopLeftRadius: rs(6),
+      borderTopRightRadius: rs(6),
+      paddingTop: rs(14),
+      paddingHorizontal: rs(16),
+      minHeight: rs(58),
+      justifyContent: 'center',
+      zIndex: 20,
+      elevation: 10,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+    },
+    toastSuccess: {
+      backgroundColor: '#43A047',
+    },
+    toastError: {
+      backgroundColor: '#D32F2F',
+    },
+    toastErrorSingle: {
+      backgroundColor: '#EF5350',
+    },
+    toastText: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+      fontSize: rs(15),
+      lineHeight: rs(22),
+      textAlign: 'center',
+    },
+    toastSingleBarText: {
+      color: '#FFFFFF',
+      fontWeight: '600',
+      fontSize: rs(13),
+      lineHeight: rs(18),
+      textAlign: 'center',
     },
     attentionRow: {
       flexDirection: 'row',

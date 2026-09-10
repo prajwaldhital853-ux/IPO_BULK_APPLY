@@ -364,12 +364,44 @@ export async function verifyAccountForSave(
     }
 
     // 3) CRN + PIN probe (needs an open IPO; otherwise deferred)
-    const probe = await client.probeCrnAndPin({
-      username,
-      dpCode: args.dpCode ?? session.dpCode,
-      crnNumber: crn,
-      transactionPIN: pin,
-    });
+    let probe: Awaited<ReturnType<MeroshareClient['probeCrnAndPin']>>;
+    try {
+      probe = await client.probeCrnAndPin({
+        username,
+        dpCode: args.dpCode ?? session.dpCode,
+        crnNumber: crn,
+        transactionPIN: pin,
+      });
+    } catch (e) {
+      const msg = sanitizeMeroshareMessage(
+        e instanceof Error ? e.message : 'CRN/PIN verification failed',
+      );
+      if (isTransientMeroShareError(msg) || isRoleRestrictedMeroshareError(e)) {
+        return {
+          ok: true,
+          field: null,
+          message:
+            'Login OK. MeroShare could not confirm CRN/PIN right now. Account can be saved — they will be checked on first live IPO apply.',
+          stage: 'complete',
+          boid: session.boid,
+          demat: session.demat,
+          bankName,
+          accountNumber,
+          accountHolderName,
+          crnPinDeferred: true,
+        };
+      }
+      return {
+        ok: false,
+        field: 'network',
+        message: msg,
+        stage: 'crn_pin',
+        boid: session.boid,
+        demat: session.demat,
+        bankName,
+        accountHolderName,
+      };
+    }
 
     if (probe.kind === 'pin') {
       return {

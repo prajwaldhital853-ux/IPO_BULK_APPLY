@@ -56,8 +56,8 @@ export function AccountDetailSheet({
   onDelete,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const [copied, setCopied] = useState<'boid' | 'acc' | null>(null);
 
   useEffect(() => {
@@ -114,36 +114,40 @@ export function AccountDetailSheet({
           style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, rs(16)) }]}
         >
         <View style={styles.grabber} />
-        <View style={styles.headRow}>
-          <View style={styles.indexBadge}>
-            <Text style={styles.indexText}>{index + 1}</Text>
-          </View>
-          <View style={styles.headBody}>
-            <View style={styles.nameRow}>
-              <Text style={styles.name}>{account.name.toUpperCase()}</Text>
-              {account.verified ? (
-                <Ionicons
-                  name="checkmark-circle"
-                  size={rs(16)}
-                  color={colors.accentGreen}
-                />
-              ) : null}
-              {isMinorAccount(account) ? (
-                <View style={styles.minorBadge}>
-                  <Text style={styles.minorBadgeText}>Minor</Text>
-                </View>
-              ) : null}
+        <View style={styles.headSection}>
+          <View style={styles.headRow}>
+            <View style={styles.indexBadge}>
+              <Text style={styles.indexText}>{index + 1}</Text>
             </View>
-            <Text style={styles.username}>Username : {account.username}</Text>
+            <View style={styles.headBody}>
+              <View style={styles.nameRow}>
+                <Text style={styles.name}>{account.name.toUpperCase()}</Text>
+                {account.verified ? (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={rs(14)}
+                    color={colors.accentGreen}
+                  />
+                ) : null}
+                {isMinorAccount(account) ? (
+                  <View style={styles.minorBadge}>
+                    <Text style={styles.minorBadgeText}>Minor</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={styles.username}>Username : {account.username}</Text>
+            </View>
           </View>
+          <View style={styles.headDivider} />
         </View>
 
+        <View style={styles.detailsBody}>
         {isMinorAccount(account) ? (
           <>
             <View style={styles.fieldRow}>
               <Ionicons
                 name="hourglass-outline"
-                size={rs(18)}
+                size={rs(16)}
                 color={colors.textMuted}
                 style={styles.fieldIcon}
               />
@@ -155,7 +159,7 @@ export function AccountDetailSheet({
             <View style={styles.fieldRow}>
               <Ionicons
                 name="calendar-outline"
-                size={rs(18)}
+                size={rs(16)}
                 color={colors.textMuted}
                 style={styles.fieldIcon}
               />
@@ -167,7 +171,7 @@ export function AccountDetailSheet({
             <View style={styles.fieldRow}>
               <Ionicons
                 name="people-outline"
-                size={rs(18)}
+                size={rs(16)}
                 color={colors.textMuted}
                 style={styles.fieldIcon}
               />
@@ -182,31 +186,33 @@ export function AccountDetailSheet({
         <View style={styles.fieldRow}>
           <MaterialCommunityIcons
             name="card-account-details-outline"
-            size={rs(18)}
+            size={rs(16)}
             color={colors.textMuted}
             style={styles.fieldIcon}
           />
           <Text style={styles.fieldLabel}>BOID</Text>
-          <Text style={styles.fieldValue} numberOfLines={1}>
-            {boidDisplay}
-          </Text>
-          <Pressable
-            hitSlop={10}
-            style={styles.copyBtn}
-            onPress={() => void copyValue('boid', boid, 'BOID')}
-          >
-            <Ionicons
-              name={copied === 'boid' ? 'checkmark' : 'copy-outline'}
-              size={rs(18)}
-              color={copied === 'boid' ? colors.accentGreen : colors.primary}
-            />
-          </Pressable>
+          <View style={styles.valueCopyRow}>
+            <Text style={styles.fieldValue} numberOfLines={1}>
+              {boidDisplay}
+            </Text>
+            <Pressable
+              hitSlop={8}
+              style={styles.copyBtn}
+              onPress={() => void copyValue('boid', boid, 'BOID')}
+            >
+              <Ionicons
+                name={copied === 'boid' ? 'checkmark' : 'copy-outline'}
+                size={rs(15)}
+                color={copied === 'boid' ? colors.accentGreen : colors.primary}
+              />
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.fieldRow}>
           <MaterialCommunityIcons
             name="bank-outline"
-            size={rs(18)}
+            size={rs(16)}
             color={colors.textMuted}
             style={styles.fieldIcon}
           />
@@ -219,30 +225,31 @@ export function AccountDetailSheet({
         <View style={styles.fieldRow}>
           <MaterialCommunityIcons
             name="receipt"
-            size={rs(18)}
+            size={rs(16)}
             color={colors.textMuted}
             style={styles.fieldIcon}
           />
           <Text style={styles.fieldLabel}>Acc</Text>
-          <Text style={styles.fieldValue} numberOfLines={1}>
-            {accDisplay}
-          </Text>
-          {accountNumber ? (
+          <View style={styles.valueCopyRow}>
+            <Text style={styles.fieldValue} numberOfLines={1}>
+              {accDisplay}
+            </Text>
             <Pressable
-              hitSlop={10}
+              hitSlop={8}
               style={styles.copyBtn}
-              onPress={() => void copyValue('acc', accountNumber, 'Account number')}
+              onPress={() =>
+                void copyValue('acc', accountNumber, 'Account number')
+              }
             >
               <Ionicons
                 name={copied === 'acc' ? 'checkmark' : 'copy-outline'}
-                size={rs(18)}
+                size={rs(15)}
                 color={copied === 'acc' ? colors.accentGreen : colors.primary}
               />
             </Pressable>
-          ) : null}
+          </View>
         </View>
-
-        <View style={styles.divider} />
+        </View>
 
         <View style={styles.actions}>
           <Pressable
@@ -252,7 +259,7 @@ export function AccountDetailSheet({
               onOpen(account);
             }}
           >
-            <Ionicons name="open-outline" size={rs(18)} color={ACTION_BLUE} />
+            <Ionicons name="open-outline" size={rs(16)} color={ACTION_BLUE} />
             <Text style={[styles.actionText, { color: ACTION_BLUE }]}>Open</Text>
           </Pressable>
           <Pressable
@@ -262,7 +269,7 @@ export function AccountDetailSheet({
               onEdit(account);
             }}
           >
-            <Ionicons name="create-outline" size={rs(18)} color={ACTION_GREEN} />
+            <Ionicons name="create-outline" size={rs(16)} color={ACTION_GREEN} />
             <Text style={[styles.actionText, { color: ACTION_GREEN }]}>Edit</Text>
           </Pressable>
           <Pressable
@@ -272,7 +279,7 @@ export function AccountDetailSheet({
               onDelete(account);
             }}
           >
-            <Ionicons name="trash-outline" size={rs(18)} color={colors.danger} />
+            <Ionicons name="trash-outline" size={rs(16)} color={colors.danger} />
             <Text style={[styles.actionText, { color: colors.danger }]}>Delete</Text>
           </Pressable>
         </View>
@@ -282,7 +289,7 @@ export function AccountDetailSheet({
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     container: {
       flex: 1,
@@ -294,98 +301,117 @@ function makeStyles(c: ThemeColors) {
     },
     sheet: {
       backgroundColor: c.surface,
-      borderTopLeftRadius: rs(20),
-      borderTopRightRadius: rs(20),
-      paddingHorizontal: rs(20),
-      paddingTop: rs(10),
+      borderTopLeftRadius: rs(18),
+      borderTopRightRadius: rs(18),
+      paddingHorizontal: rs(16),
+      paddingTop: rs(8),
     },
     grabber: {
       alignSelf: 'center',
-      width: rs(40),
+      width: rs(36),
       height: rs(4),
       borderRadius: rs(2),
       backgroundColor: c.border,
-      marginBottom: rs(16),
+      marginBottom: rs(8),
+    },
+    headSection: {
+      marginBottom: rs(8),
+      paddingTop: rs(4),
+      paddingBottom: 0,
+    },
+    headDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: isDark ? c.border : '#C5CBC5',
+      marginTop: rs(12),
+      marginHorizontal: -rs(16),
     },
     headRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(12),
-      marginBottom: rs(20),
+      gap: rs(10),
     },
     indexBadge: {
-      width: rs(32),
-      height: rs(32),
-      borderRadius: rs(8),
-      backgroundColor: c.surfaceAlt,
+      width: rs(28),
+      height: rs(28),
+      borderRadius: rs(7),
+      backgroundColor: c.surfaceAlt || c.bgElevated,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? c.border : '#D8DED8',
       alignItems: 'center',
       justifyContent: 'center',
     },
-    indexText: { color: c.text, fontWeight: '700', fontSize: rs(14) },
+    indexText: { color: c.text, fontWeight: '700', fontSize: rs(12) },
     headBody: { flex: 1 },
-    nameRow: { flexDirection: 'row', alignItems: 'center', gap: rs(6) },
-    name: { color: c.text, fontWeight: '800', fontSize: rs(16) },
+    nameRow: { flexDirection: 'row', alignItems: 'center', gap: rs(5) },
+    name: { color: c.text, fontWeight: '800', fontSize: rs(14) },
     minorBadge: {
-      paddingHorizontal: rs(7),
-      paddingVertical: rs(2),
-      borderRadius: rs(6),
+      paddingHorizontal: rs(6),
+      paddingVertical: rs(1),
+      borderRadius: rs(5),
       backgroundColor: c.surfaceAlt || c.bgElevated,
       borderWidth: 1,
       borderColor: c.border,
     },
     minorBadgeText: {
       color: c.textMuted,
-      fontSize: rs(10),
+      fontSize: rs(9),
       fontWeight: '800',
       letterSpacing: 0.2,
     },
-    username: { color: c.textSecondary, fontSize: rs(13), marginTop: rs(4) },
+    username: { color: c.textSecondary, fontSize: rs(11), marginTop: rs(2) },
+    detailsBody: {
+      paddingTop: rs(2),
+    },
     fieldRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: rs(10),
-      marginBottom: rs(14),
+      gap: rs(8),
+      marginBottom: rs(7),
     },
-    fieldIcon: { width: rs(20), textAlign: 'center' },
+    fieldIcon: { width: rs(18), textAlign: 'center' },
     fieldLabel: {
       color: c.textMuted,
-      fontSize: rs(13),
+      fontSize: rs(11),
       fontWeight: '600',
-      width: rs(44),
+      width: rs(38),
+    },
+    valueCopyRow: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: rs(6),
+      minWidth: 0,
     },
     fieldValue: {
       color: c.text,
-      fontSize: rs(14),
+      fontSize: rs(12),
       fontWeight: '600',
-      flex: 1,
+      flexShrink: 1,
       fontVariant: ['tabular-nums'],
     },
     copyBtn: {
-      paddingVertical: rs(4),
-      paddingHorizontal: rs(6),
-    },
-    divider: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: c.border,
-      marginTop: rs(4),
-      marginBottom: rs(10),
+      paddingVertical: rs(1),
+      paddingHorizontal: rs(2),
     },
     actions: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-start',
+      gap: rs(18),
+      paddingLeft: rs(6),
+      paddingTop: rs(2),
     },
     actionBtn: {
-      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: rs(6),
-      paddingVertical: rs(12),
+      gap: rs(4),
+      paddingVertical: rs(8),
+      paddingHorizontal: rs(4),
     },
     actionText: {
       fontWeight: '700',
-      fontSize: rs(14),
+      fontSize: rs(13),
     },
   });
 }

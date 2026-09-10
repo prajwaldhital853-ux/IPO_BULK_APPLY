@@ -1,5 +1,4 @@
 import type { AccountMeta } from '../../types/account';
-import { isMockAccountId } from '../../data/mockAccounts';
 import { getSecrets } from '../../storage/accountsStorage';
 import { recordIpoApply } from '../../storage/bankTrackerStorage';
 import {
@@ -8,6 +7,12 @@ import {
 } from '../../utils/accountOperational';
 import { MeroshareClient, DEMO_OPENINGS } from './client';
 import {
+  buildMockApplyResult,
+  isMockAccountId,
+  mockApplyScenarioForAccount,
+} from '../../data/mockAccounts';
+import {
+  ALREADY_APPLIED_DISPLAY_MSG,
   ALREADY_APPLIED_USER_MSG,
   isAlreadyAppliedMeroshareMessage,
   isAlreadyAppliedApplyMessage,
@@ -46,7 +51,11 @@ function finalizeApplyRow(row: ApplyAccountResult): ApplyAccountResult {
     isAlreadyAppliedMeroshareMessage(row.message) ||
     isAlreadyAppliedApplyMessage(row.message)
   ) {
-    return { ...row, message: ALREADY_APPLIED_MSG };
+    return {
+      ...row,
+      ok: true,
+      message: ALREADY_APPLIED_DISPLAY_MSG,
+    };
   }
   return row;
 }
@@ -208,7 +217,14 @@ export async function runBulkApply(
   const results: ApplyAccountResult[] = [];
   const stoppedEarly = false;
 
-  if (!dryRun && opts.issue.companyShareId === 9001) {
+  const allMockAccounts =
+    opts.accounts.length > 0 &&
+    opts.accounts.every((a) => isMockAccountId(a.id));
+  if (
+    !dryRun &&
+    opts.issue.companyShareId === 9001 &&
+    !allMockAccounts
+  ) {
     throw new MeroshareError(
       'UNKNOWN',
       'Cannot live-apply to DEMO issue. Wait for a real opening or refresh IPOs after login.',
@@ -228,6 +244,16 @@ export async function runBulkApply(
       i,
       opts.accounts.length,
     );
+
+    if (isMockAccountId(account.id)) {
+      const scenario = mockApplyScenarioForAccount(account.id);
+      pushResult(
+        buildMockApplyResult(account, scenario, opts.issue, opts.kitta, dryRun),
+        i,
+      );
+      if (i < opts.accounts.length - 1) await sleep(accountGapMs);
+      continue;
+    }
 
     const secrets = await getSecrets(account.id);
     if (!secrets?.password || !secrets.crn || !secrets.pin) {
