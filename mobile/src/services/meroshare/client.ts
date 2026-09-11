@@ -1109,6 +1109,9 @@ export class MeroshareClient {
       ) {
         return { alreadyApplied: false };
       }
+      if (status.status === 'CHECK_FAILED') {
+        return { alreadyApplied: false };
+      }
       if (status.status === 'REJECTED' || /^rejected$/i.test(status.allotmentStatus || '')) {
         return { alreadyApplied: false, status: status.status };
       }
@@ -1585,19 +1588,166 @@ export class MeroshareClient {
       throw new MeroshareError('AUTH', 'Not logged in');
     }
 
-    const rows = await this.fetchApplicationReportRows();
-    const match = rows.find(
-      (r) => Number(r.companyShareId) === Number(companyShareId),
-    );
+    const { row: match, reportUnavailable } =
+      await this.findApplicationReportRowForCheck(companyShareId);
     if (!match) {
+      return this.resolveStatusWhenReportMissing(
+        companyShareId,
+        opts,
+        reportUnavailable,
+      );
+    }
+
+    return this.buildCheckStatusFromReportMatch(match, opts);
+  }
+
+  /** Paginate Application Report until companyShareId is found (not only page 1). */
+  private async findApplicationReportRowForCheck(
+    companyShareId: number,
+  ): Promise<{
+    row: Record<string, unknown> | null;
+    reportUnavailable: boolean;
+  }> {
+    const base = this.base || MEROSHARE_BASE;
+    const pageSize = 200;
+    const maxPages = 25;
+    let anyPageOk = false;
+
+    for (let page = 1; page <= maxPages; page++) {
+      const res = await this.softSearchReports(
+        base,
+        PATHS.applicationReport,
+        this.portalActiveReportBody(page, pageSize),
+        `active/page-${page}`,
+      );
+      if (res.error && !res.rows.length) {
+        return { row: null, reportUnavailable: page === 1 && !anyPageOk };
+      }
+      if (res.rows.length) anyPageOk = true;
+
+      const match = res.rows.find(
+        (r) => normalizeReportRow(r).companyShareId === Number(companyShareId),
+      );
+      if (match) {
+        return { row: match, reportUnavailable: false };
+      }
+
+      if (res.rows.length < pageSize) break;
+      if (res.totalCount != null && page * pageSize >= res.totalCount) break;
+    }
+
+    return { row: null, reportUnavailable: !anyPageOk };
+  }
+
+  private async resolveStatusWhenReportMissing(
+    companyShareId: number,
+    opts: {
+      dryRun?: boolean;
+      companyName?: string;
+      bulkFast?: boolean;
+      applicationPhase?: boolean;
+    },
+    reportUnavailable: boolean,
+  ): Promise<{
+    status: string;
+    message: string;
+    dryRun: boolean;
+    ok?: boolean;
+    appliedKitta?: number;
+    allotmentStatus?: string;
+    remarks?: string;
+  }> {
+    if (reportUnavailable) {
       return {
         dryRun: false,
-        status: 'NOT_APPLIED',
-        message: 'You have not applied for this IPO',
+        status: 'CHECK_FAILED',
+        message: 'Could not verify application status with MeroShare. Retry.',
         ok: false,
       };
     }
 
+    try {
+      const issues = await this.listApplicableIssues();
+      const issue = issues.find(
+        (i) => Number(i.companyShareId) === Number(companyShareId),
+      );
+      if (issue?.alreadyApplied) {
+        return this.buildCheckStatusFromApplicantForm(companyShareId, opts);
+      }
+      if (issue && !issue.alreadyApplied) {
+        return {
+          dryRun: false,
+          status: 'NOT_APPLIED',
+          message: 'You have not applied for this IPO',
+          ok: false,
+        };
+      }
+    } catch {
+      // fall through
+    }
+
+    try {
+      return await this.buildCheckStatusFromApplicantForm(companyShareId, opts);
+    } catch {
+      // no applicant form on MeroShare
+    }
+
+    return {
+      dryRun: false,
+      status: 'NOT_APPLIED',
+      message: 'You have not applied for this IPO',
+      ok: false,
+    };
+  }
+
+  /** Applicant form GET — used when report list missed an existing application. */
+  private async buildCheckStatusFromApplicantForm(
+    companyShareId: number,
+    opts: {
+      dryRun?: boolean;
+      companyName?: string;
+      bulkFast?: boolean;
+      applicationPhase?: boolean;
+    },
+  ): Promise<{
+    status: string;
+    message: string;
+    dryRun: boolean;
+    ok?: boolean;
+    appliedKitta?: number;
+    allotmentStatus?: string;
+    remarks?: string;
+  }> {
+    const form = await this.fetchApplicantFormForReapply(companyShareId);
+    const flat = flattenCdscObject(form);
+    const match: Record<string, unknown> = {
+      companyShareId,
+      statusName: flat.statusName ?? flat.status ?? flat.applicantStage,
+      appliedKitta: flat.appliedKitta ?? flat.quantity ?? flat.kitta,
+      applicantFormId: flat.id ?? flat.applicantFormId ?? flat.applicantFormID,
+      status: flat.status,
+      applicantStage: flat.applicantStage,
+    };
+    return this.buildCheckStatusFromReportMatch(match, opts);
+  }
+
+  private async buildCheckStatusFromReportMatch(
+    match: Record<string, unknown>,
+    opts: {
+      dryRun?: boolean;
+      companyName?: string;
+      bulkFast?: boolean;
+      applicationPhase?: boolean;
+    },
+  ): Promise<{
+    status: string;
+    message: string;
+    dryRun: boolean;
+    ok?: boolean;
+    appliedKitta?: number;
+    allotmentStatus?: string;
+    remarks?: string;
+  }> {
     const statusName = String(
       match.statusName ?? match.status ?? match.applicantStage ?? 'UNKNOWN',
     );
@@ -1820,6 +1970,7 @@ export class MeroshareClient {
   ): Promise<{
     rows: Array<Record<string, unknown>>;
     error?: string;
+    totalCount?: number;
   }> {
     if (!this.session?.token) {
       return { rows: [], error: `${label}: not logged in` };
@@ -1878,12 +2029,17 @@ export class MeroshareClient {
           return { rows: [], error: lastError };
         }
         const rows = this.extractReportRows(data);
+        const rawTotal = data.totalCount ?? data.total ?? data.totalElements;
+        const totalCount =
+          rawTotal != null && !Number.isNaN(Number(rawTotal))
+            ? Number(rawTotal)
+            : undefined;
         if (__DEV__) {
           console.log(
-            `[meroshare] ${label} rows=${rows.length} totalCount=${String(data.totalCount ?? '')}`,
+            `[meroshare] ${label} rows=${rows.length} totalCount=${String(totalCount ?? '')}`,
           );
         }
-        return { rows };
+        return { rows, totalCount };
       } catch (e) {
         lastError = `${label}: ${e instanceof Error ? e.message : 'failed'}`;
         if (attempt < 2 && isTransientMeroshareMessage(lastError)) {

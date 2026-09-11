@@ -35,6 +35,12 @@ export function classifyIpoResult(
   row: ResultAccountStatus,
 ): IpoResultKind {
   if (
+    row.status === 'CHECK_FAILED' ||
+    /could not verify application status/i.test(row.message)
+  ) {
+    return 'rejected';
+  }
+  if (
     row.status === 'NOT_APPLIED' ||
     /no application found|not applied|have not applied/i.test(row.message)
   ) {

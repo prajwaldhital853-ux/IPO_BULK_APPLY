@@ -60,6 +60,7 @@ import {
   applicationPhaseRemarks,
   applicationPhaseStatusLine,
   classifyApplicationPhase,
+  isStatusCheckFailed,
   shouldUseApplicationPhaseStatus,
 } from '../utils/ipoApplicationPhase';
 import {
@@ -94,6 +95,8 @@ function badgeType(shareTypeName: string): string {
 }
 
 function classify(row: ResultAccountStatus): 'allotted' | 'not' | 'rejected' | 'not_applied' {
+  if (isStatusCheckFailed(row)) return 'rejected';
+
   if (
     row.status === 'NOT_APPLIED' ||
     /no application found|not applied|have not applied/i.test(row.message)
@@ -149,6 +152,9 @@ function resolveFilterBucket(
 }
 
 function statusLine(row: ResultAccountStatus): string {
+  if (isStatusCheckFailed(row)) {
+    return row.message.trim() || 'Could not verify status';
+  }
   if (
     row.status === 'NOT_APPLIED' ||
     /no application found|not applied|have not applied/i.test(row.message)

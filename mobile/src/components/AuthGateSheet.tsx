@@ -1,11 +1,6 @@
 import React, { useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppPressable } from './AppPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -157,7 +152,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   googleText: { color: '#fff', fontWeight: '800', fontSize: rs(14) },
-  disabled: { opacity: 0.7 },
   dismissBtn: { paddingVertical: rs(10) },
   dismissText: { fontSize: rs(13) },
 });

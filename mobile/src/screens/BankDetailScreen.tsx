@@ -13,6 +13,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppPressable } from '../components/AppPressable';
 import { FormField } from '../components/FormField';
 import { LocalDisclaimer } from '../components/LocalDisclaimer';
 import { MinorDobFields } from '../components/MinorDobFields';
@@ -578,7 +579,13 @@ export function BankDetailScreen() {
             />
           ) : null}
 
-          <Pressable style={styles.submitBtn} onPress={onSubmit}>
+          <AppPressable
+            style={styles.submitBtn}
+            onPress={onSubmit}
+            loading={submitting}
+            pressVariant="pushDown"
+            pushOffset={3}
+          >
             {submitting ? (
               <View style={styles.submitRow}>
                 <ActivityIndicator color="#FFFFFF" />
@@ -587,7 +594,7 @@ export function BankDetailScreen() {
             ) : (
               <Text style={styles.submitText}>Submit</Text>
             )}
-          </Pressable>
+          </AppPressable>
         </ScrollView>
       </KeyboardAvoidingView>
 

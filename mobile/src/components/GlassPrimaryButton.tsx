@@ -1,7 +1,8 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { AppPressable } from './AppPressable';
 import { CHECK_BTN_GRADIENT } from '../theme/glassUi';
 import { rs } from '../utils/responsive';
 
@@ -19,10 +20,13 @@ export function GlassPrimaryButton({
   loading,
 }: Props) {
   return (
-    <Pressable
-      style={[styles.wrap, (disabled || loading) && styles.disabled]}
+    <AppPressable
+      style={styles.wrap}
       onPress={onPress}
-      disabled={disabled || loading}
+      loading={loading}
+      disabled={disabled}
+      pressVariant="pushDown"
+      pushOffset={3}
     >
       <LinearGradient
         colors={[...CHECK_BTN_GRADIENT]}
@@ -40,7 +44,7 @@ export function GlassPrimaryButton({
           </>
         )}
       </LinearGradient>
-    </Pressable>
+    </AppPressable>
   );
 }
 
@@ -55,7 +59,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  disabled: { opacity: 0.55 },
   btn: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Pressable,
@@ -14,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AccountDetailSheet } from '../components/AccountDetailSheet';
+import { AppPressable } from '../components/AppPressable';
 import { BusyOverlay } from '../components/BusyOverlay';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { AppHeader } from '../components/AppHeader';
@@ -191,28 +193,35 @@ export function HomeScreen() {
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const goAddCapital = useCallback(() => {
+    if (addAccountBusy) return;
     void (async () => {
-      if (
-        !(await ensureGoogleSignedInForAddAccount(
-          isAuthenticated,
-          signInWithGoogle,
-        ))
-      ) {
-        return;
+      setAddAccountBusy(true);
+      try {
+        if (
+          !(await ensureGoogleSignedInForAddAccount(
+            isAuthenticated,
+            signInWithGoogle,
+          ))
+        ) {
+          return;
+        }
+        if (
+          !(await guardAddAccountAsync({
+            currentCount: accounts.length,
+            isPremium,
+            maxAccounts,
+            onUpgrade: () => navigation.navigate('Subscription'),
+          }))
+        ) {
+          return;
+        }
+        navigation.navigate('AddCapital');
+      } finally {
+        setAddAccountBusy(false);
       }
-      if (
-        !(await guardAddAccountAsync({
-          currentCount: accounts.length,
-          isPremium,
-          maxAccounts,
-          onUpgrade: () => navigation.navigate('Subscription'),
-        }))
-      ) {
-        return;
-      }
-      navigation.navigate('AddCapital');
     })();
   }, [
+    addAccountBusy,
     accounts.length,
     isAuthenticated,
     isPremium,
@@ -247,6 +256,7 @@ export function HomeScreen() {
   const [exporting, setExporting] = useState(false);
   const [demoBusy, setDemoBusy] = useState(false);
   const [demoBusyLabel, setDemoBusyLabel] = useState('Working…');
+  const [addAccountBusy, setAddAccountBusy] = useState(false);
 
   const filteredAccounts = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -698,13 +708,25 @@ export function HomeScreen() {
             renderItem={renderAccount}
           />
 
-          <Pressable style={styles.fab} onPress={goAddCapital}>
-            <Ionicons
-              name="add"
-              size={rs(28)}
-              color={isDark ? colors.fabIcon : '#1B2E1B'}
-            />
-          </Pressable>
+          <AppPressable
+            style={styles.fab}
+            onPress={goAddCapital}
+            loading={addAccountBusy}
+            pressVariant="pushDown"
+            pushOffset={4}
+          >
+            {addAccountBusy ? (
+              <ActivityIndicator
+                color={isDark ? colors.fabIcon : '#1B2E1B'}
+              />
+            ) : (
+              <Ionicons
+                name="add"
+                size={rs(28)}
+                color={isDark ? colors.fabIcon : '#1B2E1B'}
+              />
+            )}
+          </AppPressable>
 
           <AccountDetailSheet
             account={selectedAccount}

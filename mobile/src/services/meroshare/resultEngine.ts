@@ -190,6 +190,7 @@ function resultRowFromCheck(
     res.ok === false ||
     res.status === 'REJECTED' ||
     res.status === 'NOT_APPLIED' ||
+    res.status === 'CHECK_FAILED' ||
     res.status === 'FAILED' ||
     res.status === 'AUTH';
   return {

@@ -17,6 +17,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppPressable } from '../components/AppPressable';
 import { FormField } from '../components/FormField';
 import { LocalDisclaimer } from '../components/LocalDisclaimer';
 import { ProtectedPersonalScreen } from '../components/ProtectedPersonalScreen';
@@ -295,16 +296,19 @@ export function AddCapitalScreen() {
             }}
           />
 
-          <Pressable
+          <AppPressable
             style={styles.nextBtn}
             onPress={() => void onNext()}
+            loading={loadingDps || checkingLogin}
+            pressVariant="pushDown"
+            pushOffset={3}
           >
             {loadingDps || checkingLogin ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text style={styles.nextText}>Next</Text>
             )}
-          </Pressable>
+          </AppPressable>
         </ScrollView>
       </KeyboardAvoidingView>
 

@@ -66,6 +66,7 @@
     "build:production": "eas build -p android --profile production --non-interactive",
     "icons:regen": "python scripts/gen_app_icons.py",
     "sha1:debug": "node scripts/print-debug-sha1.js",
+    "test:status": "npm exec --yes --package=tsx -- tsx scripts/test-ipo-status-lookup.ts",
     "postinstall": "node plugins/apply-expo-notification-patches.js"
   },
   "private": true

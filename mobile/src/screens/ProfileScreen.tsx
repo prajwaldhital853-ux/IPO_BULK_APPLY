@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   InteractionManager,
   Linking,
@@ -17,6 +18,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppHeader } from '../components/AppHeader';
+import { AppPressable } from '../components/AppPressable';
 import { AdminPromoBanner } from '../components/AdminPromoBanner';
 import { BrandLogo } from '../components/BrandLogo';
 import { DeleteAccountModal } from '../components/DeleteAccountModal';
@@ -205,6 +207,7 @@ export function ProfileScreen() {
   const [copied, setCopied] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
+  const [authBusy, setAuthBusy] = useState<'in' | 'out' | null>(null);
 
   const reloadProfile = useCallback(async () => {
     const tasks: Array<Promise<unknown>> = [
@@ -656,25 +659,55 @@ export function ProfileScreen() {
           <Text style={styles.heroMeta}>Account Limit: {maxAccounts}</Text>
 
           {auth.isAuthenticated ? (
-            <Pressable
+            <AppPressable
               style={styles.logoutPill}
-              onPress={() => void auth.signOut()}
-            >
-              <Text style={styles.logoutText}>Log Out</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              style={styles.logoutPill}
+              loading={authBusy === 'out'}
+              pressVariant="pushDown"
+              pushOffset={3}
               onPress={() => {
-                void auth.signInWithGoogle().catch(() => {
-                  // AuthContext already shows Alert (blocked / failed).
-                });
+                void (async () => {
+                  setAuthBusy('out');
+                  try {
+                    await auth.signOut();
+                  } finally {
+                    setAuthBusy(null);
+                  }
+                })();
               }}
             >
-              <Text style={[styles.logoutText, { color: '#1565C0' }]}>
-                Log In
-              </Text>
-            </Pressable>
+              {authBusy === 'out' ? (
+                <ActivityIndicator color="#C62828" />
+              ) : (
+                <Text style={styles.logoutText}>Log Out</Text>
+              )}
+            </AppPressable>
+          ) : (
+            <AppPressable
+              style={styles.logoutPill}
+              loading={authBusy === 'in'}
+              pressVariant="pushDown"
+              pushOffset={3}
+              onPress={() => {
+                void (async () => {
+                  setAuthBusy('in');
+                  try {
+                    await auth.signInWithGoogle();
+                  } catch {
+                    // AuthContext already shows Alert (blocked / failed).
+                  } finally {
+                    setAuthBusy(null);
+                  }
+                })();
+              }}
+            >
+              {authBusy === 'in' ? (
+                <ActivityIndicator color="#1565C0" />
+              ) : (
+                <Text style={[styles.logoutText, { color: '#1565C0' }]}>
+                  Log In
+                </Text>
+              )}
+            </AppPressable>
           )}
         </View>
 

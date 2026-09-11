@@ -17,6 +17,10 @@ dist/**
 **/*.aab
 NEPSE-GHAR-*.apk
 nepse-ghar-*.apk
+nepseghar-*.apk
+hellou-preview-*.apk
+credentials/
+credentials/**
 apk-build.log
 apk-url.txt
 eas-build-*.json

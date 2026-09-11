@@ -37,6 +37,7 @@ import {
   applyDisplayMessage,
   resolveApplyOutcome,
 } from '../utils/applyResultUi';
+import { isStatusCheckFailed } from '../utils/ipoApplicationPhase';
 import {
   buildCheckAccountIdSet,
   isAllAccountsSelected,
@@ -76,6 +77,8 @@ type ResultKind = 'verified' | 'unverified' | 'rejected' | 'not_applied';
 type StatusFilter = 'all' | ResultKind;
 
 function classify(row: ResultAccountStatus): ResultKind {
+  if (isStatusCheckFailed(row)) return 'unverified';
+
   if (
     row.status === 'NOT_APPLIED' ||
     /no application found|not applied|have not applied/i.test(row.message)
@@ -101,6 +104,9 @@ function classify(row: ResultAccountStatus): ResultKind {
 }
 
 function statusLine(row: ResultAccountStatus): string {
+  if (isStatusCheckFailed(row)) {
+    return row.message.trim() || 'Could not verify status';
+  }
   const kind = classify(row);
   if (kind === 'not_applied') return 'NOT APPLIED';
   const label = (row.allotmentStatus || row.message || '').trim();

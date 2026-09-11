@@ -7,6 +7,14 @@ export type ApplicationPhaseKind =
   | 'rejected'
   | 'not_applied';
 
+/** MeroShare report could not be loaded — not the same as genuinely not applied. */
+export function isStatusCheckFailed(row: ResultAccountStatus): boolean {
+  return (
+    row.status === 'CHECK_FAILED' ||
+    /could not verify application status/i.test(row.message)
+  );
+}
+
 /** List-row / company status indicates published allotment (not bank-verify window). */
 export function isPublishedAllotmentListStatus(statusName: string): boolean {
   const s = (statusName || '').trim().toUpperCase();
@@ -66,6 +74,8 @@ export function shouldUseApplicationPhaseStatus(
 export function classifyApplicationPhase(
   row: ResultAccountStatus,
 ): ApplicationPhaseKind {
+  if (isStatusCheckFailed(row)) return 'unverified';
+
   if (
     row.status === 'NOT_APPLIED' ||
     /no application found|not applied|have not applied/i.test(row.message)
@@ -98,6 +108,9 @@ export function classifyApplicationPhase(
 }
 
 export function applicationPhaseStatusLine(row: ResultAccountStatus): string {
+  if (isStatusCheckFailed(row)) {
+    return row.message.trim() || 'Could not verify status';
+  }
   const kind = classifyApplicationPhase(row);
   if (kind === 'not_applied') return 'NOT APPLIED';
   const label = (row.allotmentStatus || row.message || '').trim();
