@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { humanizeApplicationStatus } from '../services/meroshare';
 import type { ResultAccountStatus } from '../services/meroshare';
 import type { AccountMeta } from '../types/account';
+import { isStatusCheckFailed } from './ipoApplicationPhase';
 import { resolveBoidSync } from './boid';
 
 export type IpoResultKind = 'allotted' | 'not' | 'rejected' | 'not_applied';
@@ -34,11 +35,8 @@ const HEADERS_NOT_ALLOTTED = [
 export function classifyIpoResult(
   row: ResultAccountStatus,
 ): IpoResultKind {
-  if (
-    row.status === 'CHECK_FAILED' ||
-    /could not verify application status/i.test(row.message)
-  ) {
-    return 'rejected';
+  if (isStatusCheckFailed(row)) {
+    return 'not';
   }
   if (
     row.status === 'NOT_APPLIED' ||

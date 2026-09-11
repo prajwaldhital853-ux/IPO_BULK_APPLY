@@ -665,8 +665,8 @@ export function ProfileScreen() {
               pressVariant="pushDown"
               pushOffset={3}
               onPress={() => {
+                setAuthBusy('out');
                 void (async () => {
-                  setAuthBusy('out');
                   try {
                     await auth.signOut();
                   } finally {
@@ -688,8 +688,8 @@ export function ProfileScreen() {
               pressVariant="pushDown"
               pushOffset={3}
               onPress={() => {
+                setAuthBusy('in');
                 void (async () => {
-                  setAuthBusy('in');
                   try {
                     await auth.signInWithGoogle();
                   } catch {

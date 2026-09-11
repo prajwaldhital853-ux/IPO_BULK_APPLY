@@ -12,6 +12,10 @@ mobile/*.aab
 mobile/builds/
 mobile/NEPSE-GHAR-*.apk
 mobile/nepse-ghar-*.apk
+mobile/nepseghar-*.apk
+mobile/hellou-preview-*.apk
+mobile/**/*.apk
+mobile/**/*.aab
 mobile/build-fail-log*
 mobile/build-fail-log.*
 mobile/build-fail.json

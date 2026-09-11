@@ -40,19 +40,23 @@ export function AppPressable({
     <Pressable
       {...rest}
       disabled={inactive}
-      style={({ pressed }) => [
-        style,
-        pressEffect &&
-          pressed &&
-          !inactive &&
-          (pressVariant === 'pushDown'
-            ? {
-                transform: [{ translateY: pushOffset }],
-                opacity: 0.92,
-              }
-            : styles.pressedScale),
-        disabled && styles.disabled,
-      ]}
+      style={({ pressed }) => {
+        const showPressedLook =
+          pressEffect &&
+          !disabled &&
+          (pressed || (loading && pressVariant === 'pushDown'));
+        return [
+          style,
+          showPressedLook &&
+            (pressVariant === 'pushDown'
+              ? {
+                  transform: [{ translateY: pushOffset }],
+                  opacity: 0.92,
+                }
+              : styles.pressedScale),
+          disabled && styles.disabled,
+        ];
+      }}
     >
       {loading && loadingReplacesContent ? (
         <ActivityIndicator color={loadingColor} />

@@ -37,7 +37,12 @@ import {
   applyDisplayMessage,
   resolveApplyOutcome,
 } from '../utils/applyResultUi';
-import { isStatusCheckFailed } from '../utils/ipoApplicationPhase';
+import {
+  applicationPhaseStatusLine,
+  classifyApplicationPhase,
+  isStatusCheckFailed,
+  type ApplicationPhaseKind,
+} from '../utils/ipoApplicationPhase';
 import {
   buildCheckAccountIdSet,
   isAllAccountsSelected,
@@ -57,6 +62,7 @@ import {
   CHIP_BLUE,
   CHIP_GREEN,
   CHIP_ORANGE,
+  CHIP_PURPLE,
   CHIP_RED,
   chipTint,
   STATUS_NOT_APPLIED,
@@ -73,47 +79,13 @@ const GREEN = '#2E7D32';
 /** Blue for unverified application status (glass-era semantic color). */
 const UNVERIFIED_BLUE = '#1976D2';
 
-type ResultKind = 'verified' | 'unverified' | 'rejected' | 'not_applied';
+type ResultKind = ApplicationPhaseKind;
 type StatusFilter = 'all' | ResultKind;
 
-function classify(row: ResultAccountStatus): ResultKind {
-  if (isStatusCheckFailed(row)) return 'unverified';
-
-  if (
-    row.status === 'NOT_APPLIED' ||
-    /no application found|not applied|have not applied/i.test(row.message)
-  ) {
-    return 'not_applied';
-  }
-
-  // Prefer MeroShare Status field (same as website) for filter buckets.
-  const meroshareStatus = (row.allotmentStatus || row.message || '').trim();
-  if (/^verified$/i.test(meroshareStatus)) return 'verified';
-  if (/^rejected$/i.test(meroshareStatus)) return 'rejected';
-  if (/^unverified$/i.test(meroshareStatus)) return 'unverified';
-
-  if (row.status === 'VERIFIED') return 'verified';
-  if (row.status === 'REJECTED' || !row.ok) return 'rejected';
-  if (row.status === 'UNVERIFIED') return 'unverified';
-
-  const raw = `${row.status} ${row.allotmentStatus ?? ''} ${row.message}`.toUpperCase();
-  if (/REJECT|FAIL|ERROR|CANCEL/i.test(raw)) return 'rejected';
-  if (/VERIF/.test(raw) && !/UNVERIF|NOT.?VERIF/.test(raw)) return 'verified';
-  if (/UNVERIF|NOT.?VERIF|PENDING|APPLIED|PROCESS/i.test(raw)) return 'unverified';
-  return 'unverified';
-}
+const classify = classifyApplicationPhase;
 
 function statusLine(row: ResultAccountStatus): string {
-  if (isStatusCheckFailed(row)) {
-    return row.message.trim() || 'Could not verify status';
-  }
-  const kind = classify(row);
-  if (kind === 'not_applied') return 'NOT APPLIED';
-  const label = (row.allotmentStatus || row.message || '').trim();
-  if (label) return label;
-  if (kind === 'rejected') return 'Rejected';
-  if (kind === 'verified') return 'Verified';
-  return 'Unverified';
+  return applicationPhaseStatusLine(row);
 }
 
 function statusDisplayLine(row: ResultAccountStatus): string {
@@ -142,6 +114,7 @@ function kindColor(kind: ResultKind): string {
   if (kind === 'unverified') return UNVERIFIED_BLUE;
   if (kind === 'rejected') return STATUS_REJECTED;
   if (kind === 'not_applied') return STATUS_NOT_APPLIED;
+  if (kind === 'others') return CHIP_PURPLE;
   return STATUS_REJECTED;
 }
 
@@ -178,6 +151,8 @@ export function CurrentIpoStatusScreen() {
   );
   const [applying, setApplying] = useState(false);
   const [applyBusyLabel, setApplyBusyLabel] = useState('Applying…');
+  const [retrying, setRetrying] = useState(false);
+  const [retryBusyLabel, setRetryBusyLabel] = useState('Retrying…');
   const [toast, setToast] = useState<{
     text: string;
     kind: 'success' | 'error';
@@ -203,6 +178,7 @@ export function CurrentIpoStatusScreen() {
       unverified: 0,
       rejected: 0,
       not_applied: 0,
+      others: 0,
     };
     for (const row of results) base[classify(row)] += 1;
     return base;
@@ -215,6 +191,7 @@ export function CurrentIpoStatusScreen() {
         { key: 'unverified', label: 'Unverified', color: CHIP_BLUE },
         { key: 'rejected', label: 'Rejected', color: CHIP_RED },
         { key: 'not_applied', label: 'Not Applied', color: CHIP_ORANGE },
+        { key: 'others', label: 'Others', color: CHIP_PURPLE },
       ] as const
     )
       .map((chip) => ({ ...chip, count: counts[chip.key] }))
@@ -351,6 +328,72 @@ export function CurrentIpoStatusScreen() {
 
   const bulkApplyBtnColor =
     filter === 'not_applied' ? STATUS_NOT_APPLIED : STATUS_REJECTED;
+
+  const bulkRetryEligible = useMemo(() => {
+    if (!selected) return [];
+    if (filter === 'others') {
+      return results.filter((row) => classify(row) === 'others');
+    }
+    return [];
+  }, [filter, results, selected]);
+
+  const retryStatusRows = useCallback(
+    (targetRows: ResultAccountStatus[]) => {
+      if (!selected || !targetRows.length) return;
+      const issue: OpenIssue = {
+        id: selected.companyShareId,
+        companyShareId: selected.companyShareId,
+        companyName: selected.companyName,
+        scrip: selected.scrip,
+        shareTypeName: selected.shareTypeName,
+      };
+      const queue = [...targetRows];
+
+      void (async () => {
+        setRetrying(true);
+        try {
+          for (let i = 0; i < queue.length; i++) {
+            const row = queue[i];
+            const account =
+              checkAccounts.find((a) => a.id === row.accountId) ??
+              accounts.find((a) => a.id === row.accountId);
+            if (!account) {
+              showToast(`${row.accountName}: Account not found`, 'error');
+              continue;
+            }
+            setRetryBusyLabel(
+              `Retrying ${account.name} (${i + 1}/${queue.length})…`,
+            );
+            try {
+              const fresh = await refreshAccountStatusRow(account, issue, true);
+              setResults((prev) =>
+                prev.map((r) => (r.accountId === row.accountId ? fresh : r)),
+              );
+              if (isStatusCheckFailed(fresh)) {
+                showToast(`${fresh.accountName}: Still could not verify status`, 'error');
+              } else {
+                showToast(`${fresh.accountName}: Status updated`, 'success');
+              }
+            } catch (e) {
+              showToast(
+                `${row.accountName}: ${
+                  e instanceof Error ? e.message : 'Retry failed'
+                }`,
+                'error',
+              );
+            }
+            if (i < queue.length - 1) {
+              await new Promise((r) => setTimeout(r, 200));
+            }
+          }
+        } finally {
+          setRetrying(false);
+          setRetryBusyLabel('Retrying…');
+        }
+      })();
+    },
+    [accounts, checkAccounts, selected, showToast],
+  );
 
   const applyRows = useCallback(
     (targetRows: ResultAccountStatus[]) => {
@@ -677,6 +720,27 @@ export function CurrentIpoStatusScreen() {
               })}
             </ScrollView>
 
+            {filter === 'others' && bulkRetryEligible.length > 0 ? (
+              <Pressable
+                style={[
+                  styles.reapplyAllBtn,
+                  { backgroundColor: CHIP_PURPLE },
+                  retrying && { opacity: 0.65 },
+                ]}
+                onPress={() => retryStatusRows(bulkRetryEligible)}
+                disabled={retrying || applying}
+              >
+                {retrying ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Ionicons name="refresh" size={rs(18)} color="#FFFFFF" />
+                )}
+                <Text style={styles.reapplyAllText}>
+                  Retry All ({bulkRetryEligible.length})
+                </Text>
+              </Pressable>
+            ) : null}
+
             {(filter === 'rejected' || filter === 'not_applied') &&
             bulkApplyEligible.length > 0 ? (
               <Pressable
@@ -686,7 +750,7 @@ export function CurrentIpoStatusScreen() {
                   applying && { opacity: 0.65 },
                 ]}
                 onPress={() => applyRows(bulkApplyEligible)}
-                disabled={applying}
+                disabled={applying || retrying}
               >
                 {applying ? (
                   <ActivityIndicator color="#FFFFFF" size="small" />
@@ -713,7 +777,10 @@ export function CurrentIpoStatusScreen() {
                 const card = kindCardTheme(kind, isDark);
                 const reason = statusRemarks(row);
                 const showApply =
-                  (kind === 'not_applied' || kind === 'rejected') && !applying;
+                  (kind === 'not_applied' || kind === 'rejected') &&
+                  !applying &&
+                  !retrying;
+                const showRetry = kind === 'others' && !applying && !retrying;
                 const applyBtnColor =
                   kind === 'not_applied' ? STATUS_NOT_APPLIED : card.accent;
                 const mciIcon =
@@ -723,7 +790,9 @@ export function CurrentIpoStatusScreen() {
                       ? 'clock-outline'
                       : kind === 'rejected'
                         ? 'alert-octagon'
-                        : 'cancel';
+                        : kind === 'others'
+                          ? 'help-circle-outline'
+                          : 'cancel';
                 return (
                   <View
                     style={[
@@ -791,6 +860,27 @@ export function CurrentIpoStatusScreen() {
                           ]}
                         >
                           Apply
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    {showRetry ? (
+                      <Pressable
+                        style={[
+                          styles.rowApplyBtn,
+                          {
+                            borderColor: `${CHIP_PURPLE}66`,
+                            backgroundColor: isDark ? CHIP_PURPLE : '#FFFFFF',
+                          },
+                        ]}
+                        onPress={() => retryStatusRows([row])}
+                      >
+                        <Text
+                          style={[
+                            styles.rowApplyText,
+                            { color: isDark ? '#FFFFFF' : CHIP_PURPLE },
+                          ]}
+                        >
+                          Retry
                         </Text>
                       </Pressable>
                     ) : null}
@@ -943,7 +1033,10 @@ export function CurrentIpoStatusScreen() {
         </View>
       ) : null}
 
-      <BusyOverlay visible={applying} message={applyBusyLabel} />
+      <BusyOverlay
+        visible={applying || retrying}
+        message={retrying ? retryBusyLabel : applyBusyLabel}
+      />
 
       <SensitiveActionModals action={sensitive} />
     </View>

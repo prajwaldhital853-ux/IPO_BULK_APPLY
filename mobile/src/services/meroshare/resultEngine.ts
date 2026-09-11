@@ -23,6 +23,8 @@ import type {
 
 /** Parallel workers + adaptive gap between MeroShare session starts. */
 const BULK_RESULT_CONCURRENCY = 2;
+/** Background retries per account when MeroShare report/status fetch flakes. */
+export const STATUS_FETCH_MAX_ATTEMPTS = 3;
 const BULK_RESULT_GAP_MS = 500;
 const BULK_RESULT_GAP_MAX_MS = 2800;
 const BULK_RESULT_PAUSE_MS = 2200;
@@ -287,6 +289,64 @@ async function mapPool<T, R>(
   return out;
 }
 
+function isCheckFailedStatus(res: {
+  status: string;
+  message: string;
+}): boolean {
+  return (
+    res.status === 'CHECK_FAILED' ||
+    /could not verify application status/i.test(res.message)
+  );
+}
+
+async function fetchApplicationStatusWithRetries(
+  client: MeroshareClient,
+  loginArgs: {
+    clientId: string | number;
+    dpCode?: string;
+    username: string;
+    password: string;
+  },
+  companyShareId: number,
+  statusOpts: {
+    dryRun?: boolean;
+    companyName?: string;
+    bulkFast?: boolean;
+    applicationPhase?: boolean;
+  },
+  simulateLogin: boolean,
+  maxAttempts = STATUS_FETCH_MAX_ATTEMPTS,
+): Promise<{
+  status: string;
+  message: string;
+  dryRun: boolean;
+  ok?: boolean;
+  appliedKitta?: number;
+  allotmentStatus?: string;
+  remarks?: string;
+}> {
+  let last = {
+    dryRun: false,
+    status: 'CHECK_FAILED',
+    message: 'Could not verify application status with MeroShare. Retry.',
+    ok: false,
+  };
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      client.clearSession();
+      await sleep(700 + attempt * 400);
+    }
+    await client.loginOrSimulate(loginArgs, {
+      simulate: simulateLogin,
+      skipOwnDetail: true,
+    });
+    const res = await client.checkApplicationStatus(companyShareId, statusOpts);
+    last = res;
+    if (!isCheckFailedStatus(res)) break;
+  }
+  return last;
+}
+
 /** Live status refresh for one account after apply/reapply (no bulk throttle). */
 export async function refreshAccountStatusRow(
   account: AccountMeta,
@@ -322,13 +382,12 @@ export async function refreshAccountStatusRow(
   };
 
   try {
-    await client.loginOrSimulate(loginArgs, {
-      simulate: false,
-      skipOwnDetail: true,
-    });
-    const res = await client.checkApplicationStatus(
+    const res = await fetchApplicationStatusWithRetries(
+      client,
+      loginArgs,
       issue.companyShareId,
       statusOpts,
+      false,
     );
     return resultRowFromCheck(account, issue, false, res);
   } catch (e) {
@@ -376,13 +435,12 @@ async function checkOneAccountResult(
 
   const runCheck = async () => {
     await throttle.acquire();
-    await client.loginOrSimulate(loginArgs, {
-      simulate: simulateLogin,
-      skipOwnDetail: true,
-    });
-    const res = await client.checkApplicationStatus(
+    const res = await fetchApplicationStatusWithRetries(
+      client,
+      loginArgs,
       issue.companyShareId,
       statusOpts,
+      simulateLogin,
     );
     throttle.relax();
     return resultRowFromCheck(account, issue, dryRun, res);

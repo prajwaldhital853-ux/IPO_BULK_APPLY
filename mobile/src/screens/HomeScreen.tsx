@@ -194,8 +194,8 @@ export function HomeScreen() {
 
   const goAddCapital = useCallback(() => {
     if (addAccountBusy) return;
+    setAddAccountBusy(true);
     void (async () => {
-      setAddAccountBusy(true);
       try {
         if (
           !(await ensureGoogleSignedInForAddAccount(
@@ -221,7 +221,6 @@ export function HomeScreen() {
       }
     })();
   }, [
-    addAccountBusy,
     accounts.length,
     isAuthenticated,
     isPremium,

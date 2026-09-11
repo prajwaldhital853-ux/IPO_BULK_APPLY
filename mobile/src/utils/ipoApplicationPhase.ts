@@ -5,7 +5,8 @@ export type ApplicationPhaseKind =
   | 'verified'
   | 'unverified'
   | 'rejected'
-  | 'not_applied';
+  | 'not_applied'
+  | 'others';
 
 /** MeroShare report could not be loaded — not the same as genuinely not applied. */
 export function isStatusCheckFailed(row: ResultAccountStatus): boolean {
@@ -74,7 +75,7 @@ export function shouldUseApplicationPhaseStatus(
 export function classifyApplicationPhase(
   row: ResultAccountStatus,
 ): ApplicationPhaseKind {
-  if (isStatusCheckFailed(row)) return 'unverified';
+  if (isStatusCheckFailed(row)) return 'others';
 
   if (
     row.status === 'NOT_APPLIED' ||

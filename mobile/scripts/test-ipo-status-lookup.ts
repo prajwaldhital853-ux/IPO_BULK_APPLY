@@ -68,8 +68,8 @@ function run() {
       'CHECK_FAILED must not be not_applied',
     );
     assert(
-      classifyApplicationPhase(r) === 'unverified',
-      'CHECK_FAILED buckets to unverified (retry), not not_applied',
+      classifyApplicationPhase(r) === 'others',
+      'CHECK_FAILED buckets to others, not unverified or not_applied',
     );
   }
 
@@ -170,7 +170,24 @@ function run() {
     assert(hit === 'CHECK_FAILED', 'report unavailable → CHECK_FAILED');
   }
 
-  console.log('OK: all IPO status lookup tests passed (9 scenarios).');
+  // --- UI bucket for CHECK_FAILED rows ---
+  {
+    const failed = row({
+      status: 'CHECK_FAILED',
+      message: 'Could not verify application status with MeroShare. Retry.',
+      ok: false,
+    });
+    assert(
+      classifyApplicationPhase(failed) !== 'unverified',
+      'CHECK_FAILED must not appear in Unverified filter',
+    );
+    assert(
+      classifyApplicationPhase(failed) === 'others',
+      'CHECK_FAILED appears in Others filter',
+    );
+  }
+
+  console.log('OK: all IPO status lookup tests passed (10 scenarios).');
 }
 
 run();

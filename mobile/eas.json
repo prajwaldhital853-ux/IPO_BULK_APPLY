@@ -30,6 +30,7 @@
         "image": "latest"
       },
       "env": {
+        "EAS_SKIP_AUTO_FINGERPRINT": "1",
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
         "EXPO_PUBLIC_AUTH_ENABLED": "true",
         "EXPO_PUBLIC_AUTH_API_URL": "https://api.nepseghar.com",

@@ -19,6 +19,13 @@ NEPSE-GHAR-*.apk
 nepse-ghar-*.apk
 nepseghar-*.apk
 hellou-preview-*.apk
+/nepse-ghar-*.apk
+/nepseghar-*.apk
+/hellou-preview-*.apk
+
+# Dev-only scripts (not part of the app bundle)
+scripts/test-ipo-status-lookup.ts
+scripts/checkActiveSlotsScenarios.ts
 credentials/
 credentials/**
 apk-build.log
