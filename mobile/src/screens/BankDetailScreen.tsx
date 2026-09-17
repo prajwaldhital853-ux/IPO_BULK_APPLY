@@ -32,7 +32,7 @@ import {
   findDuplicateAccount,
   showDuplicateAccountAlert,
 } from '../utils/duplicateAccount';
-import { buildDematFromParts, isValidBoid } from '../utils/boid';
+import { buildDematFromParts, preferredDemat } from '../utils/boid';
 import {
   buildMinorMetaFields,
   extractBankAccountNumberFromProfile,
@@ -369,10 +369,7 @@ export function BankDetailScreen() {
       capital.dpCode && capital.username
         ? buildDematFromParts(capital.dpCode, capital.username)
         : '';
-    const demat =
-      (capital.demat && isValidBoid(capital.demat) ? capital.demat : undefined) ||
-      (capital.boid && isValidBoid(capital.boid) ? capital.boid : undefined) ||
-      (isValidBoid(builtDemat) ? builtDemat : undefined);
+    const demat = preferredDemat(capital.demat, capital.boid, builtDemat);
 
     const duplicate = findDuplicateAccount({
       accounts,

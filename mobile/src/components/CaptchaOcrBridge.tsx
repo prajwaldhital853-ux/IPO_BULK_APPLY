@@ -39,10 +39,23 @@ export const CaptchaOcrBridge = forwardRef<CaptchaOcrHandle>(
     const readyRef = useRef(false);
     const readyWaiters = useRef<Array<() => void>>([]);
 
-    const whenReady = useCallback(() => {
+    const whenReady = useCallback((timeoutMs = 45_000) => {
       if (readyRef.current) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        readyWaiters.current.push(resolve);
+      return new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          readyWaiters.current = readyWaiters.current.filter((w) => w !== onReady);
+          reject(new Error('Captcha OCR engine not ready — retry in a moment.'));
+        }, timeoutMs);
+        const onReady = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve();
+        };
+        readyWaiters.current.push(onReady);
       });
     }, []);
 
@@ -66,8 +79,8 @@ export const CaptchaOcrBridge = forwardRef<CaptchaOcrHandle>(
     useImperativeHandle(
       ref,
       () => ({
-        async solveDigits(imageBase64: string, timeoutMs = 60000) {
-          await whenReady();
+        async solveDigits(imageBase64: string, timeoutMs = 30_000) {
+          await whenReady(Math.min(timeoutMs, 45_000));
           const clean = imageBase64.replace(
             /^data:image\/[a-zA-Z+]+;base64,/,
             '',

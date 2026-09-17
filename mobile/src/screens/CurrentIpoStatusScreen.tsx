@@ -370,7 +370,10 @@ export function CurrentIpoStatusScreen() {
                 prev.map((r) => (r.accountId === row.accountId ? fresh : r)),
               );
               if (isStatusCheckFailed(fresh)) {
-                showToast(`${fresh.accountName}: Still could not verify status`, 'error');
+                showToast(
+                  `${fresh.accountName}: Still could not verify status`,
+                  'error',
+                );
               } else {
                 showToast(`${fresh.accountName}: Status updated`, 'success');
               }
@@ -727,7 +730,7 @@ export function CurrentIpoStatusScreen() {
                   { backgroundColor: CHIP_PURPLE },
                   retrying && { opacity: 0.65 },
                 ]}
-                onPress={() => retryStatusRows(bulkRetryEligible)}
+                onPress={() => void retryStatusRows(bulkRetryEligible)}
                 disabled={retrying || applying}
               >
                 {retrying ? (

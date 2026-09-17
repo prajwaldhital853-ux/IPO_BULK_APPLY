@@ -126,7 +126,10 @@ export async function runIssueManagerBulkCheck(opts: {
     total: number,
   ) => void;
 }): Promise<IssueManagerBulkSummary> {
-  const resolved = await resolveBoidsForAccounts(opts.accounts);
+  opts.onProgress?.('Resolving account BOIDs…', 0, opts.accounts.length);
+  const resolved = await resolveBoidsForAccounts(opts.accounts, {
+    concurrency: 2,
+  });
   const total = resolved.length;
   const throttle = createBulkThrottle();
   let finished = 0;

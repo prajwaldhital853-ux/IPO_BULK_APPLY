@@ -149,11 +149,17 @@ async function finalizeFailedApplyMessage(
       applicationPhase: true,
       bulkFast: true,
     });
-    if (status.status !== 'NOT_APPLIED') {
+    if (
+      status.status === 'VERIFIED' ||
+      status.status === 'UNVERIFIED' ||
+      status.status === 'REJECTED' ||
+      status.status === 'ALLOTTED' ||
+      status.status === 'NOT_ALLOTTED'
+    ) {
       return ALREADY_APPLIED_MSG;
     }
   } catch {
-    // keep busy — genuine overload or report unavailable
+    // keep original — CHECK_FAILED / role errors are not "already applied"
   }
   return formatted;
 }
@@ -301,7 +307,7 @@ export async function runBulkApply(
       dryRun,
       ipoStillOpen: true,
       reapply: opts.reapply === true,
-      skipCrnPinFastCheck: account.crnPinVerified === true,
+      skipCrnPinFastCheck: true,
     };
     try {
       await client.loginOrSimulate(
@@ -317,7 +323,7 @@ export async function runBulkApply(
         },
       );
 
-      const applyRes = await client.applyShare(applyReq, applyOpts);
+      let applyRes = await client.applyShare(applyReq, applyOpts);
 
       if (
         !applyRes.ok &&

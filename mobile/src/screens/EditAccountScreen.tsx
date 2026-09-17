@@ -37,6 +37,7 @@ import {
 } from '../services/meroshare';
 import type { ThemeColors } from '../theme/colors';
 import type { DraftCapital } from '../types/account';
+import { preferredDemat } from '../utils/boid';
 import {
   buildMinorMetaFields,
   extractBankWithBranchFromProfile,
@@ -472,13 +473,14 @@ export function EditAccountScreen() {
           return;
         }
 
-        const demat =
-          verify.demat?.trim() ||
-          (verify.boid && /^\d{16}$/.test(verify.boid.trim())
-            ? verify.boid.trim()
-            : dp.code && username.trim()
-              ? `130${dp.code}${username.trim()}`
-              : account.demat);
+        const demat = preferredDemat(
+          verify.demat,
+          verify.boid,
+          dp.code && username.trim()
+            ? `130${dp.code}${username.trim()}`
+            : undefined,
+          account.demat,
+        );
 
         const duplicate = await findDuplicateAccountAsync({
           accounts,

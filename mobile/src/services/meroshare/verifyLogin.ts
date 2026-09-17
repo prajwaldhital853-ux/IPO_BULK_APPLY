@@ -520,6 +520,7 @@ export async function verifyMeroshareLogin(args: {
   simulated: boolean;
   message: string;
   boid?: string;
+  demat?: string;
 }> {
   if (args.simulate) {
     if (!args.username.trim() || !args.password || !args.dpId) {
@@ -550,6 +551,7 @@ export async function verifyMeroshareLogin(args: {
       simulated: false,
       message: 'Logged into MeroShare successfully',
       boid: session.boid,
+      demat: session.demat,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Verify failed';

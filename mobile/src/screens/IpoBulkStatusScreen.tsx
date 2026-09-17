@@ -60,6 +60,7 @@ import {
   applicationPhaseRemarks,
   applicationPhaseStatusLine,
   classifyApplicationPhase,
+  isPublishedAllotmentResultRow,
   isStatusCheckFailed,
   shouldUseApplicationPhaseStatus,
 } from '../utils/ipoApplicationPhase';
@@ -254,10 +255,20 @@ export function IpoBulkStatusScreen() {
   const loadGenRef = useRef(0);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const applicationPhase = useMemo(
-    () => shouldUseApplicationPhaseStatus(selected, openCompanyShareIds),
-    [selected, openCompanyShareIds],
-  );
+  const applicationPhase = useMemo(() => {
+    const fromList = shouldUseApplicationPhaseStatus(
+      selected,
+      openCompanyShareIds,
+    );
+    if (!fromList) return false;
+    if (
+      results.length > 0 &&
+      results.some((row) => isPublishedAllotmentResultRow(row))
+    ) {
+      return false;
+    }
+    return true;
+  }, [selected, openCompanyShareIds, results]);
 
   const ipoStillOpen = Boolean(
     selected && openCompanyShareIds.has(selected.companyShareId),
@@ -467,7 +478,11 @@ export function IpoBulkStatusScreen() {
   useEffect(() => {
     setResults([]);
     setFilter('all');
-  }, [selected?.companyShareId, applicationPhase]);
+  }, [selected?.companyShareId]);
+
+  useEffect(() => {
+    setFilter('all');
+  }, [applicationPhase]);
 
   const toggleAccount = useCallback(
     (account: AccountMeta) => {
@@ -685,7 +700,10 @@ export function IpoBulkStatusScreen() {
                 prev.map((r) => (r.accountId === row.accountId ? fresh : r)),
               );
               if (isStatusCheckFailed(fresh)) {
-                showToast(`${fresh.accountName}: Still could not verify status`, 'error');
+                showToast(
+                  `${fresh.accountName}: Still could not verify status`,
+                  'error',
+                );
               } else {
                 showToast(`${fresh.accountName}: Status updated`, 'success');
               }
@@ -1043,7 +1061,7 @@ export function IpoBulkStatusScreen() {
                   { backgroundColor: CHIP_PURPLE },
                   retrying && { opacity: 0.65 },
                 ]}
-                onPress={() => retryStatusRows(bulkRetryEligible)}
+                onPress={() => void retryStatusRows(bulkRetryEligible)}
                 disabled={retrying || reapplying}
               >
                 {retrying ? (

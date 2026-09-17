@@ -216,6 +216,7 @@ export async function solveCaptchaViaBackend(
  */
 export async function solveCaptchaViaOcrSpace(
   imageBase64: string,
+  timeoutMs = 20_000,
 ): Promise<string> {
   const clean = imageBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
   const body = new FormData();
@@ -225,13 +226,21 @@ export async function solveCaptchaViaOcrSpace(
   body.append('OCREngine', '2');
   body.append('scale', 'true');
 
-  const res = await fetch('https://api.ocr.space/parse/image', {
-    method: 'POST',
-    headers: {
-      apikey: 'helloworld',
-    },
-    body,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch('https://api.ocr.space/parse/image', {
+      method: 'POST',
+      headers: {
+        apikey: 'helloworld',
+      },
+      body,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   const json = (await res.json()) as {
     ParsedResults?: Array<{ ParsedText?: string }>;
     ErrorMessage?: string | string[];
@@ -302,7 +311,9 @@ export async function solvePublicCaptcha(
   const bulkFast = opts?.bulkFast === true;
   const image = captcha.captchaImageBase64;
 
-  if (isCdscBackendConfigured()) {
+  // Bulk checks solve dozens of captchas — backend ONNX is rate-limited (HTTP 429).
+  // Use on-device / free solvers only during bulk; backend stays for single checks.
+  if (!bulkFast && isCdscBackendConfigured()) {
     try {
       return await solveCaptchaViaBackend(image);
     } catch (e) {
@@ -346,26 +357,37 @@ export async function solvePublicCaptcha(
     return null;
   };
 
-  if (!bulkFast) {
+  if (bulkFast) {
+    // Bulk: audio first (CDSC default), then one backend try, then local OCR.
     const audio = await tryAudio();
     if (audio) return audio;
-  }
 
-  if (bulkFast) {
+    if (isCdscBackendConfigured()) {
+      try {
+        return await solveCaptchaViaBackend(image);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'failed';
+        errors.push(`backend: ${msg}`);
+      }
+    }
+
     const localFirst = await tryLocalOcr();
     if (localFirst) return localFirst;
+
+    const ocrSpace = await tryOcrSpace();
+    if (ocrSpace) return ocrSpace;
+
+    throw new Error(`Captcha auto-solve failed (${errors.join(' · ')})`);
   }
+
+  const audio = await tryAudio();
+  if (audio) return audio;
 
   const ocrSpace = await tryOcrSpace();
   if (ocrSpace) return ocrSpace;
 
-  if (!bulkFast) {
-    const local = await tryLocalOcr();
-    if (local) return local;
-  } else {
-    const audio = await tryAudio();
-    if (audio) return audio;
-  }
+  const local = await tryLocalOcr();
+  if (local) return local;
 
   if (is2CaptchaConfigured()) {
     try {

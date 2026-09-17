@@ -37,9 +37,9 @@ import {
   type IssueManagerCompany,
 } from '../services/issuemanager';
 import {
-  detectNewlyPublishedCompanies,
   mergeIpoCompanyLists,
   pickNewestIpoCompany,
+  sortIpoCompanies,
 } from '../services/issuemanager/companySort';
 import { maskBoid, resolveBoidSync } from '../utils/boid';
 import {
@@ -272,56 +272,79 @@ export function PublicIpoResultScreen() {
   const [resultsMap, setResultsMap] = useState<Record<string, ResultRow>>({});
   const [resultModalOpen, setResultModalOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [bridgeReady, setBridgeReady] = useState(false);
   const [accountPickerFilter, setAccountPickerFilter] = useState('');
   const managerCompaniesRef = useRef<IssueManagerCompany[]>([]);
+  const cdscExtrasRef = useRef<IssueManagerCompany[]>([]);
+  const phoneExtrasRef = useRef<IssueManagerCompany[]>([]);
+  const phoneDatingRef = useRef<IssueManagerCompany[]>([]);
   const companyKeysRef = useRef<Set<string>>(new Set());
   const userPickedCompanyRef = useRef(false);
   const lastCdscPollRef = useRef(0);
-
-  const resolvePickerSelection = useCallback(
-    (
-      merged: IssueManagerCompany[],
-      prev: IssueManagerCompany | null,
-      preferNewest: boolean,
-    ): IssueManagerCompany | null => {
-      if (!merged.length) return null;
-      const newest = pickNewestIpoCompany(merged);
-      if ((preferNewest || !userPickedCompanyRef.current) && newest) {
-        return newest;
-      }
-      if (prev) {
-        const still = merged.find((c) => c.key === prev.key);
-        if (still) return still;
-      }
-      return newest;
-    },
-    [],
-  );
+  const runningRef = useRef(false);
+  const selectedRef = useRef<IssueManagerCompany | null>(null);
+  const cdscPhoneLoadedRef = useRef(false);
+  const [managersLoadedAt, setManagersLoadedAt] = useState(0);
+  selectedRef.current = selected;
 
   const applyMergedCompanies = useCallback(
     (
       managers: IssueManagerCompany[],
       cdscExtras: IssueManagerCompany[],
-      phoneExtras: IssueManagerCompany[],
-      preferNewest: boolean,
+      phoneExtras: IssueManagerCompany[] = [],
     ) => {
-      const merged = mergeIpoCompanyLists(managers, cdscExtras, phoneExtras);
-      const newPublished = detectNewlyPublishedCompanies(
-        companyKeysRef.current,
-        merged,
-      );
-      const pickNew =
-        preferNewest ||
-        newPublished.length > 0 ||
-        !userPickedCompanyRef.current;
+      const effectiveManagers =
+        managers.length > 0 ? managers : managerCompaniesRef.current;
+      if (effectiveManagers.length > 0) {
+        managerCompaniesRef.current = effectiveManagers;
+      }
+      if (cdscExtras.length > 0) {
+        cdscExtrasRef.current = cdscExtras;
+      }
+      if (phoneExtras.length > 0) {
+        phoneExtrasRef.current = phoneExtras;
+      }
+      const effectiveCdsc =
+        cdscExtras.length > 0 ? cdscExtras : cdscExtrasRef.current;
+      const effectivePhone =
+        phoneExtras.length > 0 ? phoneExtras : phoneExtrasRef.current;
+      const datingSource = [
+        ...effectiveCdsc,
+        ...phoneDatingRef.current,
+      ];
 
-      setCompanies(merged);
-      setSelected((prev) => resolvePickerSelection(merged, prev, pickNew));
-      companyKeysRef.current = new Set(merged.map((c) => c.key));
-      return merged;
+      // Never rewrite the picker or wipe results while a check owns the session.
+      if (runningRef.current) {
+        return mergeIpoCompanyLists(
+          effectiveManagers,
+          effectiveCdsc,
+          effectivePhone,
+          datingSource,
+        );
+      }
+      const merged = mergeIpoCompanyLists(
+        effectiveManagers,
+        effectiveCdsc,
+        effectivePhone,
+        datingSource,
+      );
+      const keep = selectedRef.current;
+      if (keep && !merged.some((c) => c.key === keep.key)) {
+        merged.push(keep);
+      }
+      const sorted = sortIpoCompanies(merged);
+      const newest = pickNewestIpoCompany(sorted);
+      setCompanies(sorted);
+      setSelected((prev) => {
+        if (userPickedCompanyRef.current && prev) {
+          const still = sorted.find((c) => c.key === prev.key);
+          if (still) return still;
+        }
+        return newest;
+      });
+      companyKeysRef.current = new Set(sorted.map((c) => c.key));
+      return sorted;
     },
-    [resolvePickerSelection],
+    [],
   );
 
   const addChecking = useCallback((id: string) => {
@@ -368,23 +391,46 @@ export function PublicIpoResultScreen() {
     );
   }, [accounts, accountPickerFilter]);
 
-  const hasCdscCompanies = useMemo(
-    () => companies.some((c) => c.provider === 'cdsc'),
-    [companies],
-  );
-
   const loadCdscPhoneCompanies = useCallback(
-    async (managerCompanies: IssueManagerCompany[]) => {
+    async (
+      managerCompanies: IssueManagerCompany[],
+    ): Promise<{ extras: IssueManagerCompany[]; all: IssueManagerCompany[] }> => {
+      if (runningRef.current) {
+        return { extras: [], all: [] };
+      }
       const bridge = bridgeRef.current;
       if (!bridge) {
         throw new Error('CDSC phone bridge is not ready yet.');
       }
-      const home = await loadPublicHomeViaBridge(bridge);
+
+      let home: Awaited<ReturnType<typeof loadPublicHomeViaBridge>> | null =
+        null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          await bridge.whenReady(attempt === 0 ? 90_000 : 45_000);
+          home = await loadPublicHomeViaBridge(bridge);
+          break;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : '';
+          if (
+            attempt < 3 &&
+            isRetriableCdscError(msg) &&
+            bridge.resetSession
+          ) {
+            await bridge.resetSession(90_000);
+            await new Promise((r) => setTimeout(r, 3000));
+            continue;
+          }
+          throw e;
+        }
+      }
+      if (!home || runningRef.current) {
+        return { extras: [], all: [] };
+      }
+
       const phoneCompanies: IssueManagerCompany[] = home.companies.map((c) => {
         const listedAt =
-          typeof c.listedAt === 'number'
-            ? Math.floor(Date.now() / 1000) + c.listedAt
-            : undefined;
+          typeof c.listedAt === 'number' ? c.listedAt : undefined;
         return {
           key: `cdsc:${c.id}`,
           provider: 'cdsc',
@@ -395,10 +441,56 @@ export function PublicIpoResultScreen() {
           listedAt,
         };
       });
+      phoneDatingRef.current = phoneCompanies;
       const managerAliases = buildManagerAliasSet(managerCompanies);
-      return filterCdscOnlyCompanies(phoneCompanies, managerAliases);
+      return {
+        all: phoneCompanies,
+        extras: filterCdscOnlyCompanies(phoneCompanies, managerAliases),
+      };
     },
     [],
+  );
+
+  /**
+   * CDSC-only IPOs from this phone's WebView.
+   * Always keeps VPS cache extras (cdscExtrasRef) — never pass [] alone.
+   */
+  const tryMergePhoneCdscCompanies = useCallback(
+    async (
+      managers: IssueManagerCompany[],
+      cdscExtras?: IssueManagerCompany[],
+    ): Promise<number> => {
+      if (runningRef.current) return 0;
+      const effectiveManagers =
+        managers.length > 0 ? managers : managerCompaniesRef.current;
+      if (!effectiveManagers.length) return 0;
+      const cacheExtras =
+        cdscExtras && cdscExtras.length > 0
+          ? cdscExtras
+          : cdscExtrasRef.current;
+      try {
+        const { extras: phoneExtras } = await loadCdscPhoneCompanies(
+          effectiveManagers,
+        );
+        if (runningRef.current) return 0;
+        cdscPhoneLoadedRef.current = true;
+        applyMergedCompanies(effectiveManagers, cacheExtras, phoneExtras);
+        if (!phoneExtras.length && !cacheExtras.length) {
+          return 0;
+        }
+        return phoneExtras.length;
+      } catch (e) {
+        if (!runningRef.current && !cacheExtras.length) {
+          setPartialWarn(
+            `CDSC on this phone is not ready yet: ${
+              e instanceof Error ? e.message : 'unknown error'
+            }. Pull down to refresh.`,
+          );
+        }
+        return 0;
+      }
+    },
+    [applyMergedCompanies, loadCdscPhoneCompanies],
   );
 
   useEffect(() => {
@@ -413,6 +505,8 @@ export function PublicIpoResultScreen() {
   }, [accounts]);
 
   const refreshCompanies = useCallback(async () => {
+    if (runningRef.current) return;
+
     setLoadingCompanies(true);
     setLoadingCdsc(false);
     setLoadError(null);
@@ -423,8 +517,14 @@ export function PublicIpoResultScreen() {
     let primary: CompanyLoadResult | undefined;
     try {
       primary = await loadIssueManagerCompanies();
+      if (runningRef.current) {
+        setLoadingCompanies(false);
+        setProgress('');
+        return;
+      }
       managerCompaniesRef.current = primary.companies;
-      applyMergedCompanies(primary.companies, [], [], false);
+      applyMergedCompanies(primary.companies, [], []);
+      setManagersLoadedAt((tick) => tick + 1);
       setProviderErrors(primary.errors);
 
       if (!primary.companies.length) {
@@ -439,12 +539,12 @@ export function PublicIpoResultScreen() {
         setPartialWarn('Some issue-manager sources are temporarily offline.');
       }
     } catch (e) {
-      setCompanies([]);
-      setSelected(null);
-      setProviderErrors([]);
-      setLoadError(
-        e instanceof Error ? e.message : 'Failed to load company list',
-      );
+      if (!runningRef.current) {
+        setProviderErrors([]);
+        setLoadError(
+          e instanceof Error ? e.message : 'Failed to load company list',
+        );
+      }
       setProgress('');
       setLoadingCompanies(false);
       return;
@@ -453,7 +553,18 @@ export function PublicIpoResultScreen() {
     setLoadingCompanies(false);
 
     if (!isCdscBackendConfigured()) {
-      setProgress('');
+      if (!runningRef.current) {
+        const phoneCount = await tryMergePhoneCdscCompanies(
+          primary!.companies,
+          [],
+        );
+        if (phoneCount > 0) {
+          setPartialWarn(
+            `${phoneCount} CDSC-only IPO(s) loaded from this phone.`,
+          );
+        }
+        setProgress('');
+      }
       return;
     }
 
@@ -462,45 +573,58 @@ export function PublicIpoResultScreen() {
     let cdscExtras: IssueManagerCompany[] = [];
     try {
       const fallback = await loadCdscFallbackCompanies(primary!.companies);
+      if (runningRef.current) {
+        setLoadingCdsc(false);
+        setProgress('');
+        return;
+      }
       setProviderErrors((prev) => [...prev, ...fallback.errors]);
       cdscExtras = fallback.companies;
       if (fallback.companies.length) {
-        applyMergedCompanies(primary!.companies, fallback.companies, [], false);
+        applyMergedCompanies(primary!.companies, fallback.companies, []);
         setPartialWarn(
-          `${fallback.companies.length} CDSC IPO(s) merged (newest shown first).`,
+          `${primary!.companies.length} issue-manager + ${fallback.companies.length} CDSC-only IPO(s) loaded.`,
         );
       } else if (fallback.errors.length) {
-        setPartialWarn('CDSC cache unavailable, trying this phone instead.');
-      }
-    } catch {
-      setPartialWarn('CDSC cache unavailable, trying this phone instead.');
-    }
-
-    const tryPhoneCdsc = !cdscExtras.length && bridgeReady;
-    if (tryPhoneCdsc) {
-      try {
-        const phoneFallback = await loadCdscPhoneCompanies(primary!.companies);
-        if (phoneFallback.length) {
-          applyMergedCompanies(
-            primary!.companies,
-            cdscExtras,
-            phoneFallback,
-            false,
-          );
-          setPartialWarn(
-            `${phoneFallback.length} CDSC-only IPO(s) loaded from this phone.`,
-          );
-        }
-      } catch (e) {
+        const authErr = fallback.errors.find((e) =>
+          /jwt|bearer|401|sign in/i.test(e.message),
+        );
         setPartialWarn(
-          `CDSC on this phone is not ready yet: ${e instanceof Error ? e.message : 'unknown error'}.`,
+          authErr
+            ? 'Sign in to load CDSC cache — loading from this phone instead.'
+            : 'CDSC cache unavailable, trying this phone instead.',
+        );
+      }
+    } catch (e) {
+      if (!runningRef.current) {
+        const msg = e instanceof Error ? e.message : '';
+        setPartialWarn(
+          /jwt|bearer|401|sign in/i.test(msg)
+            ? 'Sign in to load CDSC cache — loading from this phone instead.'
+            : 'CDSC cache unavailable, trying this phone instead.',
         );
       }
     }
 
     setLoadingCdsc(false);
-    setProgress('');
-  }, [applyMergedCompanies, bridgeReady, loadCdscPhoneCompanies]);
+
+    if (!runningRef.current) {
+      const phoneCount = await tryMergePhoneCdscCompanies(
+        primary!.companies,
+        cdscExtras,
+      );
+      if (phoneCount > 0) {
+        setPartialWarn(
+          `${phoneCount} CDSC-only IPO(s) loaded from this phone.`,
+        );
+      } else if (!cdscExtras.length && !cdscPhoneLoadedRef.current) {
+        setPartialWarn(
+          'Loading CDSC IPOs from this phone (may take up to a minute)…',
+        );
+      }
+      setProgress('');
+    }
+  }, [applyMergedCompanies, tryMergePhoneCdscCompanies]);
 
   /** Light poll: VPS cache only (no phone WebView) — picks up newly published CDSC results. */
   const refreshCdscFromCache = useCallback(async () => {
@@ -511,7 +635,7 @@ export function PublicIpoResultScreen() {
     try {
       const fallback = await loadCdscFallbackCompanies(managers);
       if (!fallback.companies.length && !fallback.errors.length) return;
-      applyMergedCompanies(managers, fallback.companies, [], true);
+      applyMergedCompanies(managers, fallback.companies, []);
       if (fallback.companies.length) {
         setPartialWarn('IPO list updated with the latest CDSC results.');
       }
@@ -529,48 +653,42 @@ export function PublicIpoResultScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!ready || running) return;
+      const managers = managerCompaniesRef.current;
+      if (managers.length && !cdscPhoneLoadedRef.current) {
+        void tryMergePhoneCdscCompanies(managers);
+      }
       const now = Date.now();
       if (now - lastCdscPollRef.current < 5 * 60 * 1000) return;
       lastCdscPollRef.current = now;
       void refreshCdscFromCache();
-    }, [ready, running, refreshCdscFromCache]),
+    }, [ready, running, refreshCdscFromCache, tryMergePhoneCdscCompanies]),
   );
 
+  // One background phone CDSC pull after managers load — no repeat polling (competes with checks).
   useEffect(() => {
-    if (!ready || !bridgeReady || running) return;
-    if (hasCdscCompanies) return;
+    if (!ready || running || managersLoadedAt === 0 || cdscPhoneLoadedRef.current) {
+      return;
+    }
     const managers = managerCompaniesRef.current;
     if (!managers.length) return;
+
     void (async () => {
-      try {
-        const phoneFallback = await loadCdscPhoneCompanies(managers);
-        if (!phoneFallback.length) return;
-        applyMergedCompanies(managers, [], phoneFallback, true);
+      const phoneCount = await tryMergePhoneCdscCompanies(managers);
+      if (phoneCount > 0) {
         setPartialWarn(
-          `${phoneFallback.length} CDSC IPO(s) loaded from this phone.`,
-        );
-      } catch (e) {
-        setPartialWarn(
-          `CDSC on this phone is not ready yet: ${e instanceof Error ? e.message : 'unknown error'}.`,
+          `${phoneCount} CDSC-only IPO(s) loaded from this phone.`,
         );
       }
     })();
-  }, [
-    applyMergedCompanies,
-    bridgeReady,
-    hasCdscCompanies,
-    loadCdscPhoneCompanies,
-    ready,
-    running,
-  ]);
+  }, [managersLoadedAt, ready, running, tryMergePhoneCdscCompanies]);
 
-  useEffect(() => {
+  const clearResultsForCompanyChange = useCallback(() => {
     setResultsMap({});
     setSummary(null);
     setResultModalOpen(false);
     setCheckComplete(false);
     setCheckingIds(new Set());
-  }, [selected?.key]);
+  }, []);
 
   const runCdscBridgeCheck = useCallback(
     async (
@@ -593,7 +711,30 @@ export function PublicIpoResultScreen() {
       }
 
       setProgress('Preparing CDSC in-app session…');
-      const home = await loadPublicHomeViaBridge(bridge);
+      let home: Awaited<ReturnType<typeof loadPublicHomeViaBridge>> | null =
+        null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          home = await loadPublicHomeViaBridge(bridge);
+          break;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : '';
+          if (
+            attempt < 2 &&
+            isRetriableCdscError(msg) &&
+            bridge.resetSession
+          ) {
+            setProgress('Refreshing CDSC session…');
+            await bridge.resetSession(90000);
+            await new Promise((r) => setTimeout(r, 4000));
+            continue;
+          }
+          throw e;
+        }
+      }
+      if (!home) {
+        throw new Error('Could not open CDSC session. Retry in a moment.');
+      }
       const liveCompany = home.companies.find(
         (c) => String(c.id) === String(selected.rawId),
       );
@@ -652,12 +793,17 @@ export function PublicIpoResultScreen() {
       }
 
       const queue = targets.slice();
+      const isCdscCheck = selected.provider === 'cdsc';
       void sensitive.requestSensitiveAction(
         async () => {
+          runningRef.current = true;
           setRunning(true);
           setCheckComplete(false);
           setProgress('Starting…');
           setCheckingIds(new Set());
+          if (isCdscCheck) {
+            setPartialWarn(null);
+          }
           // Clear only the accounts we're about to re-check.
           setResultsMap((prev) => {
             const next = { ...prev };
@@ -677,8 +823,7 @@ export function PublicIpoResultScreen() {
               }),
             );
 
-            const result =
-              selected.provider === 'cdsc'
+            const result = isCdscCheck
                 ? await runCdscBridgeCheck(queue, {
                     resetSessionFirst: opts?.resetSessionFirst,
                   })
@@ -708,6 +853,7 @@ export function PublicIpoResultScreen() {
               e instanceof Error ? e.message : 'Unknown error',
             );
           } finally {
+            runningRef.current = false;
             setRunning(false);
             setProgress('');
             setCheckingIds(new Set());
@@ -761,6 +907,12 @@ export function PublicIpoResultScreen() {
   }, [retriableFailedAccounts, runCheck, selected?.provider]);
 
   const onRefresh = useCallback(async () => {
+    if (runningRef.current) return;
+    cdscExtrasRef.current = [];
+    phoneExtrasRef.current = [];
+    phoneDatingRef.current = [];
+    cdscPhoneLoadedRef.current = false;
+    userPickedCompanyRef.current = false;
     setRefreshing(true);
     try {
       await refreshCompanies();
@@ -955,6 +1107,8 @@ export function PublicIpoResultScreen() {
           </Pressable>
         )}
 
+        {partialWarn ? <Text style={styles.warnText}>{partialWarn}</Text> : null}
+
         {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
 
         {showSummary ? (
@@ -1045,6 +1199,7 @@ export function PublicIpoResultScreen() {
             refreshing={refreshing}
             onRefresh={() => void onRefresh()}
             tintColor={colors.primary}
+            enabled={!running}
           />
         }
         renderItem={({ item: { account, index, result } }) => (
@@ -1094,6 +1249,9 @@ export function PublicIpoResultScreen() {
                   style={styles.modalRow}
                   onPress={() => {
                     userPickedCompanyRef.current = true;
+                    if (item.key !== selectedRef.current?.key) {
+                      clearResultsForCompanyChange();
+                    }
                     setSelected(item);
                     setCompanyPickerOpen(false);
                   }}
@@ -1201,11 +1359,8 @@ export function PublicIpoResultScreen() {
       <IpoResultWebBridge
         ref={bridgeRef}
         interactive={false}
-        onReadyChange={setBridgeReady}
-        onPortalBlocked={(reason) => {
-          // Bulk CDSC checks recover internally — don't flash WAF in the header.
-          if (running) return;
-          setProgress(reason);
+        onPortalBlocked={() => {
+          // Hidden WebView — bulk CDSC checks recover internally.
         }}
       />
 

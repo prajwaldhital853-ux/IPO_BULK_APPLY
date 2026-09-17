@@ -38,6 +38,8 @@ export const PATHS = {
   migratedApplication: '/api/meroShare/migrated/applicantForm/search/',
   /** GET — menu/roles for the logged-in user (used to pick allowed searchRoleViewConstants) */
   navigation: '/api/meroShare/navigation/',
+  /** GET — portal calls this after ownDetail to attach ASBA roles to the token */
+  showDashboard: '/api/meroShare/auth/showDashboard/',
   reportDetail: (applicantFormId: number | string) =>
     `/api/meroShare/applicantForm/report/detail/${applicantFormId}`,
   /** POST { oldPassword, newPassword, confirmPassword } */

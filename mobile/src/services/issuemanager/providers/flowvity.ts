@@ -50,16 +50,18 @@ export function createFlowvityProvider(opts: {
       }
       const body = res.json as ListPayload;
       const rows = body.data?.companyList ?? [];
-      return rows
+      const codes = rows
         .map((r) => (r.companyCode ?? '').trim())
-        .filter(Boolean)
-        .map((code) => ({
-          key: companyKey(opts.id, code),
-          provider: opts.id,
-          rawId: code,
-          name: code,
-          providerLabel: opts.label,
-        }));
+        .filter(Boolean);
+      return codes.map((code, index) => ({
+        key: companyKey(opts.id, code),
+        provider: opts.id,
+        rawId: code,
+        name: code,
+        providerLabel: opts.label,
+        // API order is usually newest-first — relative rank until CDSC dates merge in.
+        listedAt: codes.length - index,
+      }));
     },
     async checkBoid(
       company: IssueManagerCompany,

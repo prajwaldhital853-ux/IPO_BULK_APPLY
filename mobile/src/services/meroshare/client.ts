@@ -1,3 +1,4 @@
+import { humanizeApplicationPhaseStatus } from '../../utils/ipoApplicationPhase';
 import { resolveClientId } from './capital';
 import { DEFAULT_HEADERS, MEROSHARE_BASE, PATHS } from './endpoints';
 import {
@@ -27,6 +28,8 @@ import type {
   OpenIssue,
   PortfolioHoldingRow,
 } from './types';
+
+export { humanizeApplicationPhaseStatus };
 
 type LoginArgs = {
   /** MeroShare clientId OR 5-digit DP code — resolved via /capital/ */
@@ -60,6 +63,45 @@ function flattenCdscObject(
   return data;
 }
 
+/** CDSC sometimes returns `object` as one row instead of an array (restricted accounts). */
+function extractCdscRows(
+  data: Record<string, unknown> | unknown[] | null | undefined,
+): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== 'object') return [];
+  const raw =
+    (data as Record<string, unknown>).object ??
+    (data as Record<string, unknown>).content ??
+    (data as Record<string, unknown>).data ??
+    (data as Record<string, unknown>).list ??
+    (data as Record<string, unknown>).rows;
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === 'object') return [raw];
+  return [];
+}
+
+/** Result of GET customerType — this is what Apply uses, not applicableIssue.action. */
+type CustomerApplyEligibility =
+  | 'can_apply'
+  | 'already_applied'
+  | 'cannot_apply'
+  | 'unknown';
+
+function classifyCustomerApplyMessage(message: string): CustomerApplyEligibility {
+  const msg = String(message ?? '').trim();
+  if (!msg) return 'unknown';
+  if (isRoleRestrictedMeroshareMessage(msg) || isTransientMeroshareMessage(msg)) {
+    return 'unknown';
+  }
+  if (/^customer can apply\.?$/i.test(msg)) return 'can_apply';
+  if (isAlreadyAppliedMeroshareMessage(msg)) return 'already_applied';
+  if (/already\s*applied|application already exist/i.test(msg)) {
+    return 'already_applied';
+  }
+  if (/customer can(?:not|'t) apply/i.test(msg)) return 'cannot_apply';
+  return 'cannot_apply';
+}
+
 const APPLICABLE_PAYLOAD = {
   filterFieldParams: [
     { key: 'companyIssue.companyISIN.script', alias: 'Scrip' },
@@ -85,6 +127,7 @@ export class MeroshareClient {
   private base: string;
   private session: MeroshareSession | null = null;
   private dpCode: string | null = null;
+  private sessionHydrated = false;
 
   constructor(base = MEROSHARE_BASE) {
     this.base = base.replace(/\/$/, '');
@@ -97,6 +140,7 @@ export class MeroshareClient {
   clearSession() {
     this.session = null;
     this.dpCode = null;
+    this.sessionHydrated = false;
   }
 
   private async request<T>(
@@ -621,11 +665,7 @@ export class MeroshareClient {
       },
     );
 
-    const rows = Array.isArray(data)
-      ? data
-      : Array.isArray((data as { object?: unknown[] })?.object)
-        ? ((data as { object: unknown[] }).object as unknown[])
-        : [];
+    const rows = extractCdscRows(data);
 
     return rows.map((row) => normalizeIssue(row as Record<string, unknown>));
   }
@@ -708,6 +748,53 @@ export class MeroshareClient {
       );
     }
     return `130${code}${username}`;
+  }
+
+  /** Status bulk login skips ownDetail; customerType needs a real demat. */
+  private async ensureSessionDemat(): Promise<void> {
+    if (!this.session || this.session.demat) return;
+    try {
+      const me = await this.requestOnce<{
+        demat?: string;
+        boid?: string;
+        accountNumber?: string;
+        clientCode?: string;
+      }>(PATHS.me, { method: 'GET', auth: true });
+      this.session.boid = me.boid ?? me.demat ?? me.accountNumber;
+      this.session.demat = me.demat;
+      this.session.clientCode = me.clientCode;
+    } catch {
+      // constructed demat from username + DP is still usable
+    }
+  }
+
+  /**
+   * Restricted MeroShare logins (customerTypeCode 21, showDashboard false) do not
+   * get ASBA roles until the portal hits ownDetail + navigation. Without this,
+   * Application Report returns HTTP 200 with object:[] and bank/apply fail with
+   * "role not assigned" / "no authorization token".
+   */
+  private async hydrateMeroshareSession(): Promise<void> {
+    if (!this.session || this.sessionHydrated) return;
+    this.sessionHydrated = true;
+    await this.ensureSessionDemat();
+    try {
+      await this.requestOnce(PATHS.showDashboard, { method: 'GET', auth: true });
+    } catch {
+      try {
+        await this.requestOnce('/api/meroShare/showDashboard/', {
+          method: 'GET',
+          auth: true,
+        });
+      } catch {
+        // optional — some accounts return false / 404
+      }
+    }
+    try {
+      await this.requestOnce(PATHS.navigation, { method: 'GET', auth: true });
+    } catch {
+      // optional
+    }
   }
 
   private async fetchBankBranch(): Promise<BankBranch> {
@@ -1110,6 +1197,9 @@ export class MeroshareClient {
         return { alreadyApplied: false };
       }
       if (status.status === 'CHECK_FAILED') {
+        if (/applied on meroshare/i.test(status.message)) {
+          return { alreadyApplied: true, status: status.status };
+        }
         return { alreadyApplied: false };
       }
       if (status.status === 'REJECTED' || /^rejected$/i.test(status.allotmentStatus || '')) {
@@ -1141,6 +1231,10 @@ export class MeroshareClient {
           message:
             'MeroShare did not register a new application yet. Check Application Report.',
         };
+      }
+      if (status.status === 'CHECK_FAILED') {
+        // Apply POST already succeeded; this login cannot read Application Report.
+        return { ok: true };
       }
       if (
         status.status === 'REJECTED' ||
@@ -1442,6 +1536,8 @@ export class MeroshareClient {
       throw new MeroshareError('AUTH', 'Not logged in');
     }
 
+    await this.hydrateMeroshareSession();
+
     const demat = this.dematFor(req.username, req.dpCode);
     let branch: BankBranch;
     try {
@@ -1473,13 +1569,9 @@ export class MeroshareClient {
       };
     }
 
-    if (!opts.skipCrnPinFastCheck) {
-      const cred = await this.fastCheckCrnPinForApply(req, branch, demat);
-      if (!cred.ok) {
-        return { ok: false, dryRun: false, message: cred.message };
-      }
-    }
-
+    // Do not POST kitta=0 first. For restricted accounts CDSC then returns
+    // "Share with provided inputs has been applied already" on the real apply,
+    // even when the website still shows Apply.
     let result = await this.postApplyPayload(PATHS.apply, payload, req, {
       noRetry: true,
     });
@@ -1608,6 +1700,52 @@ export class MeroshareClient {
     row: Record<string, unknown> | null;
     reportUnavailable: boolean;
   }> {
+    const first = await this.findApplicationReportRowForCheckWithRole(
+      companyShareId,
+      'VIEW_APPLICANT_FORM_COMPLETE',
+      PATHS.applicationReport,
+      'active',
+    );
+    if (first.row) return first;
+
+    await this.hydrateMeroshareSession();
+
+    const afterHydrate = await this.findApplicationReportRowForCheckWithRole(
+      companyShareId,
+      'VIEW_APPLICANT_FORM_COMPLETE',
+      PATHS.applicationReport,
+      'active',
+    );
+    if (afterHydrate.row) return afterHydrate;
+
+    const altRole = await this.findApplicationReportRowForCheckWithRole(
+      companyShareId,
+      'VIEW_APPLICANT_FORM',
+      PATHS.applicationReport,
+      'active',
+    );
+    if (altRole.row) return altRole;
+
+    const old = await this.findApplicationReportRowForCheckWithRole(
+      companyShareId,
+      'VIEW_APPLICANT_FORM_COMPLETE',
+      PATHS.oldApplication,
+      'old',
+    );
+    if (old.row) return old;
+
+    return afterHydrate;
+  }
+
+  private async findApplicationReportRowForCheckWithRole(
+    companyShareId: number,
+    role: string,
+    path: string = PATHS.applicationReport,
+    label: string = 'active',
+  ): Promise<{
+    row: Record<string, unknown> | null;
+    reportUnavailable: boolean;
+  }> {
     const base = this.base || MEROSHARE_BASE;
     const pageSize = 200;
     const maxPages = 25;
@@ -1616,9 +1754,9 @@ export class MeroshareClient {
     for (let page = 1; page <= maxPages; page++) {
       const res = await this.softSearchReports(
         base,
-        PATHS.applicationReport,
-        this.portalActiveReportBody(page, pageSize),
-        `active/page-${page}`,
+        path,
+        this.portalActiveReportBody(page, pageSize, role),
+        `${label}/${role}/page-${page}`,
       );
       if (res.error && !res.rows.length) {
         return { row: null, reportUnavailable: page === 1 && !anyPageOk };
@@ -1639,6 +1777,11 @@ export class MeroshareClient {
     return { row: null, reportUnavailable: !anyPageOk };
   }
 
+  /**
+   * Report row missing. Do NOT treat applicableIssue action=apply as Not Applied —
+   * some accounts can apply but cannot load Application Report, and MeroShare
+   * still keeps action=apply after they have already applied.
+   */
   private async resolveStatusWhenReportMissing(
     companyShareId: number,
     opts: {
@@ -1657,30 +1800,20 @@ export class MeroshareClient {
     allotmentStatus?: string;
     remarks?: string;
   }> {
-    if (reportUnavailable) {
-      return {
-        dryRun: false,
-        status: 'CHECK_FAILED',
-        message: 'Could not verify application status with MeroShare. Retry.',
-        ok: false,
-      };
-    }
-
     try {
       const issues = await this.listApplicableIssues();
       const issue = issues.find(
         (i) => Number(i.companyShareId) === Number(companyShareId),
       );
       if (issue?.alreadyApplied) {
-        return this.buildCheckStatusFromApplicantForm(companyShareId, opts);
-      }
-      if (issue && !issue.alreadyApplied) {
-        return {
-          dryRun: false,
-          status: 'NOT_APPLIED',
-          message: 'You have not applied for this IPO',
-          ok: false,
-        };
+        try {
+          return await this.buildCheckStatusFromApplicantForm(
+            companyShareId,
+            opts,
+          );
+        } catch {
+          return this.appliedWithoutReportDetail(opts);
+        }
       }
     } catch {
       // fall through
@@ -1689,15 +1822,87 @@ export class MeroshareClient {
     try {
       return await this.buildCheckStatusFromApplicantForm(companyShareId, opts);
     } catch {
-      // no applicant form on MeroShare
+      // reapply form only exists for some applied/rejected rows
+    }
+
+    const eligibility = await this.fetchCustomerApplyEligibility(companyShareId);
+    if (eligibility === 'already_applied') {
+      return this.appliedWithoutReportDetail(opts);
+    }
+    if (eligibility === 'can_apply') {
+      return {
+        dryRun: false,
+        status: 'NOT_APPLIED',
+        message: 'You have not applied for this IPO',
+        ok: false,
+      };
     }
 
     return {
       dryRun: false,
-      status: 'NOT_APPLIED',
-      message: 'You have not applied for this IPO',
+      status: 'CHECK_FAILED',
+      message: reportUnavailable
+        ? 'Could not verify application status with MeroShare. Retry.'
+        : 'Could not confirm whether this account already applied. Retry.',
       ok: false,
     };
+  }
+
+  /** Applied, but Application Report / form detail is blocked for this login. */
+  private appliedWithoutReportDetail(opts: {
+    applicationPhase?: boolean;
+  }): {
+    status: string;
+    message: string;
+    dryRun: boolean;
+    ok?: boolean;
+    appliedKitta?: number;
+    allotmentStatus?: string;
+    remarks?: string;
+  } {
+    if (opts.applicationPhase) {
+      return {
+        dryRun: false,
+        status: 'UNVERIFIED',
+        message: 'Unverified',
+        allotmentStatus: 'Unverified',
+        remarks:
+          'Applied on MeroShare. Application Report is not available for this account, so bank Verified/Rejected could not be loaded.',
+        ok: true,
+      };
+    }
+    return {
+      dryRun: false,
+      status: 'CHECK_FAILED',
+      message:
+        'Applied on MeroShare, but allotment result could not be loaded. Retry.',
+      ok: false,
+    };
+  }
+
+  /**
+   * Same GET Apply uses internally: "Customer can apply." vs already-applied.
+   * applicableIssue.action === 'edit' is NOT reliable for every account type.
+   */
+  private async fetchCustomerApplyEligibility(
+    companyShareId: number,
+  ): Promise<CustomerApplyEligibility> {
+    try {
+      await this.ensureSessionDemat();
+      const username = this.session?.username;
+      if (!username) return 'unknown';
+      const demat = this.dematFor(username, this.session?.dpCode);
+      const data = await this.request<Record<string, unknown>>(
+        PATHS.canApply(companyShareId, demat),
+        { method: 'GET', auth: true },
+      );
+      const flat = flattenCdscObject(data);
+      const msg = String(flat.message ?? data.message ?? '').trim();
+      return classifyCustomerApplyMessage(msg);
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : '';
+      return classifyCustomerApplyMessage(raw);
+    }
   }
 
   /** Applicant form GET — used when report list missed an existing application. */
@@ -1939,7 +2144,11 @@ export class MeroshareClient {
   }
 
   /** Portal Application Report body (empty From/To = default list). */
-  private portalActiveReportBody(page: number, size: number) {
+  private portalActiveReportBody(
+    page: number,
+    size: number,
+    role: string = 'VIEW_APPLICANT_FORM_COMPLETE',
+  ) {
     return {
       filterFieldParams: [
         {
@@ -1953,7 +2162,7 @@ export class MeroshareClient {
       ],
       page,
       size,
-      searchRoleViewConstants: 'VIEW_APPLICANT_FORM_COMPLETE',
+      searchRoleViewConstants: role,
       filterDateParams: [
         { key: 'appliedDate', value: '', alias: 'From' },
         { key: 'appliedDate', value: '', alias: 'To' },
@@ -2055,12 +2264,7 @@ export class MeroshareClient {
   private extractReportRows(
     data: Record<string, unknown>,
   ): Array<Record<string, unknown>> {
-    const raw =
-      data.object ?? data.content ?? data.data ?? data.list ?? data.rows;
-    if (Array.isArray(raw)) {
-      return raw as Array<Record<string, unknown>>;
-    }
-    return [];
+    return extractCdscRows(data) as Array<Record<string, unknown>>;
   }
 
   private async fetchApplicationReportRows(): Promise<
@@ -2357,88 +2561,6 @@ export function humanizeApplicationStatus(
     };
   }
   return { code: s || 'UNKNOWN', message: statusName };
-}
-
-/** Application-window status (Verified / Unverified / Rejected) — not allotment. */
-function formatApplicationPhaseStatusLabel(primary: string): string {
-  const t = primary.trim();
-  if (!t) return '';
-  if (/^unverified$/i.test(t)) return 'Unverified';
-  if (/^verified$/i.test(t)) return 'Verified';
-  if (/^rejected$/i.test(t)) return 'Rejected';
-  if (/not.?allot/i.test(t)) return 'Not Alloted';
-  return t;
-}
-
-export function humanizeApplicationPhaseStatus(
-  listStatus: string,
-  detailStatus?: string,
-  remarks?: string,
-): { code: string; message: string; reason?: string } {
-  const primary = (detailStatus || listStatus || '').trim();
-  const display = formatApplicationPhaseStatusLabel(primary);
-  const statusLine = display || 'Unverified';
-  const s = primary.toUpperCase();
-  const r = (remarks ?? '').trim();
-  const combined = `${listStatus} ${detailStatus ?? ''} ${r}`.toUpperCase();
-
-  if (
-    /INSUFFICIENT|NOT ENOUGH|LOW BALANCE|INSUFFICEN|BALANCE.?NOT.?AVAILABLE|INSUFFICIENT.?FUND/i.test(
-      combined,
-    ) ||
-    /BLOCK[_\s-]?FAIL|AMOUNT.?BLOCK.?FAIL|BLOCK.?AMOUNT.?FAIL/i.test(combined)
-  ) {
-    return {
-      code: 'REJECTED',
-      message: /reject/i.test(primary) ? statusLine : 'Rejected',
-      reason:
-        r ||
-        'Block Amount Status - Amount Rejected (Insufficient Balance)',
-    };
-  }
-  if (/REJECT|CANCEL/i.test(combined)) {
-    return {
-      code: 'REJECTED',
-      message: /reject/i.test(primary) ? statusLine : 'Rejected',
-      reason: r || undefined,
-    };
-  }
-  if (/FAIL|ERROR/.test(s) && !/BLOCK/.test(s)) {
-    return {
-      code: 'REJECTED',
-      message: /reject/i.test(primary) ? statusLine : 'Rejected',
-      reason: r || primary || 'Application failed',
-    };
-  }
-  if (
-    /^VERIFIED$/i.test(primary) ||
-    (/VERIF/i.test(s) && !/UNVERIF|NOT.?VERIF/i.test(s))
-  ) {
-    return { code: 'VERIFIED', message: statusLine, reason: r || undefined };
-  }
-  if (/UNVERIF|NOT.?VERIF|CURRENTLY\s*UNVERIF/i.test(s)) {
-    return { code: 'UNVERIFIED', message: statusLine, reason: r || undefined };
-  }
-  if (/TRANSACTION_SUCCESS|APPROVED|APPLIED|SUBMIT/i.test(combined)) {
-    return { code: 'UNVERIFIED', message: statusLine || 'Unverified', reason: r || undefined };
-  }
-  if (/PENDING|WAIT|PROCESS/i.test(combined)) {
-    return { code: 'UNVERIFIED', message: statusLine || 'Unverified', reason: r || undefined };
-  }
-  if (/NOT.?ALLOT|UNALLOT/i.test(combined)) {
-    return {
-      code: 'UNVERIFIED',
-      message: /not.?allot/i.test(primary) ? statusLine : 'Not Alloted',
-      reason: r || undefined,
-    };
-  }
-  if (/ALLOT/i.test(s) && !/NOT/.test(s)) {
-    return { code: 'VERIFIED', message: statusLine, reason: r || undefined };
-  }
-  if (primary) {
-    return { code: 'UNVERIFIED', message: statusLine, reason: r || undefined };
-  }
-  return { code: 'UNVERIFIED', message: 'Unverified', reason: r || undefined };
 }
 
 function toNum(v: unknown): number | null {

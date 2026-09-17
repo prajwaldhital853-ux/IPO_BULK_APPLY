@@ -32,7 +32,7 @@ import {
 } from '../services/meroshare';
 import type { ThemeColors } from '../theme/colors';
 import { guardAddAccountAsync } from '../utils/accountLimits';
-import { buildDematFromParts, isValidBoid } from '../utils/boid';
+import { buildDematFromParts, preferredDemat } from '../utils/boid';
 import { findDuplicateAccountAsync, showDuplicateAccountAlert } from '../utils/duplicateAccount';
 import { rs } from '../utils/responsive';
 import type { RootStackParamList } from '../navigation/types';
@@ -139,7 +139,7 @@ export function AddCapitalScreen() {
         username: username.trim(),
         dpId: dp.id,
         dpCode: dp.code,
-        demat: isValidBoid(builtDemat) ? builtDemat : undefined,
+        demat: preferredDemat(builtDemat),
       },
     });
     if (duplicate) {
@@ -188,13 +188,14 @@ export function AddCapitalScreen() {
         );
         return;
       }
+      const demat = preferredDemat(verify.demat, verify.boid, builtDemat);
       const duplicateAfterLogin = await findDuplicateAccountAsync({
         accounts,
         candidate: {
           username: username.trim(),
           dpId: dp.id,
           dpCode: dp.code,
-          demat: isValidBoid(builtDemat) ? builtDemat : undefined,
+          demat,
           boid: verify.boid,
         },
       });
@@ -209,7 +210,7 @@ export function AddCapitalScreen() {
         username: username.trim(),
         password,
         boid: verify.boid,
-        demat: isValidBoid(builtDemat) ? builtDemat : verify.boid,
+        demat,
       });
       navigation.navigate('BankDetail');
     } finally {

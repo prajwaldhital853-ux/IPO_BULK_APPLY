@@ -44,6 +44,11 @@ async function listCompanies(): Promise<IssueManagerCompany[]> {
     timeoutMs: 45_000,
   });
   if (res.status !== 200 || !res.json) {
+    if (res.status === 401) {
+      throw new Error(
+        'CDSC cache requires sign-in (Bearer JWT). Sign in with Google, or use CDSC on this phone.',
+      );
+    }
     throw new Error(
       backendError(
         res,
