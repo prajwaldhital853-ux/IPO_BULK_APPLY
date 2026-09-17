@@ -129,7 +129,7 @@ class SiteSettings(Base):
     __tablename__ = 'site_settings'
 
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
-    admin_email: Mapped[str] = mapped_column(String(320), default='uniquesumit969@gmail.com')
+    admin_email: Mapped[str] = mapped_column(String(320), default='prajwaldhital851@gmail.com')
     admin_password_hash: Mapped[str] = mapped_column(String(256))
     admin_failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
     admin_login_locked_until: Mapped[datetime | None] = mapped_column(
