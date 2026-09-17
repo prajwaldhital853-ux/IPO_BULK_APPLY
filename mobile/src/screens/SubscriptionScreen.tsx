@@ -296,21 +296,19 @@ export function SubscriptionScreen() {
     }
     setSavingQr(true);
     try {
-      const MediaLibrary = await import('expo-media-library');
-      const permission = await MediaLibrary.requestPermissionsAsync(true);
-      if (!permission.granted) {
-        Alert.alert(
-          'Permission needed',
-          'Allow photo access so the payment QR can be saved to your gallery.',
-        );
+      const Sharing = await import('expo-sharing');
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Not available', 'Sharing is not available on this device.');
         return;
       }
       const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
       if (!dir) throw new Error('Storage not available on this device.');
       const fileUri = `${dir}nepse-ghar-payment-qr.png`;
       const result = await FileSystem.downloadAsync(qrUrl, fileUri);
-      await MediaLibrary.saveToLibraryAsync(result.uri);
-      Alert.alert('Saved', 'Payment QR saved to your gallery.');
+      await Sharing.shareAsync(result.uri, {
+        mimeType: 'image/png',
+        dialogTitle: 'Save payment QR',
+      });
     } catch (e: unknown) {
       Alert.alert(
         'Download failed',

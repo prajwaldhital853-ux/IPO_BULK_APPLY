@@ -19,6 +19,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import { ensureGalleryAccessForPicker } from '../utils/pickImageFromLibrary';
 import { useTheme } from '../context/ThemeContext';
 import {
   adminCreateTeamMember,
@@ -116,8 +117,8 @@ export function AdminTeamScreen() {
 
   const pickPhoto = async () => {
     if (!draft) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
+    const granted = await ensureGalleryAccessForPicker();
+    if (!granted) {
       Alert.alert(
         'Permission needed',
         'Allow photo access so you can set a team member photo.',

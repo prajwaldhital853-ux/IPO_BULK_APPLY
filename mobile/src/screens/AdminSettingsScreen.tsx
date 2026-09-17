@@ -60,6 +60,7 @@ import {
 } from '../utils/passwordPolicy';
 import { rs } from '../utils/responsive';
 import * as ImagePicker from 'expo-image-picker';
+import { ensureGalleryAccessForPicker } from '../utils/pickImageFromLibrary';
 
 function TapButton({
   style,
@@ -518,8 +519,8 @@ export function AdminSettingsScreen() {
     if (!token || qrBusy) return;
     setQrBusy(true);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
+      const granted = await ensureGalleryAccessForPicker();
+      if (!granted) {
         Alert.alert(
           'Permission needed',
           'Allow photo access so you can upload the payment QR from your gallery.',
@@ -587,8 +588,8 @@ export function AdminSettingsScreen() {
     }
     setNoticeBusy(true);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
+      const granted = await ensureGalleryAccessForPicker();
+      if (!granted) {
         Alert.alert(
           'Permission needed',
           'Allow photo access so you can upload a startup notice from your gallery.',
@@ -899,8 +900,8 @@ export function AdminSettingsScreen() {
     if (!token || logoBusy) return;
     setLogoBusy(true);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
+      const granted = await ensureGalleryAccessForPicker();
+      if (!granted) {
         Alert.alert(
           'Permission needed',
           'Allow photo access so you can upload the company logo.',

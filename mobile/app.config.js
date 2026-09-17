@@ -7,8 +7,8 @@ const googleIosScheme = webClientId
 module.exports = {
   expo: {
     name: 'NEPSE GHAR',
-    slug: 'ipo_bulk_v2',
-    owner: 'ipo_bulk_v2',
+    slug: 'ipo_ipo',
+    owner: 'ipo_ipo',
     scheme: 'nepseghar',
     version: '3.5.00',
     orientation: 'portrait',
@@ -26,7 +26,12 @@ module.exports = {
     android: {
       package: 'com.nepse.ghar',
       googleServicesFile: './google-services.json',
-      versionCode: 148,
+      versionCode: 149,
+      blockedPermissions: [
+        'android.permission.READ_MEDIA_IMAGES',
+        'android.permission.READ_MEDIA_VIDEO',
+        'android.permission.READ_MEDIA_AUDIO',
+      ],
       adaptiveIcon: {
         backgroundColor: '#FFFFFF',
         foregroundImage: './assets/nepse-ghar-adaptive-foreground.png',
@@ -94,15 +99,6 @@ module.exports = {
         },
       ],
       [
-        'expo-media-library',
-        {
-          photosPermission:
-            'Allow NEPSE GHAR to save the payment QR to your gallery.',
-          savePhotosPermission:
-            'Allow NEPSE GHAR to save the payment QR to your gallery.',
-        },
-      ],
-      [
         'expo-screen-orientation',
         {
           initialOrientation: 'PORTRAIT',
@@ -129,7 +125,7 @@ module.exports = {
     ],
     extra: {
       eas: {
-        projectId: '38e22eba-7798-46d6-8ae2-0677940c4c35',
+        projectId: '97d57109-9971-4760-b710-083f55ee9654',
       },
     },
   },

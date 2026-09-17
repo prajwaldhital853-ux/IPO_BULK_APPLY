@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import type { ThemeColors } from '../../theme/colors';
+import { ensureGalleryAccessForPicker } from '../../utils/pickImageFromLibrary';
 import { rs } from '../../utils/responsive';
 
 type Props = {
@@ -48,8 +49,8 @@ export function ImageDropZone({
   const pickFromGallery = useCallback(async () => {
     try {
       onPickingChange(true);
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
+      const granted = await ensureGalleryAccessForPicker();
+      if (!granted) {
         Alert.alert(
           'Permission needed',
           'Allow photo access so you can attach an image to the notification.',
